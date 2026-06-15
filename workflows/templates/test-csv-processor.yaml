@@ -1,0 +1,114 @@
+---
+name: test-csv-processor
+version: 1.0.0
+description: |
+  Test harness for utility-module-csv-processor.
+
+  Writes a small CSV into a temp file, runs filter → sort → select → limit,
+  then asserts the resulting row count and ordering.
+
+tags:
+  - code
+  - extract
+  - sub_workflow
+
+agents: {}
+
+workflow:
+  - step: setup
+    code:
+      language: python
+      timeout: 10
+      script: |
+        import os
+        import tempfile
+        from pathlib import Path
+
+        run_dir = os.environ.get("WF_RUN_DIR") or tempfile.mkdtemp(prefix="csv_test_")
+        Path(run_dir).mkdir(parents=True, exist_ok=True)
+        csv_path = Path(run_dir) / "input.csv"
+        csv_path.write_text(
+            "id,name,status,score\n"
+            "1,alice,active,40\n"
+            "2,bob,inactive,85\n"
+            "3,carol,active,95\n"
+            "4,dave,active,70\n"
+            "5,eve,active,55\n",
+            encoding="utf-8"
+        )
+        print(f"csv_in_path={csv_path}")
+    extract:
+      - pattern: 'csv_in_path=(.+)'
+        variable: csv_in_path
+    priority: 20
+
+  - step: run_csv
+    sub_workflow:
+      name: utility-module-csv-processor
+      inputs:
+        input_path: "{{var:csv_in_path}}"
+        operations_json: |
+          [
+            {"op": "filter", "column": "status", "eq": "active"},
+            {"op": "sort",   "column": "score",  "order": "desc"},
+            {"op": "select", "columns": ["id", "name", "score"]},
+            {"op": "limit",  "count": 3}
+          ]
+        output_format: json
+      outputs:
+        csv_output_file: output_file
+        csv_row_count: row_count
+        csv_status: process_status
+    depends_on:
+      - setup
+    priority: 10
+
+  - step: assert
+    code:
+      language: python
+      timeout: 15
+      script: |
+        import json
+        import os
+        import sys
+        from pathlib import Path
+
+        status = os.environ.get("WF_VAR_CSV_STATUS", "").strip()
+        row_count_raw = os.environ.get("WF_VAR_CSV_ROW_COUNT", "").strip()
+        out_file = os.environ.get("WF_VAR_CSV_OUTPUT_FILE", "").strip()
+
+        problems = []
+        if status != "ok":
+            problems.append(f"status != ok (got '{status}')")
+        if int(row_count_raw or "0") != 3:
+            problems.append(f"expected 3 rows after limit, got {row_count_raw}")
+
+        if out_file and Path(out_file).exists():
+            rows = json.loads(Path(out_file).read_text(encoding="utf-8"))
+            if not isinstance(rows, list):
+                problems.append(f"output should be JSON array, got {type(rows).__name__}")
+            elif len(rows) != 3:
+                problems.append(f"JSON rows len != 3: {len(rows)}")
+            else:
+                names = [r["name"] for r in rows]
+                if names != ["carol", "dave", "eve"]:
+                    problems.append(f"sort + limit wrong: {names}")
+                first_cols = set(rows[0].keys())
+                if first_cols != {"id", "name", "score"}:
+                    problems.append(f"select columns wrong: {first_cols}")
+        else:
+            problems.append(f"output_file missing: {out_file}")
+
+        if problems:
+            print("TEST_STATUS=fail")
+            for p in problems:
+                print(f"  - {p}")
+            sys.exit(1)
+        else:
+            print("TEST_STATUS=pass")
+    extract:
+      - pattern: 'TEST_STATUS=(\w+)'
+        variable: test_status
+    depends_on:
+      - run_csv
+    priority: 5

@@ -1,0 +1,118 @@
+---
+name: test-multi-app-batch-iterator
+version: 1.0.0
+description: |
+  Test harness for braidrun-module-multi-app-batch-iterator.
+
+  Feeds 3 mock app ids + a temp dir and verifies:
+  - manifest file exists with app_count=3
+  - each app got its own subdir with metadata.json
+  - per_app_paths_csv lists the 3 subdirs
+
+tags:
+  - code
+  - extract
+  - sub_workflow
+
+agents: {}
+
+workflow:
+  - step: setup_dir
+    code:
+      language: python
+      timeout: 10
+      script: |
+        import os
+        import tempfile
+        from pathlib import Path
+
+        base = Path(tempfile.mkdtemp(prefix="batch_iter_test_"))
+        print(f"test_out_dir={base}")
+    extract:
+      - pattern: 'test_out_dir=(.+)'
+        variable: test_out_dir
+    priority: 20
+
+  - step: prepare_batch
+    sub_workflow:
+      name: braidrun-module-multi-app-batch-iterator
+      inputs:
+        app_ids_csv: "1111111111,2222222222,3333333333"
+        output_dir: "{{var:test_out_dir}}"
+        task_label: "test_fanout"
+        include_metadata_path: "true"
+      outputs:
+        prep_status: prepare_status
+        prep_manifest_path: manifest_path
+        prep_paths_csv: per_app_paths_csv
+        prep_app_count: app_count
+    depends_on:
+      - setup_dir
+    priority: 10
+
+  - step: assert
+    code:
+      language: python
+      timeout: 15
+      script: |
+        import json
+        import os
+        import sys
+        from pathlib import Path
+
+        status = os.environ.get("WF_VAR_PREP_STATUS", "").strip()
+        manifest_path = os.environ.get("WF_VAR_PREP_MANIFEST_PATH", "").strip()
+        paths_csv = os.environ.get("WF_VAR_PREP_PATHS_CSV", "").strip()
+        app_count_raw = os.environ.get("WF_VAR_PREP_APP_COUNT", "").strip()
+
+        problems = []
+
+        if status != "ok":
+            problems.append(f"prepare_status != ok (got '{status}')")
+
+        try:
+            app_count = int(app_count_raw)
+        except ValueError:
+            app_count = -1
+            problems.append(f"app_count not int: '{app_count_raw}'")
+        if app_count != 3:
+            problems.append(f"expected 3 apps, got {app_count}")
+
+        if not Path(manifest_path).exists():
+            problems.append(f"manifest_path does not exist: {manifest_path}")
+        else:
+            manifest = json.loads(Path(manifest_path).read_text(encoding="utf-8"))
+            if manifest.get("app_count") != 3:
+                problems.append(f"manifest.app_count != 3: {manifest.get('app_count')}")
+            if manifest.get("task_label") != "test_fanout":
+                problems.append(f"manifest.task_label != 'test_fanout': {manifest.get('task_label')}")
+            entries = manifest.get("entries") or []
+            if len(entries) != 3:
+                problems.append(f"manifest.entries length != 3: {len(entries)}")
+            app_ids = sorted(e.get("app_id") for e in entries)
+            if app_ids != ["1111111111", "2222222222", "3333333333"]:
+                problems.append(f"manifest app_ids wrong: {app_ids}")
+
+        paths = [p for p in paths_csv.split(",") if p.strip()]
+        if len(paths) != 3:
+            problems.append(f"per_app_paths_csv should have 3 paths, got {len(paths)}")
+        for p in paths:
+            if not Path(p).exists():
+                problems.append(f"per-app dir does not exist: {p}")
+            meta = Path(p) / "metadata.json"
+            if not meta.exists():
+                problems.append(f"metadata.json not written in: {p}")
+
+        if problems:
+            print("TEST_STATUS=fail")
+            for p in problems:
+                print(f"  - {p}")
+            sys.exit(1)
+        else:
+            print("TEST_STATUS=pass")
+    extract:
+      - pattern: 'TEST_STATUS=(\w+)'
+        variable: test_status
+    depends_on:
+      - prepare_batch
+    priority: 5

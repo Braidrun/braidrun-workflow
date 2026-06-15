@@ -1,0 +1,418 @@
+---
+name: ci-cd-pipeline
+version: 3.0.0
+tags:
+- CI/CD
+- DevOps
+- 持续集成
+- 多角色协作
+- 确定性计算
+- 多源聚合
+- 并行处理
+- 人工审批
+- group_chat
+- extract
+- code
+- aggregate
+- manual_approval
+- parallel
+- error_handling
+- retry
+category: software
+description: |
+  CI/CD 持续集成与部署工作流
+
+  适用场景：自动化构建、测试、安全扫描、部署全流程管道，适合 Gradle/Maven 项目的持续交付。
+  说明：code 步骤确定性执行构建和测试命令（可自定义 build_command / test_command），extract 提取构建状态和测试统计，
+  aggregate 聚合各环节报告，group_chat 部署评审会决定是否放行生产部署。支持 retry 自动重试、manual_approval 人工审批、
+  蓝绿/金丝雀部署策略。
+  流程：构建 -> 单元测试 -> 集成测试 -> 安全扫描 + Staging 部署(并行) -> 报告聚合 -> 部署评审会 -> 生产部署 -> 部署报告。
+variables:
+  repo_path: "."
+  build_command: "./gradlew :braidrun-agent:classes"
+  test_command: "./gradlew :braidrun-agent:test --tests com.fartech.agents.workflow.WorkflowParserTest"
+  integration_test_command: "./gradlew :braidrun-agent:test --tests com.fartech.agents.workflow.WorkflowTemplateValidationTest"
+  build_status: PENDING
+  git_commit: unknown
+  unit_test_status: PENDING
+  unit_tests_total: '0'
+  unit_tests_failed: '0'
+  integration_test_status: PENDING
+  vulnerability_count: '0'
+  critical_count: '0'
+  security_grade: "-"
+  staging_status: PENDING
+  pipeline_summary: ''
+  output_dir: "./output/ci-cd-pipeline"
+  demo_mode: 'true'
+variable_tags:
+  build_command: '业务参数'
+  build_status: '业务参数'
+  critical_count: '业务参数'
+  demo_mode: '运行模式'
+  git_commit: '业务参数'
+  integration_test_command: '业务参数'
+  integration_test_status: '业务参数'
+  output_dir: '输出'
+  pipeline_summary: '业务参数'
+  repo_path: '业务参数'
+  security_grade: '业务参数'
+  staging_status: '业务参数'
+  test_command: '业务参数'
+  unit_test_status: '业务参数'
+  unit_tests_failed: '业务参数'
+  unit_tests_total: '业务参数'
+  vulnerability_count: '业务参数'
+agents:
+  builder:
+    preset: devops
+    overrides:
+      system_prompt: |-
+        你是一位构建工程师，负责应用编译、打包和构建产物管理。
+        你精通 Gradle/Maven 构建系统、Docker 镜像构建和多阶段构建优化。
+        输出要求：构建问题分析需包含错误日志摘要、根因分析和修复建议。
+
+        共同要求：
+        - 该模板以“可直接运行演示”为第一目标。
+        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
+        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+      session_id_strategy: auto
+  tester:
+    preset: coder
+    overrides:
+      system_prompt: |-
+        你是一位 QA 工程师，负责运行和分析各类测试。
+        你精通单元测试、集成测试、E2E 测试和性能测试，擅长分析测试失败原因。
+        输出要求：测试失败分析需包含失败用例列表、错误堆栈摘要和修复优先级建议。
+
+        共同要求：
+        - 该模板以“可直接运行演示”为第一目标。
+        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
+        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+      session_id_strategy: auto
+  deployer:
+    preset: devops
+    overrides:
+      system_prompt: |-
+        你是一位 DevOps 工程师，负责安全可靠地部署应用。
+        你精通 Kubernetes 部署、蓝绿部署、金丝雀发布和回滚策略。
+        输出要求：部署方案需包含流量切换步骤、健康检查标准、回滚触发条件和预计停机时间。
+
+        共同要求：
+        - 该模板以“可直接运行演示”为第一目标。
+        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
+        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+      session_id_strategy: per_execution
+  security_scanner:
+    preset: coder
+    overrides:
+      system_prompt: |-
+        你是一位应用安全工程师，负责安全扫描和漏洞评估。
+        你精通依赖漏洞扫描、容器镜像安全和 SAST/DAST 分析。
+        输出要求：安全报告需按 Critical/High/Medium/Low 分级列出漏洞，
+        每条漏洞包含 CVE 编号（如有）、影响范围和修复建议。
+
+        共同要求：
+        - 该模板以“可直接运行演示”为第一目标。
+        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
+        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+      session_id_strategy: per_execution
+  report_writer:
+    preset: universal
+    overrides:
+      system_prompt: |-
+        你是一位技术报告撰写专家，负责将 CI/CD 管道的各环节结果
+        整合为清晰的部署报告。
+
+        共同要求：
+        - 该模板以“可直接运行演示”为第一目标。
+        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
+        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+      session_id_strategy: per_execution
+workflow:
+- step: build_application
+  code:
+    language: bash
+    script: |
+      echo "=== 开始构建 ==="
+      cd "$WF_VAR_repo_path"
+      BUILD_CMD="$WF_VAR_build_command"
+      echo "执行构建命令: $BUILD_CMD"
+      eval "$BUILD_CMD" 2>&1 | tee build.log
+      BUILD_EXIT=$?
+      echo ""
+      echo "=== 构建结果 ==="
+      if [ $BUILD_EXIT -eq 0 ]; then
+        echo "build_status=SUCCESS"
+        echo "build_log=build.log"
+        GIT_HASH=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+        echo "git_commit=$GIT_HASH"
+      else
+        echo "build_status=FAILED"
+        echo "build_exit_code=$BUILD_EXIT"
+        exit $BUILD_EXIT
+      fi
+    timeout: 300
+  extract:
+  - pattern: build_status=(\w+)
+    variable: build_status
+  - pattern: git_commit=(\w+)
+    variable: git_commit
+  retry:
+    max_attempts: 3
+    backoff: exponential
+    initial_delay: 2000
+    max_delay: 30000
+  on_success:
+  - next: run_unit_tests
+  on_failure:
+  - stop: true
+  priority: 10
+- step: run_unit_tests
+  code:
+    language: bash
+    script: |
+      echo "=== 运行单元测试 ==="
+      cd "$WF_VAR_repo_path"
+      TEST_CMD="$WF_VAR_test_command"
+      echo "执行测试命令: $TEST_CMD"
+      eval "$TEST_CMD" 2>&1 | tee unit_test.log
+      TEST_EXIT=$?
+      echo ""
+      echo "=== 测试结果 ==="
+      if [ $TEST_EXIT -eq 0 ]; then
+        echo "test_status=PASSED"
+      else
+        echo "test_status=FAILED"
+      fi
+      # 尝试提取测试统计
+      TOTAL=$(grep -oE "[0-9]+ tests?" unit_test.log | tail -1 | grep -oE "[0-9]+" || echo "0")
+      FAILED=$(grep -oE "[0-9]+ failed" unit_test.log | tail -1 | grep -oE "[0-9]+" || echo "0")
+      echo "tests_total=$TOTAL"
+      echo "tests_failed=$FAILED"
+      exit $TEST_EXIT
+    timeout: 600
+  extract:
+  - pattern: test_status=(\w+)
+    variable: unit_test_status
+  - pattern: tests_total=(\d+)
+    variable: unit_tests_total
+  - pattern: tests_failed=(\d+)
+    variable: unit_tests_failed
+  depends_on:
+  - build_application
+  on_success:
+  - next: run_integration_tests
+  on_failure:
+  - stop: true
+  priority: 9
+- step: run_integration_tests
+  code:
+    language: bash
+    script: |
+      echo "=== 运行集成测试 ==="
+      cd "$WF_VAR_repo_path"
+      INT_CMD="$WF_VAR_integration_test_command"
+      echo "执行集成测试命令: $INT_CMD"
+      eval "$INT_CMD" 2>&1 | tee integration_test.log
+      INT_EXIT=$?
+      echo ""
+      echo "=== 集成测试结果 ==="
+      if [ $INT_EXIT -eq 0 ]; then
+        echo "integration_test_status=PASSED"
+      else
+        echo "integration_test_status=FAILED"
+      fi
+      exit $INT_EXIT
+    timeout: 900
+  extract:
+  - pattern: integration_test_status=(\w+)
+    variable: integration_test_status
+  depends_on:
+  - run_unit_tests
+  on_success:
+  - parallel:
+    - security_scan
+    - deploy_staging
+  priority: 8
+- step: security_scan
+  agent: security_scanner
+  depends_on:
+  - run_integration_tests
+  input: |-
+    对构建产物进行安全扫描：
+    构建状态：{{var:build_status}}，Git Commit：{{var:git_commit}}
+    1. 依赖漏洞扫描（检查已知 CVE）
+    2. 静态代码安全分析
+    3. Docker 镜像漏洞扫描
+    4. 密钥和敏感信息泄露检查
+    5. 生成安全扫描报告到 security_report.md
+    输出格式必须包含：
+    - vulnerability_count=N（发现的漏洞总数）
+    - critical_count=N（严重漏洞数）
+    - security_grade=A/B/C/D/F（安全等级）
+
+    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/security_scan.md。
+  extract:
+  - pattern: vulnerability_count=(\d+)
+    variable: vulnerability_count
+  - pattern: critical_count=(\d+)
+    variable: critical_count
+  - pattern: security_grade=([A-F])
+    variable: security_grade
+  priority: 7
+- step: deploy_staging
+  agent: deployer
+  depends_on:
+  - run_integration_tests
+  input: |-
+    部署到 Staging 环境：
+    构建版本：{{var:git_commit}}
+    1. 构建 Docker 镜像并推送到镜像仓库
+    2. 部署到 Staging 命名空间
+    3. 等待 Pod 就绪（健康检查通过）
+    4. 运行冒烟测试验证基本功能
+    5. 保存部署日志
+    输出格式必须包含：staging_status=SUCCESS/FAILED
+
+    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/deploy_staging.md。
+  extract:
+  - pattern: staging_status=(\w+)
+    variable: staging_status
+  on_failure:
+  - rollback: run_integration_tests
+  priority: 7
+- step: aggregate_reports
+  agent: report_writer
+  input: |-
+    请整理以下 CI/CD 管道各环节的报告摘要，列出关键指标：
+    {{var:pipeline_summary}}
+
+    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/aggregate_reports.md。
+  aggregate:
+    sources:
+    - |-
+      单元测试结果：状态={{var:unit_test_status}}，总数={{var:unit_tests_total}}，失败={{var:unit_tests_failed}}
+      详情：{{steps.run_unit_tests.output}}
+    - |-
+      集成测试结果：状态={{var:integration_test_status}}
+      详情：{{steps.run_integration_tests.output}}
+    - |-
+      安全扫描结果：等级={{var:security_grade}}，漏洞数={{var:vulnerability_count}}，严重={{var:critical_count}}
+      详情：{{steps.security_scan.output}}
+    - |-
+      Staging 部署：状态={{var:staging_status}}
+      详情：{{steps.deploy_staging.output}}
+    strategy: numbered_list
+    output_variable: pipeline_summary
+  depends_on:
+  - security_scan
+  - deploy_staging
+  priority: 6
+- step: deployment_review
+  group_chat:
+    participants:
+    - tester
+    - deployer
+    - security_scanner
+    initial_message: |-
+      部署评审会议开始。请审查以下管道汇总报告决定是否可以部署到生产环境：
+
+      {{steps.aggregate_reports.output}}
+
+      关键指标：
+      - 安全等级：{{var:security_grade}}，严重漏洞：{{var:critical_count}}
+      - 单元测试：{{var:unit_test_status}}（{{var:unit_tests_total}} 个，{{var:unit_tests_failed}} 失败）
+      - 集成测试：{{var:integration_test_status}}
+      - Staging 部署：{{var:staging_status}}
+
+      评审要点：
+      1. 所有测试是否通过？覆盖率是否达标？
+      2. 安全扫描是否有高危或紧急漏洞？
+      3. Staging 环境运行是否稳定？
+      4. 是否有需要关注的性能问题？
+      5. 部署风险评估和回滚计划
+      评审通过请说 APPROVED_FOR_PRODUCTION，否则说 BLOCKED
+
+      讨论结束时请给出一段可复用的结论摘要，便于后续步骤直接保存为 demo 交付物。
+    max_rounds: 4
+    speaker_selection: round_robin
+    termination_keyword: APPROVED_FOR_PRODUCTION
+  depends_on:
+  - aggregate_reports
+  priority: 5
+- step: deploy_production
+  agent: deployer
+  depends_on:
+  - deployment_review
+  input: |-
+    部署到生产环境：
+    评审结论：{{steps.deployment_review.output}}
+    构建版本：{{var:git_commit}}
+
+    1. 执行蓝绿部署或金丝雀发布
+    2. 逐步迁移流量（10% → 30% → 50% → 100%）
+    3. 每个阶段检查错误率和延迟指标
+    4. 异常则自动回滚
+    5. 完成后通知团队
+
+    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/deploy_production.md。
+  manual_approval:
+    enabled: false
+    approvers:
+    - admin@example.com
+    timeout: 3600
+    approval_message: "确认将构建版本部署到生产环境？请在批准前确认 Staging 测试已通过、安全扫描无高危漏洞、评审会已达成共识。（演示模板默认关闭人工审批，复制模板后可按需重新开启。）"
+  priority: 3
+- step: deployment_report
+  agent: report_writer
+  depends_on:
+  - deploy_production
+  input: |
+    生成最终部署报告：
+    1. 部署版本：{{var:git_commit}}，构建状态：{{var:build_status}}
+    2. 管道汇总：{{steps.aggregate_reports.output}}
+    3. 评审结论：{{steps.deployment_review.output}}
+    4. 生产部署过程：{{steps.deploy_production.output}}
+    5. 部署时间线和流量切换过程
+    6. 部署后监控指标
+    保存到 deployment_report.md
+  priority: 1
+error_handling:
+  max_retries: 2
+  retry_delay: 5s
+  continue_on_error: false
+  on_error:
+  - notify: slack
+    message: 'Pipeline 失败: {{error_message}}'
+timeout:
+  total: 7200s
+  per_step: 900s
+directory_isolation:
+  enabled: true
+  base_dir: ".workflow-runs"
+  working_dir_pattern: "{base_dir}/{execution_id}/{step_name}/workspace"
+  output_dir_pattern: "{base_dir}/{execution_id}/output"
+  persistence_dir_pattern: "{base_dir}/{execution_id}/.snapshots"
+  shared_cache_dir: ".prompt_cache"
+  shared_history_dir: ".agent_history"
+  shared_skills_dir: "./skills"
+  cleanup_on_completion: false
+  cleanup_after_hours: 72
+concurrency:
+  enabled: true
+  max_concurrency: 4
+global_agent:
+  enabled: true
+  agent:
+    preset: universal
+    overrides:
+      system_prompt: |-
+        你是工作流模板助手，负责帮助用户理解、调试和演示当前工作流。
+        生成或修改 YAML 时必须使用 braidrun-agent 的 snake_case 语法，并优先保持模板可直接运行。
+      tool_set:
+      - workflow
+      - file_system
+      - exit
+      max_iterations: 2048
+      session_id_strategy: per_execution

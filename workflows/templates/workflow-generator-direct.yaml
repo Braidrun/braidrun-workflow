@@ -1,0 +1,476 @@
+---
+name: workflow-generator-direct
+version: 1.0.0
+tags:
+- 工作流生成
+- 简化版
+- 直接生成
+- 资源感知
+- repeat_until
+- extract
+- condition
+- workflow_tools
+- skill_tools
+category: utility
+description: |
+  简化版工作流生成器 -- 在调研用户需求与当前可利用资源的基础上，直接生成可执行的 braidrun-agent workflow YAML。
+  完整流程：需求与资源调研(agent + skill_tools + workflow tools) -> 直接设计(agent)
+  -> 直接生成与迭代修复(agent + repeat_until) -> 最终权威校验(agent) -> 文档或阻塞说明(condition) -> 交付汇总(agent)
+  适合希望更快拿到第一版 workflow、同时仍保留权威校验闭环的场景。
+
+variables:
+  user_requirement: 我需要一个可直接运行的内容营销工作流，覆盖选题、写作、审核、SEO优化和多平台发布
+  quality_threshold: '8'
+  output_dir: "./output/workflow-generator-direct"
+  reference_templates: ''
+  reusable_resources: ''
+  review_gate: ''
+  validation_result: ''
+  validation_errors: '0'
+
+variable_tags:
+  output_dir: '输出'
+  quality_threshold: '业务参数'
+  reference_templates: '业务参数'
+  reusable_resources: '业务参数'
+  review_gate: '业务参数'
+  user_requirement: '业务参数'
+  validation_errors: '业务参数'
+  validation_result: '业务参数'
+agents:
+  workflow_researcher:
+    preset: researcher
+    overrides:
+      system_prompt: |-
+        你是 workflow 资源研究员，负责先弄清楚“当前能用什么，再决定怎么生成”。
+
+        必须按顺序工作：
+        1. 先通过 skill_tools 激活 `braidrun-agent-guide`
+        2. 使用 workflow 工具查看当前模板目录、模板清单与模板说明
+        3. 使用 file_system 工具查看当前 workspace 中可直接复用的文档、配置、示例 YAML、目录结构或已有资源
+
+        研究目标：
+        - 总结当前 workflow 体系真实支持的字段、模式、增强能力与校验方式
+        - 找出最值得复用的模板文件
+        - 找出当前 workspace 中可直接利用的资源
+        - 如果没有明显可复用资源，也要明确说明“可直接复用资源有限”
+
+        输出必须包含：
+        - reference_templates=file1.yaml,file2.yaml
+        - reusable_resources=item1;item2;item3
+        - web_context_required=YES/NO
+        - knowledge_baseline=LATEST
+      tool_set:
+      - exit
+      - file_system
+      - workflow
+      - skill_tools
+      max_iterations: 4096
+      session_id_strategy: per_execution
+
+  workflow_architect:
+    preset: coder
+    overrides:
+      system_prompt: |-
+        你是简化版 workflow 生成器的架构设计师。
+
+        你的任务不是先走固定分类，而是基于用户需求和可利用资源，直接决定应该生成什么样的 workflow。
+
+        设计要求：
+        - 直接判断复杂度、workflow type、workflow category
+        - 自主决定需要多少步骤以及各步骤名称
+        - 自主决定每个步骤用哪种主模式最合适
+        - 优先设计清晰、可运行、可维护的 DAG，而不是炫技
+        - 如果现有资源有限，生成合理的 demo 版本，不要卡在等待外部依赖
+        - 所有顶层 agents、agent_based.orchestrator、global_agent.agent 都必须显式写 session_id_strategy
+
+        输出必须包含：
+        - complexity_level=simple/moderate/complex
+        - workflow_type=CONTENT/ENGINEERING/MARKETING/OPERATIONS/INDUSTRY/CUSTOM
+        - workflow_category=automation/analysis/assistant/content/engineering/operations/custom
+        - estimated_steps=N
+        - recommended_modes=mode1,mode2,mode3
+        - step_list=snake_case_step_1,snake_case_step_2,snake_case_step_3
+        - architecture_quality=N
+      tool_set:
+      - exit
+      - file_system
+      - workflow
+      - skill_tools
+      max_iterations: 4096
+      session_id_strategy: per_execution
+
+  yaml_engineer:
+    preset: coder
+    overrides:
+      system_prompt: |-
+        你是一位 YAML 工程师，负责直接把调研与架构结论变成可执行 workflow YAML。
+
+        你必须：
+        1. 先参考 `braidrun-agent-guide`
+        2. 对 reference templates 先用 workflow/file_system 工具核对当前写法
+        3. 生成完成后，把 YAML 保存到指定路径并调用 workflow.validateWorkflow
+
+        生成要求：
+        - 字段统一使用 snake_case
+        - 每个步骤只能选择一种主模式
+        - 优先生成结构直接、依赖清晰的 workflow
+        - 根据可利用资源决定是否引入 knowledge_base、state_machine、group_chat、agent_based 等高级能力
+        - 所有顶层 agents、agent_based.orchestrator、global_agent.agent 都必须显式写 session_id_strategy
+        - 顺序复用角色优先 per_execution；iterate_over / parallel / fan-out 角色优先 auto
+
+        输出必须包含：
+        - yaml_valid=YES/NO
+        - validation_result=PASSED/FAILED
+      tool_set:
+      - exit
+      - file_system
+      - workflow
+      - skill_tools
+      max_iterations: 4096
+      session_id_strategy: per_execution
+
+  syntax_checker:
+    preset: universal_reasoning
+    overrides:
+      system_prompt: |-
+        你是 workflow 权威校验专家。
+
+        校验顺序必须是：
+        1. 查 `braidrun-agent-guide`
+        2. 对磁盘上的 workflow 文件优先调用 workflow.validateWorkflow
+        3. 校验通过后再调用 workflow.describeWorkflow
+
+        必须额外检查：
+        - 顶层 agents、agent_based.orchestrator、global_agent.agent 是否显式写了 session_id_strategy
+        - session 策略是否与顺序复用 / iterate_over / parallel / fan-out 结构相匹配
+        - 结构是否符合用户需求与当前可利用资源边界
+
+        输出必须包含：
+        - validation_result=PASSED/FAILED
+        - validation_errors=N
+        - quality_score=N
+        - total_steps=N
+        - total_agents=N
+      tool_set:
+      - exit
+      - file_system
+      - workflow
+      - skill_tools
+      max_iterations: 4096
+      session_id_strategy: per_execution
+
+  doc_writer:
+    preset: writer
+    overrides:
+      system_prompt: |-
+        你是一位技术文档写手，负责给生成的 workflow 写最实用的交付说明。
+
+        文档要覆盖：
+        - 这个 workflow 解决什么问题
+        - 依赖了哪些可利用资源
+        - 变量与 agents 说明
+        - 关键步骤与运行方法
+        - 如何继续修改和扩展
+      tool_set:
+      - exit
+      - file_system
+      - workflow
+      - skill_tools
+      max_iterations: 2048
+      session_id_strategy: per_execution
+
+workflow:
+# ── 阶段 1：需求与资源调研 ──
+- step: research_requirement_and_resources
+  agent: workflow_researcher
+  input: |-
+    请围绕当前需求，调研“当前 workflow 能力”和“当前可利用资源”。
+
+    用户需求：{{var:user_requirement}}
+
+    必须完成：
+    1. 激活 `braidrun-agent-guide`
+    2. 查看当前模板目录中的说明与代表性模板
+    3. 查看当前 workspace 中可直接利用的资源，包括示例 workflow、配置、文档、目录结构或可复用文件
+    4. 给出最值得参考的模板和资源结论
+
+    输出必须包含：
+    - reference_templates=file1.yaml,file2.yaml
+    - reusable_resources=item1;item2;item3
+    - web_context_required=YES/NO
+    - knowledge_baseline=LATEST
+
+    并把完整调研结果保存到 {{var:output_dir}}/resource_research.md。
+  extract:
+  - pattern: reference_templates=(.+)
+    variable: reference_templates
+  - pattern: reusable_resources=(.+)
+    variable: reusable_resources
+  priority: 7
+
+# ── 阶段 2：直接设计 workflow ──
+- step: design_workflow_directly
+  agent: workflow_architect
+  input: |-
+    请基于用户需求和当前可利用资源，直接设计一个可执行 workflow。
+
+    用户需求：{{var:user_requirement}}
+    可参考模板：{{var:reference_templates}}
+    可利用资源：{{var:reusable_resources}}
+
+    当前资源调研：
+    {{steps.research_requirement_and_resources.output}}
+
+    要求：
+    1. 不要先做固定分类路由，而是直接决定复杂度、步骤数和步骤类型
+    2. 优先使用当前资源能支撑的方案
+    3. 资源不足时生成合理的 demo workflow
+    4. 优先产出清晰直接的 DAG，不要无意义堆高级能力
+
+    输出必须包含：
+    - complexity_level=simple/moderate/complex
+    - workflow_type=CONTENT/ENGINEERING/MARKETING/OPERATIONS/INDUSTRY/CUSTOM
+    - workflow_category=automation/analysis/assistant/content/engineering/operations/custom
+    - estimated_steps=N
+    - recommended_modes=mode1,mode2,mode3
+    - step_list=snake_case_step_1,snake_case_step_2,snake_case_step_3
+    - architecture_quality=N
+
+    并把设计蓝图保存到 {{var:output_dir}}/workflow_blueprint.md。
+  extract:
+  - pattern: complexity_level=(\w+)
+    variable: complexity_level
+  - pattern: workflow_type=(\w+)
+    variable: workflow_type
+  - pattern: workflow_category=(.+)
+    variable: workflow_category
+  - pattern: estimated_steps=(\d+)
+    variable: estimated_steps
+  - pattern: recommended_modes=(.+)
+    variable: recommended_modes
+  - pattern: step_list=(.+)
+    variable: step_list
+  - pattern: architecture_quality=(\d+)
+    variable: architecture_quality
+  depends_on:
+  - research_requirement_and_resources
+  priority: 6
+
+# ── 阶段 3：直接生成并迭代修复 ──
+- step: generate_workflow_directly
+  agent: yaml_engineer
+  input: |-
+    请基于以下信息，直接生成完整的 workflow YAML，并持续修复直到满足质量门槛。
+
+    用户需求：{{var:user_requirement}}
+    complexity_level：{{var:complexity_level}}
+    workflow_type：{{var:workflow_type}}
+    workflow_category：{{var:workflow_category}}
+    预估步骤数：{{var:estimated_steps}}
+    推荐模式：{{var:recommended_modes}}
+    步骤列表：{{var:step_list}}
+    参考模板：{{var:reference_templates}}
+    可利用资源：{{var:reusable_resources}}
+    上次评估反馈（如有）：{{steps.generate_workflow_directly:evaluate.output}}
+
+    资源调研：
+    {{steps.research_requirement_and_resources.output}}
+
+    设计蓝图：
+    {{steps.design_workflow_directly.output}}
+
+    生成要求：
+    1. 直接生成完整、可执行的 workflow YAML
+    2. 顶层至少包含：name, version, description, tags, category, variables, agents, workflow
+    3. 显式包含：error_handling, timeout, directory_isolation, concurrency
+    4. 只有在确实有帮助时才加入 global_agent、knowledge_base、state_machine、group_chat、agent_based 等高级结构
+    5. 所有顶层 agents、agent_based.orchestrator、global_agent.agent 都必须显式写 session_id_strategy
+    6. 顺序复用角色优先 per_execution；iterate_over / parallel / fan-out 角色优先 auto
+    7. 资源有限时优先产出可运行 demo 版本，而不是停在等待外部依赖
+    8. 把完整 YAML 保存到 {{var:output_dir}}/generated-workflow.yaml
+    9. 保存后调用 workflow.validateWorkflow
+
+    输出必须包含：
+    - yaml_valid=YES/NO
+    - validation_result=PASSED/FAILED
+  depends_on:
+  - design_workflow_directly
+  priority: 5
+  repeat_until:
+    condition: review_gate == PASS
+    max_iterations: 3
+    evaluate_agent: syntax_checker
+    evaluate_prompt: |-
+      请对 {{var:output_dir}}/generated-workflow.yaml 进行“权威 validation + 资源匹配度”评估。
+
+      用户需求：{{var:user_requirement}}
+      目标质量阈值：{{var:quality_threshold}}
+      参考模板：{{var:reference_templates}}
+      可利用资源：{{var:reusable_resources}}
+      设计蓝图：{{steps.design_workflow_directly.output}}
+      当前 YAML：{{steps.generate_workflow_directly.output}}
+
+      必须完成：
+      1. 先查 `braidrun-agent-guide`
+      2. 使用 workflow.validateWorkflow 做权威校验
+      3. 校验通过后再使用 workflow.describeWorkflow 快速确认结构
+      4. 只有同时满足下列条件时才给 PASS：
+         - 权威校验通过
+         - 满足主要组合约束与引用完整性
+         - 满足用户需求
+         - 与当前可利用资源边界相匹配
+         - quality_score >= {{var:quality_threshold}}
+         - 所有需要显式 session_id_strategy 的位置都已正确声明
+
+      输出必须严格包含：
+      - review_gate=PASS/REPAIR
+      - quality_score=N
+      - validation_result=PASSED/FAILED
+      - validation_errors=N
+      - authoritative_validation=YES
+    extract_pattern: review_gate=(\w+)
+    extract_variable: review_gate
+
+# ── 阶段 4：最终权威校验 ──
+- step: final_validation
+  agent: syntax_checker
+  input: |-
+    请对 {{var:output_dir}}/generated-workflow.yaml 做最终权威校验。
+
+    用户需求：{{var:user_requirement}}
+    参考模板：{{var:reference_templates}}
+    可利用资源：{{var:reusable_resources}}
+
+    必须执行：
+    1. 使用 skill_tools 激活 `braidrun-agent-guide`
+    2. 调用 workflow.validateWorkflow
+    3. 如果通过，再调用 workflow.describeWorkflow
+
+    输出必须包含：
+    - validation_result=PASSED/FAILED
+    - validation_errors=N
+    - quality_score=N
+    - total_steps=N
+    - total_agents=N
+  extract:
+  - pattern: validation_result=(\w+)
+    variable: validation_result
+  - pattern: validation_errors=(\d+)
+    variable: validation_errors
+  - pattern: quality_score=(\d+)
+    variable: quality_score
+  - pattern: total_steps=(\d+)
+    variable: total_steps
+  - pattern: total_agents=(\d+)
+    variable: total_agents
+  depends_on:
+  - generate_workflow_directly
+  priority: 4
+
+# ── 阶段 5：成功路径文档 ──
+- step: write_workflow_readme
+  agent: doc_writer
+  input: |-
+    请为生成的 workflow 编写使用说明，并保存到 {{var:output_dir}}/WORKFLOW_README.md。
+
+    用户需求：{{var:user_requirement}}
+    工作流类型：{{var:workflow_type}}
+    workflow category：{{var:workflow_category}}
+    复杂度：{{var:complexity_level}}
+    步骤数：{{var:total_steps}}
+    Agent 数：{{var:total_agents}}
+    参考模板：{{var:reference_templates}}
+    可利用资源：{{var:reusable_resources}}
+
+    生成要求：
+    1. 概述 workflow 解决的问题
+    2. 说明变量和 agents
+    3. 说明关键步骤和运行方式
+    4. 说明哪些资源被直接复用或作为参考
+    5. 说明如何继续修改
+  depends_on:
+  - final_validation
+  condition: validation_result == PASSED
+  priority: 3
+
+# ── 阶段 6：失败路径阻塞说明 ──
+- step: write_validation_blockers
+  agent: workflow_architect
+  input: |-
+    请生成一份阻塞说明，并保存到 {{var:output_dir}}/VALIDATION_BLOCKERS.md。
+
+    当前 workflow 未通过最终权威校验。
+    用户需求：{{var:user_requirement}}
+    参考模板：{{var:reference_templates}}
+    可利用资源：{{var:reusable_resources}}
+    校验结果：{{var:validation_result}}
+    校验错误数：{{var:validation_errors}}
+    详情：{{steps.final_validation.output}}
+
+    请写明：
+    1. 当前阻塞点
+    2. 哪些问题与资源限制有关
+    3. 下一轮应优先修复什么
+  depends_on:
+  - final_validation
+  condition: validation_result == FAILED
+  priority: 2
+
+# ── 阶段 7：交付汇总 ──
+- step: delivery_summary
+  agent: doc_writer
+  input: |-
+    请生成最终交付汇总，并保存到 {{var:output_dir}}/DELIVERY_REPORT.md。
+
+    用户需求：{{var:user_requirement}}
+    complexity_level：{{var:complexity_level}}
+    工作流类型：{{var:workflow_type}}
+    workflow category：{{var:workflow_category}}
+    预估步骤数：{{var:estimated_steps}}
+    实际步骤数：{{var:total_steps}}
+    实际 Agent 数：{{var:total_agents}}
+    架构质量：{{var:architecture_quality}}
+    YAML 质量：{{var:quality_score}}
+    校验结果：{{var:validation_result}}（{{var:validation_errors}} 个错误）
+    参考模板：{{var:reference_templates}}
+    可利用资源：{{var:reusable_resources}}
+
+    调研结果：{{steps.research_requirement_and_resources.output}}
+    设计蓝图：{{steps.design_workflow_directly.output}}
+    最终校验：{{steps.final_validation.output}}
+
+    请总结：
+    1. 这次直接生成策略为何成立
+    2. 使用了哪些可利用资源
+    3. 输出物清单
+    4. 如果仍有问题，下一步怎么做
+  depends_on:
+  - write_workflow_readme
+  - write_validation_blockers
+  priority: 1
+
+error_handling:
+  max_retries: 2
+  retry_delay: 3s
+  continue_on_error: false
+
+timeout:
+  total: 2400s
+  per_step: 420s
+
+directory_isolation:
+  enabled: true
+  base_dir: ".workflow-runs"
+  working_dir_pattern: "{base_dir}/{execution_id}/{step_name}/workspace"
+  output_dir_pattern: "{base_dir}/{execution_id}/output"
+  persistence_dir_pattern: "{base_dir}/{execution_id}/.snapshots"
+  shared_cache_dir: ".prompt_cache"
+  shared_history_dir: ".agent_history"
+  shared_skills_dir: "./skills"
+  cleanup_on_completion: false
+  cleanup_after_hours: 72
+
+concurrency:
+  enabled: false
+  max_concurrency: 1

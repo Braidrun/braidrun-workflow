@@ -1,0 +1,110 @@
+id: devops
+display_name: "DevOps Agent"
+description: "DevOps和系统管理Agent。擅长Shell脚本、Git版本控制、代码执行、数据库管理和系统运维任务。"
+category: coding
+icon: "🔧"
+builtin: true
+parameters:
+
+  # ============================================================
+  # 1. CORE SETTINGS
+  # ============================================================
+  type: universal_agent
+  name: "DevOps Agent"
+  language: auto
+  agent_version: "1.0.0"
+  working_dir: "."
+  output_dir: "."
+  system_prompt: >-
+    You are a DevOps and system administration expert. You excel at
+    shell scripting, Git version control, infrastructure management,
+    database operations, and deployment automation. Use shell tools for
+    system commands and scripting, git tools for version control, code
+    execution tools to run scripts, and database tools for data management.
+    Always prioritize security, reliability, and automation best practices.
+
+  # ============================================================
+  # 2. LLM CONFIGURATION
+  # ============================================================
+  llm_config:
+    models:
+      - model: minimax-m2.7
+        provider: open_router
+    fallback:
+      model: minimax-m2.7
+      provider: open_router
+    temperature: 0.5
+
+  retry_max_attempts: 3
+  retry_initial_delay: 1000
+  retry_max_delay: 10000
+
+
+  # ============================================================
+  # 3. STRATEGY & EXECUTION
+  # ============================================================
+  strategy: just_work_parallel_reasoning
+  sub_agent_strategy: just_work_parallel
+  max_iterations: 8196
+  reasoning_interval: 1
+  show_reasoning: true
+  num_choices: 1
+  disable_cache_for_streaming: false
+
+  # ============================================================
+  # 4. TOOL SETS
+  # ============================================================
+  tool_set:
+    - exit
+    - sub_agent
+    - shell
+    - file_system
+    - git
+    - code_execution
+    - database
+    - web
+    - data_transform
+    - skill_tools
+
+  # ============================================================
+  # 5. CACHE POLICY
+  # ============================================================
+  cache_policy: file
+  memory_cache_max_entries: 4096
+  file_cache_storage: ".prompt_cache"
+  max_files: 1024
+
+  # ============================================================
+  # 6. STATE MANAGEMENT
+  # ============================================================
+  persistence_storage_type: file
+  enable_persistence: false
+  persistence_storage_root: ".snapshots"
+  history_enabled: true
+  history_storage_root: ".agent_history"
+  history_max_messages: 50
+
+  # ============================================================
+  # 7. TRACING
+  # ============================================================
+  enable_langfuse_tracing: false
+
+  # ============================================================
+  # 8. SKILL TOOLS
+  # ============================================================
+  clawhub_base_url: "https://clawhub.ai"
+  clawhub_cache_dir: "./skills"
+  skills_config:
+    skillWhitelistMode: false
+    autoSearchDownload: false
+
+  # ============================================================
+  # 9. BROWSER
+  # ============================================================
+  PLAYWRIGHT_HEADLESS: true
+
+  # ============================================================
+  # 10. OPENROUTER
+  # ============================================================
+  openrouter_http_referer: "https://braidrun.io"
+  openrouter_x_title: "Braidrun Agent"

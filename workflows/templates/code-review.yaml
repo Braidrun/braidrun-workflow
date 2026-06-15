@@ -1,0 +1,316 @@
+---
+name: code-review-workflow
+version: 3.0.0
+tags:
+- 代码审查
+- 软件质量
+- 软件工程
+- 多角色协作
+- 迭代优化
+- 动态编排
+- 确定性计算
+- group_chat
+- repeat_until
+- agent_based
+- extract
+- code
+- condition
+category: software
+description: |
+  自动化代码审查工作流 -- 多角色协作审查与迭代修复
+
+  适用场景：对 Git 仓库的最近提交进行系统化代码审查，适合 PR 合并前审查或定期代码质量巡检。
+  说明：code 步骤确定性执行 Git diff 提取变更统计，agent_based 动态分配安全/架构/测试三维审查者，
+  group_chat 评审会议对齐问题优先级，repeat_until 迭代修复方案直到质量达标。
+  流程：Git 变更检测(code) -> 变更分析 -> 多维度审查(agent_based) -> 评审会议 -> 迭代修复 -> 最终报告。
+variables:
+  repo_path: "."
+  review_depth: comprehensive
+  quality_threshold: '8'
+  output_dir: "./output/code-review"
+  demo_mode: 'true'
+variable_tags:
+  demo_mode: '运行模式'
+  output_dir: '输出'
+  quality_threshold: '业务参数'
+  repo_path: '业务参数'
+  review_depth: '业务参数'
+agents:
+  code_analyst:
+    preset: coder
+    overrides:
+      system_prompt: |-
+        你是一位代码变更分析专家。你负责分析 Git 变更历史，识别修改的文件、
+        影响范围和潜在风险区域。输出结构化的变更分析报告。
+        输出必须包含以下格式化指标：
+        - files_changed=N（变更文件数）
+        - lines_added=N（新增行数）
+        - lines_deleted=N（删除行数）
+        - risk_level=HIGH/MEDIUM/LOW（风险等级）
+
+        共同要求：
+        - 该模板以“可直接运行演示”为第一目标。
+        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
+        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+      session_id_strategy: per_execution
+  security_reviewer:
+    preset: coder
+    overrides:
+      system_prompt: |-
+        你是一位应用安全专家。你专注于识别代码中的安全漏洞，包括但不限于：
+        SQL 注入、XSS、认证绕过、敏感数据泄露、不安全的依赖。
+        对每个发现给出严重等级（Critical/High/Medium/Low）和修复建议。
+        输出必须包含：security_issues=N（安全问题总数）
+
+        共同要求：
+        - 该模板以“可直接运行演示”为第一目标。
+        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
+        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+      session_id_strategy: per_execution
+  architecture_reviewer:
+    preset: coder
+    overrides:
+      system_prompt: |-
+        你是一位软件架构师。你从架构层面审查代码变更，关注：
+        设计模式的正确使用、SOLID 原则、模块耦合度、API 设计合理性、
+        可扩展性和可维护性。提供具体的重构建议。
+        输出必须包含：architecture_issues=N（架构问题总数）
+
+        共同要求：
+        - 该模板以“可直接运行演示”为第一目标。
+        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
+        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+      session_id_strategy: per_execution
+  test_reviewer:
+    preset: coder
+    overrides:
+      system_prompt: |-
+        你是一位测试工程师。你审查测试覆盖率和测试质量，关注：
+        单元测试是否覆盖关键路径、边界条件测试、集成测试完整性、
+        测试命名规范、Mock 使用是否合理。
+        输出必须包含：test_coverage_gaps=N（测试覆盖缺口数）
+
+        共同要求：
+        - 该模板以“可直接运行演示”为第一目标。
+        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
+        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+      session_id_strategy: per_execution
+  quality_judge:
+    preset: universal
+    overrides:
+      system_prompt: |-
+        你是一位代码质量评审官。对提交的代码审查报告进行评分。
+        评分维度：安全性(25%)、架构质量(25%)、测试覆盖(25%)、代码规范(25%)。
+        输出格式必须包含：quality_score=N（1-10 分）。
+
+        共同要求：
+        - 该模板以“可直接运行演示”为第一目标。
+        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
+        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+      session_id_strategy: auto
+workflow:
+- step: detect_changes
+  code:
+    language: bash
+    script: |
+      echo "=== Git 变更检测 ==="
+      cd "$WF_VAR_repo_path"
+      echo "最近 5 次提交："
+      git log -5 --oneline 2>/dev/null || echo "(无 Git 历史)"
+      echo ""
+      echo "变更统计："
+      STAT=$(git diff HEAD~3 HEAD --stat 2>/dev/null || echo "无法获取 diff")
+      echo "$STAT"
+      FILES_CHANGED=$(git diff HEAD~3 HEAD --stat 2>/dev/null | grep "files changed" | grep -oE "[0-9]+" | head -1 || echo "0")
+      INSERTIONS=$(git diff HEAD~3 HEAD --stat 2>/dev/null | grep -oE "[0-9]+ insertion" | grep -oE "[0-9]+" || echo "0")
+      DELETIONS=$(git diff HEAD~3 HEAD --stat 2>/dev/null | grep -oE "[0-9]+ deletion" | grep -oE "[0-9]+" || echo "0")
+      echo ""
+      echo "git_files_changed=$FILES_CHANGED"
+      echo "git_insertions=$INSERTIONS"
+      echo "git_deletions=$DELETIONS"
+      echo ""
+      echo "变更的文件类型："
+      git diff HEAD~3 HEAD --name-only 2>/dev/null | sed 's/.*\.//' | sort | uniq -c | sort -rn || echo "(无)"
+    timeout: 30
+  extract:
+  - pattern: git_files_changed=(\d+)
+    variable: git_files_changed
+  - pattern: git_insertions=(\d+)
+    variable: git_insertions
+  - pattern: git_deletions=(\d+)
+    variable: git_deletions
+  priority: 10
+- step: analyze_changes
+  agent: code_analyst
+  input: |-
+    分析仓库 {{var:repo_path}} 的最新 Git 变更：
+    变更统计：{{var:git_files_changed}} 个文件变更，+{{var:git_insertions}} -{{var:git_deletions}} 行
+    Git 检测详情：{{steps.detect_changes.output}}
+
+    1. 运行 'git diff HEAD~3 HEAD' 查看具体变更内容
+    2. 识别修改的文件类型和影响模块
+    3. 标注高风险变更（核心业务逻辑、安全相关、公共 API）
+    4. 输出结构化变更分析报告到 change-analysis.md
+    输出必须包含以下格式化指标：
+    - files_changed=N
+    - lines_added=N
+    - lines_deleted=N
+    - risk_level=HIGH/MEDIUM/LOW
+
+    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/analyze_changes.md。
+  extract:
+  - pattern: files_changed=(\d+)
+    variable: files_changed
+  - pattern: risk_level=(\w+)
+    variable: risk_level
+  depends_on:
+  - detect_changes
+  priority: 9
+- step: multi_dimension_review
+  agent_based:
+    orchestrator:
+      preset: universal
+      overrides:
+        system_prompt: |
+          你是代码审查协调者。根据变更分析结果，智能分配审查任务：
+          - 如果涉及安全相关代码（认证、加密、用户输入处理），分配给 security_reviewer
+          - 如果涉及架构变更（新模块、接口变更、设计模式），分配给 architecture_reviewer
+          - 如果涉及测试代码或需要测试覆盖评估，分配给 test_reviewer
+          - 可以并行分配多个审查者
+          收集所有审查意见后，合成一份综合审查报告。
+          每位审查者的输出必须包含各自的问题计数指标。
+        session_id_strategy: per_execution
+    participants:
+    - security_reviewer
+    - architecture_reviewer
+    - test_reviewer
+    goal: |-
+      基于变更分析结果进行多维度代码审查：
+      变更统计：{{var:files_changed}} 个文件，风险等级：{{var:risk_level}}
+      {{steps.analyze_changes.output}}
+      请根据变更内容的特征，分配合适的审查者进行审查。
+      每位审查者应输出：发现的问题列表（含严重等级）、改进建议、评分。
+      最终合成一份综合审查报告。，并生成可直接展示的 demo 结论。
+    max_steps: 12
+    budget_tokens: 400000
+  depends_on:
+  - analyze_changes
+  extract:
+  - pattern: security_issues=(\d+)
+    variable: security_issues
+  - pattern: architecture_issues=(\d+)
+    variable: architecture_issues
+  - pattern: test_coverage_gaps=(\d+)
+    variable: test_coverage_gaps
+  priority: 8
+- step: review_meeting
+  group_chat:
+    participants:
+    - security_reviewer
+    - architecture_reviewer
+    - test_reviewer
+    initial_message: |-
+      代码审查评审会议开始。
+      变更概况：{{var:files_changed}} 个文件，+{{var:git_insertions}} -{{var:git_deletions}} 行，风险等级：{{var:risk_level}}
+
+      审查发现汇总：
+      - 安全问题：{{var:security_issues}} 个
+      - 架构问题：{{var:architecture_issues}} 个
+      - 测试覆盖缺口：{{var:test_coverage_gaps}} 个
+
+      详细审查报告：
+      {{steps.multi_dimension_review.output}}
+
+      讨论重点：
+      1. 各自发现的问题是否有遗漏或误判？
+      2. 问题的优先级排序是否合理？
+      3. 是否有跨维度的关联问题（如架构问题导致的安全风险）？
+      4. 达成一致的修复建议和优先级
+      讨论完毕后请说 REVIEW_DONE
+
+      讨论结束时请给出一段可复用的结论摘要，便于后续步骤直接保存为 demo 交付物。
+    max_rounds: 4
+    speaker_selection: round_robin
+    termination_keyword: REVIEW_DONE
+  depends_on:
+  - multi_dimension_review
+  priority: 6
+- step: fix_and_verify
+  agent: code_analyst
+  input: |-
+    基于评审会议的共识，生成详细的修复方案：
+    变更分析：{{steps.analyze_changes.output}}
+    审查发现：{{steps.multi_dimension_review.output}}
+    评审共识：{{steps.review_meeting.output}}
+    上次评估反馈（如有）：{{steps.fix_and_verify:evaluate.output}}
+    请：
+    1. 按优先级列出所有需修复的问题
+    2. 为每个问题提供具体的修复代码或修复步骤
+    3. 说明修复后的预期效果
+    4. 输出完整的修复方案到 fix-plan.md
+
+    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/fix_and_verify.md。
+  depends_on:
+  - review_meeting
+  priority: 4
+  repeat_until:
+    condition: quality_score >= 8
+    max_iterations: 3
+    evaluate_agent: quality_judge
+    evaluate_prompt: |
+      评估以下代码审查修复方案的质量。
+      评分维度：安全性(25%)、架构质量(25%)、测试覆盖(25%)、代码规范(25%)。
+      输出格式：quality_score=N（1-10 分）
+      修复方案：
+      {{steps.fix_and_verify.output}}
+    extract_pattern: quality_score=(\d+)
+    extract_variable: quality_score
+- step: final_report
+  agent: code_analyst
+  input: |
+    生成最终代码审查报告，整合所有环节的成果：
+    1. 执行摘要：审查范围 {{var:files_changed}} 个文件，风险等级 {{var:risk_level}}，最终评分 {{var:quality_score}}
+    2. Git 变更统计：+{{var:git_insertions}} -{{var:git_deletions}} 行
+    3. 审查发现：安全问题 {{var:security_issues}} 个，架构问题 {{var:architecture_issues}} 个，测试缺口 {{var:test_coverage_gaps}} 个
+    4. 团队共识：{{steps.review_meeting.output}}
+    5. 修复方案：{{steps.fix_and_verify.output}}
+    6. 遗留风险和后续建议
+    输出到 REVIEW_REPORT.md
+  depends_on:
+  - fix_and_verify
+  priority: 2
+error_handling:
+  max_retries: 2
+  retry_delay: 3s
+  continue_on_error: false
+timeout:
+  total: 3600s
+  per_step: 600s
+directory_isolation:
+  enabled: true
+  base_dir: ".workflow-runs"
+  working_dir_pattern: "{base_dir}/{execution_id}/{step_name}/workspace"
+  output_dir_pattern: "{base_dir}/{execution_id}/output"
+  persistence_dir_pattern: "{base_dir}/{execution_id}/.snapshots"
+  shared_cache_dir: ".prompt_cache"
+  shared_history_dir: ".agent_history"
+  shared_skills_dir: "./skills"
+  cleanup_on_completion: false
+  cleanup_after_hours: 72
+concurrency:
+  enabled: true
+  max_concurrency: 4
+global_agent:
+  enabled: true
+  agent:
+    preset: universal
+    overrides:
+      system_prompt: |-
+        你是工作流模板助手，负责帮助用户理解、调试和演示当前工作流。
+        生成或修改 YAML 时必须使用 braidrun-agent 的 snake_case 语法，并优先保持模板可直接运行。
+      tool_set:
+      - workflow
+      - file_system
+      - exit
+      max_iterations: 2048
+      session_id_strategy: per_execution

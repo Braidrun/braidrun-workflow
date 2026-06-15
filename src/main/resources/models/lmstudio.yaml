@@ -1,0 +1,135 @@
+provider: lmstudio
+aliases:
+- lm-studio
+- lm_studio
+models:
+  # LM Studio 通过 OpenAI-compatible API 暴露本地模型。
+  # 用户通过 LM Studio UI 下载模型后，在此处按 model ID 注册。
+  # model ID 即 LM Studio 中显示的模型标识符。
+  #
+  # 以下为常见的 LM Studio 本地模型预定义。
+  # 用户也可以在 ./models/lmstudio.yaml 中覆盖或新增自己下载的模型。
+
+  # ===== Meta Llama =====
+  "llama-3.3-70b":
+    id: "llama-3.3-70b-instruct"
+    capabilities: standard
+    context_length: 131072
+  "llama-3.1-8b":
+    id: "llama-3.1-8b-instruct"
+    capabilities: standard
+    context_length: 131072
+  "llama-3.2-3b":
+    id: "llama-3.2-3b-instruct"
+    capabilities: standard
+    context_length: 131072
+  "llama-3.2-1b":
+    id: "llama-3.2-1b-instruct"
+    capabilities: standard
+    context_length: 131072
+
+  # ===== Qwen =====
+  "qwen3-8b":
+    id: "qwen3-8b"
+    capabilities: standard
+    context_length: 131072
+  "qwen3-4b":
+    id: "qwen3-4b"
+    capabilities: standard
+    context_length: 131072
+  "qwen3-1.7b":
+    id: "qwen3-1.7b"
+    capabilities: standard
+    context_length: 32768
+  "qwen2.5-7b-instruct":
+    id: "qwen2.5-7b-instruct"
+    capabilities: standard
+    context_length: 131072
+  "qwen2.5-coder-7b-instruct":
+    id: "qwen2.5-coder-7b-instruct"
+    capabilities: standard
+    context_length: 131072
+
+  # ===== Google Gemma =====
+  "gemma-3-12b":
+    id: "gemma-3-12b-it"
+    capabilities: multimodal
+    context_length: 131072
+  "gemma-3-4b":
+    id: "gemma-3-4b-it"
+    capabilities: multimodal
+    context_length: 131072
+  "gemma-2-9b":
+    id: "gemma-2-9b-it"
+    capabilities: standard
+    context_length: 8192
+  "gemma-2-2b":
+    id: "gemma-2-2b-it"
+    capabilities: standard
+    context_length: 8192
+
+  # ===== Microsoft Phi =====
+  "phi-4":
+    id: "phi-4"
+    capabilities: standard
+    context_length: 16384
+  "phi-3.5-mini":
+    id: "phi-3.5-mini-instruct"
+    capabilities: standard
+    context_length: 131072
+  "phi-3-mini":
+    id: "phi-3-mini-4k-instruct"
+    capabilities: standard
+    context_length: 4096
+
+  # ===== Mistral =====
+  "mistral-7b":
+    id: "mistral-7b-instruct-v0.3"
+    capabilities: standard
+    context_length: 32768
+  "mistral-nemo-12b":
+    id: "mistral-nemo-instruct-2407"
+    capabilities: standard
+    context_length: 131072
+
+  # ===== DeepSeek =====
+  "deepseek-r1-8b":
+    id: "deepseek-r1-distill-llama-8b"
+    capabilities: standard
+    context_length: 131072
+  "deepseek-r1-14b":
+    id: "deepseek-r1-distill-qwen-14b"
+    capabilities: standard
+    context_length: 131072
+  "deepseek-r1-32b":
+    id: "deepseek-r1-distill-qwen-32b"
+    capabilities: standard
+    context_length: 131072
+  "deepseek-coder-v2-lite":
+    id: "deepseek-coder-v2-lite-instruct"
+    capabilities: standard
+    context_length: 131072
+
+  # ===== Coding models =====
+  "codestral-22b":
+    id: "codestral-22b-v0.1"
+    capabilities: standard
+    context_length: 32768
+  "starcoder2-7b":
+    id: "starcoder2-7b"
+    capabilities: standard
+    context_length: 16384
+  "codegemma-7b":
+    id: "codegemma-7b-it"
+    capabilities: standard
+    context_length: 8192
+
+  # ===== Multimodal / Vision =====
+  "llava-1.6-7b":
+    id: "llava-v1.6-mistral-7b"
+    capabilities: multimodal
+    context_length: 4096
+  "moondream2":
+    id: "moondream2"
+    capabilities: multimodal
+    context_length: 2048

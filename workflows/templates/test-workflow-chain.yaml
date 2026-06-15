@@ -1,0 +1,113 @@
+---
+name: test-workflow-chain
+version: 1.0.0
+tags:
+- 测试
+- 基础链式
+description: 多步链式 workflow - 步骤间通过文件传递数据，测试依赖链和优先级
+variables:
+  project_name: TestProject
+  output_dir: "./output/test-workflow-chain"
+  demo_mode: 'true'
+agents:
+  worker:
+    preset: universal
+    overrides:
+      system_prompt: |-
+        You are a precise assistant. Follow instructions exactly. Call exit when done.
+
+        共同要求：
+        - 该模板以“可直接运行演示”为第一目标。
+        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
+        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+      tool_set:
+      - exit
+      - skill_tools
+      - file_system
+      - shell
+      max_iterations: 100
+      session_id_strategy: auto
+workflow:
+- step: init
+  agent: worker
+  priority: 10
+  input: |-
+    Create the directory ./output if it doesn't exist.
+    Create a file ./output/config.json with this exact JSON content:
+    {"project": "{{var:project_name}}", "steps_completed": []}
+    Then call exit.
+
+    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/init.md。
+- step: step_a
+  agent: worker
+  depends_on:
+  - init
+  priority: 5
+  input: |-
+    Read ./output/config.json. Add "step_a" to the steps_completed array.
+    Write the updated JSON back to ./output/config.json.
+    Also create ./output/step_a.txt with content "Step A done".
+    Then call exit.
+
+    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/step_a.md。
+- step: step_b
+  agent: worker
+  depends_on:
+  - init
+  priority: 3
+  input: |-
+    Read ./output/config.json. Add "step_b" to the steps_completed array.
+    Write the updated JSON back to ./output/config.json.
+    Also create ./output/step_b.txt with content "Step B done".
+    Then call exit.
+
+    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/step_b.md。
+- step: finalize
+  agent: worker
+  depends_on:
+  - step_a
+  - step_b
+  input: |-
+    Read ./output/config.json and list all files in ./output/.
+    Create ./output/report.txt with a summary that includes:
+    - The project name from config.json
+    - Which steps were completed (from steps_completed array)
+    - List of all files in the output directory
+    Then call exit.
+
+    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/finalize.md。
+error_handling:
+  max_retries: 2
+  retry_delay: 3s
+  continue_on_error: false
+timeout:
+  total: 600s
+  per_step: 120s
+directory_isolation:
+  enabled: true
+  base_dir: ".workflow-runs"
+  working_dir_pattern: "{base_dir}/{execution_id}/{step_name}/workspace"
+  output_dir_pattern: "{base_dir}/{execution_id}/output"
+  persistence_dir_pattern: "{base_dir}/{execution_id}/.snapshots"
+  shared_cache_dir: ".prompt_cache"
+  shared_history_dir: ".agent_history"
+  shared_skills_dir: "./skills"
+  cleanup_on_completion: false
+  cleanup_after_hours: 72
+concurrency:
+  enabled: true
+  max_concurrency: 4
+global_agent:
+  enabled: true
+  agent:
+    preset: universal
+    overrides:
+      system_prompt: |-
+        你是工作流模板助手，负责帮助用户理解、调试和演示当前工作流。
+        生成或修改 YAML 时必须使用 braidrun-agent 的 snake_case 语法，并优先保持模板可直接运行。
+      tool_set:
+      - workflow
+      - file_system
+      - exit
+      max_iterations: 2048
+      session_id_strategy: per_execution

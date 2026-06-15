@@ -1,0 +1,41 @@
+---
+name: test-email-classifier
+version: 1.0.0
+description: Test utility-module-email-classifier (LLM, needs OPENROUTER_API_KEY).
+tags:
+  - code
+  - extract
+  - sub_workflow
+
+agents: {}
+workflow:
+  - step: run
+    sub_workflow:
+      name: utility-module-email-classifier
+      inputs:
+        "subject": "URGENT: Your server is down and losing customers!"
+        body: "Our production API has been returning 500 errors for the past 30 minutes. Please fix ASAP."
+      outputs:
+        cat: category
+        prio: priority
+        act: suggested_action
+        sum: summary
+        status: classify_status
+    priority: 10
+  - step: assert
+    code:
+      language: python
+      timeout: 15
+      script: |
+        import os, sys
+        problems = []
+        status = os.environ.get("WF_VAR_STATUS", "")
+        if status != "ok": problems.append(f"status={status}")
+        if problems:
+            print("TEST_STATUS=fail")
+            [print(f"  - {p}") for p in problems]; sys.exit(1)
+        print("TEST_STATUS=pass")
+    extract:
+      - {pattern: 'TEST_STATUS=(\w+)', variable: test_status}
+    depends_on: [run]
+    priority: 5

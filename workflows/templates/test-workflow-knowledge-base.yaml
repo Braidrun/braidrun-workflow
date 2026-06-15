@@ -1,0 +1,161 @@
+---
+name: test-workflow-knowledge-base
+version: 1.0.0
+tags:
+- 测试
+- 共享知识库
+- 知识检索
+- knowledge_base
+description: |
+  工作流级共享知识库功能测试 - 测试 knowledge_base 配置
+  覆盖：enabled、storage_dir、embedding_model、embedding_provider、
+  auto_index_outputs、auto_inject_rag_tools、chunk_size、chunk_overlap、
+  max_indexed_documents、max_total_chunks、source_files
+variables:
+  research_topic: braidrun-agent 工作流系统的能力与最佳实践
+  output_dir: "./output"
+  demo_mode: 'true'
+agents:
+  researcher:
+    preset: universal
+    overrides:
+      system_prompt: |-
+        You are a researcher. Use searchKnowledge tool to find relevant information
+        from the shared knowledge base. Call exit when done.
+
+        共同要求：
+        - 该模板以“可直接运行演示”为第一目标。
+        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
+        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+      tool_set:
+      - exit
+      - skill_tools
+      - file_system
+      - rag_tools
+      max_iterations: 8196
+      session_id_strategy: auto
+  analyst:
+    preset: universal
+    overrides:
+      system_prompt: |-
+        You are a data analyst. Analyze data and produce reports with metrics.
+        Use searchKnowledge tool to query the knowledge base. Call exit when done.
+
+        共同要求：
+        - 该模板以“可直接运行演示”为第一目标。
+        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
+        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+      tool_set:
+      - exit
+      - skill_tools
+      - file_system
+      - rag_tools
+      max_iterations: 8196
+      session_id_strategy: auto
+  writer:
+    preset: universal
+    overrides:
+      system_prompt: |-
+        You are a report writer. Create comprehensive reports. Call exit when done.
+
+        共同要求：
+        - 该模板以“可直接运行演示”为第一目标。
+        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
+        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+      tool_set:
+      - exit
+      - skill_tools
+      - file_system
+      max_iterations: 8196
+      session_id_strategy: auto
+workflow:
+- step: initial_research
+  agent: researcher
+  input: |-
+    对"{{var:research_topic}}"进行初步研究。
+    输出关键发现、主要趋势和重要数据点。
+    注意：你的输出将自动索引到共享知识库中。
+
+    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/initial_research.md。
+- step: deep_analysis
+  agent: analyst
+  input: |-
+    对"{{var:research_topic}}"进行深度分析。
+    请使用 searchKnowledge 工具查询知识库中的相关信息。
+    输出包含具体数据支撑的分析报告。
+
+    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/deep_analysis.md。
+  depends_on:
+  - initial_research
+- step: supplementary_research
+  agent: researcher
+  input: |-
+    基于已有的研究和分析，进行补充研究。
+    使用 searchKnowledge 查询知识库中已有的发现，避免重复。
+    重点关注之前未覆盖的方面。
+
+    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/supplementary_research.md。
+  depends_on:
+  - deep_analysis
+- step: final_report
+  agent: writer
+  input: |
+    基于以下内容生成最终研究报告并保存到 {{var:output_dir}}/research_report.txt：
+    初步研究：{{steps.initial_research.output}}
+    深度分析：{{steps.deep_analysis.output}}
+    补充研究：{{steps.supplementary_research.output}}
+  depends_on:
+  - supplementary_research
+error_handling:
+  max_retries: 2
+  retry_delay: 3s
+  continue_on_error: false
+timeout:
+  total: 900s
+  per_step: 180s
+directory_isolation:
+  enabled: true
+  base_dir: ".workflow-runs"
+  working_dir_pattern: "{base_dir}/{execution_id}/{step_name}/workspace"
+  output_dir_pattern: "{base_dir}/{execution_id}/output"
+  persistence_dir_pattern: "{base_dir}/{execution_id}/.snapshots"
+  shared_cache_dir: ".prompt_cache"
+  shared_history_dir: ".agent_history"
+  shared_skills_dir: "./skills"
+  cleanup_on_completion: false
+  cleanup_after_hours: 72
+concurrency:
+  enabled: true
+  max_concurrency: 4
+knowledge_base:
+  enabled: true
+  storage_dir: "./kb-test"
+  embedding_model: text-embedding-3-small
+  embedding_provider: openai
+  auto_index_outputs: true
+  auto_inject_rag_tools: true
+  chunk_size: 500
+  chunk_overlap: 50
+  max_indexed_documents: 100
+  max_total_chunks: 1000
+  source_files:
+  - path: "./README.md"
+    tags: overview,agent
+  - path: "./WORKFLOW_GUIDE.md"
+    tags: workflow,syntax
+  - path: "./API_REFERENCE.md"
+    tags: api,reference
+global_agent:
+  enabled: true
+  agent:
+    preset: universal
+    overrides:
+      system_prompt: |-
+        你是工作流模板助手，负责帮助用户理解、调试和演示当前工作流。
+        生成或修改 YAML 时必须使用 braidrun-agent 的 snake_case 语法，并优先保持模板可直接运行。
+      tool_set:
+      - workflow
+      - file_system
+      - exit
+      max_iterations: 2048
+      session_id_strategy: per_execution

@@ -1,0 +1,70 @@
+---
+name: test-email-sender
+version: 1.0.0
+description: |
+  Negative-path test for utility-module-email-sender.
+
+  We don't have SMTP credentials in test, so we verify the module's
+  validation guard: passing inputs that lack both body_text and body_html
+  must fail at the pre-flight check (before any SMTP connection).
+
+tags:
+  - code
+  - error_handling
+  - extract
+  - sub_workflow
+
+error_handling:
+  continue_on_error: true
+
+agents: {}
+
+workflow:
+  - step: missing_body
+    sub_workflow:
+      name: utility-module-email-sender
+      inputs:
+        smtp_host: "smtp.example.com"
+        smtp_user: "noreply@example.com"
+        smtp_password: "unused"
+        from_address: "noreply@example.com"
+        to_addresses: "test@example.com"
+        subject: "Test (should never send)"
+        body_text: ""
+        body_html: ""
+      outputs:
+        mail_status: send_status
+        mail_error: error_message
+    on_failure:
+      - next: assert
+    priority: 10
+
+  - step: assert
+    code:
+      language: python
+      timeout: 15
+      script: |
+        import os
+        import sys
+
+        # Module should raise on pre-flight (missing body) — outputs stay empty.
+        status = os.environ.get("WF_VAR_MAIL_STATUS", "").strip()
+        err = os.environ.get("WF_VAR_MAIL_ERROR", "").strip()
+
+        problems = []
+        if status != "":
+            problems.append(f"send_status should be empty (validation raised), got '{status}'")
+        if err != "":
+            problems.append(f"error_message should be empty (validation raised), got '{err}'")
+
+        if problems:
+            print("TEST_STATUS=fail")
+            for p in problems:
+                print(f"  - {p}")
+            sys.exit(1)
+        else:
+            print("TEST_STATUS=pass (module correctly rejected empty body)")
+    extract:
+      - pattern: 'TEST_STATUS=(\w+)'
+        variable: test_status
+    priority: 5

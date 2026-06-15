@@ -1,0 +1,128 @@
+---
+name: test-workflow-with-api-keys
+version: 2.0.0
+tags:
+- 测试
+- API密钥
+description: |
+  测试工作流 - 使用内联 Agent 定义 + API Keys 配置
+  演示如何在工作流中为每个 Agent 配置不同的 LLM 提供商和 API Key
+variables:
+  topic: 人工智能在软件开发中的应用与优势
+  output_dir: "./output"
+  demo_mode: 'true'
+agents:
+  writer:
+    preset: writer
+    overrides:
+      system_prompt: |-
+        你是一位专业的内容写作 Agent。根据给定主题生成高质量的文章内容。
+        写作风格清晰、有吸引力，结构完整。
+
+        共同要求：
+        - 该模板以“可直接运行演示”为第一目标。
+        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
+        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+      session_id_strategy: auto
+  reviewer:
+    preset: universal
+    overrides:
+      system_prompt: |-
+        你是一位内容审阅 Agent。分析内容质量、检查语法，并提供改进建议。
+        审阅要全面、客观，给出具体可操作的反馈。
+
+        共同要求：
+        - 该模板以“可直接运行演示”为第一目标。
+        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
+        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+      session_id_strategy: auto
+  editor:
+    preset: writer
+    overrides:
+      system_prompt: |-
+        你是一位内容编辑 Agent。根据审阅反馈改进文章内容。
+        确保最终版本质量优秀、逻辑通顺、表达精准。
+
+        共同要求：
+        - 该模板以“可直接运行演示”为第一目标。
+        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
+        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+      session_id_strategy: auto
+workflow:
+- step: generate_content
+  agent: writer
+  input: |
+    撰写一篇关于「{{topic}}」的文章（200-300 字）。
+    保存到 {{output_dir}}/draft_article.txt
+
+    要求：
+    1. 如果输出目录不存在，先创建目录
+    2. 内容清晰、有吸引力
+    3. 完成后调用 exit
+  priority: 10
+- step: review_content
+  agent: reviewer
+  depends_on:
+  - generate_content
+  input: |
+    审阅 {{output_dir}}/draft_article.txt 中的文章。
+
+    请从以下维度提供反馈：
+    1. 内容质量与清晰度
+    2. 语法与风格
+    3. 结构与逻辑
+    4. 改进建议
+
+    将审阅结果保存到 {{output_dir}}/review_feedback.txt
+    完成后调用 exit
+  priority: 9
+- step: revise_content
+  agent: editor
+  depends_on:
+  - review_content
+  input: |
+    阅读 {{output_dir}}/draft_article.txt 中的原文和 {{output_dir}}/review_feedback.txt 中的审阅反馈。
+
+    创建改进版本：
+    1. 针对所有反馈点进行修改
+    2. 提升清晰度和可读性
+    3. 将最终版本保存到 {{output_dir}}/final_article.txt
+    4. 在 {{output_dir}}/summary.txt 中说明做了哪些修改
+
+    完成后调用 exit
+  priority: 8
+error_handling:
+  max_retries: 2
+  retry_delay: 3s
+  continue_on_error: false
+timeout:
+  total: 1800s
+  per_step: 600s
+directory_isolation:
+  enabled: true
+  base_dir: ".workflow-runs"
+  working_dir_pattern: "{base_dir}/{execution_id}/{step_name}/workspace"
+  output_dir_pattern: "{base_dir}/{execution_id}/output"
+  persistence_dir_pattern: "{base_dir}/{execution_id}/.snapshots"
+  shared_cache_dir: ".prompt_cache"
+  shared_history_dir: ".agent_history"
+  shared_skills_dir: "./skills"
+  cleanup_on_completion: false
+  cleanup_after_hours: 72
+concurrency:
+  enabled: true
+  max_concurrency: 4
+global_agent:
+  enabled: true
+  agent:
+    preset: universal
+    overrides:
+      system_prompt: |-
+        你是工作流模板助手，负责帮助用户理解、调试和演示当前工作流。
+        生成或修改 YAML 时必须使用 braidrun-agent 的 snake_case 语法，并优先保持模板可直接运行。
+      tool_set:
+      - workflow
+      - file_system
+      - exit
+      max_iterations: 2048
+      session_id_strategy: per_execution

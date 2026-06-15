@@ -1,0 +1,83 @@
+---
+name: test-workflow-variables
+version: 1.0.0
+tags:
+- 测试
+- 变量系统
+description: 变量和模板替换测试 - 使用 CLI -v 传入变量，步骤间通过模板引用输出
+variables:
+  greeting: Hello
+  target: World
+  output_dir: "./output/test-workflow-variables"
+  demo_mode: 'true'
+agents:
+  helper:
+    preset: universal
+    overrides:
+      system_prompt: |-
+        You are a helpful assistant. Complete the task precisely and call exit when done.
+
+        共同要求：
+        - 该模板以“可直接运行演示”为第一目标。
+        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
+        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+      tool_set:
+      - exit
+      - skill_tools
+      - shell
+      - file_system
+      max_iterations: 100
+      session_id_strategy: auto
+workflow:
+- step: write_greeting
+  agent: helper
+  input: |-
+    Create a file called ./output/greeting.txt with exactly this content: "{{var:greeting}}, {{var:target}}!"
+    Do not add any extra text. Then call exit.
+
+    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/write_greeting.md。
+- step: transform
+  agent: helper
+  depends_on:
+  - write_greeting
+  input: |-
+    Read the file ./output/greeting.txt and create a new file ./output/transformed.txt
+    that contains the original content converted to UPPERCASE.
+    Then call exit.
+
+    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/transform.md。
+error_handling:
+  max_retries: 2
+  retry_delay: 3s
+  continue_on_error: false
+timeout:
+  total: 300s
+  per_step: 120s
+directory_isolation:
+  enabled: true
+  base_dir: ".workflow-runs"
+  working_dir_pattern: "{base_dir}/{execution_id}/{step_name}/workspace"
+  output_dir_pattern: "{base_dir}/{execution_id}/output"
+  persistence_dir_pattern: "{base_dir}/{execution_id}/.snapshots"
+  shared_cache_dir: ".prompt_cache"
+  shared_history_dir: ".agent_history"
+  shared_skills_dir: "./skills"
+  cleanup_on_completion: false
+  cleanup_after_hours: 72
+concurrency:
+  enabled: true
+  max_concurrency: 4
+global_agent:
+  enabled: true
+  agent:
+    preset: universal
+    overrides:
+      system_prompt: |-
+        你是工作流模板助手，负责帮助用户理解、调试和演示当前工作流。
+        生成或修改 YAML 时必须使用 braidrun-agent 的 snake_case 语法，并优先保持模板可直接运行。
+      tool_set:
+      - workflow
+      - file_system
+      - exit
+      max_iterations: 2048
+      session_id_strategy: per_execution

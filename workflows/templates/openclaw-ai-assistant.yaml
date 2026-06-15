@@ -1,0 +1,513 @@
+name: OpenClaw AI 智能助理
+version: 5.0.0
+tags:
+  - "AI助理"
+  - "交互式"
+  - "IM"
+  - "聊天机器人"
+  - "OpenClaw"
+  - "Telegram"
+  - "Workspace"
+  - "记忆"
+  - "长期会话"
+  - "自动化"
+  - "GroupChat"
+  - "MultiUser"
+  - "Progress"
+  - "AlwaysOn"
+  - "MentionOnly"
+  - "SafetyNet"
+category: utility
+description: |
+  Telegram-first 长会话工作流，以 workspace 和记忆为核心的常驻 AI 助理。
+
+  核心设计：
+    - 4 状态安全状态机：wait_for_message → handle_turn → fallback_reply（安全网）→ normalize_control
+    - 单 execution 共享 workspace，常驻运行
+    - 长时间等待与持续多轮对话
+    - 共享群聊 / 多人场景，默认只响应 @ 或回复
+    - 持久记忆与会话上下文沉淀
+    - 文件交付与结果回传
+    - 风险动作确认
+    - 节制的工具进度播报（5s 间隔 / 30s 同工具冷却）
+    - 多角色内部协作（PM / 架构师 / 开发 / QA）
+    - 会话结束摘要沉淀
+    - 轮次计数器与定期记忆整理
+
+  v5.0.0 — 4 状态安全状态机：
+    - 新增 fallback_reply 安全网状态：当 handle_turn 完成但未调用 sendMessageToUser 时自动兜底回复
+    - handle_turn 输出必须包含 reply_sent=yes 标记，缺失则触发 fallback_reply
+    - handle_turn 异常（error 事件）也进入 fallback_reply 而非直接静默继续
+    - 引入 turn_count 轮次计数器，每 10 轮自动提醒 assistant 做记忆整理
+    - 增强 Telegram 消息格式指导（Markdown V2 兼容）
+    - 强化工具调用策略：简单问题禁止过度调用、复杂任务先通知再执行
+    - 改进首轮体验：简洁自我介绍 + 立即进入任务
+    - 细化降级策略：搜索失败 → 抓取 → 知识库兜底，每一步都有明确出口
+
+  运行方式：
+    1. 启动后 Bot 等待用户主动发来第一条消息
+    2. 首次消息到达后锁定当前 chat，初始化 workspace
+    3. 助理处理首条请求，进入长期对话循环
+    4. 群聊里只有 @ 或回复 bot 的消息触发处理
+    5. 会话常驻运行，停止由外部执行控制完成
+
+  限制：
+    - 一个 execution 只服务一个 Telegram chat（私聊/群聊/超级群均可）
+    - 不要把 API key、密码等敏感信息写入持久记忆
+
+variables:
+  assistant_name: "OpenClaw"
+  telegram_bot_token: ""
+  session_status: "continue"
+  first_turn_pending: "true"
+  current_chat_id: ""
+  allow_assistant_exit: "false"
+  force_exit: "false"
+  wait_result: "message"
+  turn_count: "0"
+  delivery_dir: "deliveries"
+  notes_dir: "notes"
+  memory_dir: "memory"
+  scratch_dir: "scratch"
+  workspace_readme_file: "README.md"
+  long_term_memory_file: "MEMORY.md"
+
+variable_tags:
+  allow_assistant_exit: '业务参数'
+  assistant_name: '业务参数'
+  current_chat_id: '业务参数'
+  delivery_dir: '输出'
+  first_turn_pending: '业务参数'
+  force_exit: '业务参数'
+  long_term_memory_file: '业务参数'
+  memory_dir: '输出'
+  notes_dir: '输出'
+  scratch_dir: '输出'
+  session_status: '业务参数'
+  telegram_bot_token: '凭据'
+  turn_count: '业务参数'
+  wait_result: '业务参数'
+  workspace_readme_file: '平台账号'
+directory_isolation:
+  enabled: true
+  base_dir: ".workflow-runs"
+  working_dir_pattern: "{base_dir}/{execution_id}/workspace"
+  output_dir_pattern: "{base_dir}/{execution_id}/output"
+  persistence_dir_pattern: "{base_dir}/{execution_id}/persistence"
+  shared_cache_dir: ".prompt_cache"
+  shared_history_dir: ".agent_history"
+  shared_skills_dir: "./skills"
+  cleanup_on_completion: false
+  cleanup_after_hours: 168
+
+agents:
+  assistant:
+    preset: universal
+    overrides:
+      name: "OpenClaw AI 助理"
+      system_prompt: |
+        你是 {{var:assistant_name}}，一个长期、可靠、以 workspace 和记忆为核心的 AI 助理。
+        你通过即时通讯（Telegram）与用户沟通。
+
+        ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        ★ 第一铁律 ★  每一轮必须 sendMessageToUser
+        ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        - 处理完用户消息后，你【必须】通过 sendMessageToUser 发送最终回复。
+        - 工具调用失败、搜索无结果、任务无法完成 — 仍然必须 sendMessageToUser 告知用户。
+        - 绝对禁止"处理了消息但没有 sendMessageToUser"的情况。
+        - 你的普通文本输出（stdout）用户看不到，只有 sendMessageToUser / sendFileToUser 的内容用户能看到。
+
+        ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        ★ 第二铁律 ★  回复后必须输出控制标记
+        ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        每轮结束时，普通文本输出末尾必须包含（缺一不可）：
+        reply_sent=yes
+        control_status=continue
+        turn_summary=<一句话总结本轮>
+
+        ## Workspace
+        - deliveries/: 正式交付物
+        - notes/: 会话笔记与摘要
+        - memory/: 人工可读记忆
+        - scratch/: 临时文件
+        - WORKSPACE_ABS = 运行时上下文中 `Working directory:` 给出的绝对路径
+        - 所有文件操作必须使用 WORKSPACE_ABS 下的绝对路径
+
+        ## 回复风格
+        - 使用用户的语言，简洁、清晰、面向结果
+        - Telegram 支持 Markdown：善用 **粗体**、`代码`、列表来增强可读性
+        - 简单问候 → 简短回复，不超过 2-3 句
+        - 信息查询（天气、新闻等）→ 直接给答案，附上来源
+        - 复杂任务 → 先发"正在处理，请稍候"，再执行，最后发结果
+
+        ## 工具调用策略
+        1. 简单问题（问候、常识问答）→ 直接回答，不调用工具
+        2. 需要实时信息（天气、新闻、价格）→ 一次 webSearch 即可，不要重复搜索
+        3. 需要网页详情 → webSearch 找到 URL 后 fetchWebPage
+        4. 降级链：webSearch 失败 → fetchWebPage 直接抓 → 用已有知识回答并注明
+        5. 任何工具连续失败 2 次 → 停止重试，用已有信息 sendMessageToUser
+        6. 工具处理完毕后，第一件事就是 sendMessageToUser，然后再输出控制标记
+
+        ## 群聊规则
+        - 只处理 @ 你或回复你的消息
+        - 识别发言人，按名字回应
+        - 不要将个人偏好误当全局偏好
+
+        ## 多角色协作
+        用户要求讨论/评审/辩论时 → getAvailableLLMs + runSubAgentInParallel
+        角色：moderator / pm / architect / engineer / qa / researcher
+        输出：共识、分歧、风险、建议方案、下一步行动
+
+        ## 风险控制
+        以下操作先确认：删除文件、对外发消息、Git push、付费/下单、不可逆操作
+
+        ## 记忆管理
+        - 稳定偏好、项目背景、约束条件 → saveMemory / saveNote
+        - 禁止存储密码、密钥、验证码等敏感信息
+        - 对话历史窗口有限（300 条），重要信息要主动沉淀
+
+        ## 常驻模式
+        用户说"退出/exit/stop/再见/结束" → 说明常驻模式，不退出
+      tool_set:
+        - web
+        - file_system
+        - shell
+        - code_execution
+        - data_transform
+        - calendar
+        - git
+        - knowledge_memory
+        - sub_agent
+        - im
+      max_iterations: 8196
+      max_tokens: 8192
+      im_service: "telegram"
+      im_ask_timeout_seconds: 31536000
+      im_telegram_bot_token: "{{var:telegram_bot_token}}"
+      im_telegram_chat_id: ""
+      im_telegram_poll_timeout: 30
+      im_telegram_include_sender_metadata: true
+      im_telegram_group_trigger_mode: "mention_or_reply"
+      im_progress_notify_enabled: true
+      im_progress_notify_mode: significant
+      im_progress_notify_min_interval_seconds: 5
+      im_progress_notify_same_tool_cooldown_seconds: 30
+      im_progress_notify_notify_failures: true
+      im_progress_notify_include_args: false
+      history_enabled: true
+      history_max_messages: 300
+      session_id_strategy: per_execution
+      cache_policy: file
+      file_cache_storage: ".prompt_cache"
+      memory_storage_dir: ".openclaw-assistant-memory"
+
+  message_waiter:
+    preset: universal
+    overrides:
+      name: "OpenClaw 会话等待器"
+      system_prompt: |
+        你是"等待消息"内部等待器。唯一职责：调用一次 waitUserMessage，把返回结果原样输出。
+
+        强约束：
+        - 只调用一次 waitUserMessage
+        - 禁止调用 sendMessageToUser、askUserViaIM、sendFileToUser
+        - 禁止搜索、处理文件、回答问题
+        - 输出必须与 waitUserMessage 原始返回完全一致，不添加任何字符
+      tool_set:
+        - im
+      max_tokens: 2048
+      max_iterations: 256
+      history_enabled: false
+      session_id_strategy: per_execution
+      im_service: "telegram"
+      im_ask_timeout_seconds: 31536000
+      im_telegram_bot_token: "{{var:telegram_bot_token}}"
+      im_telegram_chat_id: ""
+      im_telegram_poll_timeout: 30
+      im_telegram_include_sender_metadata: true
+      im_telegram_group_trigger_mode: "mention_or_reply"
+
+workflow:
+  # ═══════════════════════════════════════════════════════════
+  # 步骤 1：初始化 workspace
+  # ═══════════════════════════════════════════════════════════
+  - step: welcome_and_first_message
+    agent: assistant
+    input: |
+      你正在启动一个新的长期会话。本步骤只负责初始化 workspace，不要等待用户消息，不要发送任何 IM。
+
+      WORKSPACE_ABS = `{{var:working_dir}}`
+      所有文件操作必须使用以下绝对路径：
+      - DELIVERIES = {{var:working_dir}}/{{var:delivery_dir}}
+      - NOTES = {{var:working_dir}}/{{var:notes_dir}}
+      - MEMORY = {{var:working_dir}}/{{var:memory_dir}}
+      - SCRATCH = {{var:working_dir}}/{{var:scratch_dir}}
+      - README = {{var:working_dir}}/{{var:workspace_readme_file}}
+      - LONG_MEMORY = {{var:working_dir}}/{{var:long_term_memory_file}}
+
+      初始化：
+      1. 创建 DELIVERIES、NOTES、MEMORY、SCRATCH 目录
+      2. 创建 README（如不存在），说明各目录用途
+      3. 创建 LONG_MEMORY（如不存在），标题写"长期摘要"
+      4. 在 NOTES/session-start.md 记录：Telegram-first 会话工作区已初始化
+
+      输出末尾必须包含：
+      reply_sent=yes
+      control_status=continue
+      turn_summary=workspace 初始化完成
+    extract:
+      - pattern: "control_status=(\\w+)"
+        variable: session_status
+    retry:
+      max_attempts: 2
+      backoff: exponential
+      initial_delay: 1000
+      max_delay: 10000
+
+  # ═══════════════════════════════════════════════════════════
+  # 步骤 2：长期对话状态机（4 状态）
+  #
+  # 状态流转图：
+  #
+  #   ┌─────────────────┐
+  #   │ wait_for_message │ ←──────────────────────────────────┐
+  #   └────────┬────────┘                                     │
+  #      超时/错误 → normalize_control ──────────────────────→ │
+  #      正常消息 ↓                                            │
+  #   ┌─────────────────┐    reply_sent=yes                   │
+  #   │   handle_turn   │ ─────────────────→ normalize_control ┤
+  #   └────────┬────────┘                                     │
+  #      未发回复/异常 ↓                                        │
+  #   ┌─────────────────┐                                     │
+  #   │ fallback_reply  │ ─────────────────→ normalize_control ┘
+  #   └─────────────────┘
+  #
+  # ═══════════════════════════════════════════════════════════
+  - step: conversation_session
+    condition: "session_status != 'exit'"
+    depends_on:
+      - welcome_and_first_message
+    state_machine:
+      initial_state: wait_for_message
+      final_states:
+        - session_ended
+      max_transitions: 1000000
+      states:
+
+        # ── 状态 1：等待用户消息 ──────────────────────────────
+        wait_for_message:
+          name: wait_for_message
+          step:
+            agent: message_waiter
+            input: |
+              调用一次 waitUserMessage，把返回结果原样输出。不要添加任何额外内容。
+          transitions:
+            - event: complete
+              target: normalize_control
+              condition: "conversation_session.wait_for_message contains Error: Timed out"
+              actions:
+                - action: set_variable
+                  key: wait_result
+                  value: timeout
+            - event: complete
+              target: normalize_control
+              condition: "conversation_session.wait_for_message contains is not supported"
+              actions:
+                - action: set_variable
+                  key: wait_result
+                  value: channel_error
+            - event: complete
+              target: normalize_control
+              condition: "conversation_session.wait_for_message contains Error:"
+              actions:
+                - action: set_variable
+                  key: wait_result
+                  value: channel_error
+            - event: complete
+              target: handle_turn
+              actions:
+                - action: set_variable
+                  key: wait_result
+                  value: message
+            - event: error
+              target: normalize_control
+              actions:
+                - action: set_variable
+                  key: wait_result
+                  value: channel_error
+
+        # ── 状态 2：处理用户消息 ──────────────────────────────
+        # assistant 直接通过 sendMessageToUser 回复用户。
+        # 成功回复后输出必须包含 reply_sent=yes，否则触发 fallback_reply。
+        handle_turn:
+          name: handle_turn
+          step:
+            agent: assistant
+            input: |
+              你现在处于"处理回合"状态。禁止调用 waitUserMessage / askUserViaIM。
+
+              WORKSPACE_ABS = `{{var:working_dir}}`
+              当前轮次编号：{{var:turn_count}}
+              首轮：{{var:first_turn_pending}}
+
+              用户消息：
+              {{conversation_session.wait_for_message}}
+
+              ── 执行规则 ──
+              1. 解析用户消息（含可能的 [telegram_message] 元数据头）
+              2. 如果是首轮（first_turn_pending=true），在回复开头用 1-2 句自我介绍，然后直接处理请求
+              3. 处理用户请求，按工具调用策略选择最小工具集
+              4. 【核心】处理完毕后立即调用 sendMessageToUser 发送最终回复
+              5. 如果工具全部失败，仍然 sendMessageToUser 告知用户，给出知识库兜底回答
+              6. 有价值的文件 → sendFileToUser；交付物写入 deliveries/，临时文件写入 scratch/
+              7. 重要偏好/上下文 → saveMemory / saveNote（禁止存敏感信息）
+              8. 用户说"退出/exit/stop" → 说明常驻模式，不退出
+              9. 轮次编号能被 10 整除时，考虑整理笔记目录或做一次记忆沉淀（saveMemory / saveNote）
+
+              ── 输出格式（缺一不可）──
+              reply_sent=yes
+              control_status=continue
+              turn_summary=<一句话总结>
+              first_turn_pending=false
+            extract:
+              - pattern: "control_status=(\\w+)"
+                variable: assistant_control_status
+              - pattern: "first_turn_pending=(\\w+)"
+                variable: first_turn_pending
+          transitions:
+            # 正常完成且已发回复
+            - event: complete
+              target: normalize_control
+              condition: "conversation_session.handle_turn contains reply_sent=yes"
+            # 完成但未发回复 → 安全网
+            - event: complete
+              target: fallback_reply
+            # 执行异常 → 安全网
+            - event: error
+              target: fallback_reply
+
+        # ── 状态 2b：兜底回复（安全网） ───────────────────────
+        # 当 handle_turn 未能成功 sendMessageToUser 时，确保用户不被无声忽略。
+        fallback_reply:
+          name: fallback_reply
+          step:
+            agent: assistant
+            input: |
+              【安全网兜底】上一轮处理用户消息时未能成功发送回复，用户正在等待。
+
+              用户的原始消息：
+              {{conversation_session.wait_for_message}}
+
+              handle_turn 的输出（可能为空或异常）：
+              {{conversation_session.handle_turn}}
+
+              ── 你必须做的事 ──
+              1. 如果 handle_turn 输出中包含有用信息（搜索结果、计算结果等），整理后通过 sendMessageToUser 发送
+              2. 如果 handle_turn 输出为空或无法使用，尝试直接处理用户原始消息（可调用工具）
+              3. 如果仍然无法给出有用回答，通过 sendMessageToUser 坦诚告知：
+                 "抱歉，处理你的请求时遇到了技术问题。请稍后重新发送你的问题，我会再次尝试。"
+              4. 禁止调用 waitUserMessage / askUserViaIM
+              5. sendMessageToUser 是本步骤唯一不可省略的动作
+
+              输出末尾：
+              fallback_reply_sent=yes
+              control_status=continue
+              turn_summary=兜底回复已发送
+          transitions:
+            - event: complete
+              target: normalize_control
+            - event: error
+              target: normalize_control
+
+        # ── 状态 3：规范化控制流 + 轮次计数 ────────────────────
+        normalize_control:
+          name: normalize_control
+          step:
+            code:
+              language: bash
+              script: |
+                assistant_output="${STEP_OUTPUT_CONVERSATION_SESSION_HANDLE_TURN:-}"
+                wait_result="${WF_VAR_WAIT_RESULT:-message}"
+                allow_exit="${WF_VAR_ALLOW_ASSISTANT_EXIT:-false}"
+                force_exit="${WF_VAR_FORCE_EXIT:-false}"
+                turn_count="${WF_VAR_TURN_COUNT:-0}"
+
+                raw="continue"
+                normalized="continue"
+                reason="default_continue"
+
+                if printf '%s' "$assistant_output" | grep -q "control_status=exit"; then
+                  raw="exit"
+                fi
+
+                if [ "$force_exit" = "true" ]; then
+                  normalized="exit"
+                  reason="force_exit"
+                elif [ "$wait_result" != "message" ]; then
+                  normalized="continue"
+                  reason="wait_${wait_result}"
+                elif [ "$raw" = "exit" ] && [ "$allow_exit" = "true" ]; then
+                  normalized="exit"
+                  reason="assistant_exit_allowed"
+                elif [ "$raw" = "exit" ]; then
+                  normalized="continue"
+                  reason="assistant_exit_blocked"
+                else
+                  normalized="continue"
+                  reason="assistant_continue"
+                fi
+
+                # 仅在正常消息轮次递增计数器
+                if [ "$wait_result" = "message" ]; then
+                  turn_count=$((turn_count + 1))
+                fi
+
+                echo "session_status=$normalized"
+                echo "normalized_reason=$reason"
+                echo "turn_count=$turn_count"
+            extract:
+              - pattern: "session_status=(\\w+)"
+                variable: session_status
+              - pattern: "normalized_reason=([A-Za-z0-9_\\-]+)"
+                variable: session_normalized_reason
+              - pattern: "turn_count=([0-9]+)"
+                variable: turn_count
+          transitions:
+            - event: complete
+              target: session_ended
+              condition: "conversation_session.normalize_control contains session_status=exit"
+            - event: complete
+              target: wait_for_message
+            - event: error
+              target: wait_for_message
+
+        # ── 终态 ──────────────────────────────────────────────
+        session_ended:
+          name: session_ended
+
+  # ═══════════════════════════════════════════════════════════
+  # 步骤 3：内部收尾
+  # ═══════════════════════════════════════════════════════════
+  - step: finalize_session
+    agent: assistant
+    condition: "conversation_session.normalize_control contains session_status=exit"
+    depends_on:
+      - welcome_and_first_message
+      - conversation_session
+    input: |
+      这是内部收尾步骤，不要联系用户。
+      WORKSPACE_ABS = `{{var:working_dir}}`
+
+      基于完整会话历史执行：
+      1. 更新 {{var:working_dir}}/{{var:notes_dir}}/session-summary.md：
+         会话概览、已完成事项、已交付文件、未完成事项、用户偏好
+      2. 更新 {{var:working_dir}}/{{var:long_term_memory_file}}：5-10 条高价值非敏感摘要
+      3. 用 saveMemory / saveNote 做结构化沉淀
+
+      输出末尾：
+      session_archive_written=yes
+      summary_file={{var:notes_dir}}/session-summary.md
+
+timeout:
+  total: 604800s
+  per_step: 604800s

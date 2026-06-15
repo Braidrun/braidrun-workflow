@@ -1,0 +1,141 @@
+---
+name: group-chat-brainstorm
+version: 3.0.0
+tags:
+- 头脑风暴
+- 创意协作
+- 团队讨论
+- 多角色协作
+- group_chat
+category: utility
+description: |
+  多角色头脑风暴工作流，模拟产品团队协作：PM 进行市场调研，PM/设计师/工程师三方 round-robin 讨论产品 MVP 方案（用户画像、交互设计、技术可行性），最终由 PM 输出包含用户故事和里程碑的 PRD 文档。
+  特性：group_chat 多角色协作头脑风暴
+variables:
+  product_idea: 一个面向开发者的 AI 编程助手
+  output_dir: "./output/group-chat-brainstorm"
+  demo_mode: 'true'
+variable_tags:
+  demo_mode: '运行模式'
+  output_dir: '输出'
+  product_idea: '业务参数'
+agents:
+  pm:
+    preset: universal
+    overrides:
+      system_prompt: |-
+        你是一名产品经理，擅长需求分析、用户画像和产品规划。
+
+        共同要求：
+        - 该模板以“可直接运行演示”为第一目标。
+        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
+        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+      session_id_strategy: per_execution
+  designer:
+    preset: universal
+    overrides:
+      system_prompt: |-
+        你是一名 UX 设计师，擅长用户体验设计、交互设计和视觉设计。
+
+        共同要求：
+        - 该模板以“可直接运行演示”为第一目标。
+        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
+        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+      session_id_strategy: auto
+  engineer:
+    preset: coder
+    overrides:
+      system_prompt: |-
+        你是一名资深软件工程师，擅长系统架构设计和技术可行性评估。
+
+        共同要求：
+        - 该模板以“可直接运行演示”为第一目标。
+        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
+        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+      session_id_strategy: auto
+workflow:
+- step: market_research
+  agent: pm
+  input: |-
+    对以下产品方向进行市场调研和竞品分析：{{product_idea}}
+
+    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/market_research.md。
+- step: team_brainstorm
+  group_chat:
+    participants:
+    - pm
+    - designer
+    - engineer
+    moderator: pm
+    max_rounds: 8
+    speaker_selection: round_robin
+    termination_keyword: CONSENSUS_REACHED
+    initial_message: |-
+      基于市场调研结果，让我们讨论产品方案：
+
+      {{steps.market_research.output}}
+
+      请各自从自己的专业角度分析：
+      - PM：目标用户和核心功能
+      - Designer：用户体验和交互方案
+      - Engineer：技术架构和可行性
+
+      讨论目标：达成产品 MVP 方案共识。
+
+      讨论结束时请给出一段可复用的结论摘要，便于后续步骤直接保存为 demo 交付物。
+    summary_agent: pm
+  depends_on:
+  - market_research
+- step: write_prd
+  agent: pm
+  input: |-
+    基于团队讨论的结论，撰写产品需求文档（PRD）：
+
+    {{steps.team_brainstorm.output}}
+
+    PRD 应包含：
+    1. 产品概述
+    2. 目标用户
+    3. 核心功能列表（MVP）
+    4. 用户故事
+    5. 非功能需求
+    6. 里程碑规划
+
+    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/write_prd.md。
+  depends_on:
+  - team_brainstorm
+error_handling:
+  max_retries: 2
+  retry_delay: 3s
+  continue_on_error: false
+timeout:
+  total: 1800s
+  per_step: 300s
+directory_isolation:
+  enabled: true
+  base_dir: ".workflow-runs"
+  working_dir_pattern: "{base_dir}/{execution_id}/{step_name}/workspace"
+  output_dir_pattern: "{base_dir}/{execution_id}/output"
+  persistence_dir_pattern: "{base_dir}/{execution_id}/.snapshots"
+  shared_cache_dir: ".prompt_cache"
+  shared_history_dir: ".agent_history"
+  shared_skills_dir: "./skills"
+  cleanup_on_completion: false
+  cleanup_after_hours: 72
+concurrency:
+  enabled: true
+  max_concurrency: 4
+global_agent:
+  enabled: true
+  agent:
+    preset: universal
+    overrides:
+      system_prompt: |-
+        你是工作流模板助手，负责帮助用户理解、调试和演示当前工作流。
+        生成或修改 YAML 时必须使用 braidrun-agent 的 snake_case 语法，并优先保持模板可直接运行。
+      tool_set:
+      - workflow
+      - file_system
+      - exit
+      max_iterations: 2048
+      session_id_strategy: per_execution

@@ -1,0 +1,111 @@
+---
+name: test-state-condition-evaluator
+version: 1.0.0
+description: |
+  Test harness for braidrun-module-state-condition-evaluator.
+
+  Three cases:
+  - all metrics in healthy band → state=healthy
+  - one metric in alert band → state=alert
+  - two metrics in alert + critical_breach_count=2 → state=critical
+
+tags:
+  - code
+  - extract
+  - sub_workflow
+
+variables:
+  thresholds: |
+    {
+      "churn_rate": {"healthy_max": 3, "watch_max": 5, "alert_max": 8},
+      "refund_rate": {"healthy_max": 1, "watch_max": 2, "alert_max": 4}
+    }
+
+agents: {}
+
+workflow:
+  - step: healthy_case
+    sub_workflow:
+      name: braidrun-module-state-condition-evaluator
+      inputs:
+        metrics_json: '{"churn_rate": 2.0, "refund_rate": 0.5}'
+        thresholds_json: "{{var:thresholds}}"
+        critical_breach_count: "2"
+      outputs:
+        healthy_state: state
+        healthy_msg: message
+        healthy_alert_count: alert_count
+        healthy_watch_count: watch_count
+    priority: 10
+
+  - step: alert_case
+    sub_workflow:
+      name: braidrun-module-state-condition-evaluator
+      inputs:
+        metrics_json: '{"churn_rate": 6.5, "refund_rate": 0.5}'
+        thresholds_json: "{{var:thresholds}}"
+        critical_breach_count: "2"
+      outputs:
+        alert_state: state
+        alert_msg: message
+        alert_alert_count: alert_count
+    priority: 9
+
+  - step: critical_case
+    sub_workflow:
+      name: braidrun-module-state-condition-evaluator
+      inputs:
+        metrics_json: '{"churn_rate": 7.0, "refund_rate": 3.0}'
+        thresholds_json: "{{var:thresholds}}"
+        critical_breach_count: "2"
+      outputs:
+        critical_state: state
+        critical_msg: message
+        critical_alert_count: alert_count
+    priority: 8
+
+  - step: assert
+    code:
+      language: python
+      timeout: 15
+      script: |
+        import os
+        import sys
+
+        problems = []
+
+        # healthy case
+        if os.environ.get("WF_VAR_HEALTHY_STATE", "").strip() != "healthy":
+            problems.append(f"healthy_state != 'healthy': {os.environ.get('WF_VAR_HEALTHY_STATE')}")
+        if os.environ.get("WF_VAR_HEALTHY_ALERT_COUNT", "").strip() not in ("0", ""):
+            problems.append(f"healthy alert_count should be 0, got {os.environ.get('WF_VAR_HEALTHY_ALERT_COUNT')}")
+
+        # alert case: 6.5 churn_rate falls in (watch_max=5, alert_max=8] → alert
+        if os.environ.get("WF_VAR_ALERT_STATE", "").strip() != "alert":
+            problems.append(f"alert_state != 'alert': {os.environ.get('WF_VAR_ALERT_STATE')}")
+        alert_count = os.environ.get("WF_VAR_ALERT_ALERT_COUNT", "0").strip()
+        if alert_count != "1":
+            problems.append(f"alert case alert_count != 1, got {alert_count}")
+
+        # critical case: both churn and refund in alert band; 2 >= critical_breach_count=2 → critical
+        if os.environ.get("WF_VAR_CRITICAL_STATE", "").strip() != "critical":
+            problems.append(f"critical_state != 'critical': {os.environ.get('WF_VAR_CRITICAL_STATE')}")
+        c_count = os.environ.get("WF_VAR_CRITICAL_ALERT_COUNT", "0").strip()
+        if c_count != "2":
+            problems.append(f"critical alert_count != 2, got {c_count}")
+
+        if problems:
+            print("TEST_STATUS=fail")
+            for p in problems:
+                print(f"  - {p}")
+            sys.exit(1)
+        else:
+            print("TEST_STATUS=pass")
+    extract:
+      - pattern: 'TEST_STATUS=(\w+)'
+        variable: test_status
+    depends_on:
+      - healthy_case
+      - alert_case
+      - critical_case
+    priority: 5

@@ -1,0 +1,562 @@
+---
+name: google-ads-app-campaign
+version: 3.0.0
+tags:
+- Google Ads
+- 广告投放
+- 应用推广
+- 并行处理
+- extract
+- parallel
+category: marketing
+description: |
+  Google Ads App 通用广告系列完整工作流。
+  从市场分析到规模化扩展的全链路 Google Ads 管理：市场分析 → 策略制定 → 受众定位 → 文案与创意制作 → 广告系列配置 → 转化跟踪 → 监控与优化 → 扩展策略。
+  适用场景：移动应用在 Google Ads 生态（搜索、展示、YouTube、Discovery）的广告投放与持续优化。
+  特性：多步骤 DAG 并行执行、细粒度广告优化策略
+variables:
+  app_name: My App
+  app_id: com.example.myapp
+  platform: iOS
+  budget_daily: '100'
+  target_cpi: '3.0'
+  target_countries: US,GB,CA,AU
+  campaign_objective: install
+  output_dir: "./output/google-ads-app-campaign"
+  demo_mode: 'true'
+variable_tags:
+  app_id: '平台账号'
+  app_name: '平台账号'
+  budget_daily: '业务参数'
+  campaign_objective: '业务参数'
+  demo_mode: '运行模式'
+  output_dir: '输出'
+  platform: '平台账号'
+  target_countries: '业务参数'
+  target_cpi: '业务参数'
+agents:
+  ads_strategist:
+    preset: researcher
+    overrides:
+      system_prompt: |-
+        你是 Google Ads App 广告专家，擅长：
+        - App 广告策略制定
+        - 受众定位
+        - 出价策略优化
+        - 预算分配
+        基于数据提供可执行的广告策略。
+
+        共同要求：
+        - 该模板以“可直接运行演示”为第一目标。
+        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
+        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+      session_id_strategy: per_execution
+  ad_copywriter:
+    preset: writer
+    overrides:
+      system_prompt: |-
+        你是专业的移动应用广告文案撰写者，精通：
+        - App 广告标题和描述
+        - 吸引用户点击的文案技巧
+        - A/B 测试文案变体
+        - 本地化文案
+        创作简洁、有吸引力的广告文案。
+
+        共同要求：
+        - 该模板以“可直接运行演示”为第一目标。
+        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
+        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+      session_id_strategy: auto
+  audience_analyst:
+    preset: researcher
+    overrides:
+      system_prompt: |-
+        你是移动应用受众分析专家，负责：
+        - 用户画像分析
+        - 受众细分
+        - 再营销受众设计
+        - 相似受众拓展
+        提供精准的受众定位方案。
+
+        共同要求：
+        - 该模板以“可直接运行演示”为第一目标。
+        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
+        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+      session_id_strategy: auto
+  creative_advisor:
+    preset: researcher
+    overrides:
+      system_prompt: |-
+        你是 App 广告创意设计顾问，擅长：
+        - 广告素材规划
+        - 视频广告脚本
+        - 图片广告设计指导
+        - 创意测试策略
+        提供创意方向和素材需求。
+
+        共同要求：
+        - 该模板以“可直接运行演示”为第一目标。
+        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
+        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+      session_id_strategy: auto
+  ads_executor:
+    preset: universal
+    overrides:
+      system_prompt: |-
+        你是 Google Ads 操作专家，熟悉：
+        - Google Ads API
+        - 广告系列配置
+        - 广告组设置
+        - 转化跟踪配置
+        提供详细的操作步骤和配置参数。
+
+        共同要求：
+        - 该模板以“可直接运行演示”为第一目标。
+        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
+        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+      session_id_strategy: per_execution
+  data_analyst:
+    preset: data_analyst
+    overrides:
+      system_prompt: |-
+        你是数字广告数据分析专家，精通：
+        - 广告效果分析
+        - ROI 计算
+        - 数据可视化
+        - 优化建议
+        基于数据提供洞察和优化方案。
+
+        共同要求：
+        - 该模板以“可直接运行演示”为第一目标。
+        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
+        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+      session_id_strategy: per_execution
+  optimization_specialist:
+    preset: universal
+    overrides:
+      system_prompt: |-
+        你是 App 广告优化专家，负责：
+        - 出价调整策略
+        - 预算重分配
+        - 受众优化
+        - 创意优化
+        提供持续优化改进方案。
+
+        共同要求：
+        - 该模板以“可直接运行演示”为第一目标。
+        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
+        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+      session_id_strategy: auto
+workflow:
+- step: market-analysis
+  agent: ads_strategist
+  input: |
+    分析 {{app_name}} ({{app_id}}) 的广告市场：
+
+    平台：{{platform}}
+    目标国家：{{target_countries}}
+    预算：${{budget_daily}}/天
+    目标 CPI：${{target_cpi}}
+
+    分析内容：
+    1. 目标市场竞争情况
+    2. 典型的 CPI 范围
+    3. 推荐的广告系列类型
+    4. 季节性因素
+    5. 预期安装量预测
+
+    输出必须包含以下格式化指标：
+    - campaign_count=N（广告系列数）
+    - daily_budget=N（日预算金额）
+    输出到：market-analysis.md
+  extract:
+  - pattern: campaign_count=(\d+)
+    variable: campaign_count
+  - pattern: daily_budget=(\d+)
+    variable: daily_budget
+  priority: 10
+  timeout_seconds: 300
+- step: campaign-strategy
+  agent: ads_strategist
+  input: |
+    制定 Google Ads App 广告系列策略：
+
+    市场分析：{{steps.market-analysis.output}}
+    广告目标：{{campaign_objective}}
+
+    策略包含：
+    1. 广告系列架构（数量、类型）
+    2. 出价策略（tCPI、tCPA、Maximize Conversions）
+    3. 预算分配方案
+    4. 投放时段规划
+    5. 地理位置优先级
+    6. 成功指标和 KPI
+
+    输出到：campaign-strategy.md
+  depends_on:
+  - market-analysis
+  priority: 9
+- step: audience-segmentation
+  agent: audience_analyst
+  input: |
+    设计受众定位方案：
+
+    App 信息：{{app_name}} - {{platform}}
+    目标国家：{{target_countries}}
+    广告策略：{{steps.campaign-strategy.output}}
+
+    创建：
+    1. 核心受众定义（人口统计、兴趣）
+    2. 应用内受众（活跃用户、付费用户）
+    3. 再营销受众列表
+    4. 相似受众拓展策略
+    5. 排除受众（已安装用户等）
+
+    输出到：audience-targeting.md
+  depends_on:
+  - campaign-strategy
+  priority: 8
+  timeout_seconds: 240
+- step: ad-copy-creation
+  agent: ad_copywriter
+  input: |
+    为 {{app_name}} 创建广告文案：
+
+    目标受众：{{steps.audience-segmentation.output}}
+    目标国家：{{target_countries}}
+
+    创建至少 5 组文案变体，每组包含：
+    1. 标题（最多 30 字符）
+    2. 描述行 1（最多 90 字符）
+    3. 描述行 2（最多 90 字符）
+    4. 行动号召（CTA）
+
+    注意：
+    - 突出 App 核心价值
+    - 包含数字和具体好处
+    - 针对不同受众群体
+    - 符合 Google Ads 政策
+
+    输出到：ad-copy-variants.md
+  depends_on:
+  - audience-segmentation
+  priority: 8
+  parallel:
+    tasks:
+    - 为新用户创建广告文案
+    - 为再营销用户创建广告文案
+    - 为竞品用户创建广告文案
+    max_parallel: 3
+    aggregate_results: true
+- step: creative-assets-plan
+  agent: creative_advisor
+  input: |
+    规划广告创意素材：
+
+    App：{{app_name}}
+    平台：{{platform}}
+    文案：{{steps.ad-copy-creation.output}}
+
+    素材需求：
+    1. HTML5 广告规格和要点
+    2. 视频广告脚本（15s、30s）
+    3. 图片广告规格（横版、竖版）
+    4. App 图标优化建议
+    5. 截图选择建议
+
+    创意测试策略：
+    - A/B 测试计划
+    - 创意轮换设置
+
+    输出到：creative-assets-plan.md
+  depends_on:
+  - ad-copy-creation
+  priority: 7
+- step: campaign-setup-guide
+  agent: ads_executor
+  input: |-
+    创建 Google Ads App 广告系列配置：
+
+    策略：{{steps.campaign-strategy.output}}
+    受众：{{steps.audience-segmentation.output}}
+    文案：{{steps.ad-copy-creation.output}}
+
+    配置内容：
+    1. 广告系列设置
+       - 名称：{{app_name}}-{{campaign_objective}}-{{platform}}
+       - 目标：{{campaign_objective}}
+       - 预算：${{budget_daily}}/天
+       - 出价策略：目标 CPI ${{target_cpi}}
+       - 地理位置：{{target_countries}}
+
+    2. 广告组设置
+       - 受众定位
+       - 设备定位
+       - 语言设置
+
+    3. 广告素材配置
+       - 标题和描述
+       - 素材资源
+
+    4. 转化跟踪
+       - 应用内事件设置
+       - 转化目标
+
+    输出详细操作步骤到：campaign-setup-guide.md
+
+    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/campaign-setup-guide.md。
+  depends_on:
+  - campaign-strategy
+  - audience-segmentation
+  - ad-copy-creation
+  - creative-assets-plan
+  priority: 6
+  timeout_seconds: 300
+- step: tracking-setup
+  agent: ads_executor
+  input: |
+    配置转化跟踪和归因：
+
+    App：{{app_name}} ({{app_id}})
+    平台：{{platform}}
+
+    配置：
+    1. Google Analytics for Firebase 集成
+    2. 应用内事件定义
+       - 首次打开
+       - 注册
+       - 应用内购买
+       - 其他关键事件
+
+    3. 转化值规则
+    4. 归因模型选择
+    5. 转化窗口设置
+
+    输出到：tracking-setup-guide.md
+  depends_on:
+  - campaign-setup-guide
+  priority: 6
+- step: pre-launch-checklist
+  agent: ads_executor
+  input: |
+    创建广告投放前检查清单：
+
+    广告系列配置：{{steps.campaign-setup-guide.output}}
+    跟踪配置：{{steps.tracking-setup.output}}
+
+    检查项：
+    1. ✓ 广告系列设置正确
+    2. ✓ 预算和出价合理
+    3. ✓ 受众定位准确
+    4. ✓ 广告文案和素材完整
+    5. ✓ 转化跟踪已配置并测试
+    6. ✓ 账单信息有效
+    7. ✓ 广告符合政策要求
+    8. ✓ 排除受众设置正确
+
+    输出到：pre-launch-checklist.md
+  depends_on:
+  - tracking-setup
+  priority: 5
+- step: monitoring-dashboard-setup
+  agent: data_analyst
+  input: |
+    设计广告监控仪表板：
+
+    KPI：
+    - 展示次数、点击次数、CTR
+    - 安装次数、CPI
+    - 应用内事件转化率
+    - ROI / ROAS
+
+    监控频率：
+    - 实时监控（前 24-48 小时）
+    - 每日监控（前 1-2 周）
+    - 每周监控（之后）
+
+    预警阈值：
+    - CPI > {{target_cpi}} * 1.3
+    - CTR < 行业平均的 70%
+    - 转化率显著下降
+
+    输出到：monitoring-dashboard.md
+  depends_on:
+  - pre-launch-checklist
+  priority: 4
+- step: optimization-playbook
+  agent: optimization_specialist
+  input: |
+    创建广告优化策略手册：
+
+    初始配置：{{steps.campaign-setup-guide.output}}
+
+    优化策略（按优先级）：
+
+    1. **预算优化**（启动后 3-7 天）
+       - 分析各国家/地区 CPI
+       - 暂停高 CPI 地区
+       - 增加低 CPI 地区预算
+
+    2. **受众优化**（启动后 7-14 天）
+       - 分析受众表现
+       - 排除低质量受众
+       - 扩展高价值受众
+
+    3. **出价优化**（启动后 14+ 天）
+       - 根据实际 CPI 调整目标
+       - 测试不同出价策略
+       - 日间出价调整
+
+    4. **创意优化**（持续）
+       - 暂停低 CTR 创意
+       - 添加新创意变体
+       - A/B 测试结果分析
+
+    5. **转化优化**（启动后 30+ 天）
+       - 优化应用内事件
+       - 调整转化价值
+       - 改进用户留存
+
+    输出到：optimization-playbook.md
+  depends_on:
+  - monitoring-dashboard-setup
+  priority: 4
+  timeout_seconds: 300
+- step: weekly-report-template
+  agent: data_analyst
+  input: |
+    创建每周广告效果报告模板：
+
+    报告内容：
+    1. **执行摘要**
+       - 关键指标概览
+       - 周环比变化
+       - 主要洞察
+
+    2. **核心指标**
+       - 展示、点击、CTR
+       - 安装、CPI
+       - 转化、CVR
+       - 花费、ROI
+
+    3. **细分分析**
+       - 按国家/地区
+       - 按受众
+       - 按创意
+       - 按设备
+
+    4. **优化建议**
+       - 本周实施的优化
+       - 下周优化计划
+       - 长期改进方向
+
+    5. **风险和机会**
+       - 需要关注的问题
+       - 增长机会
+
+    输出到：weekly-report-template.md
+  depends_on:
+  - optimization-playbook
+  priority: 3
+- step: scaling-strategy
+  agent: ads_strategist
+  input: |
+    制定广告系列扩展策略：
+
+    当前配置：{{steps.campaign-setup-guide.output}}
+    优化策略：{{steps.optimization-playbook.output}}
+
+    扩展方案（当 ROI > 1.5 且稳定时）：
+
+    1. **纵向扩展**
+       - 增加预算（每次 +20-30%）
+       - 提高出价上限
+
+    2. **横向扩展**
+       - 新增地理位置
+       - 拓展受众定位
+       - 增加广告系列
+
+    3. **创意扩展**
+       - 制作更多广告变体
+       - 测试新的创意形式
+       - 本地化素材
+
+    4. **平台扩展**
+       - YouTube 广告
+       - Display Network
+       - Discovery 广告
+
+    风险控制：
+    - 每次调整监控 3-5 天
+    - 保持对照组
+    - 设置预算上限
+
+    输出到：scaling-strategy.md
+  depends_on:
+  - optimization-playbook
+  priority: 2
+- step: campaign-playbook
+  agent: ads_strategist
+  input: |
+    汇总完整的 Google Ads App 广告运营手册：
+
+    包含所有文档：
+    - 市场分析：{{steps.market-analysis.output}}
+    - 广告策略：{{steps.campaign-strategy.output}}
+    - 受众定位：{{steps.audience-segmentation.output}}
+    - 广告文案：{{steps.ad-copy-creation.output}}
+    - 创意规划：{{steps.creative-assets-plan.output}}
+    - 配置指南：{{steps.campaign-setup-guide.output}}
+    - 跟踪设置：{{steps.tracking-setup.output}}
+    - 监控仪表板：{{steps.monitoring-dashboard-setup.output}}
+    - 优化手册：{{steps.optimization-playbook.output}}
+    - 扩展策略：{{steps.scaling-strategy.output}}
+
+    创建：
+    1. 快速启动指南（Quick Start）
+    2. 关键决策摘要
+    3. 时间线和里程碑
+    4. 常见问题 FAQ
+    5. 资源和工具清单
+
+    输出到：Google-Ads-Campaign-Playbook.md
+  depends_on:
+  - scaling-strategy
+  - weekly-report-template
+  priority: 1
+error_handling:
+  max_retries: 2
+  retry_delay: 10s
+  continue_on_error: false
+timeout:
+  total: 3600s
+  per_step: 300s
+directory_isolation:
+  enabled: true
+  base_dir: ".workflow-runs"
+  working_dir_pattern: "{base_dir}/{execution_id}/{step_name}/workspace"
+  output_dir_pattern: "{base_dir}/{execution_id}/output"
+  persistence_dir_pattern: "{base_dir}/{execution_id}/.snapshots"
+  shared_cache_dir: ".prompt_cache"
+  shared_history_dir: ".agent_history"
+  shared_skills_dir: "./skills"
+  cleanup_on_completion: false
+  cleanup_after_hours: 72
+concurrency:
+  enabled: true
+  max_concurrency: 4
+global_agent:
+  enabled: true
+  agent:
+    preset: universal
+    overrides:
+      system_prompt: |-
+        你是工作流模板助手，负责帮助用户理解、调试和演示当前工作流。
+        生成或修改 YAML 时必须使用 braidrun-agent 的 snake_case 语法，并优先保持模板可直接运行。
+      tool_set:
+      - workflow
+      - file_system
+      - exit
+      max_iterations: 2048
+      session_id_strategy: per_execution

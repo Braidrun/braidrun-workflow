@@ -1,0 +1,103 @@
+provider: ollama
+aliases:
+- local
+- olla
+models:
+  "gpt-oss:120b":
+    id: "gpt-oss:120b"
+    capabilities: temperature, tool_choice, json.basic, json, speculation, tools, vision, document, completion, multiple_choices, openai.completions
+    context_length: 128000
+    max_output_tokens: 128000
+  # ===== Popular Ollama models =====
+  "llama3.3":
+    id: "llama3.3"
+    capabilities: standard
+    context_length: 131072
+  "llama3.2":
+    id: "llama3.2"
+    capabilities: standard
+    context_length: 131072
+  "llama3.2-vision":
+    id: "llama3.2-vision"
+    capabilities: multimodal
+    context_length: 131072
+  "llama3.1":
+    id: "llama3.1"
+    capabilities: standard
+    context_length: 131072
+  "llama3":
+    id: "llama3"
+    capabilities: standard
+    context_length: 8192
+  "gemma3":
+    id: "gemma3"
+    capabilities: multimodal
+    context_length: 131072
+  "gemma2":
+    id: "gemma2"
+    capabilities: standard
+    context_length: 8192
+  "qwen3":
+    id: "qwen3"
+    capabilities: standard
+    context_length: 131072
+  "qwen2.5":
+    id: "qwen2.5"
+    capabilities: standard
+    context_length: 131072
+  "qwen2.5-coder":
+    id: "qwen2.5-coder"
+    capabilities: standard
+    context_length: 131072
+  "deepseek-r1":
+    id: "deepseek-r1"
+    capabilities: standard
+    context_length: 131072
+  "deepseek-v3":
+    id: "deepseek-v3"
+    capabilities: standard
+    context_length: 131072
+  "phi4":
+    id: "phi4"
+    capabilities: standard
+    context_length: 16384
+  "phi3":
+    id: "phi3"
+    capabilities: standard
+    context_length: 131072
+  "mistral":
+    id: "mistral"
+    capabilities: standard
+    context_length: 32768
+  "mistral-nemo":
+    id: "mistral-nemo"
+    capabilities: standard
+    context_length: 131072
+  "mixtral":
+    id: "mixtral"
+    capabilities: standard
+    context_length: 32768
+  "codellama":
+    id: "codellama"
+    capabilities: standard
+    context_length: 16384
+  "command-r":
+    id: "command-r"
+    capabilities: standard
+    context_length: 131072
+  "command-r-plus":
+    id: "command-r-plus"
+    capabilities: standard
+    context_length: 131072
+  "llava":
+    id: "llava"
+    capabilities: multimodal
+    context_length: 4096
+  "starcoder2":
+    id: "starcoder2"
+    capabilities: standard
+    context_length: 16384
+  "codestral":
+    id: "codestral"
+    capabilities: standard
+    context_length: 32768

@@ -1,0 +1,111 @@
+id: excel_workbook
+display_name: "Excel Workbook Agent"
+description: "专注表格建模与报表生成的Agent。擅长创建复杂的Excel工作簿、数据表、仪表盘和公式报表。"
+category: document
+icon: "📗"
+builtin: true
+parameters:
+
+  # ============================================================
+  # 1. CORE SETTINGS
+  # ============================================================
+  type: universal_agent
+  name: "Excel Workbook Agent"
+  language: auto
+  agent_version: "1.0.0"
+  working_dir: "."
+  output_dir: "."
+  system_prompt: >-
+    You are a professional Excel workbook specialist. You excel at creating
+    complex .xlsx workbooks, dashboards, trackers, planning sheets, and
+    formula-driven reports. Use Excel tools to manage sheets, formatting,
+    images, formulas, validations, merged cells, and freeze panes. Use CSV
+    and data transformation tools when data needs to be imported, cleaned,
+    or reshaped before writing it into workbooks. Keep structures tidy and
+    sheet naming intentional. For any request to create, generate, model,
+    format, analyze, or revise an Excel workbook, first call useSkill with
+    skillName="braidrun-excel-workbook" and follow that skill workflow before
+    using Excel tools.
+
+  # ============================================================
+  # 2. LLM CONFIGURATION
+  # ============================================================
+  llm_config:
+    models:
+      - model: minimax-m2.7
+        provider: open_router
+    fallback:
+      model: minimax-m2.7
+      provider: open_router
+    temperature: 0.7
+
+  retry_max_attempts: 3
+  retry_initial_delay: 1000
+  retry_max_delay: 10000
+
+  # ============================================================
+  # 3. STRATEGY & EXECUTION
+  # ============================================================
+  strategy: just_work_parallel
+  sub_agent_strategy: just_work_parallel
+  max_iterations: 4096
+  num_choices: 1
+  disable_cache_for_streaming: false
+
+  # ============================================================
+  # 4. TOOL SETS
+  # ============================================================
+  tool_set:
+    - exit
+    - sub_agent
+    - shell
+    - file_system
+    - excel
+    - csv
+    - data_transform
+    - image_processing
+    - web
+    - skill_tools
+
+  # ============================================================
+  # 5. CACHE POLICY
+  # ============================================================
+  cache_policy: file
+  memory_cache_max_entries: 4096
+  file_cache_storage: ".prompt_cache"
+  max_files: 1024
+
+  # ============================================================
+  # 6. STATE MANAGEMENT
+  # ============================================================
+  persistence_storage_type: file
+  enable_persistence: false
+  persistence_storage_root: ".snapshots"
+  history_enabled: true
+  history_storage_root: ".agent_history"
+  history_max_messages: 50
+
+  # ============================================================
+  # 7. TRACING
+  # ============================================================
+  enable_langfuse_tracing: false
+
+  # ============================================================
+  # 8. SKILL TOOLS
+  # ============================================================
+  clawhub_base_url: "https://clawhub.ai"
+  clawhub_cache_dir: "./skills"
+  skills_config:
+    skillWhitelistMode: false
+    autoSearchDownload: false
+
+  # ============================================================
+  # 9. BROWSER
+  # ============================================================
+  PLAYWRIGHT_HEADLESS: true
+
+  # ============================================================
+  # 10. OPENROUTER
+  # ============================================================
+  openrouter_http_referer: "https://braidrun.io"
+  openrouter_x_title: "Braidrun Agent"

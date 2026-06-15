@@ -1,0 +1,282 @@
+provider: openai
+aliases:
+- open_ai
+models:
+  # ===== GPT-5.5 series =====
+  "gpt-5.5-pro":
+    id: "gpt-5.5-pro"
+    capabilities: multimodal
+    context_length: 1050000
+  "gpt-5.5":
+    id: "gpt-5.5"
+    capabilities: multimodal
+    context_length: 1050000
+  "gpt-5.5-chat":
+    id: "gpt-5.5-chat"
+    capabilities: multimodal
+    context_length: 128000
+  "gpt-5.5-codex":
+    id: "gpt-5.5-codex"
+    capabilities: multimodal
+    context_length: 400000
+  "gpt-5.5-mini":
+    id: "gpt-5.5-mini"
+    capabilities: multimodal
+    context_length: 400000
+  "gpt-5.5-nano":
+    id: "gpt-5.5-nano"
+    capabilities: multimodal
+    context_length: 400000
+  # ===== GPT-5.4 series =====
+  "gpt-5.4-image-2":
+    id: "gpt-5.4-image-2"
+    capabilities: multimodal
+    context_length: 272000
+  "gpt-5.4-pro":
+    id: "gpt-5.4-pro"
+    capabilities: multimodal
+    context_length: 1050000
+  "gpt-5.4":
+    id: "gpt-5.4"
+    capabilities: multimodal
+    context_length: 1050000
+  "gpt-5.3-chat":
+    id: "gpt-5.3-chat"
+    capabilities: multimodal
+    context_length: 128000
+  "gpt-5.3-codex":
+    id: "gpt-5.3-codex"
+    capabilities: multimodal
+    context_length: 400000
+  "gpt-5.2-pro":
+    id: "gpt-5.2-pro"
+    capabilities: multimodal
+    context_length: 400000
+  "gpt-5.2-codex":
+    id: "gpt-5.2-codex"
+    capabilities: multimodal
+    context_length: 400000
+  "gpt-5.2-chat":
+    id: "gpt-5.2-chat"
+    capabilities: multimodal
+    context_length: 128000
+  "gpt-5.2":
+    id: "gpt-5.2"
+    capabilities: multimodal
+    context_length: 400000
+  "gpt-5.1-codex":
+    id: "gpt-5.1-codex"
+    capabilities: multimodal
+    context_length: 400000
+  "gpt-5.1-chat":
+    id: "gpt-5.1-chat"
+    capabilities: multimodal
+    context_length: 128000
+  "gpt-5.1":
+    id: "gpt-5.1"
+    capabilities: multimodal
+    context_length: 400000
+  "gpt5":
+    id: "gpt-5"
+    capabilities: json.basic, json, speculation, tools, tool_choice, vision, document, completion, multiple_choices, openai.completions, openai.responses
+    context_length: 400000
+    max_output_tokens: 128000
+  "gpt-5":
+    id: "gpt-5"
+    capabilities: json.basic, json, speculation, tools, tool_choice, vision, document, completion, multiple_choices, openai.completions, openai.responses
+    context_length: 400000
+    max_output_tokens: 128000
+  "openai:gpt-5":
+    id: "gpt-5"
+    capabilities: json.basic, json, speculation, tools, tool_choice, vision, document, completion, multiple_choices, openai.completions, openai.responses
+    context_length: 400000
+    max_output_tokens: 128000
+  "gpt-5-pro":
+    id: "gpt-5-pro"
+    capabilities: multimodal
+    context_length: 400000
+  "gpt-5-chat":
+    id: "gpt-5-chat"
+    capabilities: multimodal
+    context_length: 128000
+  "gpt5-nano":
+    id: "gpt-5-nano"
+    capabilities: json.basic, json, speculation, tools, tool_choice, vision, document, completion, multiple_choices, openai.completions, openai.responses
+    context_length: 400000
+    max_output_tokens: 128000
+  "gpt-5-nano":
+    id: "gpt-5-nano"
+    capabilities: json.basic, json, speculation, tools, tool_choice, vision, document, completion, multiple_choices, openai.completions, openai.responses
+    context_length: 400000
+    max_output_tokens: 128000
+  "gpt5-mini":
+    id: "gpt-5-mini"
+    capabilities: json.basic, json, speculation, tools, tool_choice, vision, document, completion, multiple_choices, openai.completions, openai.responses
+    context_length: 400000
+    max_output_tokens: 128000
+  "gpt-5-mini":
+    id: "gpt-5-mini"
+    capabilities: json.basic, json, speculation, tools, tool_choice, vision, document, completion, multiple_choices, openai.completions, openai.responses
+    context_length: 400000
+    max_output_tokens: 128000
+  "gpt-5-codex":
+    id: "gpt-5-codex"
+    capabilities: multimodal
+    context_length: 400000
+  "gpt-5-image":
+    id: "gpt-5-image"
+    capabilities: multimodal
+    context_length: 400000
+  "gpt-5-image-mini":
+    id: "gpt-5-image-mini"
+    capabilities: multimodal
+    context_length: 400000
+  # ===== GPT-4.1 series =====
+  "gpt-4.1":
+    id: "gpt-4.1"
+    capabilities: temperature, json.basic, json, speculation, tools, tool_choice, vision, document, completion, multiple_choices, openai.completions, openai.responses
+    context_length: 1047576
+    max_output_tokens: 32768
+  "gpt-4.1-mini":
+    id: "gpt-4.1-mini"
+    capabilities: multimodal
+    context_length: 1047576
+  "gpt-4.1-nano":
+    id: "gpt-4.1-nano"
+    capabilities: multimodal
+    context_length: 1047576
+  # ===== GPT-4o series =====
+  "gpt-4o":
+    id: "gpt-4o"
+    capabilities: temperature, tool_choice, json.basic, json, speculation, tools, vision, document, completion, multiple_choices, openai.completions, openai.responses
+    context_length: 128000
+    max_output_tokens: 16384
+  "gpt-4o-2024-11-20":
+    id: "gpt-4o-2024-11-20"
+    capabilities: multimodal
+    context_length: 128000
+    max_output_tokens: 16384
+  "gpt-4o-2024-08-06":
+    id: "gpt-4o-2024-08-06"
+    capabilities: multimodal
+    context_length: 128000
+    max_output_tokens: 16384
+  "gpt-4o-2024-05-13":
+    id: "gpt-4o-2024-05-13"
+    capabilities: multimodal
+    context_length: 128000
+    max_output_tokens: 4096
+  "gpt-4o-mini":
+    id: "gpt-4o-mini"
+    capabilities: temperature, json.basic, json, speculation, tools, tool_choice, vision, document, completion, multiple_choices, openai.completions, openai.responses
+    context_length: 128000
+    max_output_tokens: 16384
+  "gpt-4o-mini-2024-07-18":
+    id: "gpt-4o-mini-2024-07-18"
+    capabilities: multimodal
+    context_length: 128000
+    max_output_tokens: 16384
+  "gpt-4o-search-preview":
+    id: "gpt-4o-search-preview"
+    capabilities: multimodal
+    context_length: 128000
+  "gpt-4o-mini-search-preview":
+    id: "gpt-4o-mini-search-preview"
+    capabilities: multimodal
+    context_length: 128000
+  # ===== GPT-4 Turbo =====
+  "gpt-4-turbo":
+    id: "gpt-4o"
+    capabilities: temperature, tool_choice, json.basic, json, speculation, tools, vision, document, completion, multiple_choices, openai.completions, openai.responses
+    context_length: 128000
+    max_output_tokens: 16384
+  "gpt-4-turbo-2024-04-09":
+    id: "gpt-4-turbo-2024-04-09"
+    capabilities: multimodal
+    context_length: 128000
+    max_output_tokens: 4096
+  "gpt-4-turbo-preview":
+    id: "gpt-4-turbo-preview"
+    capabilities: standard
+    context_length: 128000
+    max_output_tokens: 4096
+  # ===== GPT-4 base =====
+  "gpt-4":
+    id: "gpt-4"
+    capabilities: standard
+    context_length: 8192
+    max_output_tokens: 8192
+  "gpt-4-32k":
+    id: "gpt-4-32k"
+    capabilities: standard
+    context_length: 32768
+  # ===== GPT-3.5 =====
+  "gpt-3.5-turbo":
+    id: "gpt-3.5-turbo"
+    capabilities: standard
+    context_length: 16385
+    max_output_tokens: 4096
+  "gpt-3.5-turbo-0125":
+    id: "gpt-3.5-turbo-0125"
+    capabilities: standard
+    context_length: 16385
+    max_output_tokens: 4096
+  # ===== Audio models =====
+  "gpt-audio":
+    id: "gpt-audio"
+    capabilities: multimodal
+    context_length: 128000
+  "gpt-audio-mini":
+    id: "gpt-audio-mini"
+    capabilities: multimodal
+    context_length: 128000
+  # ===== Reasoning models (o-series) =====
+  "o1":
+    id: "o1"
+    capabilities: multimodal
+    context_length: 200000
+  "o1-pro":
+    id: "o1-pro"
+    capabilities: multimodal
+    context_length: 200000
+  "o1-mini":
+    id: "o1-mini"
+    capabilities: multimodal
+    context_length: 128000
+  "o1-preview":
+    id: "o1-preview"
+    capabilities: multimodal
+    context_length: 128000
+  "o3":
+    id: "o3"
+    capabilities: multimodal
+    context_length: 200000
+  "o3-pro":
+    id: "o3-pro"
+    capabilities: multimodal
+    context_length: 200000
+  "o3-mini":
+    id: "o3-mini"
+    capabilities: multimodal
+    context_length: 200000
+  "o3-mini-high":
+    id: "o3-mini-high"
+    capabilities: multimodal
+    context_length: 200000
+  "o4-mini":
+    id: "o4-mini"
+    capabilities: multimodal
+    context_length: 200000
+  "o4-mini-high":
+    id: "o4-mini-high"
+    capabilities: multimodal
+    context_length: 200000
+  # ===== Embeddings (text only, no chat) =====
+  "text-embedding-3-large":
+    id: "text-embedding-3-large"
+    capabilities: standard
+    context_length: 8191
+  "text-embedding-3-small":
+    id: "text-embedding-3-small"
+    capabilities: standard
+    context_length: 8191

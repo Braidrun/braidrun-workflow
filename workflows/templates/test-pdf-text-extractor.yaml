@@ -1,0 +1,60 @@
+---
+name: test-pdf-text-extractor
+version: 1.0.0
+description: Test pdf-text-extractor — generate a small PDF then extract text.
+tags:
+  - code
+  - extract
+  - sub_workflow
+
+agents: {}
+workflow:
+  - step: setup
+    code:
+      language: python
+      timeout: 60
+      script: |
+        import subprocess, sys, tempfile
+        from pathlib import Path
+        try:
+          from reportlab.pdfgen import canvas
+        except ImportError:
+          subprocess.run([sys.executable, "-m", "pip", "install", "--quiet", "reportlab"], check=True)
+          from reportlab.pdfgen import canvas
+        p = Path(tempfile.mkdtemp(prefix="pdf_test_")) / "demo.pdf"
+        c = canvas.Canvas(str(p))
+        c.drawString(100, 750, "BRAIDRUN TEST PDF CONTENT")
+        c.drawString(100, 730, "Hello World line 2")
+        c.save()
+        print(f"pdf_path={p}")
+    extract:
+      - {pattern: 'pdf_path=(.+)', variable: pdf_path}
+    priority: 20
+  - step: extract
+    sub_workflow:
+      name: utility-module-pdf-text-extractor
+      inputs: {pdf_path: "{{var:pdf_path}}", max_pages: "5"}
+      outputs:
+        full: full_text
+        pages: page_count
+        status: pdf_status
+    depends_on: [setup]
+    priority: 10
+  - step: assert
+    code:
+      language: python
+      timeout: 15
+      script: |
+        import os, sys
+        full = os.environ.get("WF_VAR_FULL", "")
+        problems = []
+        if os.environ.get("WF_VAR_STATUS") != "ok": problems.append("status")
+        if os.environ.get("WF_VAR_PAGES") != "1": problems.append(f"pages={os.environ.get('WF_VAR_PAGES')}")
+        if "BRAIDRUN TEST PDF CONTENT" not in full: problems.append(f"text missing: {full[:300]}")
+        if problems:
+          print("TEST_STATUS=fail"); [print(f"  - {p}") for p in problems]; sys.exit(1)
+        print("TEST_STATUS=pass")
+    extract:
+      - {pattern: 'TEST_STATUS=(\w+)', variable: test_status}
+    depends_on: [extract]
+    priority: 5

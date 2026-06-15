@@ -1,0 +1,56 @@
+# 多媒体生成模型定义
+# 用于图像生成和音频生成，通过 OpenRouter API 路由。
+# 新增模型只需在此文件添加条目，无需改代码。
+# 用户也可在 ./models/multimedia.yaml 覆盖或扩展。
+
+image_models:
+  # ===== Google Gemini Image =====
+  "google/gemini-3.1-flash-image-preview":
+    description: "Google Gemini 3.1 Flash Image Preview - Latest and most advanced"
+    default: true
+  "google/gemini-3-pro-image-preview":
+    description: "Google Gemini 3 Pro Image Preview"
+  "google/gemini-2.5-flash-image":
+    description: "Google Gemini 2.5 Flash Image"
+  "google/gemini-2.5-flash-image-preview":
+    description: "Google Gemini 2.5 Flash Image Preview"
+  # ===== OpenAI Image =====
+  "openai/gpt-5-image":
+    description: "OpenAI GPT-5 Image - High quality image generation"
+  "openai/gpt-5-image-mini":
+    description: "OpenAI GPT-5 Image Mini - Cost-efficient image generation"
+  "openai/gpt-4o-image":
+    description: "OpenAI GPT-4o Image generation"
+  # ===== Flux (via OpenRouter) =====
+  "black-forest-labs/flux-1.1-pro":
+    description: "Flux 1.1 Pro - High quality image generation by Black Forest Labs"
+  "black-forest-labs/flux-1-schnell":
+    description: "Flux 1 Schnell - Fast image generation by Black Forest Labs"
+  "black-forest-labs/flux-1-dev":
+    description: "Flux 1 Dev - Development version by Black Forest Labs"
+  # ===== Stable Diffusion =====
+  "stabilityai/stable-diffusion-3.5-large":
+    description: "Stable Diffusion 3.5 Large"
+  "stabilityai/stable-diffusion-3.5-medium":
+    description: "Stable Diffusion 3.5 Medium"
+  # ===== Recraft =====
+  "recraft/recraft-v3":
+    description: "Recraft V3 - Professional design-focused image generation"
+  # ===== Ideogram =====
+  "ideogram/ideogram-v2":
+    description: "Ideogram V2 - Text-in-image generation"
+
+audio_models:
+  # ===== OpenAI Audio =====
+  "openai/gpt-audio":
+    description: "OpenAI GPT Audio - High quality audio generation with natural voices"
+    default: true
+  "openai/gpt-audio-mini":
+    description: "OpenAI GPT Audio Mini - Cost-efficient audio generation"
+  "openai/gpt-4o-audio-preview":
+    description: "OpenAI GPT-4o Audio Preview - Preview version with experimental features"
+  "openai/gpt-4o-mini-audio-preview":
+    description: "OpenAI GPT-4o Mini Audio Preview"
+  # ===== ElevenLabs (via OpenRouter) =====
+  "elevenlabs/elevenlabs-tts":
+    description: "ElevenLabs TTS - Professional text-to-speech"

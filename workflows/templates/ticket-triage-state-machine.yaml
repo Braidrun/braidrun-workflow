@@ -1,0 +1,166 @@
+---
+name: ticket-triage-state-machine
+version: 1.0.0
+tags:
+- state_machine
+- classifier
+- automation
+- support
+category: automation
+description: |
+  工单智能分诊与处理状态机工作流。利用 classifier 自动识别工单类型（技术/计费/一般），
+  通过状态机驱动分类后的差异化处理流程，最终由 DAG 下游步骤统一汇总处理结果。
+  适用于客服支持、IT 服务台等需要智能分流和专项处理的工单场景。
+variables:
+  ticket_text: 用户反馈“支付成功后套餐没有生效，还收到重复扣费通知”
+  output_dir: "./output"
+variable_tags:
+  output_dir: '输出'
+  ticket_text: '业务参数'
+agents:
+  classifier_agent:
+    preset: universal
+    overrides:
+      system_prompt: "You are a support ticket classifier. Return only the best category."
+      tool_set: [exit]
+      max_iterations: 2048
+      session_id_strategy: auto
+  billing_agent:
+    preset: universal
+    overrides:
+      system_prompt: "You are a billing support specialist."
+      tool_set: [exit, file_system]
+      max_iterations: 4096
+      session_id_strategy: auto
+  technical_agent:
+    preset: universal
+    overrides:
+      system_prompt: "You are a technical support specialist."
+      tool_set: [exit, file_system]
+      max_iterations: 4096
+      session_id_strategy: auto
+  general_agent:
+    preset: universal
+    overrides:
+      system_prompt: "You are a general support specialist."
+      tool_set: [exit, file_system]
+      max_iterations: 4096
+      session_id_strategy: auto
+  summarizer:
+    preset: universal
+    overrides:
+      system_prompt: "You summarize support workflows."
+      tool_set: [exit, file_system]
+      max_iterations: 4096
+      session_id_strategy: auto
+workflow:
+- step: triage_machine
+  state_machine:
+    initial_state: classify
+    final_states:
+    - technical_done
+    - billing_done
+    - general_done
+    max_transitions: 10
+    states:
+      classify:
+        name: classify
+        step:
+          classifier:
+            agent: classifier_agent
+            input: |
+              请对以下工单进行分类：
+              {{var:ticket_text}}
+            categories:
+            - name: technical
+              description: 系统错误、登录异常、功能故障、配置问题
+            - name: billing
+              description: 扣费、退款、账单、套餐变更相关问题
+            - name: general
+              description: 一般咨询、功能介绍、反馈建议
+            output_variable: ticket_category
+            default_category: general
+        transitions:
+        - event: complete
+          target: handle_technical
+          condition: ticket_category == technical
+        - event: complete
+          target: handle_billing
+          condition: ticket_category == billing
+        - event: complete
+          target: handle_general
+          condition: ticket_category == general
+      handle_technical:
+        name: handle_technical
+        step:
+          agent: technical_agent
+          input: |
+            处理以下技术问题，并输出可执行的排查清单：
+            {{var:ticket_text}}
+        transitions:
+        - event: complete
+          target: technical_done
+      handle_billing:
+        name: handle_billing
+        step:
+          agent: billing_agent
+          input: |
+            处理以下计费问题，并输出建议的客服回复：
+            {{var:ticket_text}}
+        transitions:
+        - event: complete
+          target: billing_done
+      handle_general:
+        name: handle_general
+        step:
+          agent: general_agent
+          input: |
+            回答以下一般咨询，并输出一版简短回复：
+            {{var:ticket_text}}
+        transitions:
+        - event: complete
+          target: general_done
+      technical_done:
+        name: technical_done
+      billing_done:
+        name: billing_done
+      general_done:
+        name: general_done
+- step: triage_summary
+  agent: summarizer
+  input: |
+    生成工单状态机执行摘要，并保存到 {{var:output_dir}}/ticket_triage_summary.md：
+    分类结果：{{var:ticket_category}}
+    最终状态：{{var:triage_machine_final_state}}
+    历史：{{var:triage_machine_history}}
+    处理输出：{{var:triage_machine_last_output}}
+  depends_on:
+  - triage_machine
+directory_isolation:
+  enabled: true
+  base_dir: ".workflow-runs"
+  working_dir_pattern: "{base_dir}/{execution_id}/{step_name}/workspace"
+  output_dir_pattern: "{base_dir}/{execution_id}/output"
+  persistence_dir_pattern: "{base_dir}/{execution_id}/.snapshots"
+  shared_cache_dir: ".prompt_cache"
+  shared_history_dir: ".agent_history"
+  shared_skills_dir: "./skills"
+  cleanup_on_completion: false
+  cleanup_after_hours: 72
+concurrency:
+  enabled: false
+  max_concurrency: 0
+global_agent:
+  enabled: true
+  agent:
+    preset: universal
+    overrides:
+      system_prompt: |-
+        你是工作流模板助手，负责帮助用户理解、调试和演示当前工作流。
+        生成或修改 YAML 时必须使用 braidrun-agent 的 snake_case 语法，并优先保持模板可直接运行。
+      tool_set:
+      - workflow
+      - file_system
+      - exit
+      max_iterations: 2048
+      session_id_strategy: per_execution

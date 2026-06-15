@@ -1,0 +1,128 @@
+---
+name: test-workflow-long-running
+version: 1.0.0
+tags:
+- 测试
+- 长时运行
+description: 长时间运行与进度监控测试 - 测试 WebSocket 实时更新、进度追踪和取消功能
+variables:
+  output_dir: "./output"
+  total_items: '5'
+  demo_mode: 'true'
+agents:
+  worker:
+    preset: universal
+    overrides:
+      system_prompt: |-
+        You are a precise assistant. Follow instructions exactly. Call exit when done.
+
+        共同要求：
+        - 该模板以“可直接运行演示”为第一目标。
+        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
+        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+      tool_set:
+      - exit
+      - skill_tools
+      - file_system
+      - shell
+      max_iterations: 100
+      session_id_strategy: auto
+workflow:
+- step: prepare
+  agent: worker
+  priority: 10
+  input: |-
+    Create the directory {{var:output_dir}}/long_running if it doesn't exist.
+    Create a file {{var:output_dir}}/long_running/config.json with this content:
+    {"total_items": {{var:total_items}}, "status": "started"}
+    Then call exit.
+
+    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/prepare.md。
+- step: process_batch_1
+  agent: worker
+  depends_on:
+  - prepare
+  input: |-
+    Create a file {{var:output_dir}}/long_running/batch_1.txt with content:
+    "Batch 1: Processing items 1-2 of {{var:total_items}}"
+    Then call exit.
+
+    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/process_batch_1.md。
+- step: process_batch_2
+  agent: worker
+  depends_on:
+  - process_batch_1
+  input: |-
+    Create a file {{var:output_dir}}/long_running/batch_2.txt with content:
+    "Batch 2: Processing items 3-4 of {{var:total_items}}"
+    Then call exit.
+
+    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/process_batch_2.md。
+- step: process_batch_3
+  agent: worker
+  depends_on:
+  - process_batch_2
+  input: |-
+    Create a file {{var:output_dir}}/long_running/batch_3.txt with content:
+    "Batch 3: Processing item 5 of {{var:total_items}}"
+    Then call exit.
+
+    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/process_batch_3.md。
+- step: validate_results
+  agent: worker
+  depends_on:
+  - process_batch_3
+  input: |-
+    Read all batch files in {{var:output_dir}}/long_running/ directory.
+    Verify that batch_1.txt, batch_2.txt, and batch_3.txt all exist.
+    Create {{var:output_dir}}/long_running/validation.txt with content "All batches validated".
+    Then call exit.
+
+    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/validate_results.md。
+- step: generate_report
+  agent: worker
+  depends_on:
+  - validate_results
+  input: |-
+    Read the validation file and all batch files from {{var:output_dir}}/long_running/.
+    Update {{var:output_dir}}/long_running/config.json to:
+    {"total_items": {{var:total_items}}, "status": "completed", "batches_processed": 3}
+    Create {{var:output_dir}}/long_running/final_report.txt summarizing all processed batches.
+    Then call exit.
+
+    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/generate_report.md。
+error_handling:
+  max_retries: 2
+  retry_delay: 3s
+  continue_on_error: false
+timeout:
+  total: 900s
+  per_step: 180s
+directory_isolation:
+  enabled: true
+  base_dir: ".workflow-runs"
+  working_dir_pattern: "{base_dir}/{execution_id}/{step_name}/workspace"
+  output_dir_pattern: "{base_dir}/{execution_id}/output"
+  persistence_dir_pattern: "{base_dir}/{execution_id}/.snapshots"
+  shared_cache_dir: ".prompt_cache"
+  shared_history_dir: ".agent_history"
+  shared_skills_dir: "./skills"
+  cleanup_on_completion: false
+  cleanup_after_hours: 72
+concurrency:
+  enabled: true
+  max_concurrency: 4
+global_agent:
+  enabled: true
+  agent:
+    preset: universal
+    overrides:
+      system_prompt: |-
+        你是工作流模板助手，负责帮助用户理解、调试和演示当前工作流。
+        生成或修改 YAML 时必须使用 braidrun-agent 的 snake_case 语法，并优先保持模板可直接运行。
+      tool_set:
+      - workflow
+      - file_system
+      - exit
+      max_iterations: 2048
+      session_id_strategy: per_execution

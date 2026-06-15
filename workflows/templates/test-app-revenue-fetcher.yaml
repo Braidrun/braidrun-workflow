@@ -1,0 +1,135 @@
+---
+name: test-app-revenue-fetcher
+version: 1.0.0
+description: |
+  Test harness for braidrun-module-app-revenue-fetcher — chains app-list-fetcher
+  + time-window-resolver to get real app_ids + windowed date range, then
+  fetches actual revenue data.
+
+tags:
+  - code
+  - error_handling
+  - extract
+  - sub_workflow
+
+variables:
+  test_username: ""
+  test_password: ""
+
+error_handling:
+  continue_on_error: true
+
+agents: {}
+
+workflow:
+  - step: resolve_window
+    sub_workflow:
+      name: braidrun-module-time-window-resolver
+      inputs:
+        lookback_days: "7"
+        report_timezone: "Asia/Shanghai"
+      outputs:
+        start_date: start_date
+        end_date: end_date
+        start_ms: start_ms
+        end_ms: end_ms
+    priority: 30
+
+  - step: fetch_apps
+    sub_workflow:
+      name: braidrun-module-app-list-fetcher
+      inputs:
+        username: "{{var:test_username}}"
+        password: "{{var:test_password}}"
+        braidrun_platform: "braidrun"
+        max_apps: "3"
+      outputs:
+        fetched_app_ids: app_ids_csv
+    priority: 25
+
+  - step: fetch_revenue
+    sub_workflow:
+      name: braidrun-module-app-revenue-fetcher
+      inputs:
+        username: "{{var:test_username}}"
+        password: "{{var:test_password}}"
+        braidrun_platform: "braidrun"
+        app_ids_csv: "{{var:fetched_app_ids}}"
+        start_date: "{{var:start_date}}"
+        end_date: "{{var:end_date}}"
+        start_ms: "{{var:start_ms}}"
+        end_ms: "{{var:end_ms}}"
+      outputs:
+        rv_status: fetch_status
+        rv_total_revenue: aggregate_revenue
+        rv_total_profit: aggregate_profit
+        rv_count: app_count
+        rv_path: revenue_path
+    depends_on: [resolve_window, fetch_apps]
+    priority: 20
+
+  - step: missing_creds
+    sub_workflow:
+      name: braidrun-module-app-revenue-fetcher
+      inputs:
+        username: ""
+        password: ""
+        app_ids_csv: "0c1bd9db7a93487ba126848179488ac7"
+        start_date: "2026-04-01"
+        end_date: "2026-04-07"
+        start_ms: "1743465600000"
+        end_ms: "1744070399000"
+      outputs:
+        mc_status: fetch_status
+    on_failure:
+      - next: assert
+    priority: 10
+
+  - step: assert
+    code:
+      language: python
+      timeout: 15
+      script: |
+        import json, os, sys
+        from pathlib import Path
+
+        problems = []
+
+        status = os.environ.get("WF_VAR_RV_STATUS", "").strip()
+        count = os.environ.get("WF_VAR_RV_COUNT", "0").strip()
+        path = os.environ.get("WF_VAR_RV_PATH", "").strip()
+        total_rev = os.environ.get("WF_VAR_RV_TOTAL_REVENUE", "").strip()
+
+        if status != "ok":
+            problems.append(f"fetch_status expected 'ok', got '{status}'")
+        try:
+            c = int(count)
+        except ValueError:
+            c = -1
+            problems.append(f"app_count not int: {count}")
+        if c < 1:
+            problems.append(f"app_count expected >= 1, got {c}")
+
+        if path:
+            if not Path(path).exists():
+                problems.append(f"revenue_path missing: {path}")
+            else:
+                obj = json.loads(Path(path).read_text(encoding="utf-8"))
+                if not isinstance(obj, dict):
+                    problems.append(f"revenue_path not dict: {type(obj).__name__}")
+        if total_rev and not total_rev.replace(".","").replace("-","").isdigit():
+            problems.append(f"aggregate_revenue not a number: {total_rev}")
+
+        mc = os.environ.get("WF_VAR_MC_STATUS", "").strip()
+        if mc != "":
+            problems.append(f"missing_creds should have raised, got status='{mc}'")
+
+        if problems:
+            print("TEST_STATUS=fail")
+            for p in problems: print(f"  - {p}")
+            sys.exit(1)
+        print(f"TEST_STATUS=pass (fetched revenue for {c} apps, total={total_rev})")
+    extract:
+      - {pattern: 'TEST_STATUS=(\w+)', variable: test_status}
+    depends_on: [fetch_revenue]
+    priority: 5

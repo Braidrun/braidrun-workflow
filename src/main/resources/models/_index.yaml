@@ -1,0 +1,14 @@
+- anthropic.yaml
+- deepseek.yaml
+- google.yaml
+- kimi.yaml
+- meta.yaml
+- minimax.yaml
+- mistral.yaml
+- ollama.yaml
+- openai.yaml
+- openrouter.yaml
+- perplexity.yaml
+- qwen-direct.yaml
+- qwen.yaml
+- xai.yaml

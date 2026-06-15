@@ -1,0 +1,125 @@
+provider: mistral
+aliases:
+- mistralai
+models:
+  # ===== Mistral Large =====
+  "mistral-large-2512":
+    id: "mistralai/mistral-large-2512"
+    capabilities: multimodal
+    context_length: 262144
+  "mistral-large-2411":
+    id: "mistralai/mistral-large-2411"
+    capabilities: standard
+    context_length: 131072
+  "mistral-large-latest":
+    id: "mistral-large-latest"
+    capabilities: multimodal
+    context_length: 262144
+  "mistral-large":
+    id: "mistralai/mistral-large"
+    capabilities: standard
+    context_length: 128000
+  # ===== Mistral Medium =====
+  "mistral-medium-3.1":
+    id: "mistralai/mistral-medium-3.1"
+    capabilities: multimodal
+    context_length: 131072
+  "mistral-medium-3":
+    id: "mistralai/mistral-medium-3"
+    capabilities: multimodal
+    context_length: 131072
+  "mistral-medium-latest":
+    id: "mistral-medium-latest"
+    capabilities: multimodal
+    context_length: 131072
+  # ===== Mistral Small =====
+  "mistral-small-2603":
+    id: "mistralai/mistral-small-2603"
+    capabilities: multimodal
+    context_length: 262144
+  "mistral-small-3.2-24b-instruct":
+    id: "mistralai/mistral-small-3.2-24b-instruct"
+    capabilities: multimodal
+    context_length: 131072
+  "mistral-small-3.1-24b-instruct":
+    id: "mistralai/mistral-small-3.1-24b-instruct"
+    capabilities: multimodal
+    context_length: 128000
+  "mistral-small-latest":
+    id: "mistral-small-latest"
+    capabilities: multimodal
+    context_length: 131072
+  # ===== Ministral =====
+  "ministral-14b-2512":
+    id: "mistralai/ministral-14b-2512"
+    capabilities: multimodal
+    context_length: 262144
+  "ministral-8b-2512":
+    id: "mistralai/ministral-8b-2512"
+    capabilities: multimodal
+    context_length: 262144
+  "ministral-3b-2512":
+    id: "mistralai/ministral-3b-2512"
+    capabilities: multimodal
+    context_length: 131072
+  # ===== Devstral / Codestral =====
+  "devstral-2512":
+    id: "mistralai/devstral-2512"
+    capabilities: standard
+    context_length: 262144
+  "devstral-small-latest":
+    id: "devstral-small-latest"
+    capabilities: standard
+    context_length: 131072
+  "codestral-2508":
+    id: "mistralai/codestral-2508"
+    capabilities: standard
+    context_length: 256000
+  "codestral-latest":
+    id: "codestral-latest"
+    capabilities: standard
+    context_length: 256000
+  "codestral-mamba-latest":
+    id: "codestral-mamba-latest"
+    capabilities: standard
+    context_length: 256000
+  # ===== Pixtral =====
+  "pixtral-large-2411":
+    id: "mistralai/pixtral-large-2411"
+    capabilities: multimodal
+    context_length: 131072
+  "pixtral-large-latest":
+    id: "pixtral-large-latest"
+    capabilities: multimodal
+    context_length: 131072
+  "pixtral-12b-2409":
+    id: "mistralai/pixtral-12b-2409"
+    capabilities: multimodal
+    context_length: 131072
+  # ===== Nemo =====
+  "mistral-nemo":
+    id: "mistralai/mistral-nemo"
+    capabilities: standard
+    context_length: 131072
+  "mistral-nemo-instruct-2407":
+    id: "mistralai/mistral-nemo-instruct-2407"
+    capabilities: standard
+    context_length: 131072
+  # ===== Mixtral =====
+  "mixtral-8x22b-instruct":
+    id: "mistralai/mixtral-8x22b-instruct"
+    capabilities: standard
+    context_length: 65536
+  "mixtral-8x7b-instruct":
+    id: "mistralai/mixtral-8x7b-instruct"
+    capabilities: standard
+    context_length: 32768
+  # ===== Mistral 7B =====
+  "mistral-7b-instruct":
+    id: "mistralai/mistral-7b-instruct-v0.1"
+    capabilities: standard
+    context_length: 2824
+  "mistral-7b-instruct-v0.3":
+    id: "mistralai/mistral-7b-instruct-v0.3"
+    capabilities: standard
+    context_length: 32768

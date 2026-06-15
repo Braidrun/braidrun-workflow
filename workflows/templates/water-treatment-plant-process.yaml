@@ -1,0 +1,351 @@
+---
+name: water-treatment-plant-process
+version: 3.0.0
+tags:
+- 水务行业
+- 自来水厂
+- 水处理工艺
+- 多角色协作
+- 迭代优化
+- group_chat
+- repeat_until
+- extract
+- aggregate
+- parallel
+category: industry
+description: |
+  自来水厂水处理全流程工作流，模拟从原水取样检测（浊度/pH/氨氮/重金属等）、工艺参数讨论（PAC/PAM 投加、沉淀、滤速、消毒）、混凝沉淀与过滤消毒执行，到 GB 5749 出厂水检测达标迭代、安全合规检查和全流程质量报告聚合。
+  真实流程：原水检测 → 工艺参数制定 → 混凝沉淀 → 过滤消毒 → 出厂水质检验 → 管网输配 → 质量报告
+  特性：extract 水质指标提取、group_chat 工艺方案讨论、repeat_until 水质达标迭代、aggregate 多环节报告聚合、parallel 并行检测
+variables:
+  plant_name: 清源自来水厂
+  water_source: 长江取水口
+  design_capacity: 日处理 10 万吨
+  turbidity_standard: '1'
+  ph_min: '6.5'
+  ph_max: '8.5'
+  chlorine_residual_min: '0.3'
+  chlorine_residual_max: '4.0'
+  quality_threshold: '8'
+  output_dir: "./output/water-treatment-plant-process"
+  demo_mode: 'true'
+variable_tags:
+  chlorine_residual_max: '业务参数'
+  chlorine_residual_min: '业务参数'
+  demo_mode: '运行模式'
+  design_capacity: '业务参数'
+  output_dir: '输出'
+  ph_max: '业务参数'
+  ph_min: '业务参数'
+  plant_name: '业务参数'
+  quality_threshold: '业务参数'
+  turbidity_standard: '业务参数'
+  water_source: '业务参数'
+agents:
+  water_quality_analyst:
+    preset: researcher
+    overrides:
+      system_prompt: |-
+        你是一位水质检测分析师，精通《生活饮用水卫生标准》(GB 5749) 和各类水质检测方法。
+        你负责原水和出厂水的水质检测、数据分析和报告编制。
+        你熟悉浊度、pH、余氯、COD、氨氮、总大肠菌群等关键水质指标。
+
+        共同要求：
+        - 该模板以"可直接运行演示"为第一目标。
+        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
+        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+      session_id_strategy: per_execution
+  process_engineer:
+    preset: universal
+    overrides:
+      system_prompt: |-
+        你是一位水处理工艺工程师，精通常规水处理工艺（混凝→沉淀→过滤→消毒）和深度处理工艺（臭氧活性炭、膜处理）。
+        你负责根据原水水质调整工艺参数，包括混凝剂投加量、沉淀时间、滤速、消毒剂量等。
+        你了解 PAC、PAM 等常用药剂的使用规范和最佳投加策略。
+
+        共同要求：
+        - 该模板以"可直接运行演示"为第一目标。
+        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
+        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+      session_id_strategy: per_execution
+  equipment_operator:
+    preset: universal
+    overrides:
+      system_prompt: |-
+        你是一位水厂设备运行操作员，负责各处理单元的设备运行与维护。
+        你熟悉取水泵站、加药系统、搅拌设备、沉淀池刮泥机、滤池反冲洗系统、
+        送水泵站和加氯消毒系统的操作规程。
+        你了解设备运行日志记录和故障排查方法。
+
+        共同要求：
+        - 该模板以"可直接运行演示"为第一目标。
+        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
+        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+      session_id_strategy: auto
+  safety_inspector:
+    preset: universal
+    overrides:
+      system_prompt: |-
+        你是一位水厂安全与合规检查员，精通《城镇供水水质标准》和《城市供水水质管理规定》。
+        你负责审查水处理过程的合规性、安全操作规程和应急预案。
+        你了解水厂运行安全标准和卫生防护要求。
+
+        共同要求：
+        - 该模板以"可直接运行演示"为第一目标。
+        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
+        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+      session_id_strategy: auto
+  quality_reviewer:
+    preset: universal
+    overrides:
+      system_prompt: |-
+        你是一位水处理质量评审专家。对水处理方案和水质报告进行综合评分。
+        评分维度：水质达标率(30%)、工艺合理性(25%)、安全合规性(25%)、经济性(20%)。
+        输出格式必须包含：quality_score=N（1-10 分）。
+
+        共同要求：
+        - 该模板以"可直接运行演示"为第一目标。
+        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
+        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+      session_id_strategy: auto
+workflow:
+- step: raw-water-testing
+  agent: water_quality_analyst
+  input: |
+    对「{{var:plant_name}}」的原水进行全面检测分析：
+    水源地：{{var:water_source}}
+    设计处理能力：{{var:design_capacity}}
+    1. 检测原水浊度、色度、嗅和味。
+    2. 检测 pH 值、水温、溶解氧。
+    3. 检测 CODMn（高锰酸盐指数）、氨氮、总磷、总氮。
+    4. 检测总大肠菌群、菌落总数等微生物指标。
+    5. 检测重金属（铅、汞、镉、铬、砷）含量。
+    6. 根据季节变化评估原水水质波动趋势。
+    输出必须包含以下格式化指标：
+    - raw_turbidity=N（原水浊度 NTU）
+    - raw_ph=N（原水 pH 值）
+    - raw_ammonia=N（氨氮 mg/L）
+    - raw_codmn=N（高锰酸盐指数 mg/L）
+    输出到：raw-water-report.md
+  extract:
+  - pattern: raw_turbidity=([\d.]+)
+    variable: raw_turbidity
+  - pattern: raw_ph=([\d.]+)
+    variable: raw_ph
+  - pattern: raw_ammonia=([\d.]+)
+    variable: raw_ammonia
+  - pattern: raw_codmn=([\d.]+)
+    variable: raw_codmn
+  priority: 10
+- step: process-parameter-design
+  group_chat:
+    participants:
+    - process_engineer
+    - water_quality_analyst
+    - equipment_operator
+    initial_message: |-
+      水处理工艺方案讨论会。请根据原水检测结果制定工艺参数：
+      {{steps.raw-water-testing.output}}
+      原水浊度：{{var:raw_turbidity}} NTU，pH：{{var:raw_ph}}
+      讨论重点：
+      1. 混凝剂种类及投加量（PAC/PAM 配比）
+      2. 沉淀池参数（停留时间、排泥周期）
+      3. 滤池运行参数（滤速、反冲洗频率）
+      4. 消毒方案（加氯量、接触时间）
+      5. 是否需要启用深度处理工艺
+      讨论完毕后请说 PARAMETERS_SET
+
+      讨论结束时请给出一段可复用的结论摘要，便于后续步骤直接保存为 demo 交付物。
+    max_rounds: 4
+    speaker_selection: round_robin
+    termination_keyword: PARAMETERS_SET
+  depends_on:
+  - raw-water-testing
+  priority: 9
+- step: coagulation-sedimentation
+  agent: process_engineer
+  input: |
+    根据工艺方案执行混凝沉淀工序：
+    工艺参数：{{steps.process-parameter-design.output}}
+    1. 混凝剂投加：记录 PAC 投加量（mg/L）和快速搅拌参数。
+    2. 絮凝反应：记录慢速搅拌时间和 G 值。
+    3. 沉淀效果：记录沉淀池出水浊度和排泥量。
+    4. 矾花形成观察记录。
+    5. 出水浊度达标判定（目标 ≤3 NTU）。
+    输出必须包含：
+    - coag_dose=N（混凝剂投加量 mg/L）
+    - settled_turbidity=N（沉淀出水浊度 NTU）
+    输出到：coagulation-report.md
+
+    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/coagulation-report.md。
+  extract:
+  - pattern: coag_dose=([\d.]+)
+    variable: coag_dose
+  - pattern: settled_turbidity=([\d.]+)
+    variable: settled_turbidity
+  depends_on:
+  - process-parameter-design
+  priority: 8
+- step: filtration-disinfection
+  agent: process_engineer
+  input: |
+    根据沉淀出水执行过滤和消毒工序：
+    沉淀出水浊度：{{var:settled_turbidity}} NTU
+    消毒标准：余氯 {{var:chlorine_residual_min}}-{{var:chlorine_residual_max}} mg/L
+    1. 过滤运行记录：滤速、滤后水浊度。
+    2. 反冲洗记录：冲洗强度、历时。
+    3. 消毒加氯量和接触时间。
+    4. 出厂水余氯检测。
+    5. 出厂水浊度检测（标准 ≤{{var:turbidity_standard}} NTU）。
+    输出必须包含：
+    - filtered_turbidity=N（滤后水浊度 NTU）
+    - chlorine_residual=N（出厂水余氯 mg/L）
+    输出到：filtration-disinfection-report.md
+
+    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/filtration-disinfection-report.md。
+  extract:
+  - pattern: filtered_turbidity=([\d.]+)
+    variable: filtered_turbidity
+  - pattern: chlorine_residual=([\d.]+)
+    variable: chlorine_residual
+  depends_on:
+  - coagulation-sedimentation
+  priority: 7
+- step: finished-water-testing
+  agent: water_quality_analyst
+  input: |
+    对出厂水进行全项检测（依据 GB 5749）：
+    滤后水浊度：{{var:filtered_turbidity}} NTU
+    出厂余氯：{{var:chlorine_residual}} mg/L
+    1. 常规 42 项指标检测。
+    2. 与原水数据对比分析处理效果。
+    3. 出具出厂水质检测报告。
+    4. 判定是否达到《生活饮用水卫生标准》。
+    输出必须包含：
+    - finished_turbidity=N（出厂水浊度 NTU）
+    - finished_ph=N（出厂水 pH）
+    - compliance_status=PASS/FAIL（达标状态）
+    输出到：finished-water-report.md
+  extract:
+  - pattern: finished_turbidity=([\d.]+)
+    variable: finished_turbidity
+  - pattern: finished_ph=([\d.]+)
+    variable: finished_ph
+  - pattern: compliance_status=(\w+)
+    variable: compliance_status
+  depends_on:
+  - filtration-disinfection
+  priority: 6
+  repeat_until:
+    condition: quality_score >= 8
+    max_iterations: 3
+    evaluate_agent: quality_reviewer
+    evaluate_prompt: |
+      评估出厂水检测报告的合格程度。
+      评分维度：水质达标率(30%)、工艺合理性(25%)、安全合规性(25%)、经济性(20%)。
+      输出格式：quality_score=N（1-10 分）
+      报告内容：{{steps.finished-water-testing.output}}
+    extract_pattern: quality_score=(\d+)
+    extract_variable: quality_score
+- step: safety-compliance-check
+  agent: safety_inspector
+  input: |
+    对水处理全流程进行安全与合规检查：
+    1. 加药间安全防护措施检查。
+    2. 氯气/次氯酸钠储存和使用安全。
+    3. 水厂卫生防护距离合规性。
+    4. 在线监测仪表校验记录。
+    5. 应急预案完备性检查。
+    6. 操作人员资质审查。
+    输出必须包含：
+    - safety_issues=N（发现的安全问题数）
+    - compliance_grade=A/B/C/D（合规等级）
+    输出到：safety-compliance-report.md
+
+    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/safety-compliance-report.md。
+  extract:
+  - pattern: safety_issues=(\d+)
+    variable: safety_issues
+  - pattern: compliance_grade=([A-D])
+    variable: compliance_grade
+  depends_on:
+  - finished-water-testing
+  priority: 5
+- step: aggregate-reports
+  agent: water_quality_analyst
+  input: |-
+    请整理水处理全流程各环节的报告摘要，列出关键水质指标和运行参数：
+    {{var:pipeline_summary}}
+
+    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/aggregate-reports.md。
+  aggregate:
+    sources:
+    - |-
+      原水检测：浊度={{var:raw_turbidity}} NTU, pH={{var:raw_ph}}, 氨氮={{var:raw_ammonia}} mg/L
+      详情：{{steps.raw-water-testing.output}}
+    - |-
+      混凝沉淀：投加量={{var:coag_dose}} mg/L, 沉淀出水浊度={{var:settled_turbidity}} NTU
+      详情：{{steps.coagulation-sedimentation.output}}
+    - |-
+      过滤消毒：滤后浊度={{var:filtered_turbidity}} NTU, 余氯={{var:chlorine_residual}} mg/L
+      详情：{{steps.filtration-disinfection.output}}
+    - |-
+      出厂水质：浊度={{var:finished_turbidity}} NTU, pH={{var:finished_ph}}, 达标={{var:compliance_status}}
+      详情：{{steps.finished-water-testing.output}}
+    - |-
+      安全合规：问题数={{var:safety_issues}}, 等级={{var:compliance_grade}}
+      详情：{{steps.safety-compliance-check.output}}
+    strategy: numbered_list
+    output_variable: pipeline_summary
+  depends_on:
+  - safety-compliance-check
+  priority: 3
+- step: final-quality-report
+  agent: water_quality_analyst
+  input: |
+    生成「{{var:plant_name}}」水处理全流程质量报告：
+    1. 水源地与原水概况：{{var:water_source}}
+    2. 全流程汇总：{{steps.aggregate-reports.output}}
+    3. 工艺方案：{{steps.process-parameter-design.output}}
+    4. 安全合规结论：合规等级 {{var:compliance_grade}}
+    5. 关键水质指标趋势分析
+    6. 改进建议和下一步计划
+    保存到 final-quality-report.md
+  depends_on:
+  - aggregate-reports
+  priority: 1
+error_handling:
+  max_retries: 2
+  retry_delay: 3s
+  continue_on_error: false
+timeout:
+  total: 3600s
+  per_step: 600s
+directory_isolation:
+  enabled: true
+  base_dir: ".workflow-runs"
+  working_dir_pattern: "{base_dir}/{execution_id}/{step_name}/workspace"
+  output_dir_pattern: "{base_dir}/{execution_id}/output"
+  persistence_dir_pattern: "{base_dir}/{execution_id}/.snapshots"
+  shared_cache_dir: ".prompt_cache"
+  shared_history_dir: ".agent_history"
+  shared_skills_dir: "./skills"
+  cleanup_on_completion: false
+  cleanup_after_hours: 72
+concurrency:
+  enabled: true
+  max_concurrency: 4
+global_agent:
+  enabled: true
+  agent:
+    preset: universal
+    overrides:
+      system_prompt: |-
+        你是工作流模板助手，负责帮助用户理解、调试和演示当前工作流。
+        生成或修改 YAML 时必须使用 braidrun-agent 的 snake_case 语法，并优先保持模板可直接运行。
+      tool_set:
+      - workflow
+      - file_system
+      - exit
+      max_iterations: 2048
+      session_id_strategy: per_execution

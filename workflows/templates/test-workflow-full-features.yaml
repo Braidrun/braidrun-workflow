@@ -1,0 +1,208 @@
+---
+name: test-workflow-full-features
+version: 1.0.0
+tags:
+- 测试
+- 完整功能
+- condition
+- retry
+description: 综合功能测试 - 覆盖变量替换、条件执行、并行、依赖链、优先级、超时和错误处理
+variables:
+  project_name: FullFeatureTest
+  mode: standard
+  output_dir: "./output"
+  enable_review: 'true'
+  demo_mode: 'true'
+agents:
+  planner:
+    preset: universal
+    overrides:
+      system_prompt: |-
+        You are a project planner. Create structured plans. Call exit when done.
+
+        共同要求：
+        - 该模板以“可直接运行演示”为第一目标。
+        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
+        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+      tool_set:
+      - exit
+      - skill_tools
+      - file_system
+      max_iterations: 8196
+      session_id_strategy: auto
+  executor:
+    preset: universal
+    overrides:
+      system_prompt: |-
+        You are a task executor. Execute tasks precisely. Call exit when done.
+
+        共同要求：
+        - 该模板以“可直接运行演示”为第一目标。
+        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
+        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+      tool_set:
+      - exit
+      - skill_tools
+      - file_system
+      - shell
+      max_iterations: 8196
+      session_id_strategy: auto
+  reviewer:
+    preset: universal
+    overrides:
+      system_prompt: |-
+        You are a quality reviewer. Review outputs for correctness. Call exit when done.
+
+        共同要求：
+        - 该模板以“可直接运行演示”为第一目标。
+        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
+        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+      tool_set:
+      - exit
+      - skill_tools
+      - file_system
+      max_iterations: 8196
+      session_id_strategy: auto
+workflow:
+- step: init_project
+  agent: planner
+  priority: 10
+  timeout_seconds: 60
+  input: |-
+    Create the directory {{var:output_dir}}/{{var:project_name}} if it doesn't exist.
+    Create a project manifest file {{var:output_dir}}/{{var:project_name}}/manifest.json:
+    {
+      "project": "{{var:project_name}}",
+      "mode": "{{var:mode}}",
+      "phases": ["init", "execute", "review", "finalize"],
+      "status": "initializing"
+    }
+    Then call exit.
+
+    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/init_project.md。
+- step: task_data_collection
+  agent: executor
+  depends_on:
+  - init_project
+  input: |-
+    Create {{var:output_dir}}/{{var:project_name}}/data.txt with content:
+    "Data collection completed for project {{var:project_name}}"
+    Then call exit.
+
+    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/task_data_collection.md。
+- step: task_config_setup
+  agent: executor
+  depends_on:
+  - init_project
+  input: |-
+    Create {{var:output_dir}}/{{var:project_name}}/config.txt with content:
+    "Configuration: mode={{var:mode}}, review={{var:enable_review}}"
+    Then call exit.
+
+    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/task_config_setup.md。
+- step: task_resource_prep
+  agent: executor
+  depends_on:
+  - init_project
+  input: |-
+    Create {{var:output_dir}}/{{var:project_name}}/resources.txt with content:
+    "Resources prepared for {{var:project_name}}"
+    Then call exit.
+
+    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/task_resource_prep.md。
+- step: standard_processing
+  agent: executor
+  depends_on:
+  - task_data_collection
+  - task_config_setup
+  - task_resource_prep
+  condition: mode == 'standard'
+  input: |-
+    Read all files in {{var:output_dir}}/{{var:project_name}}/ directory.
+    Create {{var:output_dir}}/{{var:project_name}}/processed_standard.txt with:
+    "Standard processing completed. Inputs: data.txt, config.txt, resources.txt"
+    Then call exit.
+
+    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/standard_processing.md。
+- step: fast_processing
+  agent: executor
+  depends_on:
+  - task_data_collection
+  condition: mode == 'fast'
+  input: |-
+    Read {{var:output_dir}}/{{var:project_name}}/data.txt.
+    Create {{var:output_dir}}/{{var:project_name}}/processed_fast.txt with:
+    "Fast processing completed. Only data input used."
+    Then call exit.
+
+    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/fast_processing.md。
+- step: quality_review
+  agent: reviewer
+  depends_on:
+  - standard_processing
+  - fast_processing
+  retry:
+    max_attempts: 2
+    backoff: constant
+    initial_delay: 2000
+  input: |-
+    List and read all files in {{var:output_dir}}/{{var:project_name}}/ directory.
+    Create {{var:output_dir}}/{{var:project_name}}/review.txt with a quality review:
+    - List all files found
+    - Verify project name "{{var:project_name}}" appears in the files
+    - Mark review as PASSED or FAILED
+    Then call exit.
+
+    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/quality_review.md。
+- step: generate_summary
+  agent: planner
+  depends_on:
+  - quality_review
+  priority: 5
+  input: |-
+    Read all files in {{var:output_dir}}/{{var:project_name}}/ directory.
+    Update {{var:output_dir}}/{{var:project_name}}/manifest.json to set status to "completed".
+    Create {{var:output_dir}}/{{var:project_name}}/summary.txt with:
+    - Project name: {{var:project_name}}
+    - Mode: {{var:mode}}
+    - Review enabled: {{var:enable_review}}
+    - List of all completed phases
+    - Final status: SUCCESS
+    Then call exit.
+
+    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/generate_summary.md。
+error_handling:
+  max_retries: 2
+  retry_delay: 5s
+  continue_on_error: false
+timeout:
+  total: 1200s
+  per_step: 180s
+directory_isolation:
+  enabled: true
+  base_dir: ".workflow-runs"
+  working_dir_pattern: "{base_dir}/{execution_id}/{step_name}/workspace"
+  output_dir_pattern: "{base_dir}/{execution_id}/output"
+  persistence_dir_pattern: "{base_dir}/{execution_id}/.snapshots"
+  shared_cache_dir: ".prompt_cache"
+  shared_history_dir: ".agent_history"
+  shared_skills_dir: "./skills"
+  cleanup_on_completion: false
+  cleanup_after_hours: 72
+concurrency:
+  enabled: true
+  max_concurrency: 4
+global_agent:
+  enabled: true
+  agent:
+    preset: universal
+    overrides:
+      system_prompt: |-
+        你是工作流模板助手，负责帮助用户理解、调试和演示当前工作流。
+        生成或修改 YAML 时必须使用 braidrun-agent 的 snake_case 语法，并优先保持模板可直接运行。
+      tool_set:
+      - workflow
+      - file_system
+      - exit
+      max_iterations: 2048
+      session_id_strategy: per_execution

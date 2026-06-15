@@ -1,0 +1,9 @@
+# JitPack build configuration.
+# This project requires JDK 21; JitPack's default JDK is older, so pin it here
+# or the on-demand build will fail. The artifact is produced via the
+# maven-publish plugin (publishToMavenLocal); tests are skipped to keep the
+# JitPack build fast and deterministic (CI already runs the full suite).
+jdk:
+  - openjdk21
+install:
+  - ./gradlew publishToMavenLocal -x test

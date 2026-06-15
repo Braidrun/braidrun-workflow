@@ -1,0 +1,96 @@
+provider: deepseek
+models:
+  # ===== DeepSeek V4 =====
+  # DeepSeek's direct API accepts `deepseek-v4-pro` and `deepseek-v4-flash` as
+  # first-class model ids (https://api.deepseek.com, both OpenAI- and
+  # Anthropic-format endpoints). `deepseek-chat` is the legacy V3-era id.
+  # The bare `deepseek-v4` alias was removed in 2026-04 — DeepSeek doesn't
+  # publish V4 under that name and it confused users in the model picker.
+  "deepseek-v4-pro":
+    id: "deepseek-v4-pro"
+    capabilities: completion, temperature, tools, tool_choice, json.basic, json, multiple_choices
+    context_length: 1048576
+    max_output_tokens: 393216
+  "deepseek-v4-flash":
+    id: "deepseek-v4-flash"
+    capabilities: completion, temperature, tools, tool_choice, json.basic, json, multiple_choices
+    context_length: 1048576
+    max_output_tokens: 393216
+  # ===== DeepSeek V3 =====
+  "deepseek-v3.2":
+    id: "deepseek-chat"
+    capabilities: standard
+    context_length: 163840
+  "deepseek-v3.2-speciale":
+    id: "deepseek-chat"
+    capabilities: standard
+    context_length: 163840
+  "deepseek-chat-v3.1":
+    id: "deepseek-chat"
+    capabilities: standard
+    context_length: 32768
+  "deepseek-v3":
+    id: "deepseek-chat"
+    capabilities: standard
+    context_length: 64000
+  "deepseek-chat":
+    id: "deepseek-chat"
+    capabilities: completion, temperature, tools, tool_choice, json.basic, json, multiple_choices
+    context_length: 64000
+    max_output_tokens: 8000
+  # ===== DeepSeek R1 (reasoning) =====
+  "deepseek-r1":
+    id: "deepseek-reasoner"
+    capabilities: standard
+    context_length: 64000
+  "deepseek-reasoner":
+    id: "deepseek-reasoner"
+    capabilities: standard
+    context_length: 64000
+  "deepseek-r1-0528":
+    id: "deepseek-r1-0528"
+    capabilities: standard
+    context_length: 64000
+  "deepseek-r1-distill-llama-70b":
+    id: "deepseek-reasoner"
+    capabilities: standard
+    context_length: 131072
+  "deepseek-r1-distill-qwen-32b":
+    id: "deepseek-reasoner"
+    capabilities: standard
+    context_length: 32768
+  "deepseek-r1-distill-qwen-14b":
+    id: "deepseek-reasoner"
+    capabilities: standard
+    context_length: 32768
+  "deepseek-r1-distill-llama-8b":
+    id: "deepseek-reasoner"
+    capabilities: standard
+    context_length: 32768
+  "deepseek-r1-distill-qwen-7b":
+    id: "deepseek-reasoner"
+    capabilities: standard
+    context_length: 32768
+  "deepseek-r1-distill-qwen-1.5b":
+    id: "deepseek-reasoner"
+    capabilities: standard
+    context_length: 32768
+  # ===== DeepSeek Coder =====
+  "deepseek-coder":
+    id: "deepseek-coder"
+    capabilities: standard
+    context_length: 128000
+  "deepseek-coder-v2":
+    id: "deepseek-coder"
+    capabilities: standard
+    context_length: 128000
+  # ===== DeepSeek VL =====
+  "deepseek-vl2":
+    id: "deepseek-vl2"
+    capabilities: multimodal
+    context_length: 32768
+  # ===== Janus Pro =====
+  "janus-pro-7b":
+    id: "janus-pro-7b"
+    capabilities: multimodal
+    context_length: 32768

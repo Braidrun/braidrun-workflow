@@ -1,0 +1,74 @@
+provider: meta
+aliases:
+- meta-llama
+models:
+  # ===== Llama 4 =====
+  "llama-4-maverick":
+    id: "meta-llama/llama-4-maverick"
+    capabilities: multimodal
+    context_length: 1048576
+  "llama-4-maverick-17b":
+    id: "meta-llama/llama-4-maverick-17b-128e-instruct"
+    capabilities: multimodal
+    context_length: 1048576
+  "llama-4-scout":
+    id: "meta-llama/llama-4-scout"
+    capabilities: multimodal
+    context_length: 327680
+  "llama-4-scout-17b":
+    id: "meta-llama/llama-4-scout-17b-16e-instruct"
+    capabilities: multimodal
+    context_length: 327680
+  # ===== Llama 3.3 =====
+  "llama-3.3-70b-instruct":
+    id: "meta-llama/llama-3.3-70b-instruct"
+    capabilities: standard
+    context_length: 131072
+  # ===== Llama 3.2 =====
+  "llama-3.2-90b-vision-instruct":
+    id: "meta-llama/llama-3.2-90b-vision-instruct"
+    capabilities: multimodal
+    context_length: 131072
+  "llama-3.2-11b-vision-instruct":
+    id: "meta-llama/llama-3.2-11b-vision-instruct"
+    capabilities: multimodal
+    context_length: 131072
+  "llama-3.2-3b-instruct":
+    id: "meta-llama/llama-3.2-3b-instruct"
+    capabilities: standard
+    context_length: 80000
+  "llama-3.2-1b-instruct":
+    id: "meta-llama/llama-3.2-1b-instruct"
+    capabilities: standard
+    context_length: 60000
+  # ===== Llama 3.1 =====
+  "llama-3.1-405b-instruct":
+    id: "meta-llama/llama-3.1-405b-instruct"
+    capabilities: standard
+    context_length: 131000
+  "llama-3.1-70b-instruct":
+    id: "meta-llama/llama-3.1-70b-instruct"
+    capabilities: standard
+    context_length: 131072
+  "llama-3.1-8b-instruct":
+    id: "meta-llama/llama-3.1-8b-instruct"
+    capabilities: standard
+    context_length: 16384
+  # ===== Llama 3 =====
+  "llama-3-70b-instruct":
+    id: "meta-llama/llama-3-70b-instruct"
+    capabilities: standard
+    context_length: 8192
+  "llama-3-8b-instruct":
+    id: "meta-llama/llama-3-8b-instruct"
+    capabilities: standard
+    context_length: 8192
+  # ===== Llama Guard =====
+  "llama-guard-4-12b":
+    id: "meta-llama/llama-guard-4-12b"
+    capabilities: standard
+    context_length: 131072
+  "llama-guard-3-8b":
+    id: "meta-llama/llama-guard-3-8b"
+    capabilities: standard
+    context_length: 131072

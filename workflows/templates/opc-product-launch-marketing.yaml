@@ -1,0 +1,232 @@
+---
+name: opc-product-launch-marketing
+version: 3.0.0
+tags:
+- 产品发布
+- 一人公司
+- 营销推广
+- 多角色协作
+- 迭代优化
+- 动态编排
+- group_chat
+- repeat_until
+- agent_based
+- extract
+- condition
+category: marketing
+description: |
+  "一人公司" (OPC) 全新产品发布与全能营销工作流。
+  独立创业者的产品发布全链路：市场调研与定位 → 发布策略讨论 → 多平台文案制作 (Product Hunt/官网/社交媒体/社区) → 迭代优化 → 发布排期执行计划。
+  适用场景：独立开发者或一人公司在 Product Hunt、Hacker News、Twitter 等渠道的新产品发布与早期用户获取。
+  特性：extract 结构化指标提取、group_chat 发布策略讨论、repeat_until 文案质量迭代、agent_based 多平台素材动态制作
+variables:
+  product_name: AI 写作助手
+  product_description: 一款基于本地模型、保护隐私的 Markdown 写作工具
+  target_user: 独立创作者、注重隐私的作家、学生
+  quality_threshold: '8'
+  output_dir: "./output/opc-product-launch-marketing"
+  demo_mode: 'true'
+variable_tags:
+  demo_mode: '运行模式'
+  output_dir: '输出'
+  product_description: '业务参数'
+  product_name: '业务参数'
+  quality_threshold: '业务参数'
+  target_user: '业务参数'
+agents:
+  market_analyst:
+    preset: researcher
+    overrides:
+      system_prompt: |-
+        你是一位独立产品市场分析师，精通小众产品的市场定位和竞品研究。
+        你擅长发现差异化卖点和目标用户获取策略。
+
+        共同要求：
+        - 该模板以“可直接运行演示”为第一目标。
+        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
+        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+      session_id_strategy: per_execution
+  launch_copywriter:
+    preset: writer
+    overrides:
+      system_prompt: |-
+        你是一位产品发布文案专家，精通 Product Hunt、Hacker News 和各社交平台的发布文案。
+        你的文案简洁有力，能在最短时间内传递产品价值。
+
+        共同要求：
+        - 该模板以“可直接运行演示”为第一目标。
+        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
+        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+      session_id_strategy: per_execution
+  community_builder:
+    preset: universal
+    overrides:
+      system_prompt: |-
+        你是一位独立产品社区运营专家，精通种子用户获取和早期社区建设。
+        你擅长 Product Hunt Launch、Reddit 营销和 Twitter 建设。
+
+        共同要求：
+        - 该模板以“可直接运行演示”为第一目标。
+        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
+        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+      session_id_strategy: per_execution
+  quality_reviewer:
+    preset: universal
+    overrides:
+      system_prompt: |-
+        你是一位产品发布质量评审专家。评分维度：价值主张(25%)、文案吸引力(25%)、渠道适配(25%)、可执行性(25%)。
+        输出格式必须包含：quality_score=N（1-10 分）。
+
+        共同要求：
+        - 该模板以“可直接运行演示”为第一目标。
+        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
+        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+      session_id_strategy: auto
+workflow:
+- step: market-positioning
+  agent: market_analyst
+  input: |
+    为「{{var:product_name}}」进行市场定位：
+    产品：{{var:product_description}}，目标用户：{{var:target_user}}
+
+    1. 竞品分析（5 个直接竞品和 3 个间接替代品）：
+       - 定价模式（免费/付费/订阅，具体价格）
+       - 核心功能对比矩阵
+       - 用户评价关键词（好评和差评各 Top 5）
+    2. 差异化卖点提炼（3 个核心卖点，每个用一句话表达）。
+    3. 目标用户获取渠道分析（按 ROI 排序，标注每个渠道的获客成本估算）。
+    4. 定价策略建议（含定价心理学依据和竞品价格锚点分析）。
+    5. 发布时机建议（行业事件、竞品动态、季节性因素）。
+
+    输出必须包含以下格式化指标：
+    - launch_channels=N（推广渠道数）
+    - target_sales=N（目标销量）
+    输出到：market-positioning.md
+  extract:
+  - pattern: launch_channels=(\d+)
+    variable: launch_channels
+  - pattern: target_sales=(\d+)
+    variable: target_sales
+  priority: 10
+- step: launch-strategy
+  group_chat:
+    participants:
+    - market_analyst
+    - launch_copywriter
+    - community_builder
+    initial_message: |-
+      产品发布策略讨论会。请审查：{{steps.market-positioning.output}}
+      讨论重点：
+      1. 核心卖点如何在一句话内表达？
+      2. Product Hunt 发布策略？
+      3. 社交媒体预热计划？
+      4. 种子用户从哪里来？Beta 计划？
+      讨论完毕后请说 LAUNCH_SET
+
+      讨论结束时请给出一段可复用的结论摘要，便于后续步骤直接保存为 demo 交付物。
+    max_rounds: 4
+    speaker_selection: round_robin
+    termination_keyword: LAUNCH_SET
+  depends_on:
+  - market-positioning
+  priority: 8
+- step: multi-platform-copy
+  agent_based:
+    orchestrator:
+      preset: universal
+      overrides:
+        system_prompt: |
+          你是产品发布项目经理。分配文案任务：
+          - 发布文案类（Product Hunt/官网/社交媒体）分配给 launch_copywriter
+          - 社区运营类（Reddit帖子/Discord设置/邮件序列）分配给 community_builder
+          可以并行制作不同渠道的素材。
+        session_id_strategy: per_execution
+    participants:
+    - launch_copywriter
+    - community_builder
+    goal: |-
+      基于发布策略共识制作全渠道发布素材：
+      {{steps.launch-strategy.output}}
+      需要：Product Hunt 页面文案、官网 Landing Page、Twitter 线程、
+      Reddit 帖子、邮件公告、Discord/社群公告。，并生成可直接展示的 demo 结论。
+    max_steps: 10
+    budget_tokens: 300000
+  depends_on:
+  - launch-strategy
+  priority: 6
+- step: copy-review
+  agent: launch_copywriter
+  input: |
+    审核优化全套发布素材：{{steps.multi-platform-copy.output}}
+    上次评估反馈（如有）：{{steps.copy-review:evaluate.output}}
+    确保各平台素材风格一致、核心信息统一。
+    输出到：launch-copy-final.md
+  depends_on:
+  - multi-platform-copy
+  priority: 5
+  repeat_until:
+    condition: quality_score >= 8
+    max_iterations: 3
+    evaluate_agent: quality_reviewer
+    evaluate_prompt: |
+      评估以下产品发布素材。评分维度：价值主张(25%)、文案吸引力(25%)、渠道适配(25%)、可执行性(25%)。
+      输出格式：quality_score=N（1-10 分）
+      素材：{{steps.copy-review.output}}
+    extract_pattern: quality_score=(\d+)
+    extract_variable: quality_score
+- step: launch-roadmap
+  agent: community_builder
+  input: |
+    制定发布执行计划（质量评分 {{var:quality_score}}）：
+    素材：{{steps.copy-review.output}}
+
+    1. 发布前 7 天预热计划：
+       - T-7 到 T-3：社交媒体预告、Beta 用户邀请
+       - T-2 到 T-1：Product Hunt 预热、猎人联系、社群通知
+    2. 发布日 Hour-by-Hour 执行清单（从 00:00 PST 开始的每小时任务）。
+    3. 发布后 7 天跟进计划：
+       - D+1：收集反馈、回复评论
+       - D+2-3：发布使用案例和用户证言
+       - D+4-7：持续在 Reddit/HN/社群推广
+    4. 种子用户运营方案（Discord/社群建设、早期用户反馈收集、口碑传播激励）。
+    5. 关键指标追踪（注册数/活跃率/NPS/转化率的每日监控表）。
+
+    输出到：launch-roadmap.md
+  depends_on:
+  - copy-review
+  priority: 4
+error_handling:
+  max_retries: 2
+  retry_delay: 3s
+  continue_on_error: false
+timeout:
+  total: 2400s
+  per_step: 600s
+directory_isolation:
+  enabled: true
+  base_dir: ".workflow-runs"
+  working_dir_pattern: "{base_dir}/{execution_id}/{step_name}/workspace"
+  output_dir_pattern: "{base_dir}/{execution_id}/output"
+  persistence_dir_pattern: "{base_dir}/{execution_id}/.snapshots"
+  shared_cache_dir: ".prompt_cache"
+  shared_history_dir: ".agent_history"
+  shared_skills_dir: "./skills"
+  cleanup_on_completion: false
+  cleanup_after_hours: 72
+concurrency:
+  enabled: true
+  max_concurrency: 4
+global_agent:
+  enabled: true
+  agent:
+    preset: universal
+    overrides:
+      system_prompt: |-
+        你是工作流模板助手，负责帮助用户理解、调试和演示当前工作流。
+        生成或修改 YAML 时必须使用 braidrun-agent 的 snake_case 语法，并优先保持模板可直接运行。
+      tool_set:
+      - workflow
+      - file_system
+      - exit
+      max_iterations: 2048
+      session_id_strategy: per_execution

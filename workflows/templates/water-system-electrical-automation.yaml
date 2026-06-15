@@ -1,0 +1,413 @@
+---
+name: water-system-electrical-automation
+version: 3.0.0
+tags:
+- 水务行业
+- 电气自动化
+- SCADA
+- PLC控制
+- 多角色协作
+- 迭代优化
+- group_chat
+- repeat_until
+- extract
+- aggregate
+- condition
+category: industry
+description: |
+  水务系统电气自动化控制工作流，覆盖 I/O 点表编制、供配电与 MCC 设计、仪表选型、PLC 控制程序设计（含 PID 调节和联锁保护）、SCADA 监控画面组态、系统联调测试到验收报告的完整工程链路。
+  真实流程：控制需求分析 → 电气设计 → PLC 编程 → SCADA 组态 → 联调测试 → 系统验收
+  特性：extract 指标提取、group_chat 技术评审、repeat_until 联调迭代、aggregate 多系统报告聚合、condition 条件分支
+variables:
+  project_name: 清源水厂自动化改造工程
+  control_scope: 取水泵站、加药系统、沉淀池、滤池、送水泵站、加氯消毒
+  plc_brand: 西门子 S7-1500
+  scada_platform: WinCC Professional
+  communication_protocol: PROFINET / Modbus TCP
+  quality_threshold: '8'
+  output_dir: "./output/water-system-electrical-automation"
+  demo_mode: 'true'
+variable_tags:
+  communication_protocol: '业务参数'
+  control_scope: '业务参数'
+  demo_mode: '运行模式'
+  output_dir: '输出'
+  plc_brand: '平台账号'
+  project_name: '业务参数'
+  quality_threshold: '业务参数'
+  scada_platform: '平台账号'
+agents:
+  automation_engineer:
+    preset: universal
+    overrides:
+      system_prompt: |-
+        你是一位水务自动化控制工程师，精通水厂自动化控制系统设计。
+        你熟悉取水泵站变频调速控制、加药系统自动投加控制、滤池自动反冲洗控制、
+        送水泵站恒压供水控制和加氯消毒自动控制等典型水务控制回路。
+        你了解 PID 调节、前馈控制、串级控制等常用控制策略。
+
+        共同要求：
+        - 该模板以"可直接运行演示"为第一目标。
+        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
+        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+      session_id_strategy: per_execution
+  electrical_designer:
+    preset: universal
+    overrides:
+      system_prompt: |-
+        你是一位水务电气设计工程师，精通水厂供配电系统和电气控制柜设计。
+        你熟悉高低压配电系统、MCC 马达控制中心、变频器选型、
+        UPS 不间断电源、防雷接地系统和电缆敷设规范。
+        你了解水务行业电气设计标准（GB 50052、GB 50054 等）。
+
+        共同要求：
+        - 该模板以"可直接运行演示"为第一目标。
+        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
+        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+      session_id_strategy: per_execution
+  plc_programmer:
+    preset: coder
+    overrides:
+      system_prompt: |-
+        你是一位 PLC 编程工程师，精通西门子 S7 系列 PLC 编程（LAD/FBD/SCL/STL）。
+        你负责编写水厂各控制回路的 PLC 程序，包括顺序控制、PID 调节、联锁保护和故障处理。
+        你熟悉 TIA Portal 开发环境和程序结构化设计方法。
+
+        共同要求：
+        - 该模板以"可直接运行演示"为第一目标。
+        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
+        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+      session_id_strategy: per_execution
+  scada_developer:
+    preset: coder
+    overrides:
+      system_prompt: |-
+        你是一位 SCADA 系统开发工程师，精通 WinCC / iFIX / Ignition 等主流 SCADA 平台。
+        你负责水厂监控画面组态、数据采集配置、报警管理、趋势记录和报表生成。
+        你熟悉 OPC UA/DA 通信配置和数据库历史归档。
+
+        共同要求：
+        - 该模板以"可直接运行演示"为第一目标。
+        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
+        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+      session_id_strategy: auto
+  instrument_engineer:
+    preset: universal
+    overrides:
+      system_prompt: |-
+        你是一位仪表工程师，精通水务行业常用仪表选型和校验。
+        你熟悉流量计（电磁/超声波）、液位计（雷达/压力式）、水质分析仪（浊度/余氯/pH/溶解氧）、
+        压力变送器和温度传感器的选型、安装和维护。
+        你了解仪表回路图绘制和 HART/Modbus 通信协议。
+
+        共同要求：
+        - 该模板以"可直接运行演示"为第一目标。
+        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
+        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+      session_id_strategy: per_execution
+  quality_reviewer:
+    preset: universal
+    overrides:
+      system_prompt: |-
+        你是一位自动化工程质量评审专家。对自动化控制方案进行综合评分。
+        评分维度：功能完整性(25%)、可靠性(25%)、安全性(25%)、可维护性(25%)。
+        输出格式必须包含：quality_score=N（1-10 分）。
+
+        共同要求：
+        - 该模板以"可直接运行演示"为第一目标。
+        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
+        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+      session_id_strategy: auto
+workflow:
+- step: control-requirement-analysis
+  agent: automation_engineer
+  input: |
+    对「{{var:project_name}}」进行自动化控制需求分析：
+    控制范围：{{var:control_scope}}
+    PLC 平台：{{var:plc_brand}}
+    SCADA 平台：{{var:scada_platform}}
+    通信协议：{{var:communication_protocol}}
+    1. 梳理各工艺单元的控制对象（泵、阀、加药机、搅拌机等）。
+    2. 定义控制模式（手动/自动/远程）和联锁条件。
+    3. 制定仪表测点清单（AI/AO/DI/DO 点数统计）。
+    4. 明确各控制回路的控制策略（PID、顺序、联锁）。
+    5. 编写自动化控制功能规格书。
+    输出必须包含：
+    - total_io_points=N（总 I/O 点数）
+    - control_loops=N（控制回路数量）
+    - plc_stations=N（PLC 站点数量）
+    输出到：control-requirements.md
+  extract:
+  - pattern: total_io_points=(\d+)
+    variable: total_io_points
+  - pattern: control_loops=(\d+)
+    variable: control_loops
+  - pattern: plc_stations=(\d+)
+    variable: plc_stations
+  priority: 10
+- step: electrical-design
+  agent: electrical_designer
+  input: |
+    根据控制需求进行电气设计：
+    {{steps.control-requirement-analysis.output}}
+    总 I/O 点数：{{var:total_io_points}}，PLC 站点：{{var:plc_stations}}
+    1. 供配电系统单线图设计（10kV/0.4kV）。
+    2. MCC 马达控制中心设计和变频器选型。
+    3. PLC 控制柜布局和硬件配置清单。
+    4. 仪表供电和信号电缆设计。
+    5. 防雷接地和等电位连接方案。
+    6. 电缆清册和桥架路径设计。
+    输出必须包含：
+    - transformer_capacity=N（变压器容量 kVA）
+    - vfd_count=N（变频器数量）
+    - cabinet_count=N（控制柜数量）
+    输出到：electrical-design.md
+
+    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/electrical-design.md。
+  extract:
+  - pattern: transformer_capacity=(\d+)
+    variable: transformer_capacity
+  - pattern: vfd_count=(\d+)
+    variable: vfd_count
+  - pattern: cabinet_count=(\d+)
+    variable: cabinet_count
+  depends_on:
+  - control-requirement-analysis
+  priority: 9
+- step: instrument-selection
+  agent: instrument_engineer
+  input: |
+    根据控制需求进行仪表选型和设计：
+    {{steps.control-requirement-analysis.output}}
+    控制回路数：{{var:control_loops}}
+    1. 流量检测仪表选型（电磁流量计/超声波流量计）。
+    2. 液位检测仪表选型（雷达液位计/投入式液位计）。
+    3. 水质在线分析仪选型（浊度仪/余氯仪/pH 计/溶解氧仪）。
+    4. 压力变送器和温度传感器选型。
+    5. 仪表安装位置和取样方式设计。
+    6. 仪表回路供电和信号接线方案。
+    输出必须包含：
+    - instrument_count=N（仪表总数量）
+    - analyzer_count=N（在线分析仪数量）
+    输出到：instrument-selection.md
+
+    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/instrument-selection.md。
+  extract:
+  - pattern: instrument_count=(\d+)
+    variable: instrument_count
+  - pattern: analyzer_count=(\d+)
+    variable: analyzer_count
+  depends_on:
+  - control-requirement-analysis
+  priority: 9
+- step: design-review-meeting
+  group_chat:
+    participants:
+    - automation_engineer
+    - electrical_designer
+    - instrument_engineer
+    - plc_programmer
+    initial_message: |-
+      自动化系统设计评审会议。请审查电气设计和仪表选型方案：
+      控制需求：{{steps.control-requirement-analysis.output}}
+      电气设计：{{steps.electrical-design.output}}
+      仪表选型：{{steps.instrument-selection.output}}
+      评审重点：
+      1. I/O 点表是否完整覆盖所有控制对象？
+      2. PLC 硬件配置是否满足扩展需求（预留 20%）？
+      3. 通信网络拓扑是否合理（冗余设计）？
+      4. 仪表选型精度和量程是否匹配工艺需求？
+      5. 供配电容量是否充裕？UPS 后备时间是否足够？
+      6. 接地和防雷设计是否符合规范？
+      评审通过请说 DESIGN_APPROVED
+
+      讨论结束时请给出一段可复用的结论摘要，便于后续步骤直接保存为 demo 交付物。
+    max_rounds: 4
+    speaker_selection: round_robin
+    termination_keyword: DESIGN_APPROVED
+  depends_on:
+  - electrical-design
+  - instrument-selection
+  priority: 8
+- step: plc-programming
+  agent: plc_programmer
+  input: |
+    根据评审通过的设计方案编写 PLC 控制程序：
+    评审结论：{{steps.design-review-meeting.output}}
+    PLC 平台：{{var:plc_brand}}
+    1. 程序架构设计（OB/FB/FC/DB 结构）。
+    2. 取水泵站控制程序（液位控制、变频调速、多泵切换）。
+    3. 加药系统控制程序（流量比例投加、余量检测、搅拌联动）。
+    4. 沉淀池控制程序（刮泥机运行、排泥阀控制）。
+    5. 滤池自动反冲洗程序（水位触发、气水联合冲洗序列控制）。
+    6. 送水泵站恒压供水 PID 控制程序。
+    7. 加氯消毒控制程序（余氯闭环控制、氯气泄漏报警联锁）。
+    8. 全局联锁保护和故障处理程序。
+    输出必须包含：
+    - program_blocks=N（程序块数量）
+    - safety_interlocks=N（安全联锁数量）
+    输出到：plc-program-design.md
+
+    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/plc-program-design.md。
+  extract:
+  - pattern: program_blocks=(\d+)
+    variable: program_blocks
+  - pattern: safety_interlocks=(\d+)
+    variable: safety_interlocks
+  depends_on:
+  - design-review-meeting
+  priority: 7
+  repeat_until:
+    condition: quality_score >= 8
+    max_iterations: 3
+    evaluate_agent: quality_reviewer
+    evaluate_prompt: |
+      评估 PLC 控制程序设计方案。
+      评分维度：功能完整性(25%)、可靠性(25%)、安全性(25%)、可维护性(25%)。
+      输出格式：quality_score=N（1-10 分）
+      方案内容：{{steps.plc-programming.output}}
+    extract_pattern: quality_score=(\d+)
+    extract_variable: quality_score
+- step: scada-configuration
+  agent: scada_developer
+  input: |
+    根据 PLC 程序和设计方案进行 SCADA 系统组态：
+    SCADA 平台：{{var:scada_platform}}
+    通信协议：{{var:communication_protocol}}
+    PLC 程序设计：{{steps.plc-programming.output}}
+    1. 通信驱动配置（OPC UA/PROFINET/Modbus TCP）。
+    2. 变量标签数据库建立和分组管理。
+    3. 工艺流程总览画面设计（全厂鸟瞰图）。
+    4. 各工艺单元操作画面设计（取水/加药/沉淀/过滤/消毒/送水）。
+    5. 实时趋势和历史趋势画面。
+    6. 报警管理系统配置（分级分类、确认机制、报警推送）。
+    7. 报表系统设计（日报/月报/年报、水质报表、能耗报表）。
+    8. 用户权限管理和操作审计日志。
+    输出必须包含：
+    - scada_screens=N（监控画面数量）
+    - alarm_points=N（报警点数量）
+    - tag_count=N（变量标签数量）
+    输出到：scada-configuration.md
+
+    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/scada-configuration.md。
+  extract:
+  - pattern: scada_screens=(\d+)
+    variable: scada_screens
+  - pattern: alarm_points=(\d+)
+    variable: alarm_points
+  - pattern: tag_count=(\d+)
+    variable: tag_count
+  depends_on:
+  - plc-programming
+  priority: 6
+- step: system-integration-testing
+  agent: automation_engineer
+  input: |
+    执行自动化系统联调测试：
+    PLC 程序：{{steps.plc-programming.output}}
+    SCADA 组态：{{steps.scada-configuration.output}}
+    1. 单回路测试：逐个验证各控制回路功能（手动/自动切换、PID 调节、联锁保护）。
+    2. 通信测试：PLC ↔ SCADA 数据刷新率和丢包率检测。
+    3. 联锁测试：模拟故障条件验证联锁保护动作。
+    4. 72 小时连续运行稳定性测试。
+    5. 报警测试：触发各级报警验证响应。
+    6. 数据记录测试：历史数据归档和报表生成验证。
+    7. 冗余切换测试（如有）：主备 PLC/网络切换。
+    输出必须包含：
+    - test_cases=N（测试用例总数）
+    - pass_rate=N（通过率 %）
+    - critical_issues=N（严重问题数）
+    输出到：integration-test-report.md
+
+    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/integration-test-report.md。
+  extract:
+  - pattern: test_cases=(\d+)
+    variable: test_cases
+  - pattern: pass_rate=([\d.]+)
+    variable: pass_rate
+  - pattern: critical_issues=(\d+)
+    variable: critical_issues
+  depends_on:
+  - scada-configuration
+  priority: 5
+- step: aggregate-deliverables
+  agent: automation_engineer
+  input: |-
+    请整理自动化系统各环节的交付物清单和关键指标：
+    {{var:deliverable_summary}}
+
+    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/aggregate-deliverables.md。
+  aggregate:
+    sources:
+    - |-
+      控制需求：I/O 点数={{var:total_io_points}}, 控制回路={{var:control_loops}}, PLC 站点={{var:plc_stations}}
+      详情：{{steps.control-requirement-analysis.output}}
+    - |-
+      电气设计：变压器={{var:transformer_capacity}} kVA, 变频器={{var:vfd_count}} 台, 控制柜={{var:cabinet_count}} 面
+      详情：{{steps.electrical-design.output}}
+    - |-
+      仪表选型：仪表总数={{var:instrument_count}}, 在线分析仪={{var:analyzer_count}}
+      详情：{{steps.instrument-selection.output}}
+    - |-
+      PLC 程序：程序块={{var:program_blocks}}, 安全联锁={{var:safety_interlocks}}
+      详情：{{steps.plc-programming.output}}
+    - |-
+      SCADA 组态：画面={{var:scada_screens}}, 报警点={{var:alarm_points}}, 标签={{var:tag_count}}
+      详情：{{steps.scada-configuration.output}}
+    - |-
+      联调测试：用例={{var:test_cases}}, 通过率={{var:pass_rate}}%, 严重问题={{var:critical_issues}}
+      详情：{{steps.system-integration-testing.output}}
+    strategy: numbered_list
+    output_variable: deliverable_summary
+  depends_on:
+  - system-integration-testing
+  priority: 3
+- step: acceptance-report
+  agent: automation_engineer
+  input: |
+    生成「{{var:project_name}}」自动化系统验收报告：
+    1. 项目概况和控制范围：{{var:control_scope}}
+    2. 全系统交付物汇总：{{steps.aggregate-deliverables.output}}
+    3. 设计评审结论：{{steps.design-review-meeting.output}}
+    4. 联调测试结果：通过率 {{var:pass_rate}}%，严重问题 {{var:critical_issues}} 个
+    5. 遗留问题和整改计划
+    6. 培训计划和运维手册交付
+    保存到 acceptance-report.md
+  depends_on:
+  - aggregate-deliverables
+  priority: 1
+error_handling:
+  max_retries: 2
+  retry_delay: 3s
+  continue_on_error: false
+timeout:
+  total: 3600s
+  per_step: 600s
+directory_isolation:
+  enabled: true
+  base_dir: ".workflow-runs"
+  working_dir_pattern: "{base_dir}/{execution_id}/{step_name}/workspace"
+  output_dir_pattern: "{base_dir}/{execution_id}/output"
+  persistence_dir_pattern: "{base_dir}/{execution_id}/.snapshots"
+  shared_cache_dir: ".prompt_cache"
+  shared_history_dir: ".agent_history"
+  shared_skills_dir: "./skills"
+  cleanup_on_completion: false
+  cleanup_after_hours: 72
+concurrency:
+  enabled: true
+  max_concurrency: 4
+global_agent:
+  enabled: true
+  agent:
+    preset: universal
+    overrides:
+      system_prompt: |-
+        你是工作流模板助手，负责帮助用户理解、调试和演示当前工作流。
+        生成或修改 YAML 时必须使用 braidrun-agent 的 snake_case 语法，并优先保持模板可直接运行。
+      tool_set:
+      - workflow
+      - file_system
+      - exit
+      max_iterations: 2048
+      session_id_strategy: per_execution

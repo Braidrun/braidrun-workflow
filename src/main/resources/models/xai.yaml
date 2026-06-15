@@ -1,0 +1,64 @@
+provider: xai
+aliases:
+- x-ai
+models:
+  # ===== Grok 4.x =====
+  "grok-4.20-multi-agent":
+    id: "x-ai/grok-4.20-multi-agent"
+    capabilities: multimodal
+    context_length: 2000000
+  "grok-4.20-multi-agent-beta":
+    id: "x-ai/grok-4.20-multi-agent"
+    capabilities: multimodal
+    context_length: 2000000
+  "grok-4.20":
+    id: "x-ai/grok-4.20"
+    capabilities: multimodal
+    context_length: 2000000
+  "grok-4.20-beta":
+    id: "x-ai/grok-4.20"
+    capabilities: multimodal
+    context_length: 2000000
+  "grok-4-fast":
+    id: "x-ai/grok-4-fast"
+    capabilities: multimodal
+    context_length: 2000000
+  "grok-4":
+    id: "x-ai/grok-4"
+    capabilities: multimodal
+    context_length: 256000
+  # ===== Grok 3.x =====
+  "grok-3":
+    id: "x-ai/grok-3"
+    capabilities: standard
+    context_length: 131072
+  "grok-3-fast":
+    id: "x-ai/grok-3-fast"
+    capabilities: standard
+    context_length: 131072
+  "grok-3-mini":
+    id: "x-ai/grok-3-mini"
+    capabilities: standard
+    context_length: 131072
+  "grok-3-mini-fast":
+    id: "x-ai/grok-3-mini-fast"
+    capabilities: standard
+    context_length: 131072
+  # ===== Grok 2.x =====
+  "grok-2":
+    id: "x-ai/grok-2"
+    capabilities: standard
+    context_length: 131072
+  "grok-2-mini":
+    id: "x-ai/grok-2-mini"
+    capabilities: standard
+    context_length: 131072
+  "grok-2-vision":
+    id: "x-ai/grok-2-vision"
+    capabilities: multimodal
+    context_length: 32768
+  # ===== Grok code =====
+  "grok-code-fast-1":
+    id: "x-ai/grok-code-fast-1"
+    capabilities: standard
+    context_length: 256000

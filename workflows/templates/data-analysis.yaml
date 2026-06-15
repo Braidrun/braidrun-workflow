@@ -1,0 +1,278 @@
+---
+name: data-analysis-pipeline
+version: 3.0.0
+tags:
+- 数据分析
+- 数据科学
+- 商业智能
+- 多角色协作
+- 迭代优化
+- 确定性计算
+- 并行处理
+- group_chat
+- repeat_until
+- extract
+- code
+- parallel
+- condition
+category: analysis
+description: |
+  多维数据分析与可视化工作流。端到端的数据分析管线：
+  数据验证(code/bash) → 数据加载与质量检查 → 多维并行分析（销售/客户/产品/订单）
+  → 分析师圆桌讨论(group_chat) → 迭代优化分析报告(repeat_until) → 交互式可视化仪表盘生成。
+  通过 code 步骤确保数据验证的确定性，extract 提取关键指标，parallel 加速多维度分析，
+  group_chat 实现数据/分析/可视化专家的跨角色洞察碰撞。适用于销售数据分析、BI 报表和商业洞察场景。
+variables:
+  data_source: "./data/"
+  analysis_goal: 分析销售数据，找出增长机会和风险区域
+  quality_threshold: '8'
+  output_dir: "./output/data-analysis"
+  demo_mode: 'true'
+variable_tags:
+  analysis_goal: '业务参数'
+  data_source: '业务参数'
+  demo_mode: '运行模式'
+  output_dir: '输出'
+  quality_threshold: '业务参数'
+agents:
+  data_loader:
+    preset: data_analyst
+    overrides:
+      system_prompt: |-
+        你是一位数据工程师，负责数据加载、清洗和验证。
+        你精通 CSV/JSON/SQL 数据处理，擅长数据质量检查和异常值识别。
+        输出必须包含以下格式化指标：
+        - total_records=N（总记录数）
+        - missing_ratio=N%（缺失值比例）
+        - anomaly_count=N（异常值数量）
+
+        共同要求：
+        - 该模板以“可直接运行演示”为第一目标。
+        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
+        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+      session_id_strategy: per_execution
+  analyzer:
+    preset: data_analyst
+    overrides:
+      system_prompt: |-
+        你是一位高级数据分析师，擅长从数据中提取商业洞察。
+        你精通统计分析、趋势预测和异常检测，善于用数据讲故事。
+
+        共同要求：
+        - 该模板以“可直接运行演示”为第一目标。
+        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
+        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+      session_id_strategy: auto
+  visualizer:
+    preset: data_analyst
+    overrides:
+      system_prompt: |-
+        你是一位数据可视化专家，精通图表设计和仪表盘构建。
+        你能选择最合适的图表类型展示不同类型的数据关系。
+
+        共同要求：
+        - 该模板以“可直接运行演示”为第一目标。
+        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
+        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+      session_id_strategy: per_execution
+  quality_reviewer:
+    preset: universal
+    overrides:
+      system_prompt: |-
+        你是一位数据分析质量评审专家。对分析报告进行综合评分。
+        评分维度：数据准确性(25%)、分析深度(25%)、洞察价值(25%)、可行性建议(25%)。
+        输出格式必须包含：quality_score=N（1-10 分）。
+
+        共同要求：
+        - 该模板以“可直接运行演示”为第一目标。
+        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
+        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+      session_id_strategy: auto
+workflow:
+- step: validate_data
+  code:
+    language: bash
+    script: |
+      echo "=== 数据验证 ==="
+      DATA_DIR="$WF_VAR_data_source"
+      echo "检查数据目录: $DATA_DIR"
+      if [ ! -d "$DATA_DIR" ]; then
+        echo "data_valid=FALSE"
+        echo "error=数据目录不存在: $DATA_DIR"
+        exit 1
+      fi
+      FILE_COUNT=$(find "$DATA_DIR" -maxdepth 1 -type f \( -name "*.csv" -o -name "*.json" -o -name "*.xlsx" \) | wc -l | tr -d ' ')
+      echo "data_files_count=$FILE_COUNT"
+      if [ "$FILE_COUNT" -eq 0 ]; then
+        echo "data_valid=FALSE"
+        echo "error=目录中没有数据文件"
+        exit 1
+      fi
+      echo "发现的数据文件："
+      find "$DATA_DIR" -maxdepth 1 -type f \( -name "*.csv" -o -name "*.json" -o -name "*.xlsx" \) -exec basename {} \;
+      TOTAL_SIZE=$(du -sh "$DATA_DIR" | cut -f1)
+      echo "total_data_size=$TOTAL_SIZE"
+      echo "data_valid=TRUE"
+    timeout: 30
+  extract:
+  - pattern: data_valid=(\w+)
+    variable: data_valid
+  - pattern: data_files_count=(\d+)
+    variable: data_files_count
+  - pattern: total_data_size=(\S+)
+    variable: total_data_size
+  priority: 10
+- step: load_data
+  agent: data_loader
+  input: |-
+    加载并探索 {{var:data_source}} 中的数据：
+    数据验证结果：共 {{var:data_files_count}} 个文件，总大小 {{var:total_data_size}}
+    1. 列出所有数据文件及其格式。
+    2. 每个文件的基本统计（行数、列数、数据类型）。
+    3. 数据质量检查（缺失值、重复值、异常值）。
+    4. 数据清洗建议和执行。
+    5. 生成数据字典（每列的含义、类型、取值范围）。
+    输出必须包含以下格式化指标：
+    - total_records=N
+    - missing_ratio=N%
+    - anomaly_count=N
+    保存清洗后的数据摘要到 data_inventory.md
+
+    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/load_data.md。
+  extract:
+  - pattern: total_records=(\d+)
+    variable: total_records
+  - pattern: missing_ratio=(\d+)%
+    variable: missing_ratio
+  - pattern: anomaly_count=(\d+)
+    variable: anomaly_count
+  depends_on:
+  - validate_data
+  priority: 9
+- step: parallel_analysis
+  agent: analyzer
+  depends_on:
+  - load_data
+  input: |-
+    分析数据集: {{task}}
+
+    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/parallel_analysis.md。
+  parallel:
+    tasks:
+    - "./data/sales.csv - 按区域/时间/产品类别计算销售额、增长率和占比"
+    - "./data/customers.csv - 客户分层分析（RFM模型）、流失风险识别"
+    - "./data/products.csv - 产品排名、利润率分析、库存周转率"
+    - "./data/orders.csv - 订单模式分析（时段、频次、客单价趋势）"
+    aggregate_results: true
+    max_parallel: 4
+  priority: 8
+- step: analysis_discussion
+  group_chat:
+    participants:
+    - analyzer
+    - data_loader
+    - visualizer
+    initial_message: |-
+      数据分析讨论会。
+      数据概况：共 {{var:total_records}} 条记录，缺失率 {{var:missing_ratio}}%，异常值 {{var:anomaly_count}} 个
+
+      多维分析结果：
+      {{steps.parallel_analysis.output}}
+
+      分析目标：{{var:analysis_goal}}
+      讨论重点：
+      1. 各维度的分析结果是否有相互矛盾之处？
+      2. 是否发现了跨维度的关联洞察？
+      3. 哪些发现最有商业价值？优先级如何排序？
+      4. 数据是否有局限性？结论的置信度如何？
+      5. 最适合用什么图表展示关键发现？
+      讨论完毕后请说 ANALYSIS_COMPLETE
+
+      讨论结束时请给出一段可复用的结论摘要，便于后续步骤直接保存为 demo 交付物。
+    max_rounds: 4
+    speaker_selection: round_robin
+    termination_keyword: ANALYSIS_COMPLETE
+  depends_on:
+  - parallel_analysis
+  priority: 7
+- step: create_report
+  agent: analyzer
+  depends_on:
+  - analysis_discussion
+  input: |
+    基于讨论共识生成分析报告：
+    数据概览：{{steps.load_data.output}}
+    多维分析：{{steps.parallel_analysis.output}}
+    讨论共识：{{steps.analysis_discussion.output}}
+    上次评估反馈（如有）：{{steps.create_report:evaluate.output}}
+    报告结构：
+    1. 执行摘要（3-5 个关键发现）。
+    2. 数据概览和方法论。
+    3. 详细分析（按重要性排序）。
+    4. 风险和机会识别。
+    5. 可行性建议（附数据支撑）。
+    6. 附录：数据说明和局限性。
+    保存到 ANALYSIS_REPORT.md
+  priority: 5
+  repeat_until:
+    condition: quality_score >= 8
+    max_iterations: 3
+    evaluate_agent: quality_reviewer
+    evaluate_prompt: |
+      评估以下数据分析报告的质量。
+      评分维度：数据准确性(25%)、分析深度(25%)、洞察价值(25%)、可行性建议(25%)。
+      输出格式：quality_score=N（1-10 分）
+      分析报告：
+      {{steps.create_report.output}}
+    extract_pattern: quality_score=(\d+)
+    extract_variable: quality_score
+- step: generate_dashboard
+  agent: visualizer
+  depends_on:
+  - create_report
+  input: |
+    基于分析报告（质量评分 {{var:quality_score}}）创建数据可视化：
+    数据概况：{{var:total_records}} 条记录，{{var:data_files_count}} 个数据文件
+    报告：{{steps.create_report.output}}
+    1. 为每个关键发现选择最合适的图表类型。
+    2. 设计 KPI 仪表盘布局（核心指标一目了然）。
+    3. 创建趋势图、对比图、分布图等。
+    4. 生成 HTML 交互式仪表盘。
+    5. 数据故事线：用图表串联起完整的分析叙事。
+    保存到 ./reports/ 目录
+  priority: 2
+error_handling:
+  max_retries: 2
+  retry_delay: 3s
+  continue_on_error: false
+timeout:
+  total: 3600s
+  per_step: 900s
+directory_isolation:
+  enabled: true
+  base_dir: ".workflow-runs"
+  working_dir_pattern: "{base_dir}/{execution_id}/{step_name}/workspace"
+  output_dir_pattern: "{base_dir}/{execution_id}/output"
+  persistence_dir_pattern: "{base_dir}/{execution_id}/.snapshots"
+  shared_cache_dir: ".prompt_cache"
+  shared_history_dir: ".agent_history"
+  shared_skills_dir: "./skills"
+  cleanup_on_completion: false
+  cleanup_after_hours: 72
+concurrency:
+  enabled: true
+  max_concurrency: 4
+global_agent:
+  enabled: true
+  agent:
+    preset: universal
+    overrides:
+      system_prompt: |-
+        你是工作流模板助手，负责帮助用户理解、调试和演示当前工作流。
+        生成或修改 YAML 时必须使用 braidrun-agent 的 snake_case 语法，并优先保持模板可直接运行。
+      tool_set:
+      - workflow
+      - file_system
+      - exit
+      max_iterations: 2048
+      session_id_strategy: per_execution

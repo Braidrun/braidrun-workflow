@@ -1,0 +1,147 @@
+---
+name: test-sql-query-runner
+version: 1.0.0
+description: |
+  Test harness for utility-module-sql-query-runner.
+
+  Uses SQLite to avoid external DB dependency:
+  - Create a DB file, insert test rows (allow_writes=true)
+  - SELECT with positional parameters, assert rows_json + row_count
+  - Attempt a write with allow_writes=false → expect rejection
+
+tags:
+  - code
+  - error_handling
+  - extract
+  - sub_workflow
+
+error_handling:
+  continue_on_error: true
+
+agents: {}
+
+workflow:
+  - step: setup_db
+    code:
+      language: python
+      timeout: 10
+      script: |
+        import sqlite3
+        import tempfile
+        from pathlib import Path
+
+        db_path = Path(tempfile.mkdtemp(prefix="sql_test_")) / "test.db"
+        conn = sqlite3.connect(str(db_path))
+        cur = conn.cursor()
+        cur.execute("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, score INTEGER, active INTEGER)")
+        cur.executemany(
+            "INSERT INTO users (name, score, active) VALUES (?, ?, ?)",
+            [
+                ("alice", 95, 1),
+                ("bob",   70, 0),
+                ("carol", 85, 1),
+                ("dave",  60, 1),
+            ],
+        )
+        conn.commit()
+        conn.close()
+        print(f"db_url=sqlite:///{db_path}")
+    extract:
+      - pattern: 'db_url=(.+)'
+        variable: db_url
+    priority: 20
+
+  - step: select_active
+    sub_workflow:
+      name: utility-module-sql-query-runner
+      inputs:
+        connection_url: "{{var:db_url}}"
+        query: "SELECT name, score FROM users WHERE active = ? ORDER BY score DESC"
+        parameters_json: '[1]'
+        output_format: json
+        max_rows: "100"
+      outputs:
+        select_rows_json: rows_json
+        select_row_count: row_count
+        select_columns: columns
+        select_status: query_status
+    depends_on:
+      - setup_db
+    priority: 15
+
+  - step: blocked_write
+    sub_workflow:
+      name: utility-module-sql-query-runner
+      inputs:
+        connection_url: "{{var:db_url}}"
+        query: "DELETE FROM users WHERE score < 80"
+        allow_writes: "false"
+      outputs:
+        blocked_status: query_status
+    depends_on:
+      - setup_db
+    on_failure:
+      - next: assert
+    priority: 12
+
+  - step: assert
+    code:
+      language: python
+      timeout: 15
+      script: |
+        import json
+        import os
+        import sys
+
+        problems = []
+
+        status = os.environ.get("WF_VAR_SELECT_STATUS", "").strip()
+        rows_json = os.environ.get("WF_VAR_SELECT_ROWS_JSON", "").strip()
+        row_count_raw = os.environ.get("WF_VAR_SELECT_ROW_COUNT", "").strip()
+        columns = os.environ.get("WF_VAR_SELECT_COLUMNS", "").strip()
+
+        if status != "ok":
+            problems.append(f"select status != ok, got '{status}'")
+
+        try:
+            row_count = int(row_count_raw)
+        except ValueError:
+            row_count = -1
+            problems.append(f"row_count not int: '{row_count_raw}'")
+
+        # 3 active users: alice(95), carol(85), dave(60)
+        if row_count != 3:
+            problems.append(f"expected 3 active users, got {row_count}")
+
+        if columns and columns != "name,score":
+            problems.append(f"columns != 'name,score', got '{columns}'")
+
+        try:
+            rows = json.loads(rows_json)
+            if not isinstance(rows, list):
+                problems.append(f"rows not a list: {type(rows).__name__}")
+            else:
+                names = [r.get("name") for r in rows]
+                if names != ["alice", "carol", "dave"]:
+                    problems.append(f"sort order wrong: {names}")
+        except json.JSONDecodeError as e:
+            problems.append(f"rows_json invalid: {e}")
+
+        # Blocked write: module should have failed and NOT populated blocked_status.
+        blocked_status = os.environ.get("WF_VAR_BLOCKED_STATUS", "").strip()
+        if blocked_status:
+            problems.append(f"blocked_write should have failed (allow_writes=false), but status='{blocked_status}'")
+
+        if problems:
+            print("TEST_STATUS=fail")
+            for p in problems:
+                print(f"  - {p}")
+            sys.exit(1)
+        else:
+            print("TEST_STATUS=pass")
+    extract:
+      - pattern: 'TEST_STATUS=(\w+)'
+        variable: test_status
+    depends_on:
+      - select_active
+    priority: 5

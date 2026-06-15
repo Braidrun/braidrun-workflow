@@ -1,0 +1,5 @@
+# Built-in skills index for braidrun-workflow
+# Each line names a sub-directory containing a SKILL.md resource.
+# Blank lines and lines starting with '#' are ignored.
+
+braidrun-agent-guide

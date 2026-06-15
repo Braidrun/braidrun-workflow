@@ -1,0 +1,173 @@
+---
+name: test-workflow-group-chat
+version: 1.0.0
+tags:
+- 测试
+- Group Chat多角色讨论
+- 多角色协作
+- group_chat
+description: |
+  Group Chat 功能测试 - 测试多 Agent 协作对话模式
+  覆盖：participants、moderator、max_rounds、speaker_selection、
+  termination_keyword、initial_message、summary_agent
+variables:
+  topic: 新用户注册流程优化
+  output_dir: "./output"
+  demo_mode: 'true'
+agents:
+  pm:
+    preset: universal
+    overrides:
+      system_prompt: |-
+        You are a product manager. Provide product requirements and user stories. Call exit when done.
+
+        共同要求：
+        - 该模板以“可直接运行演示”为第一目标。
+        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
+        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+      tool_set:
+      - exit
+      - skill_tools
+      - file_system
+      max_iterations: 8196
+      session_id_strategy: auto
+  designer:
+    preset: universal
+    overrides:
+      system_prompt: |-
+        You are a UI/UX designer. Propose design solutions and user experience improvements. Call exit when done.
+
+        共同要求：
+        - 该模板以“可直接运行演示”为第一目标。
+        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
+        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+      tool_set:
+      - exit
+      - skill_tools
+      - file_system
+      max_iterations: 8196
+      session_id_strategy: auto
+  engineer:
+    preset: universal
+    overrides:
+      system_prompt: |-
+        You are a software engineer. Evaluate technical feasibility and propose implementation plans. Call exit when done.
+
+        共同要求：
+        - 该模板以“可直接运行演示”为第一目标。
+        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
+        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+      tool_set:
+      - exit
+      - skill_tools
+      - file_system
+      max_iterations: 8196
+      session_id_strategy: auto
+  qa:
+    preset: universal
+    overrides:
+      system_prompt: |-
+        You are a QA engineer. Identify potential issues and suggest test strategies. Call exit when done.
+
+        共同要求：
+        - 该模板以“可直接运行演示”为第一目标。
+        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
+        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+      tool_set:
+      - exit
+      - skill_tools
+      - file_system
+      max_iterations: 8196
+      session_id_strategy: auto
+workflow:
+- step: feature_discussion
+  group_chat:
+    participants:
+    - pm
+    - designer
+    - engineer
+    moderator: pm
+    max_rounds: 3
+    speaker_selection: round_robin
+    termination_keyword: CONSENSUS_REACHED
+    initial_message: |-
+      我们今天讨论的话题是：{{var:topic}}
+      请各位从各自角色的角度分析并提出建议。
+      当达成共识时，请输出 CONSENSUS_REACHED。
+
+      讨论结束时请给出一段可复用的结论摘要，便于后续步骤直接保存为 demo 交付物。
+    summary_agent: pm
+- step: technical_brainstorm
+  group_chat:
+    participants:
+    - engineer
+    - designer
+    - qa
+    max_rounds: 4
+    speaker_selection: random
+    termination_keyword: DISCUSSION_COMPLETE
+    initial_message: |-
+      基于之前的讨论结果：{{steps.feature_discussion.output}}
+      请从技术角度进行头脑风暴，探讨实现方案。
+      讨论结束时请输出 DISCUSSION_COMPLETE。
+
+      讨论结束时请给出一段可复用的结论摘要，便于后续步骤直接保存为 demo 交付物。
+  depends_on:
+  - feature_discussion
+- step: final_review
+  group_chat:
+    participants:
+    - pm
+    - qa
+    max_rounds: 2
+    initial_message: |-
+      请对以下技术方案进行最终评审：
+      {{steps.technical_brainstorm.output}}
+
+      讨论结束时请给出一段可复用的结论摘要，便于后续步骤直接保存为 demo 交付物。
+  depends_on:
+  - technical_brainstorm
+- step: write_summary
+  agent: pm
+  input: |
+    基于以下讨论成果，生成最终总结报告并保存到 {{var:output_dir}}/discussion_summary.txt：
+    讨论结果：{{steps.feature_discussion.output}}
+    技术方案：{{steps.technical_brainstorm.output}}
+    评审意见：{{steps.final_review.output}}
+  depends_on:
+  - final_review
+error_handling:
+  max_retries: 2
+  retry_delay: 3s
+  continue_on_error: false
+timeout:
+  total: 600s
+  per_step: 180s
+directory_isolation:
+  enabled: true
+  base_dir: ".workflow-runs"
+  working_dir_pattern: "{base_dir}/{execution_id}/{step_name}/workspace"
+  output_dir_pattern: "{base_dir}/{execution_id}/output"
+  persistence_dir_pattern: "{base_dir}/{execution_id}/.snapshots"
+  shared_cache_dir: ".prompt_cache"
+  shared_history_dir: ".agent_history"
+  shared_skills_dir: "./skills"
+  cleanup_on_completion: false
+  cleanup_after_hours: 72
+concurrency:
+  enabled: true
+  max_concurrency: 4
+global_agent:
+  enabled: true
+  agent:
+    preset: universal
+    overrides:
+      system_prompt: |-
+        你是工作流模板助手，负责帮助用户理解、调试和演示当前工作流。
+        生成或修改 YAML 时必须使用 braidrun-agent 的 snake_case 语法，并优先保持模板可直接运行。
+      tool_set:
+      - workflow
+      - file_system
+      - exit
+      max_iterations: 2048
+      session_id_strategy: per_execution

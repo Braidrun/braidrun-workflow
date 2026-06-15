@@ -1,0 +1,312 @@
+---
+name: backend-service-design
+version: 3.0.0
+tags:
+- 后端开发
+- 架构设计
+- 软件工程
+- 多角色协作
+- 迭代优化
+- 多源聚合
+- group_chat
+- repeat_until
+- extract
+- aggregate
+- condition
+category: software
+description: |
+  互联网后端服务架构与 API 设计工作流
+
+  适用场景：设计高并发、高可用的后端微服务（如用户权限中心、支付网关、消息中心等），需要系统化的架构评审和 API 规范。
+  说明：后端架构师、数据库专家、API 设计专家、安全顾问四方协作。aggregate 将架构/数据库/API 三份设计聚合为评审摘要，
+  group_chat 架构评审会议多维度审查，repeat_until 迭代优化直到设计质量达标。
+  流程：架构设计 -> 数据库建模 -> API 规范 -> 设计聚合 -> 架构评审会 -> 迭代优化 -> 最终技术文档。
+variables:
+  service_name: 用户权限管理中心 (User Auth Service)
+  requirements: 支持 OAuth2/OIDC, 角色权限管理 (RBAC), 支持百万级并发访问
+  tech_stack: Kotlin, Ktor/Spring Boot, PostgreSQL, Redis
+  quality_threshold: '8'
+  design_summary: ''
+  output_dir: "./output/backend-service-design"
+  demo_mode: 'true'
+variable_tags:
+  demo_mode: '运行模式'
+  design_summary: '业务参数'
+  output_dir: '输出'
+  quality_threshold: '业务参数'
+  requirements: '业务参数'
+  service_name: '业务参数'
+  tech_stack: '业务参数'
+agents:
+  backend_architect:
+    preset: researcher
+    overrides:
+      system_prompt: |-
+        你是一位资深后端架构师，精通微服务架构、分布式系统和高可用设计。
+        你擅长技术栈选型、核心组件设计和系统瓶颈分析。
+        输出必须包含以下格式化指标：
+        - components_count=N（核心组件数量）
+        - estimated_qps=N（预估 QPS 承载能力）
+
+        共同要求：
+        - 该模板以“可直接运行演示”为第一目标。
+        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
+        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+      session_id_strategy: per_execution
+  database_expert:
+    preset: universal
+    overrides:
+      system_prompt: |-
+        你是一位精通关系型数据库 (PostgreSQL/MySQL) 和 NoSQL 的建模专家。
+        你负责设计高性能、可扩展的数据库表结构，并优化查询索引。
+        输出必须包含以下格式化指标：
+        - tables_count=N（表数量）
+        - indexes_count=N（索引数量）
+
+        共同要求：
+        - 该模板以“可直接运行演示”为第一目标。
+        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
+        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+      session_id_strategy: per_execution
+  api_specialist:
+    preset: researcher
+    overrides:
+      system_prompt: |-
+        你是一位 API 设计专家，推崇 RESTful 最佳实践和 OpenAPI 契约优先原则。
+        你负责编写清晰、标准、易于使用的接口定义。
+        输出必须包含以下格式化指标：
+        - endpoints_count=N（API 端点数量）
+        - error_codes_count=N（错误码数量）
+
+        共同要求：
+        - 该模板以“可直接运行演示”为第一目标。
+        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
+        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+      session_id_strategy: per_execution
+  security_consultant:
+    preset: universal
+    overrides:
+      system_prompt: |-
+        你是一位应用安全顾问，专注于认证授权、数据安全和合规性。
+        你负责审查架构和 API 设计中的安全隐患，提供加固建议。
+
+        共同要求：
+        - 该模板以“可直接运行演示”为第一目标。
+        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
+        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+      session_id_strategy: auto
+  design_reviewer:
+    preset: universal
+    overrides:
+      system_prompt: |-
+        你是一位技术方案评审专家。对后端架构设计方案进行综合评分。
+        评分维度：架构合理性(30%)、可扩展性(20%)、安全性(25%)、API 规范性(25%)。
+        输出格式必须包含：quality_score=N（1-10 分）。
+
+        共同要求：
+        - 该模板以“可直接运行演示”为第一目标。
+        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
+        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+      session_id_strategy: auto
+workflow:
+- step: architecture-design
+  agent: backend_architect
+  input: |
+    针对「{{var:service_name}}」及其需求「{{var:requirements}}」，基于 {{var:tech_stack}} 技术栈进行设计：
+    1. 系统上下文图：与外部系统的交互关系（前端、第三方 OAuth Provider、消息队列）。
+    2. 核心组件图（Auth Controller, Token Service, Permission Service, Repository 层）。
+    3. 详细描述高并发下的缓存策略（Redis 会话缓存、权限缓存、Token 黑名单）。
+    4. 数据库连接池配置和读写分离方案。
+    5. 评估潜在的单点故障并提供冗余方案（主从切换、服务降级）。
+    6. 限流和熔断策略设计。
+    输出必须包含以下格式化指标：
+    - components_count=N
+    - estimated_qps=N
+    输出到：architecture-design.md
+  extract:
+  - pattern: components_count=(\d+)
+    variable: components_count
+  - pattern: estimated_qps=(\d+)
+    variable: estimated_qps
+  priority: 10
+- step: db-schema-modeling
+  agent: database_expert
+  input: |
+    基于 {{steps.architecture-design.output}}，进行数据库设计：
+    1. 设计核心表结构（users, roles, permissions, user_roles, oauth_clients, tokens）。
+    2. 提供完整的 SQL DDL 脚本（含注释）。
+    3. 标注关键索引（覆盖索引、唯一约束）和外键约束，解释其对性能的影响。
+    4. 设计数据迁移和版本管理策略（Flyway/Liquibase）。
+    5. 大表分区方案（如 token 表按时间分区）。
+    输出必须包含以下格式化指标：
+    - tables_count=N
+    - indexes_count=N
+    输出到：database-schema.sql 和 db-design-doc.md
+  extract:
+  - pattern: tables_count=(\d+)
+    variable: tables_count
+  - pattern: indexes_count=(\d+)
+    variable: indexes_count
+  depends_on:
+  - architecture-design
+  priority: 9
+- step: api-specification
+  agent: api_specialist
+  input: |
+    基于架构设计和数据库模型，编写 {{var:service_name}} 的 OpenAPI 3.0 规范：
+    1. 认证端点：POST /auth/login, POST /auth/register, POST /auth/token/refresh, POST /auth/logout。
+    2. 用户管理：GET/PUT /users/me, GET /users/{id}（管理员）。
+    3. 权限管理：GET/POST/PUT/DELETE /roles, /permissions, /users/{id}/roles。
+    4. OAuth2 端点：GET /oauth/authorize, POST /oauth/token。
+    5. 详细定义请求/响应模型（含分页、排序、过滤）。
+    6. 错误码定义（标准 RFC 7807 Problem Details）。
+    7. 认证方式说明（Bearer Token, API Key）。
+    输出必须包含以下格式化指标：
+    - endpoints_count=N
+    - error_codes_count=N
+    输出到：api-spec.yaml
+  extract:
+  - pattern: endpoints_count=(\d+)
+    variable: endpoints_count
+  - pattern: error_codes_count=(\d+)
+    variable: error_codes_count
+  depends_on:
+  - db-schema-modeling
+  priority: 8
+- step: aggregate-designs
+  agent: backend_architect
+  input: |-
+    请将以下三份设计文档的核心内容整理为评审摘要，突出关键决策和指标：
+    {{var:design_summary}}
+
+    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/aggregate-designs.md。
+  aggregate:
+    sources:
+    - |-
+      【架构设计】核心组件={{var:components_count}}个，预估QPS={{var:estimated_qps}}
+      {{steps.architecture-design.output}}
+    - |-
+      【数据库设计】表={{var:tables_count}}个，索引={{var:indexes_count}}个
+      {{steps.db-schema-modeling.output}}
+    - |-
+      【API 规范】端点={{var:endpoints_count}}个，错误码={{var:error_codes_count}}个
+      {{steps.api-specification.output}}
+    strategy: numbered_list
+    output_variable: design_summary
+  depends_on:
+  - api-specification
+  priority: 7
+- step: architecture-review-meeting
+  group_chat:
+    participants:
+    - backend_architect
+    - database_expert
+    - api_specialist
+    - security_consultant
+    initial_message: |-
+      架构评审会议开始。设计指标概览：
+      - 核心组件：{{var:components_count}} 个，预估 QPS：{{var:estimated_qps}}
+      - 数据库：{{var:tables_count}} 张表，{{var:indexes_count}} 个索引
+      - API：{{var:endpoints_count}} 个端点，{{var:error_codes_count}} 个错误码
+
+      设计摘要：
+      {{steps.aggregate-designs.output}}
+
+      讨论重点：
+      1. 架构是否满足百万级并发要求？缓存策略是否完善？
+      2. 数据库设计是否存在性能瓶颈？索引是否合理？
+      3. API 设计是否符合 RESTful 最佳实践？是否易于前端集成？
+      4. 安全性评估：认证流程是否有漏洞？敏感数据保护是否到位？
+      5. 跨领域关联问题（如 DB 设计对 API 性能的影响）
+      讨论完毕后请说 REVIEW_COMPLETE
+
+      讨论结束时请给出一段可复用的结论摘要，便于后续步骤直接保存为 demo 交付物。
+    max_rounds: 5
+    speaker_selection: round_robin
+    termination_keyword: REVIEW_COMPLETE
+  depends_on:
+  - aggregate-designs
+  priority: 6
+- step: optimize-design
+  agent: backend_architect
+  input: |
+    基于架构评审会议的反馈，优化整体设计方案：
+
+    设计摘要：{{steps.aggregate-designs.output}}
+    评审反馈：{{steps.architecture-review-meeting.output}}
+    上次评估反馈（如有）：{{steps.optimize-design:evaluate.output}}
+
+    请：
+    1. 逐条回应评审中提出的每个问题
+    2. 修改架构设计中需要调整的部分
+    3. 更新数据库设计建议
+    4. 更新 API 设计建议
+    5. 说明每项修改的理由和预期效果
+    输出到：optimized-design.md
+  depends_on:
+  - architecture-review-meeting
+  priority: 4
+  repeat_until:
+    condition: quality_score >= 8
+    max_iterations: 3
+    evaluate_agent: design_reviewer
+    evaluate_prompt: |
+      评估以下后端服务设计方案的质量。
+      评分维度：架构合理性(30%)、可扩展性(20%)、安全性(25%)、API 规范性(25%)。
+      输出格式：quality_score=N（1-10 分）
+
+      设计方案：
+      {{steps.optimize-design.output}}
+    extract_pattern: quality_score=(\d+)
+    extract_variable: quality_score
+- step: final-technical-doc
+  agent: backend_architect
+  input: |
+    生成最终技术设计文档，汇总所有成果：
+    1. 项目概述：{{var:service_name}} 的定位和目标
+    2. 设计指标：{{var:components_count}} 组件，{{var:tables_count}} 表，{{var:endpoints_count}} 端点，QPS {{var:estimated_qps}}
+    3. 架构设计（优化后）：{{steps.optimize-design.output}}
+    4. 数据库设计：{{steps.db-schema-modeling.output}}
+    5. API 规范：{{steps.api-specification.output}}
+    6. 安全设计要点（来自评审共识）：{{steps.architecture-review-meeting.output}}
+    7. 部署方案和运维建议
+    8. 设计质量评分：{{var:quality_score}}
+    输出到：final-technical-doc.md
+  depends_on:
+  - optimize-design
+  priority: 2
+error_handling:
+  max_retries: 2
+  retry_delay: 3s
+  continue_on_error: false
+timeout:
+  total: 3600s
+  per_step: 600s
+directory_isolation:
+  enabled: true
+  base_dir: ".workflow-runs"
+  working_dir_pattern: "{base_dir}/{execution_id}/{step_name}/workspace"
+  output_dir_pattern: "{base_dir}/{execution_id}/output"
+  persistence_dir_pattern: "{base_dir}/{execution_id}/.snapshots"
+  shared_cache_dir: ".prompt_cache"
+  shared_history_dir: ".agent_history"
+  shared_skills_dir: "./skills"
+  cleanup_on_completion: false
+  cleanup_after_hours: 72
+concurrency:
+  enabled: true
+  max_concurrency: 4
+global_agent:
+  enabled: true
+  agent:
+    preset: universal
+    overrides:
+      system_prompt: |-
+        你是工作流模板助手，负责帮助用户理解、调试和演示当前工作流。
+        生成或修改 YAML 时必须使用 braidrun-agent 的 snake_case 语法，并优先保持模板可直接运行。
+      tool_set:
+      - workflow
+      - file_system
+      - exit
+      max_iterations: 2048
+      session_id_strategy: per_execution

@@ -1,0 +1,115 @@
+id: office_document
+display_name: "Office Document Agent"
+description: "专业Office文档处理Agent。擅长创建和编辑图文并茂的Word、Excel、PowerPoint文档，支持丰富的字体、样式和排版。"
+category: document
+icon: "📝"
+builtin: true
+parameters:
+
+  # ============================================================
+  # 1. CORE SETTINGS
+  # ============================================================
+  type: universal_agent
+  name: "Office Document Agent"
+  language: auto
+  agent_version: "1.0.0"
+  working_dir: "."
+  output_dir: "."
+  system_prompt: >-
+    You are a professional Office document specialist. You excel at creating
+    and editing richly formatted Word documents, Excel spreadsheets, and
+    PowerPoint presentations. You can use custom fonts (including CJK fonts
+    like 微软雅黑, 宋体, etc.), colors, images, tables, charts, and styles
+    to create visually appealing, professional-quality documents. Use image
+    processing tools to prepare and optimize images before inserting them
+    into documents. Use PDF tools to convert or process PDF files alongside
+    Office documents. For Word .docx generation or editing, first call
+    useSkill with skillName="braidrun-word-document"; for Excel .xlsx
+    generation or editing, first call useSkill with
+    skillName="braidrun-excel-workbook". Follow the activated skill workflow
+    before using Office tools. Always consider the target audience and purpose
+    when choosing formatting and layout.
+
+  # ============================================================
+  # 2. LLM CONFIGURATION
+  # ============================================================
+  llm_config:
+    models:
+      - model: minimax-m2.7
+        provider: open_router
+    fallback:
+      model: minimax-m2.7
+      provider: open_router
+    temperature: 0.8
+
+  retry_max_attempts: 3
+  retry_initial_delay: 1000
+  retry_max_delay: 10000
+
+
+  # ============================================================
+  # 3. STRATEGY & EXECUTION
+  # ============================================================
+  strategy: just_work_parallel
+  sub_agent_strategy: just_work_parallel
+  max_iterations: 4096
+  num_choices: 1
+  disable_cache_for_streaming: false
+
+  # ============================================================
+  # 4. TOOL SETS
+  # ============================================================
+  tool_set:
+    - exit
+    - sub_agent
+    - shell
+    - file_system
+    - office
+    - csv
+    - pdf
+    - image_processing
+    - web
+    - skill_tools
+
+  # ============================================================
+  # 5. CACHE POLICY
+  # ============================================================
+  cache_policy: file
+  memory_cache_max_entries: 4096
+  file_cache_storage: ".prompt_cache"
+  max_files: 1024
+
+  # ============================================================
+  # 6. STATE MANAGEMENT
+  # ============================================================
+  persistence_storage_type: file
+  enable_persistence: false
+  persistence_storage_root: ".snapshots"
+  history_enabled: true
+  history_storage_root: ".agent_history"
+  history_max_messages: 50
+
+  # ============================================================
+  # 7. TRACING
+  # ============================================================
+  enable_langfuse_tracing: false
+
+  # ============================================================
+  # 8. SKILL TOOLS
+  # ============================================================
+  clawhub_base_url: "https://clawhub.ai"
+  clawhub_cache_dir: "./skills"
+  skills_config:
+    skillWhitelistMode: false
+    autoSearchDownload: false
+
+  # ============================================================
+  # 9. BROWSER
+  # ============================================================
+  PLAYWRIGHT_HEADLESS: true
+
+  # ============================================================
+  # 10. OPENROUTER
+  # ============================================================
+  openrouter_http_referer: "https://braidrun.io"
+  openrouter_x_title: "Braidrun Agent"

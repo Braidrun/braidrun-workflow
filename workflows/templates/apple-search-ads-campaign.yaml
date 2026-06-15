@@ -1,0 +1,730 @@
+---
+name: apple-search-ads-campaign
+version: 3.0.0
+tags:
+- 广告投放
+- Apple Search Ads
+- iOS
+- 并行处理
+- extract
+- parallel
+category: marketing
+description: |
+  Apple Search Ads (ASA) 完整广告运营工作流。
+  从竞品分析到持续优化的全链路 ASA 广告管理：竞品分析 → 策略设计 → 关键词研究与分组 → ASO 协同 → 广告系列配置 → 监控与优化 → 运营手册输出。
+  适用场景：iOS 应用在 App Store 的付费搜索广告投放、关键词竞价管理和 ASO-ASA 协同优化。
+  特性：多步骤 DAG 并行执行、细粒度广告优化策略
+variables:
+  app_name: My App
+  app_id: '123456789'
+  app_category: Productivity
+  budget_daily: '50'
+  target_cpt: '0.5'
+  target_countries: US
+  campaign_type: search_results
+  output_dir: "./output/apple-search-ads-campaign"
+  demo_mode: 'true'
+variable_tags:
+  app_category: '业务参数'
+  app_id: '平台账号'
+  app_name: '平台账号'
+  budget_daily: '业务参数'
+  campaign_type: '业务参数'
+  demo_mode: '运行模式'
+  output_dir: '输出'
+  target_countries: '业务参数'
+  target_cpt: '业务参数'
+agents:
+  asa_strategist:
+    preset: researcher
+    overrides:
+      system_prompt: |-
+        你是 Apple Search Ads 专家，精通：
+        - ASA 广告策略制定
+        - App Store 搜索行为分析
+        - 竞价策略优化
+        - ASO 和 ASA 协同
+        提供基于数据的策略建议。
+
+        共同要求：
+        - 该模板以“可直接运行演示”为第一目标。
+        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
+        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+      session_id_strategy: per_execution
+  keyword_researcher:
+    preset: researcher
+    overrides:
+      system_prompt: |-
+        你是 App Store 关键词研究专家，擅长：
+        - 关键词挖掘和分类
+        - 搜索意图分析
+        - 竞品关键词分析
+        - 长尾关键词发现
+        提供高价值的关键词列表。
+
+        共同要求：
+        - 该模板以“可直接运行演示”为第一目标。
+        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
+        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+      session_id_strategy: auto
+  aso_specialist:
+    preset: researcher
+    overrides:
+      system_prompt: |-
+        你是 App Store 优化（ASO）专家，负责：
+        - App 元数据优化
+        - 关键词优化
+        - 转化率优化
+        - A/B 测试设计
+        提供 ASO 优化方案以配合 ASA 广告。
+
+        共同要求：
+        - 该模板以“可直接运行演示”为第一目标。
+        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
+        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+      session_id_strategy: per_execution
+  creative_consultant:
+    preset: universal
+    overrides:
+      system_prompt: |-
+        你是 App Store 广告创意顾问，精通：
+        - Product Page 优化
+        - Custom Product Pages 设计
+        - 截图和视频优化
+        - 创意测试策略
+        提供创意优化建议。
+
+        共同要求：
+        - 该模板以“可直接运行演示”为第一目标。
+        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
+        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+      session_id_strategy: auto
+  asa_executor:
+    preset: universal
+    overrides:
+      system_prompt: |-
+        你是 Apple Search Ads 操作专家，熟悉：
+        - ASA Campaign Management API
+        - 广告系列/广告组配置
+        - 关键词竞价管理
+        - 否定关键词设置
+        提供详细的配置步骤。
+
+        共同要求：
+        - 该模板以“可直接运行演示”为第一目标。
+        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
+        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+      session_id_strategy: per_execution
+  performance_analyst:
+    preset: universal
+    overrides:
+      system_prompt: |-
+        你是 ASA 数据分析专家，负责：
+        - 广告效果分析
+        - 关键词表现评估
+        - ROI 计算
+        - 优化机会识别
+        基于数据提供洞察。
+
+        共同要求：
+        - 该模板以“可直接运行演示”为第一目标。
+        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
+        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+      session_id_strategy: per_execution
+  bid_optimizer:
+    preset: universal
+    overrides:
+      system_prompt: |-
+        你是 ASA 竞价优化专家，擅长：
+        - CPT 优化
+        - 关键词出价调整
+        - 预算分配
+        - Bid Landscape 分析
+        提供竞价优化策略。
+
+        共同要求：
+        - 该模板以“可直接运行演示”为第一目标。
+        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
+        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+      session_id_strategy: auto
+workflow:
+- step: competitor-analysis
+  agent: asa_strategist
+  input: |
+    分析 {{app_name}} 在 App Store 的竞争环境：
+
+    App 信息：
+    - App ID: {{app_id}}
+    - 类别: {{app_category}}
+    - 目标市场: {{target_countries}}
+
+    分析内容：
+    1. 识别 Top 10 竞品
+    2. 分析竞品 ASA 广告策略
+    3. 竞品关键词覆盖情况
+    4. 竞品元数据策略
+    5. 市场机会点
+
+    输出必须包含以下格式化指标：
+    - keywords_count=N（关键词数量）
+    - daily_budget=N（日预算金额）
+    输出到：competitor-analysis.md
+  extract:
+  - pattern: keywords_count=(\d+)
+    variable: keywords_count
+  - pattern: daily_budget=(\d+)
+    variable: daily_budget
+  priority: 10
+  timeout_seconds: 300
+- step: asa-strategy-design
+  agent: asa_strategist
+  input: |
+    设计 Apple Search Ads 整体策略：
+
+    竞品分析：{{steps.competitor-analysis.output}}
+    预算：${{budget_daily}}/天
+    目标 CPT：${{target_cpt}}
+    广告类型：{{campaign_type}}
+
+    策略包含：
+    1. 广告系列架构
+       - Search Results vs Search Tab
+       - 品牌词 vs 通用词 vs 竞品词
+       - 国家/地区优先级
+
+    2. 出价策略
+       - 初始 CPT 设定
+       - 关键词分层出价
+       - 自动化 vs 手动出价
+
+    3. 预算分配
+       - 日预算分配
+       - 广告组预算配比
+
+    4. 成功指标
+       - KPI 设定
+       - 归因窗口
+
+    输出到：asa-strategy.md
+  depends_on:
+  - competitor-analysis
+  priority: 9
+- step: keyword-discovery
+  agent: keyword_researcher
+  input: |
+    为 {{app_name}} 进行全面的关键词研究：
+
+    App 信息：
+    - 类别：{{app_category}}
+    - 目标市场：{{target_countries}}
+    - 竞品分析：{{steps.competitor-analysis.output}}
+
+    关键词挖掘：
+    1. **品牌词**
+       - App 名称及变体
+       - 品牌关联词
+
+    2. **通用词**
+       - 核心功能关键词
+       - 问题解决关键词
+       - 使用场景关键词
+
+    3. **竞品词**
+       - 竞品品牌名
+       - 竞品相关搜索
+
+    4. **长尾词**
+       - 具体功能描述
+       - 特定用户群体
+
+    每个关键词包含：
+    - 搜索意图分类
+    - 预估搜索量
+    - 竞争程度
+    - 建议出价区间
+
+    输出到：keyword-research.md
+  depends_on:
+  - competitor-analysis
+  priority: 8
+  timeout_seconds: 400
+  parallel:
+    tasks:
+    - 研究品牌和核心功能关键词
+    - 研究竞品和行业关键词
+    - 研究长尾和场景关键词
+    max_parallel: 3
+    aggregate_results: true
+- step: keyword-grouping
+  agent: keyword_researcher
+  input: |
+    对关键词进行分组和优先级排序：
+
+    关键词列表：{{steps.keyword-discovery.output}}
+
+    分组策略：
+    1. 按搜索意图分组
+       - 发现型（Discovery）
+       - 品牌型（Brand）
+       - 竞品型（Competitor）
+
+    2. 按优先级分组
+       - 高价值（High Priority）：高相关度 + 中高搜索量
+       - 中价值（Medium Priority）：中等相关度或搜索量
+       - 低价值（Low Priority）：测试词
+
+    3. 否定关键词识别
+       - 不相关搜索词
+       - 低质量流量词
+
+    每组建议：
+    - 初始出价
+    - 匹配类型（Exact, Broad）
+    - 每日预算分配
+
+    输出到：keyword-groups.md
+  depends_on:
+  - keyword-discovery
+  priority: 7
+- step: aso-optimization
+  agent: aso_specialist
+  input: |
+    优化 App Store 元数据以配合 ASA 广告：
+
+    当前 App：{{app_name}} ({{app_id}})
+    关键词：{{steps.keyword-grouping.output}}
+
+    优化建议：
+    1. **App 名称**（最大 30 字符）
+       - 包含核心关键词
+       - 保持品牌识别度
+
+    2. **副标题**（最大 30 字符）
+       - 突出核心功能
+       - 使用高搜索量关键词
+
+    3. **关键词字段**（100 字符）
+       - 优先级关键词填充
+       - 避免重复
+       - 逗号分隔
+
+    4. **描述优化**
+       - 前 170 字符（可见部分）最重要
+       - 自然融入关键词
+       - 突出独特卖点
+
+    5. **截图和视频**
+       - 第一张截图最关键
+       - 展示核心功能
+       - 包含文字说明
+
+    输出到：aso-optimization-plan.md
+  depends_on:
+  - keyword-grouping
+  priority: 7
+- step: custom-product-pages
+  agent: creative_consultant
+  input: |
+    设计 Custom Product Pages (CPP) 策略：
+
+    关键词分组：{{steps.keyword-grouping.output}}
+
+    为不同关键词组创建定制落地页：
+
+    1. **品牌词 CPP**
+       - 强调品牌优势
+       - 用户评价展示
+       - 完整功能介绍
+
+    2. **功能词 CPP**
+       - 突出特定功能
+       - 使用场景演示
+       - 快速上手指南
+
+    3. **竞品词 CPP**
+       - 对比优势
+       - 迁移便利性
+       - 价格优势
+
+    每个 CPP 包含：
+    - 截图方案（3-10 张）
+    - 预览视频脚本
+    - 文案重点
+    - A/B 测试变体
+
+    输出到：custom-product-pages-plan.md
+  depends_on:
+  - keyword-grouping
+  - aso-optimization
+  priority: 6
+- step: campaign-structure
+  agent: asa_executor
+  input: |
+    设计 ASA 广告系列结构：
+
+    策略：{{steps.asa-strategy-design.output}}
+    关键词分组：{{steps.keyword-grouping.output}}
+
+    广告系列架构：
+
+    **Campaign 1: Brand Keywords**
+    - 目标：保护品牌流量
+    - 预算：20% (${{budget_daily}} * 0.2)
+    - 匹配类型：Exact Match
+    - Ad Group 1: Brand Exact
+      - 关键词：品牌名及常见拼写变体
+      - CPT Max: ${{target_cpt}} * 2
+
+    **Campaign 2: Generic Keywords**
+    - 目标：获取新用户
+    - 预算：60% (${{budget_daily}} * 0.6)
+    - 匹配类型：Broad + Exact
+    - Ad Group 1: Core Features (High Priority)
+      - 关键词：高价值功能词
+      - CPT Max: ${{target_cpt}}
+    - Ad Group 2: Use Cases (Medium Priority)
+      - 关键词：使用场景词
+      - CPT Max: ${{target_cpt}} * 0.8
+
+    **Campaign 3: Competitor Keywords**
+    - 目标：竞品用户获取
+    - 预算：20% (${{budget_daily}} * 0.2)
+    - 匹配类型：Exact Match
+    - Ad Group 1: Top Competitors
+      - 关键词：竞品品牌名
+      - CPT Max: ${{target_cpt}} * 1.5
+
+    输出到：campaign-structure.md
+  depends_on:
+  - asa-strategy-design
+  - keyword-grouping
+  priority: 6
+  timeout_seconds: 300
+- step: negative-keywords-setup
+  agent: keyword_researcher
+  input: |
+    创建否定关键词列表：
+
+    广告系列结构：{{steps.campaign-structure.output}}
+
+    否定关键词类型：
+
+    1. **广告系列级别**（适用所有广告组）
+       - 不相关类别词（如：游戏、赌博等）
+       - 盗版/破解相关
+       - 免费/free（如果是付费 App）
+
+    2. **广告组级别**
+       - 品牌系列：排除竞品词
+       - 通用系列：排除品牌词
+       - 竞品系列：排除自己品牌词
+
+    3. **发现式否定词**
+       - 基于搜索词报告持续添加
+       - 低 TTR（Tap-Through Rate）词
+       - 高花费低转化词
+
+    输出到：negative-keywords-list.md
+  depends_on:
+  - campaign-structure
+  priority: 5
+- step: campaign-configuration-guide
+  agent: asa_executor
+  input: |
+    生成 ASA 广告系列详细配置指南：
+
+    系列结构：{{steps.campaign-structure.output}}
+    否定关键词：{{steps.negative-keywords-setup.output}}
+    CPP 方案：{{steps.custom-product-pages.output}}
+
+    配置步骤（分步骤说明）：
+
+    **第 1 步：账户设置**
+    - 添加付款方式
+    - 设置税务信息
+    - 配置归因数据
+
+    **第 2 步：创建广告系列**
+    对每个广告系列：
+    - Campaign Name
+    - Countries/Regions
+    - Daily Budget
+    - CPA Goal (如适用)
+    - Custom Product Page (如适用)
+
+    **第 3 步：创建广告组**
+    对每个广告组：
+    - Ad Group Name
+    - Keywords（包含匹配类型）
+    - Default Max CPT Bid
+    - Negative Keywords
+
+    **第 4 步：转化跟踪**
+    - 设置 App Analytics
+    - 配置自定义转化事件
+
+    **第 5 步：投放前检查**
+    - 预算设置正确
+    - 关键词无冲突
+    - 否定词已添加
+    - CPP 已配置
+
+    输出到：campaign-config-guide.md
+  depends_on:
+  - campaign-structure
+  - negative-keywords-setup
+  - custom-product-pages
+  priority: 5
+  timeout_seconds: 300
+- step: monitoring-setup
+  agent: performance_analyst
+  input: |
+    设计 ASA 监控框架：
+
+    监控指标：
+    1. **关键健康指标**
+       - Impressions
+       - Taps
+       - TTR (Tap-Through Rate)
+       - Installs
+       - Conversion Rate
+       - CPT (Cost Per Tap)
+       - CPA (Cost Per Acquisition)
+
+    2. **预算指标**
+       - Daily Spend
+       - Budget Utilization %
+       - Spend by Campaign/Ad Group
+
+    3. **关键词指标**
+       - Keyword Performance Score
+       - TTR by Keyword
+       - CPA by Keyword
+       - Search Match Performance
+
+    监控频率：
+    - 前 7 天：每日 2 次
+    - 7-30 天：每日 1 次
+    - 30 天后：每周 2-3 次
+
+    报警规则：
+    - CPT > 目标 * 1.5
+    - TTR < 5%
+    - Conversion Rate < 15%
+    - 某广告组 24h 无展示
+
+    输出到：monitoring-framework.md
+  depends_on:
+  - campaign-configuration-guide
+  priority: 4
+- step: optimization-guide
+  agent: bid_optimizer
+  input: |
+    创建 ASA 持续优化指南：
+
+    配置：{{steps.campaign-configuration-guide.output}}
+
+    **优化时间表：**
+
+    **第 1-7 天：启动期**
+    - 每日检查 2 次
+    - 暂停 TTR < 3% 的关键词
+    - 降低 CPT > 目标 * 2 的关键词出价（-20%）
+    - 添加 Search Match 发现的否定词
+
+    **第 8-14 天：稳定期**
+    - 分析关键词表现数据
+    - 提高高 ROI 关键词出价（+10-15%）
+    - 暂停持续低效关键词
+    - 测试新关键词（少量）
+
+    **第 15-30 天：优化期**
+    - 调整广告组预算分配
+    - 优化 CPP（基于转化数据）
+    - 扩展高价值关键词组
+    - 测试 Broad Match 效果
+
+    **第 30+ 天：扩展期**
+    - 新增高潜力关键词
+    - 拓展地理位置（如预算允许）
+    - 季节性调整
+    - 创意迭代（截图、视频）
+
+    **关键词出价调整规则：**
+    - CPA < 目标 * 0.8 且 Rank < 5：提高出价 +15%
+    - CPA 在目标范围：保持或微调 ±5%
+    - CPA > 目标 * 1.2：降低出价 -20%
+    - CPA > 目标 * 1.5：暂停或大幅降低
+
+    **Search Match 管理：**
+    - 每周查看 Search Match 报告
+    - 高表现词添加为精确关键词
+    - 不相关词添加为否定词
+
+    输出到：optimization-guide.md
+  depends_on:
+  - monitoring-setup
+  priority: 4
+  timeout_seconds: 300
+- step: reporting-template
+  agent: performance_analyst
+  input: |
+    创建 ASA 定期报告模板：
+
+    **周报模板：**
+    1. **执行摘要**
+       - 本周关键成果
+       - 主要问题和解决
+       - 下周重点
+
+    2. **核心指标**
+       - Spend, Impressions, Taps, TTR
+       - Installs, CR, CPA
+       - 周环比变化
+
+    3. **Campaign 表现**
+       - 各系列花费和效果
+       - ROI 分析
+
+    4. **关键词分析**
+       - Top 20 高效关键词
+       - Top 10 低效关键词
+       - 新增/暂停关键词
+
+    5. **优化行动**
+       - 本周优化措施
+       - 效果评估
+       - 下周计划
+
+    **月报模板：**
+    1. **月度总结**
+       - 月度目标达成情况
+       - 趋势分析
+       - 重要洞察
+
+    2. **深度分析**
+       - 用户行为分析
+       - 竞品动态
+       - 市场变化
+
+    3. **战略建议**
+       - ASO 调整建议
+       - 预算优化建议
+       - 创意迭代方向
+
+    输出到：reporting-templates.md
+  depends_on:
+  - optimization-guide
+  priority: 3
+- step: aso-asa-synergy
+  agent: aso_specialist
+  input: |
+    制定 ASO 和 ASA 协同优化策略：
+
+    ASO 计划：{{steps.aso-optimization.output}}
+    ASA 配置：{{steps.campaign-configuration-guide.output}}
+    优化数据：{{steps.optimization-guide.output}}
+
+    协同策略：
+
+    1. **关键词协同**
+       - ASA 发现高转化词 → ASO 元数据中添加
+       - ASO 排名提升的词 → ASA 降低出价或暂停
+       - 定期同步关键词列表
+
+    2. **转化率优化**
+       - ASA 带来的流量 → 分析 Product Page 转化
+       - 识别转化瓶颈 → 优化截图/视频
+       - A/B 测试 CPP → 提升整体 CR
+
+    3. **预算优化**
+       - 自然排名 Top 3 的词 → 降低 ASA 出价
+       - 自然排名较低的高价值词 → 加大 ASA 投入
+       - ROI 最大化的预算分配
+
+    4. **品牌保护**
+       - 监控品牌词竞争情况
+       - 及时调整品牌词出价
+       - 保护品牌搜索流量
+
+    输出到：aso-asa-synergy-strategy.md
+  depends_on:
+  - aso-optimization
+  - optimization-guide
+  priority: 2
+- step: asa-playbook
+  agent: asa_strategist
+  input: |
+    汇总完整的 Apple Search Ads 运营手册：
+
+    包含所有文档：
+    - 竞品分析：{{steps.competitor-analysis.output}}
+    - ASA 策略：{{steps.asa-strategy-design.output}}
+    - 关键词研究：{{steps.keyword-discovery.output}}
+    - 关键词分组：{{steps.keyword-grouping.output}}
+    - ASO 优化：{{steps.aso-optimization.output}}
+    - CPP 方案：{{steps.custom-product-pages.output}}
+    - 广告系列结构：{{steps.campaign-structure.output}}
+    - 配置指南：{{steps.campaign-configuration-guide.output}}
+    - 监控框架：{{steps.monitoring-setup.output}}
+    - 优化指南：{{steps.optimization-guide.output}}
+    - 协同策略：{{steps.aso-asa-synergy.output}}
+
+    创建：
+    1. **快速启动清单**
+       - 前 7 天行动计划
+       - 关键检查点
+
+    2. **最佳实践总结**
+       - ASA 成功要素
+       - 常见错误避免
+
+    3. **工具和资源**
+       - 推荐的第三方工具
+       - Apple 官方资源
+       - 行业 Benchmark
+
+    4. **FAQ 常见问题**
+       - 常见问题解答
+       - 故障排除指南
+
+    输出到：ASA-Complete-Playbook.md
+  depends_on:
+  - aso-asa-synergy
+  - reporting-template
+  priority: 1
+error_handling:
+  max_retries: 2
+  retry_delay: 10s
+  continue_on_error: false
+timeout:
+  total: 3600s
+  per_step: 400s
+directory_isolation:
+  enabled: true
+  base_dir: ".workflow-runs"
+  working_dir_pattern: "{base_dir}/{execution_id}/{step_name}/workspace"
+  output_dir_pattern: "{base_dir}/{execution_id}/output"
+  persistence_dir_pattern: "{base_dir}/{execution_id}/.snapshots"
+  shared_cache_dir: ".prompt_cache"
+  shared_history_dir: ".agent_history"
+  shared_skills_dir: "./skills"
+  cleanup_on_completion: false
+  cleanup_after_hours: 72
+concurrency:
+  enabled: true
+  max_concurrency: 4
+global_agent:
+  enabled: true
+  agent:
+    preset: universal
+    overrides:
+      system_prompt: |-
+        你是工作流模板助手，负责帮助用户理解、调试和演示当前工作流。
+        生成或修改 YAML 时必须使用 braidrun-agent 的 snake_case 语法，并优先保持模板可直接运行。
+      tool_set:
+      - workflow
+      - file_system
+      - exit
+      max_iterations: 2048
+      session_id_strategy: per_execution

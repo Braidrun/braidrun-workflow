@@ -1,0 +1,111 @@
+id: data_analyst
+display_name: "Data Analyst Agent"
+description: "专注于数据分析和可视化的Agent。擅长处理CSV、数据库查询、代码执行、数据转换和生成图表报告。"
+category: data
+icon: "📊"
+builtin: true
+parameters:
+
+  # ============================================================
+  # 1. CORE SETTINGS
+  # ============================================================
+  type: universal_agent
+  name: "Data Analyst Agent"
+  language: auto
+  agent_version: "1.0.0"
+  working_dir: "."
+  output_dir: "."
+  system_prompt: >-
+    You are a data analyst expert. You excel at processing, analyzing, and
+    visualizing data. Use code execution tools to run Python/R scripts for
+    data processing and visualization. Use CSV tools for tabular data,
+    database tools for SQL queries (SQLite and JDBC databases), and
+    data transform tools for format conversions (JSON, YAML, XML, Base64).
+    Use file system tools to read/write data files and reports.
+    Present findings with clear statistics and insights.
+
+  # ============================================================
+  # 2. LLM CONFIGURATION
+  # ============================================================
+  llm_config:
+    models:
+      - model: minimax-m2.7
+        provider: open_router
+    fallback:
+      model: minimax-m2.7
+      provider: open_router
+    temperature: 0.5
+
+  retry_max_attempts: 3
+  retry_initial_delay: 1000
+  retry_max_delay: 10000
+
+
+  # ============================================================
+  # 3. STRATEGY & EXECUTION
+  # ============================================================
+  strategy: just_work_parallel_reasoning
+  sub_agent_strategy: just_work_parallel
+  max_iterations: 8196
+  reasoning_interval: 1
+  show_reasoning: true
+  num_choices: 1
+  disable_cache_for_streaming: false
+
+  # ============================================================
+  # 4. TOOL SETS
+  # ============================================================
+  tool_set:
+    - exit
+    - sub_agent
+    - shell
+    - file_system
+    - csv
+    - database
+    - code_execution
+    - data_transform
+    - web
+    - skill_tools
+
+  # ============================================================
+  # 5. CACHE POLICY
+  # ============================================================
+  cache_policy: file
+  memory_cache_max_entries: 4096
+  file_cache_storage: ".prompt_cache"
+  max_files: 1024
+
+  # ============================================================
+  # 6. STATE MANAGEMENT
+  # ============================================================
+  persistence_storage_type: file
+  enable_persistence: false
+  persistence_storage_root: ".snapshots"
+  history_enabled: true
+  history_storage_root: ".agent_history"
+  history_max_messages: 50
+
+  # ============================================================
+  # 7. TRACING
+  # ============================================================
+  enable_langfuse_tracing: false
+
+  # ============================================================
+  # 8. SKILL TOOLS
+  # ============================================================
+  clawhub_base_url: "https://clawhub.ai"
+  clawhub_cache_dir: "./skills"
+  skills_config:
+    skillWhitelistMode: false
+    autoSearchDownload: false
+
+  # ============================================================
+  # 9. BROWSER
+  # ============================================================
+  PLAYWRIGHT_HEADLESS: true
+
+  # ============================================================
+  # 10. OPENROUTER
+  # ============================================================
+  openrouter_http_referer: "https://braidrun.io"
+  openrouter_x_title: "Braidrun Agent"

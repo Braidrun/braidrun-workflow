@@ -1,0 +1,113 @@
+---
+name: test-time-window-resolver
+version: 1.0.0
+description: |
+  Test harness for braidrun-module-time-window-resolver.
+
+  Covers two paths:
+  - explicit start/end override (deterministic, tz-independent result)
+  - lookback_days arithmetic (7 days → span_days=7)
+
+tags:
+  - code
+  - extract
+  - sub_workflow
+
+agents: {}
+
+workflow:
+  - step: explicit_window
+    sub_workflow:
+      name: braidrun-module-time-window-resolver
+      inputs:
+        start_date_override: "2026-03-01"
+        end_date_override: "2026-03-31"
+        report_timezone: "UTC"
+      outputs:
+        explicit_start: start_date
+        explicit_end: end_date
+        explicit_start_ms: start_ms
+        explicit_end_ms: end_ms
+        explicit_tz: tz_name
+        explicit_span: span_days
+        explicit_label: window_label
+    priority: 10
+
+  - step: lookback_window
+    sub_workflow:
+      name: braidrun-module-time-window-resolver
+      inputs:
+        lookback_days: "7"
+        end_date_override: "2026-04-07"
+        report_timezone: "UTC"
+      outputs:
+        lookback_start: start_date
+        lookback_end: end_date
+        lookback_span: span_days
+    priority: 9
+
+  - step: assert
+    code:
+      language: python
+      timeout: 15
+      script: |
+        import os
+        import sys
+        from datetime import datetime, timezone
+
+        problems = []
+
+        # --- explicit window (2026-03-01 .. 2026-03-31, UTC) ---
+        e_start = os.environ.get("WF_VAR_EXPLICIT_START", "").strip()
+        e_end = os.environ.get("WF_VAR_EXPLICIT_END", "").strip()
+        e_tz = os.environ.get("WF_VAR_EXPLICIT_TZ", "").strip()
+        e_span = os.environ.get("WF_VAR_EXPLICIT_SPAN", "").strip()
+        e_start_ms = os.environ.get("WF_VAR_EXPLICIT_START_MS", "").strip()
+        e_end_ms = os.environ.get("WF_VAR_EXPLICIT_END_MS", "").strip()
+        e_label = os.environ.get("WF_VAR_EXPLICIT_LABEL", "").strip()
+
+        if e_start != "2026-03-01":
+            problems.append(f"explicit start != 2026-03-01, got {e_start}")
+        if e_end != "2026-03-31":
+            problems.append(f"explicit end != 2026-03-31, got {e_end}")
+        if e_tz != "UTC":
+            problems.append(f"explicit tz != UTC, got {e_tz}")
+        if e_span != "31":
+            problems.append(f"explicit span != 31, got {e_span}")
+        # 2026-03-01 00:00:00 UTC epoch ms
+        expected_start_ms = int(datetime(2026, 3, 1, 0, 0, 0, tzinfo=timezone.utc).timestamp() * 1000)
+        if e_start_ms != str(expected_start_ms):
+            problems.append(f"explicit start_ms expected {expected_start_ms}, got {e_start_ms}")
+        # 2026-03-31 23:59:59.999 UTC epoch ms (end of day)
+        expected_end_ms = int(datetime(2026, 3, 31, 23, 59, 59, 999000, tzinfo=timezone.utc).timestamp() * 1000)
+        if e_end_ms != str(expected_end_ms):
+            problems.append(f"explicit end_ms expected {expected_end_ms}, got {e_end_ms}")
+        if "2026-03-01" not in e_label or "2026-03-31" not in e_label:
+            problems.append(f"window_label missing dates: {e_label!r}")
+
+        # --- lookback window (7 days ending 2026-04-07) ---
+        l_start = os.environ.get("WF_VAR_LOOKBACK_START", "").strip()
+        l_end = os.environ.get("WF_VAR_LOOKBACK_END", "").strip()
+        l_span = os.environ.get("WF_VAR_LOOKBACK_SPAN", "").strip()
+        if l_end != "2026-04-07":
+            problems.append(f"lookback end != 2026-04-07, got {l_end}")
+        # span_days = 7 means start = end - 6 days = 2026-04-01
+        if l_start != "2026-04-01":
+            problems.append(f"lookback start expected 2026-04-01 (7-day window ending 04-07), got {l_start}")
+        if l_span != "7":
+            problems.append(f"lookback span != 7, got {l_span}")
+
+        if problems:
+            print("TEST_STATUS=fail")
+            for p in problems:
+                print(f"  - {p}")
+            sys.exit(1)
+        else:
+            print("TEST_STATUS=pass")
+    extract:
+      - pattern: 'TEST_STATUS=(\w+)'
+        variable: test_status
+    depends_on:
+      - explicit_window
+      - lookback_window
+    priority: 5

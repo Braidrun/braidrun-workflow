@@ -1,0 +1,214 @@
+---
+name: opc-brand-identity-strategy
+version: 3.0.0
+tags:
+- 品牌策略
+- 一人公司
+- 品牌设计
+- 多角色协作
+- 迭代优化
+- group_chat
+- repeat_until
+- extract
+- condition
+category: marketing
+description: |
+  "一人公司" (OPC) 品牌定位与视觉风格构建工作流。
+  从品牌调研到视觉系统落地的完整品牌构建流水线：品牌调研与竞品分析 → 品牌策略讨论 → 品牌故事与文案创作 → 迭代优化 → 视觉识别系统 (VIS) 方案输出。
+  适用场景：独立创业者或一人公司的品牌从零搭建，包括品牌定位、故事叙事、视觉识别和低成本落地。
+  特性：extract 结构化指标提取、group_chat 品牌策略讨论、repeat_until 品牌故事质量迭代
+variables:
+  brand_name: 林中书屋
+  core_value: 静谧、高效、极简
+  target_audience: 远程办公的创意工作者
+  competitor_examples: Notion, Readwise, Craft
+  quality_threshold: '8'
+  output_dir: "./output/opc-brand-identity-strategy"
+  demo_mode: 'true'
+variable_tags:
+  brand_name: '平台账号'
+  competitor_examples: '业务参数'
+  core_value: '业务参数'
+  demo_mode: '运行模式'
+  output_dir: '输出'
+  quality_threshold: '业务参数'
+  target_audience: '业务参数'
+agents:
+  brand_strategist:
+    preset: researcher
+    overrides:
+      system_prompt: |-
+        你是一位个人品牌定位专家，擅长帮助独立创业者在资源有限的情况下建立差异化品牌。
+        你精通品牌定位理论、竞品分析和目标用户心智研究。
+
+        共同要求：
+        - 该模板以“可直接运行演示”为第一目标。
+        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
+        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+      session_id_strategy: per_execution
+  brand_storyteller:
+    preset: writer
+    overrides:
+      system_prompt: |-
+        你是一位品牌故事撰写专家，擅长将品牌理念转化为有感染力的故事和文案。
+        你的文字有温度、有调性，能让用户产生情感共鸣。
+
+        共同要求：
+        - 该模板以“可直接运行演示”为第一目标。
+        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
+        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+      session_id_strategy: per_execution
+  visual_designer:
+    preset: universal
+    overrides:
+      system_prompt: |-
+        你是一位品牌视觉设计师，精通品牌视觉识别系统 (VIS) 设计。
+        你擅长在有限预算下设计专业且有辨识度的品牌视觉方案。
+
+        共同要求：
+        - 该模板以“可直接运行演示”为第一目标。
+        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
+        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+      session_id_strategy: per_execution
+  quality_reviewer:
+    preset: universal
+    overrides:
+      system_prompt: |-
+        你是一位品牌质量评审专家。评分维度：差异化(25%)、一致性(25%)、情感共鸣(25%)、可落地性(25%)。
+        输出格式必须包含：quality_score=N（1-10 分）。
+
+        共同要求：
+        - 该模板以“可直接运行演示”为第一目标。
+        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
+        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+      session_id_strategy: auto
+workflow:
+- step: brand-core-definition
+  agent: brand_strategist
+  input: |
+    为「{{var:brand_name}}」进行品牌定位：
+    核心价值：{{var:core_value}}，目标用户：{{var:target_audience}}
+    竞品参考：{{var:competitor_examples}}
+
+    1. 竞品品牌分析（每个竞品的品牌定位/调性/视觉风格/品牌故事方式）。
+    2. 目标用户画像和情感需求（用户在选择此类产品时的理性需求和感性驱动）。
+    3. 品牌定位声明（一句话定义你是谁，格式："为[目标用户]提供[核心价值]的[品类]"）。
+    4. 品牌关键词矩阵（功能词/情感词/调性词各 3-5 个）。
+    5. 品牌个性模型（如果品牌是一个人，TA 的性格、说话方式、穿着风格是什么？）。
+
+    输出必须包含以下格式化指标：
+    - brand_elements=N（品牌要素数）
+    - competitor_brands=N（竞品品牌数）
+    输出到：brand-core.md
+  extract:
+  - pattern: brand_elements=(\d+)
+    variable: brand_elements
+  - pattern: competitor_brands=(\d+)
+    variable: competitor_brands
+  priority: 10
+- step: brand-discussion
+  group_chat:
+    participants:
+    - brand_strategist
+    - brand_storyteller
+    - visual_designer
+    initial_message: |-
+      品牌策略讨论会。请审查：{{steps.brand-core-definition.output}}
+      讨论重点：
+      1. 品牌定位是否足够差异化？
+      2. 品牌故事的核心叙事线是什么？
+      3. 视觉风格如何体现品牌价值观？
+      4. 一人公司如何低成本落地品牌系统？
+      讨论完毕后请说 BRAND_SET
+
+      讨论结束时请给出一段可复用的结论摘要，便于后续步骤直接保存为 demo 交付物。
+    max_rounds: 4
+    speaker_selection: round_robin
+    termination_keyword: BRAND_SET
+  depends_on:
+  - brand-core-definition
+  priority: 8
+- step: brand-storytelling
+  agent: brand_storyteller
+  input: |
+    基于讨论共识创作品牌故事和文案：{{steps.brand-discussion.output}}
+    上次评估反馈（如有）：{{steps.brand-storytelling:evaluate.output}}
+
+    1. 品牌起源故事（300-500 字，讲述创始人为什么做这件事、解决了什么问题、愿景是什么）。
+    2. 品牌 Tagline（3 版，分别侧重功能/情感/愿景角度）。
+    3. 官网 About 页文案（含品牌使命、价值观、创始人寄语）。
+    4. 社交媒体品牌简介（针对每个目标平台的字符限制定制版本）：
+       - Twitter/X 简介（160 字符内）
+       - LinkedIn 简介（专业调性）
+       - 小红书简介（亲切活泼调性）
+    5. 品牌声音指南（明确的语调标准/推荐用词/禁忌用词/示例对比）。
+
+    输出到：brand-story.md
+  depends_on:
+  - brand-discussion
+  priority: 6
+  repeat_until:
+    condition: quality_score >= 8
+    max_iterations: 3
+    evaluate_agent: quality_reviewer
+    evaluate_prompt: |
+      评估以下品牌内容。评分维度：差异化(25%)、一致性(25%)、情感共鸣(25%)、可落地性(25%)。
+      输出格式：quality_score=N（1-10 分）
+      内容：{{steps.brand-storytelling.output}}
+    extract_pattern: quality_score=(\d+)
+    extract_variable: quality_score
+- step: visual-identity-guide
+  agent: visual_designer
+  input: |
+    制定品牌视觉识别方案（质量评分 {{var:quality_score}}）：
+    品牌故事：{{steps.brand-storytelling.output}}
+
+    1. 色彩系统：
+       - 主色调（1 个，含 HEX/RGB 色值和使用场景）
+       - 辅助色（2-3 个，含色值和搭配规则）
+       - 中性色（背景/文字色，含色值）
+    2. 字体方案（中英文字体搭配，标题/正文/辅助文字各指定字体和字号）。
+    3. Logo 设计 brief（风格方向/必含元素/尺寸规范/禁用变形，提供 3 个创意方向）。
+    4. 图片风格指南（摄影风格/插画风格/滤镜参数/构图规则）。
+    5. 社交媒体视觉模板规范（头图/封面/帖子图片的尺寸、布局和品牌元素放置规则）。
+    6. 落地检查清单（一人公司可立即执行的 10 项视觉统一动作）。
+
+    输出到：visual-identity.md
+  depends_on:
+  - brand-storytelling
+  priority: 4
+error_handling:
+  max_retries: 2
+  retry_delay: 3s
+  continue_on_error: false
+timeout:
+  total: 2400s
+  per_step: 600s
+directory_isolation:
+  enabled: true
+  base_dir: ".workflow-runs"
+  working_dir_pattern: "{base_dir}/{execution_id}/{step_name}/workspace"
+  output_dir_pattern: "{base_dir}/{execution_id}/output"
+  persistence_dir_pattern: "{base_dir}/{execution_id}/.snapshots"
+  shared_cache_dir: ".prompt_cache"
+  shared_history_dir: ".agent_history"
+  shared_skills_dir: "./skills"
+  cleanup_on_completion: false
+  cleanup_after_hours: 72
+concurrency:
+  enabled: true
+  max_concurrency: 4
+global_agent:
+  enabled: true
+  agent:
+    preset: universal
+    overrides:
+      system_prompt: |-
+        你是工作流模板助手，负责帮助用户理解、调试和演示当前工作流。
+        生成或修改 YAML 时必须使用 braidrun-agent 的 snake_case 语法，并优先保持模板可直接运行。
+      tool_set:
+      - workflow
+      - file_system
+      - exit
+      max_iterations: 2048
+      session_id_strategy: per_execution

@@ -1,0 +1,38 @@
+provider: minimax
+models:
+  "minimax-m2.7":
+    id: "MiniMax-M2.7"
+    capabilities: standard
+    context_length: 196608
+  "minimax-m2.5":
+    id: "MiniMax-M2.5"
+    capabilities: standard
+    context_length: 196608
+  "minimax-m2.1":
+    id: "MiniMax-M2.1"
+    capabilities: standard
+    context_length: 196608
+  "minimax-m2":
+    id: "MiniMax-M2"
+    capabilities: standard
+    context_length: 196608
+  "minimax-01":
+    id: "MiniMax-01"
+    capabilities: multimodal
+    context_length: 1000192
+  "minimax-m1":
+    id: "MiniMax-M1"
+    capabilities: standard
+    context_length: 1000000
+  "minimax-text-01":
+    id: "MiniMax-Text-01"
+    capabilities: standard
+    context_length: 1000192
+  "minimax-vl-01":
+    id: "MiniMax-VL-01"
+    capabilities: multimodal
+    context_length: 1000192
+  "minimax-m2-her":
+    id: "MiniMax-M2-Her"
+    capabilities: standard
+    context_length: 65536

@@ -1,0 +1,107 @@
+id: researcher
+display_name: "Research Agent"
+description: "专注于信息搜索和研究分析的Agent。配备Web搜索、浏览器、数据转换和知识记忆工具。"
+category: research
+icon: "🔍"
+builtin: true
+parameters:
+
+  # ============================================================
+  # 1. CORE SETTINGS
+  # ============================================================
+  type: universal_agent
+  name: "Research Agent"
+  language: auto
+  agent_version: "1.0.0"
+  working_dir: "."
+  output_dir: "."
+  system_prompt: >-
+    You are an expert researcher. You excel at finding, analyzing, and
+    synthesizing information from multiple sources. Use web tools to search
+    and browse, file system tools to save findings, data transform tools
+    for processing structured data (JSON, YAML, XML), and knowledge memory
+    tools to persist important findings across sessions. Organize results
+    into clear, well-referenced reports.
+
+  # ============================================================
+  # 2. LLM CONFIGURATION
+  # ============================================================
+  llm_config:
+    models:
+      - model: minimax-m2.7
+        provider: open_router
+    fallback:
+      model: minimax-m2.7
+      provider: open_router
+    temperature: 0.8
+
+  retry_max_attempts: 3
+  retry_initial_delay: 1000
+  retry_max_delay: 10000
+
+
+  # ============================================================
+  # 3. STRATEGY & EXECUTION
+  # ============================================================
+  strategy: just_work_parallel
+  sub_agent_strategy: just_work_parallel
+  max_iterations: 8196
+  num_choices: 1
+  disable_cache_for_streaming: false
+
+  # ============================================================
+  # 4. TOOL SETS
+  # ============================================================
+  tool_set:
+    - exit
+    - sub_agent
+    - shell
+    - file_system
+    - web
+    - browser
+    - data_transform
+    - knowledge_memory
+    - skill_tools
+
+  # ============================================================
+  # 5. CACHE POLICY
+  # ============================================================
+  cache_policy: file
+  memory_cache_max_entries: 4096
+  file_cache_storage: ".prompt_cache"
+  max_files: 1024
+
+  # ============================================================
+  # 6. STATE MANAGEMENT
+  # ============================================================
+  persistence_storage_type: file
+  enable_persistence: false
+  persistence_storage_root: ".snapshots"
+  history_enabled: true
+  history_storage_root: ".agent_history"
+  history_max_messages: 50
+
+  # ============================================================
+  # 7. TRACING
+  # ============================================================
+  enable_langfuse_tracing: false
+
+  # ============================================================
+  # 8. SKILL TOOLS
+  # ============================================================
+  clawhub_base_url: "https://clawhub.ai"
+  clawhub_cache_dir: "./skills"
+  skills_config:
+    skillWhitelistMode: false
+    autoSearchDownload: false
+
+  # ============================================================
+  # 9. BROWSER
+  # ============================================================
+  PLAYWRIGHT_HEADLESS: true
+
+  # ============================================================
+  # 10. OPENROUTER
+  # ============================================================
+  openrouter_http_referer: "https://braidrun.io"
+  openrouter_x_title: "Braidrun Agent"

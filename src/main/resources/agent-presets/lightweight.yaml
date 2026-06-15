@@ -1,0 +1,83 @@
+id: lightweight
+display_name: "Lightweight Agent"
+description: "轻量级Agent，最小工具集，适合简单任务和快速响应场景。低资源消耗。"
+category: general
+icon: "⚡"
+builtin: true
+parameters:
+
+  # ============================================================
+  # 1. CORE SETTINGS
+  # ============================================================
+  type: universal_agent
+  name: "Lightweight Agent"
+  language: auto
+  agent_version: "1.0.0"
+  working_dir: "."
+  output_dir: "."
+
+  # ============================================================
+  # 2. LLM CONFIGURATION
+  # ============================================================
+  llm_config:
+    models:
+      - model: minimax-m2.7
+        provider: open_router
+    fallback:
+      model: minimax-m2.7
+      provider: open_router
+    temperature: 0.7
+
+  retry_max_attempts: 2
+  retry_initial_delay: 500
+  retry_max_delay: 5000
+
+
+  # ============================================================
+  # 3. STRATEGY & EXECUTION
+  # ============================================================
+  strategy: single_run
+  max_iterations: 1024
+  num_choices: 1
+  disable_cache_for_streaming: false
+
+  # ============================================================
+  # 4. TOOL SETS
+  # ============================================================
+  tool_set:
+    - exit
+    - shell
+    - file_system
+    - skill_tools
+  # ============================================================
+  # 5. CACHE POLICY
+  # ============================================================
+  cache_policy: memory
+  memory_cache_max_entries: 1024
+
+  # ============================================================
+  # 6. STATE MANAGEMENT
+  # ============================================================
+  persistence_storage_type: memory
+  enable_persistence: false
+  history_enabled: false
+  history_max_messages: 20
+
+  # ============================================================
+  # 7. TRACING
+  # ============================================================
+  enable_langfuse_tracing: false
+
+  # ============================================================
+  # 8. SKILL TOOLS
+  # ============================================================
+  clawhub_base_url: "https://clawhub.ai"
+  clawhub_cache_dir: "./skills"
+  skills_config:
+    skillWhitelistMode: false
+    autoSearchDownload: false
+  # ============================================================
+  # 9. OPENROUTER
+  # ============================================================
+  openrouter_http_referer: "https://braidrun.io"
+  openrouter_x_title: "Braidrun Agent"

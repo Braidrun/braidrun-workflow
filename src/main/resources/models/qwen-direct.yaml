@@ -1,0 +1,100 @@
+provider: qwen_direct
+aliases:
+- dashscope
+- qwen-direct
+models:
+  # ===== Qwen Max =====
+  "qwen-max":
+    id: "qwen-max"
+    capabilities: standard
+    context_length: 32768
+  "qwen-max-latest":
+    id: "qwen-max-latest"
+    capabilities: standard
+    context_length: 32768
+  "qwen-max-longcontext":
+    id: "qwen-max-longcontext"
+    capabilities: standard
+    context_length: 30720
+  # ===== Qwen Plus =====
+  "qwen-plus":
+    id: "qwen-plus"
+    capabilities: standard
+    context_length: 131072
+  "qwen-plus-latest":
+    id: "qwen-plus-latest"
+    capabilities: standard
+    context_length: 131072
+  # ===== Qwen Turbo =====
+  "qwen-turbo":
+    id: "qwen-turbo"
+    capabilities: standard
+    context_length: 1000000
+  "qwen-turbo-latest":
+    id: "qwen-turbo-latest"
+    capabilities: standard
+    context_length: 1000000
+  "qwen-long":
+    id: "qwen-long"
+    capabilities: standard
+    context_length: 10000000
+  # ===== Qwen VL (Vision-Language) =====
+  "qwen-vl-max":
+    id: "qwen-vl-max"
+    capabilities: multimodal
+    context_length: 32768
+  "qwen-vl-max-latest":
+    id: "qwen-vl-max-latest"
+    capabilities: multimodal
+    context_length: 32768
+  "qwen-vl-plus":
+    id: "qwen-vl-plus"
+    capabilities: multimodal
+    context_length: 131072
+  "qwen-vl-plus-latest":
+    id: "qwen-vl-plus-latest"
+    capabilities: multimodal
+    context_length: 131072
+  "qwen-vl-ocr":
+    id: "qwen-vl-ocr"
+    capabilities: multimodal
+    context_length: 32768
+  # ===== Qwen Coder =====
+  "qwen-coder-plus":
+    id: "qwen-coder-plus"
+    capabilities: standard
+    context_length: 131072
+  "qwen-coder-plus-latest":
+    id: "qwen-coder-plus-latest"
+    capabilities: standard
+    context_length: 131072
+  "qwen-coder-turbo":
+    id: "qwen-coder-turbo"
+    capabilities: standard
+    context_length: 131072
+  "qwen-coder-turbo-latest":
+    id: "qwen-coder-turbo-latest"
+    capabilities: standard
+    context_length: 131072
+  # ===== QwQ (Reasoning) =====
+  "qwq-plus":
+    id: "qwq-plus"
+    capabilities: standard
+    context_length: 131072
+  "qwq-plus-latest":
+    id: "qwq-plus-latest"
+    capabilities: standard
+    context_length: 131072
+  "qwq-max":
+    id: "qwq-max"
+    capabilities: standard
+    context_length: 131072
+  # ===== Qwen Audio =====
+  "qwen-audio-turbo":
+    id: "qwen-audio-turbo"
+    capabilities: multimodal
+    context_length: 32768
+  "qwen-audio-turbo-latest":
+    id: "qwen-audio-turbo-latest"
+    capabilities: multimodal
+    context_length: 32768
