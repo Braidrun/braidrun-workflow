@@ -77,7 +77,16 @@ data class DocumentQuery(
      * The list is capped at 1024 ids by the storage backend; longer queries
      * should page or use a different access pattern.
      */
-    val idsAnyOf: Collection<String>? = null
+    val idsAnyOf: Collection<String>? = null,
+    /**
+     * Inclusive lower bound on [StoredDocument.createdAt]. Null = no bound.
+     * Mongo translates this to a `createdAt >= x` range predicate, which slots
+     * into the R position of the ESR-ordered compound indexes (equality fields
+     * first, range last) — see V020DashboardCountIndexes. Primary consumer is
+     * [DocumentStore.count] for "how many since <timestamp>" stats; [list]
+     * honors it too.
+     */
+    val createdAtFrom: Long? = null
 ) {
     init {
         require(limit == null || limit >= 0) {
@@ -100,6 +109,18 @@ interface DocumentStore : AutoCloseable {
     fun delete(collection: String, id: String): Boolean
 
     fun list(query: DocumentQuery): List<StoredDocument>
+
+    /**
+     * Count documents matching the query's filter fields without materializing
+     * them. [DocumentQuery.sortBy] / [DocumentQuery.descending] /
+     * [DocumentQuery.excludePayload] are irrelevant and ignored;
+     * [DocumentQuery.offset] and [DocumentQuery.limit] are NOT applied — the
+     * full matching cardinality is returned. The Mongo backend issues a
+     * server-side `countDocuments`, so no document (let alone payload) ever
+     * crosses the wire. Use this instead of `list(query).size` anywhere a
+     * number is all you need.
+     */
+    fun count(query: DocumentQuery): Long
 
     override fun close() = Unit
 }

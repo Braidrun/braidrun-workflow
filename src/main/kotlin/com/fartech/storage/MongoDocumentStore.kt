@@ -12,6 +12,7 @@ import org.litote.kmongo.and
 import org.litote.kmongo.ascending
 import org.litote.kmongo.descending
 import org.litote.kmongo.eq
+import org.litote.kmongo.gte
 import org.litote.kmongo.`in`
 
 private val logger = KotlinLogging.logger("com.fartech.storage.MongoDocumentStore")
@@ -64,21 +65,9 @@ class MongoDocumentStore(
     }
 
     override fun list(query: DocumentQuery): List<StoredDocument> {
-        val filter = mutableListOf<Bson>(
-            StoredDocument::namespace eq namespace,
-            StoredDocument::collection eq query.collection
-        )
-        query.ownerId?.let { filter.add(StoredDocument::ownerId eq it) }
-        query.parentId?.let { filter.add(StoredDocument::parentId eq it) }
-        query.secondaryId?.let { filter.add(StoredDocument::secondaryId eq it) }
-        query.status?.let { filter.add(StoredDocument::status eq it) }
-        query.idsAnyOf?.let { ids ->
-            // Short-circuit on an empty id list — without this Mongo
-            // accepts `$in: []` and returns zero rows, which is correct
-            // but wastes a round-trip. Bail in Kotlin.
-            if (ids.isEmpty()) return emptyList()
-            filter.add(StoredDocument::id `in` ids)
-        }
+        // Empty idsAnyOf short-circuit — Mongo accepts `$in: []` and returns
+        // zero rows, which is correct but wastes a round-trip. Bail in Kotlin.
+        val filter = queryFilter(query) ?: return emptyList()
 
         val sort = when (query.sortBy) {
             DocumentSortField.CREATED_AT -> if (query.descending) descending(StoredDocument::createdAt) else ascending(StoredDocument::createdAt)
@@ -86,7 +75,7 @@ class MongoDocumentStore(
             DocumentSortField.ID -> if (query.descending) descending(StoredDocument::id) else ascending(StoredDocument::id)
         }
 
-        var cursor = collection.find(and(filter)).sort(sort)
+        var cursor = collection.find(filter).sort(sort)
         // Mongo-side pagination — pushes the offset down to the cursor so the
         // server never sends pages we'll discard. Pairs with `limit`.
         if (query.offset > 0) {
@@ -103,8 +92,34 @@ class MongoDocumentStore(
         return cursor.toList().mapNotNull { it.toStoredDocument() }
     }
 
+    override fun count(query: DocumentQuery): Long {
+        val filter = queryFilter(query) ?: return 0L
+        return collection.countDocuments(filter)
+    }
+
     override fun close() {
         mongoClient.close()
+    }
+
+    /**
+     * Shared filter for [list] / [count]. Returns null when [DocumentQuery.idsAnyOf]
+     * is an empty list — the query can never match, callers short-circuit.
+     */
+    private fun queryFilter(query: DocumentQuery): Bson? {
+        val filter = mutableListOf<Bson>(
+            StoredDocument::namespace eq namespace,
+            StoredDocument::collection eq query.collection
+        )
+        query.ownerId?.let { filter.add(StoredDocument::ownerId eq it) }
+        query.parentId?.let { filter.add(StoredDocument::parentId eq it) }
+        query.secondaryId?.let { filter.add(StoredDocument::secondaryId eq it) }
+        query.status?.let { filter.add(StoredDocument::status eq it) }
+        query.createdAtFrom?.let { filter.add(StoredDocument::createdAt gte it) }
+        query.idsAnyOf?.let { ids ->
+            if (ids.isEmpty()) return null
+            filter.add(StoredDocument::id `in` ids)
+        }
+        return and(filter)
     }
 
     private fun namespaceFilter(collection: String, id: String): Bson = and(

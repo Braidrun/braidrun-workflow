@@ -30,7 +30,7 @@ import kotlinx.coroutines.flow.onEach
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
-private const val TOOL_RESULTS_CONTINUATION_PROMPT =
+internal const val TOOL_RESULTS_CONTINUATION_PROMPT =
     "Continue after the tool result. If more tool work is needed, call the next tool; otherwise return the final answer."
 
 /**

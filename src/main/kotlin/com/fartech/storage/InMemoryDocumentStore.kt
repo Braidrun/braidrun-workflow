@@ -44,25 +44,7 @@ class InMemoryDocumentStore(
     }
 
     override fun list(query: DocumentQuery): List<StoredDocument> {
-        // Take a snapshot up-front so downstream filtering/sorting can't observe
-        // concurrent mutations mid-stream. `ConcurrentHashMap.values.toList()` is a
-        // weakly-consistent snapshot — good enough for our list semantics.
-        val snapshot = documents.values.toList()
-        return snapshot
-            .asSequence()
-            .filter { it.collection == query.collection && it.namespace == namespace }
-            .filter { query.ownerId == null || it.ownerId == query.ownerId }
-            .filter { query.parentId == null || it.parentId == query.parentId }
-            .filter { query.secondaryId == null || it.secondaryId == query.secondaryId }
-            .filter { query.status == null || it.status == query.status }
-            .let { seq ->
-                val ids = query.idsAnyOf
-                when {
-                    ids == null -> seq
-                    ids.isEmpty() -> emptySequence()
-                    else -> seq.filter { it.id in ids }
-                }
-            }
+        return filteredSnapshot(query)
             .sortedWith(buildComparator(query))
             // Apply offset+limit in the same order Mongo would: offset first
             // (after sort+filter), then limit. Keep them inside the sequence
@@ -73,6 +55,33 @@ class InMemoryDocumentStore(
             // tests for `excludePayload=true` behave identically to prod.
             .map { if (query.excludePayload) it.copy(payload = "") else it }
             .toList()
+    }
+
+    override fun count(query: DocumentQuery): Long = filteredSnapshot(query).count().toLong()
+
+    /**
+     * Snapshot + the filter chain shared by [list] and [count]. Take a snapshot
+     * up-front so downstream filtering can't observe concurrent mutations
+     * mid-stream — `ConcurrentHashMap.values.toList()` is a weakly-consistent
+     * snapshot, good enough for our list semantics.
+     */
+    private fun filteredSnapshot(query: DocumentQuery): Sequence<StoredDocument> {
+        return documents.values.toList()
+            .asSequence()
+            .filter { it.collection == query.collection && it.namespace == namespace }
+            .filter { query.ownerId == null || it.ownerId == query.ownerId }
+            .filter { query.parentId == null || it.parentId == query.parentId }
+            .filter { query.secondaryId == null || it.secondaryId == query.secondaryId }
+            .filter { query.status == null || it.status == query.status }
+            .filter { query.createdAtFrom == null || it.createdAt >= query.createdAtFrom }
+            .let { seq ->
+                val ids = query.idsAnyOf
+                when {
+                    ids == null -> seq
+                    ids.isEmpty() -> emptySequence()
+                    else -> seq.filter { it.id in ids }
+                }
+            }
     }
 
     /**

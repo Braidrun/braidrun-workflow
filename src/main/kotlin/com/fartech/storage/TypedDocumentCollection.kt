@@ -64,4 +64,16 @@ class TypedDocumentCollection<T>(
     fun listMetadata(query: DocumentQuery = DocumentQuery(collection = collection)): List<StoredDocument> {
         return store.list(query.copy(collection = collection, excludePayload = true))
     }
+
+    /**
+     * Count documents matching the query's filter fields. Delegates to
+     * [DocumentStore.count] — the Mongo backend answers with a server-side
+     * `countDocuments`, so neither documents nor payloads are transferred or
+     * deserialized. Prefer this over `list(...).size` whenever only the
+     * cardinality is needed. Forces [DocumentQuery.collection] to this
+     * collection's name, like [list] / [listMetadata].
+     */
+    fun count(query: DocumentQuery = DocumentQuery(collection = collection)): Long {
+        return store.count(query.copy(collection = collection))
+    }
 }
