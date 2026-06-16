@@ -2408,7 +2408,7 @@ data class AgentEvent(
     /** 事件类型：tool_call_starting, tool_call_completed, tool_call_failed,
      *  llm_call_starting, llm_call_completed, agent_message, agent_starting, agent_completed 等 */
     val type: String,
-    /** 事件分类：tool, llm, agent, strategy, telegram */
+    /** 事件分类：tool, llm, agent, strategy, message */
     val category: String,
     /** 事件子分类（可选）：如 reasoning/skill/sub_agent/reply/token/incoming/outgoing */
     val subCategory: String? = null,

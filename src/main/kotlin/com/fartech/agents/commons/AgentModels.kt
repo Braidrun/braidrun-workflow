@@ -238,6 +238,7 @@ val META_MODELS: Map<String, LLModel> get() = ModelRegistry.getProviderModels("m
 val MISTRAL_MODELS: Map<String, LLModel> get() = ModelRegistry.getProviderModels("mistral") ?: emptyMap()
 val PERPLEXITY_MODELS: Map<String, LLModel> get() = ModelRegistry.getProviderModels("perplexity") ?: emptyMap()
 val OLLAMA_MODELS: Map<String, LLModel> get() = ModelRegistry.getProviderModels("ollama") ?: emptyMap()
+val ZAI_MODELS: Map<String, LLModel> get() = ModelRegistry.getProviderModels("zai") ?: emptyMap()
 
 val DEFAULT_LLM_MODEL: LLModel get() = OPEN_ROUTER_MODELS["grok-4.20"]
     ?: error("Default model grok-4.20 not found — check openrouter.yaml")
@@ -272,10 +273,11 @@ private fun mapProviderToLLMProvider(providerKey: String): LLMProvider = when (p
     "kimi", "moonshot" -> LLMProvider.OpenAI               // Kimi/Moonshot (OpenAI-compatible)
     "minimax" -> LLMProvider.OpenAI                        // MiniMax (OpenAI-compatible)
     "lmstudio", "lm-studio", "lm_studio" -> LLMProvider.OpenAI  // LM Studio (OpenAI-compatible)
+    "zai", "z_ai", "z-ai", "zhipuai", "zhipu_ai" -> LLMProvider.OpenAI // Z.ai official (OpenAI-compatible)
     "meta", "meta-llama" -> LLMProvider.OpenRouter
     "mistral", "mistralai" -> LLMProvider.OpenRouter
     "perplexity" -> LLMProvider.OpenRouter
-    "amazon", "cohere", "zhipu", "z-ai", "baidu", "xiaomi",
+    "amazon", "cohere", "zhipu", "baidu", "xiaomi",
     "inception", "writer", "upstage", "stepfun",
     "arcee-ai", "arcee", "ai21", "aion-labs",
     "deepcogito", "ibm-granite", "liquid", "kwaipilot",
@@ -405,7 +407,7 @@ private fun createCustomModel(modelConfig: LLModelConfig): LLModel {
             "openrouter", "open_router",
             "xai", "x-ai", "qwen", "meta", "meta-llama",
             "mistral", "mistralai", "perplexity",
-            "amazon", "cohere", "zhipu", "z-ai", "baidu", "xiaomi",
+            "amazon", "cohere", "zhipu", "baidu", "xiaomi",
             "inception", "writer", "upstage", "stepfun",
             "arcee-ai", "arcee", "ai21", "aion-labs",
             "deepcogito", "ibm-granite", "liquid", "kwaipilot",
@@ -416,7 +418,8 @@ private fun createCustomModel(modelConfig: LLModelConfig): LLModel {
         ) || provider == LLMProvider.OpenAI && providerKey !in setOf(
             "openai", "open_ai",
             "kimi", "moonshot", "minimax", "qwen_direct", "dashscope",
-            "lmstudio", "lm-studio", "lm_studio"
+            "lmstudio", "lm-studio", "lm_studio",
+            "zai", "z_ai", "z-ai", "zhipuai", "zhipu_ai"
         )
     ) {
         printlnColor(
@@ -507,6 +510,7 @@ private fun envVarNamesForProvider(provider: String): List<String> = when (provi
     "kimi", "moonshot" -> listOf("KIMI_API_KEY", "MOONSHOT_API_KEY") // Kimi / Moonshot
     "minimax" -> listOf("MINIMAX_API_KEY") // MiniMax
     "lmstudio", "lm-studio", "lm_studio" -> listOf("LMSTUDIO_API_KEY") // LM Studio (usually no key needed)
+    "zai", "z_ai", "z-ai", "zhipuai", "zhipu_ai" -> listOf("ZAI_API_KEY", "Z_AI_API_KEY", "ZHIPUAI_API_KEY")
     "meta", "meta-llama" -> listOf("OPENROUTER_API_KEY") // Meta uses OpenRouter
     "mistral", "mistralai" -> listOf("MISTRAL_API_KEY", "OPENROUTER_API_KEY") // Mistral uses OpenRouter
     "perplexity" -> listOf("PERPLEXITY_API_KEY", "OPENROUTER_API_KEY") // Perplexity uses OpenRouter
@@ -532,6 +536,7 @@ private fun providerKeyAliases(provider: String): List<String> = when (provider.
     "kimi", "moonshot" -> listOf("kimi", "moonshot")
     "minimax" -> listOf("minimax")
     "lmstudio", "lm-studio", "lm_studio" -> listOf("lmstudio", "lm-studio", "lm_studio")
+    "zai", "z_ai", "z-ai", "zhipuai", "zhipu_ai" -> listOf("zai", "z_ai", "z-ai", "zhipuai", "zhipu_ai")
     "meta", "meta-llama" -> listOf("meta", "meta-llama", "openrouter", "open_router")
     "mistral", "mistralai" -> listOf("mistral", "mistralai", "openrouter", "open_router")
     "perplexity" -> listOf("perplexity", "openrouter", "open_router")
@@ -620,6 +625,53 @@ private fun debugLlmConfig(message: () -> String) {
 private fun redactKey(value: String?): String =
     if (value.isNullOrBlank()) "<empty>" else "${value.take(8)}...(${value.length})"
 
+/** Matches an API version path segment, e.g. `v1`, `v2`, `v1beta`, `v1alpha`. */
+private val VERSION_SEGMENT = Regex("v\\d+[a-z]*", RegexOption.IGNORE_CASE)
+
+/** The last path segment of [baseUrl] after the host (`""` for a bare host). */
+private fun baseUrlTrailingPathSegment(baseUrl: String): String =
+    baseUrl.substringAfter("://", baseUrl)
+        .substringAfter('/', "")
+        .trim('/')
+        .substringAfterLast('/')
+
+/**
+ * Resolves the endpoint path Koog should join onto [baseUrl] for a client
+ * whose stock default path is [koogDefaultPath].
+ *
+ * Koog 1.0 joins endpoint paths RELATIVE to the client base URL: Ktor's
+ * `DefaultRequest` normalizes the base to a trailing `/` and concatenates a
+ * relative request path onto it (a leading-slash path would instead REPLACE
+ * the base path). Koog's stock default paths carry the API version segment
+ * (`v1/chat/completions`, `v1/messages`, `v1beta/models`) on the assumption of
+ * a bare-host base URL (`https://api.openai.com`). Our configured and default
+ * base URLs already include the version segment (`https://api.openai.com/v1`,
+ * `https://api.anthropic.com/v1`, `https://api.mistral.ai/v1`,
+ * `https://dashscope.aliyuncs.com/compatible-mode/v1`, ...), so keeping the
+ * version-prefixed default double-joins it — `.../v1/v1/chat/completions` →
+ * HTTP 404 from every provider. The OpenRouter branch sidesteps this with an
+ * explicit leading-slash override; the RAG embedder sidesteps it with
+ * `RAGTools.resolveEmbeddingsPath`. This applies the same rule to the
+ * chat/messages/generateContent endpoints used during prompt execution.
+ *
+ * Rule: drop the leading version component from [koogDefaultPath] only when the
+ * base URL's trailing path segment is ITSELF a version segment. This refines
+ * the embeddings heuristic (which keys off "any path present") so that a
+ * version-less proxy base (`https://proxy.example.com/openai`) keeps the
+ * version prefix instead of losing it, and a path whose first segment is not a
+ * version (DeepSeek's `chat/completions`) is never altered.
+ */
+internal fun resolveVersionedEndpointPath(baseUrl: String, koogDefaultPath: String): String {
+    val baseIsVersioned = VERSION_SEGMENT.matches(baseUrlTrailingPathSegment(baseUrl))
+    val pathHasVersionPrefix = koogDefaultPath.contains('/') &&
+        VERSION_SEGMENT.matches(koogDefaultPath.substringBefore('/'))
+    return if (baseIsVersioned && pathHasVersionPrefix) {
+        koogDefaultPath.substringAfter('/')
+    } else {
+        koogDefaultPath
+    }
+}
+
 /**
  * Creates an LLM client based on the provider configuration.
  * Returns a pair of (LLMProvider, LLMClient).
@@ -666,6 +718,7 @@ fun createLLMClient(
                 "minimax" -> "https://api.minimax.chat/v1"
                 "qwen_direct", "dashscope" -> "https://dashscope.aliyuncs.com/compatible-mode/v1"
                 "lmstudio", "lm-studio", "lm_studio" -> "http://localhost:1234/v1"
+                "zai", "z_ai", "z-ai", "zhipuai", "zhipu_ai" -> "https://api.z.ai/api/paas/v4"
                 else -> "https://api.openai.com/v1"
             }
             val providerKey = when (configProvider) {
@@ -673,46 +726,73 @@ fun createLLMClient(
                 "minimax" -> "minimax"
                 "qwen_direct", "dashscope" -> "qwen_direct"
                 "lmstudio", "lm-studio", "lm_studio" -> "lmstudio"
+                "zai", "z_ai", "z-ai", "zhipuai", "zhipu_ai" -> "zai"
                 else -> "openai"
             }
+            val baseUrl = modelConfig.baseUrl ?: defaultBaseUrl
             LLMProvider.OpenAI to OpenAILLMClient(
                 apiKey = resolveConfiguredApiKey(parameters, providerKey, keys)
                     .also { if (it == null) warnMissingApiKey(providerKey) } ?: "",
                 settings = OpenAIClientSettings(
-                    baseUrl = modelConfig.baseUrl ?: defaultBaseUrl
+                    baseUrl = baseUrl,
+                    // Every default/configured base URL above carries `/v1`, so the
+                    // stock `v1/chat/completions` would resolve to
+                    // `.../v1/v1/chat/completions` → 404. See resolveVersionedEndpointPath.
+                    chatCompletionsPath = resolveVersionedEndpointPath(baseUrl, "v1/chat/completions")
                 )
             )
         }
 
-        LLMProvider.Google -> LLMProvider.Google to GoogleLLMClient(
-            apiKey = resolveConfiguredApiKey(parameters, "google", keys)
-                .also { if (it == null) warnMissingApiKey("google") } ?: "",
-            settings = GoogleClientSettings(
-                baseUrl = modelConfig.baseUrl ?: "https://generativelanguage.googleapis.com"
+        LLMProvider.Google -> {
+            val baseUrl = modelConfig.baseUrl ?: "https://generativelanguage.googleapis.com"
+            LLMProvider.Google to GoogleLLMClient(
+                apiKey = resolveConfiguredApiKey(parameters, "google", keys)
+                    .also { if (it == null) warnMissingApiKey("google") } ?: "",
+                settings = GoogleClientSettings(
+                    baseUrl = baseUrl,
+                    // The default base URL is a bare host, so `v1beta/models` is
+                    // correct as-is; a user-supplied `.../v1beta` base would
+                    // otherwise double-join. See resolveVersionedEndpointPath.
+                    defaultPath = resolveVersionedEndpointPath(baseUrl, "v1beta/models")
+                )
             )
-        )
+        }
 
-        LLMProvider.Anthropic -> LLMProvider.Anthropic to AnthropicLLMClient(
-            apiKey = resolveConfiguredApiKey(parameters, "anthropic", keys)
-                .also { if (it == null) warnMissingApiKey("anthropic") } ?: "",
-            settings = AnthropicClientSettings(
-                baseUrl = modelConfig.baseUrl ?: "https://api.anthropic.com/v1"
+        LLMProvider.Anthropic -> {
+            val baseUrl = modelConfig.baseUrl ?: "https://api.anthropic.com/v1"
+            LLMProvider.Anthropic to AnthropicLLMClient(
+                apiKey = resolveConfiguredApiKey(parameters, "anthropic", keys)
+                    .also { if (it == null) warnMissingApiKey("anthropic") } ?: "",
+                settings = AnthropicClientSettings(
+                    baseUrl = baseUrl,
+                    // The default base URL carries `/v1`, so the stock `v1/messages`
+                    // default would resolve to `.../v1/v1/messages` → 404.
+                    // See resolveVersionedEndpointPath.
+                    messagesPath = resolveVersionedEndpointPath(baseUrl, "v1/messages")
+                )
             )
-        )
+        }
 
-        LLMProvider.DeepSeek -> LLMProvider.DeepSeek to DeepSeekLLMClient(
-            // Koog 1.0.0's stock DeepSeekLLMClient natively performs the
-            // reasoning+content+tool_calls collapse our former
-            // `DeepSeekThinkingModeLLMClient` wrapper hand-rolled
-            // (`prepareMessagesForDeepSeek` lives inside the stock client now).
-            // The custom wrapper is therefore obsolete and the codebase
-            // routes through the stock client directly.
-            apiKey = resolveConfiguredApiKey(parameters, "deepseek", keys)
-                .also { if (it == null) warnMissingApiKey("deepseek") } ?: "",
-            settings = DeepSeekClientSettings(
-                baseUrl = modelConfig.baseUrl ?: "https://api.deepseek.com/v1"
+        LLMProvider.DeepSeek -> {
+            val baseUrl = modelConfig.baseUrl ?: "https://api.deepseek.com/v1"
+            LLMProvider.DeepSeek to DeepSeekLLMClient(
+                // Koog 1.0.0's stock DeepSeekLLMClient natively performs the
+                // reasoning+content+tool_calls collapse our former
+                // `DeepSeekThinkingModeLLMClient` wrapper hand-rolled
+                // (`prepareMessagesForDeepSeek` lives inside the stock client now).
+                // The custom wrapper is therefore obsolete and the codebase
+                // routes through the stock client directly.
+                apiKey = resolveConfiguredApiKey(parameters, "deepseek", keys)
+                    .also { if (it == null) warnMissingApiKey("deepseek") } ?: "",
+                settings = DeepSeekClientSettings(
+                    baseUrl = baseUrl,
+                    // DeepSeek's stock default `chat/completions` has no version
+                    // prefix, so it never double-joins; routed through the resolver
+                    // for uniformity (it returns the path unchanged either way).
+                    chatCompletionsPath = resolveVersionedEndpointPath(baseUrl, "chat/completions")
+                )
             )
-        )
+        }
 
         LLMProvider.OpenRouter -> {
             // Koog 1.0.0's `AbstractOpenAILLMClient.convertPromptToMessages` double-encodes
@@ -738,24 +818,38 @@ fun createLLMClient(
             )
         }
 
-        LLMProvider.MistralAI -> LLMProvider.MistralAI to MistralAILLMClient(
-            apiKey = resolveConfiguredApiKey(parameters, "mistral", keys)
-                .also { if (it == null) warnMissingApiKey("mistral") } ?: "",
-            settings = MistralAIClientSettings(
-                baseUrl = modelConfig.baseUrl ?: "https://api.mistral.ai/v1"
-            )
-        )
-
-        else -> LLMProvider.OpenAI to OpenAILLMClient(
-            apiKey = resolveConfiguredApiKey(parameters, modelConfig.provider, keys).also {
-                if (it == null) warnMissingApiKey(
-                    modelConfig.provider
+        LLMProvider.MistralAI -> {
+            val baseUrl = modelConfig.baseUrl ?: "https://api.mistral.ai/v1"
+            LLMProvider.MistralAI to MistralAILLMClient(
+                apiKey = resolveConfiguredApiKey(parameters, "mistral", keys)
+                    .also { if (it == null) warnMissingApiKey("mistral") } ?: "",
+                settings = MistralAIClientSettings(
+                    baseUrl = baseUrl,
+                    // The default base URL carries `/v1`, so the stock
+                    // `v1/chat/completions` would resolve to `.../v1/v1/chat/completions`
+                    // → 404. See resolveVersionedEndpointPath.
+                    chatCompletionsPath = resolveVersionedEndpointPath(baseUrl, "v1/chat/completions")
                 )
-            } ?: "",
-            settings = OpenAIClientSettings(
-                baseUrl = modelConfig.baseUrl ?: "https://api.openai.com/v1"
             )
-        )
+        }
+
+        else -> {
+            val baseUrl = modelConfig.baseUrl ?: "https://api.openai.com/v1"
+            LLMProvider.OpenAI to OpenAILLMClient(
+                apiKey = resolveConfiguredApiKey(parameters, modelConfig.provider, keys).also {
+                    if (it == null) warnMissingApiKey(
+                        modelConfig.provider
+                    )
+                } ?: "",
+                settings = OpenAIClientSettings(
+                    baseUrl = baseUrl,
+                    // OpenAI-compatible fallback: the default base carries `/v1`,
+                    // so the stock `v1/chat/completions` would double-join.
+                    // See resolveVersionedEndpointPath.
+                    chatCompletionsPath = resolveVersionedEndpointPath(baseUrl, "v1/chat/completions")
+                )
+            )
+        }
     }
 }
 

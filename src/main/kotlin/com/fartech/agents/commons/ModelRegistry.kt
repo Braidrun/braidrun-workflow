@@ -251,7 +251,7 @@ object ModelRegistry {
             "openrouter.yaml", "openai.yaml", "google.yaml", "anthropic.yaml",
             "deepseek.yaml", "xai.yaml", "qwen.yaml", "qwen-direct.yaml",
             "kimi.yaml", "minimax.yaml", "meta.yaml", "mistral.yaml",
-            "perplexity.yaml", "ollama.yaml", "lmstudio.yaml"
+            "perplexity.yaml", "ollama.yaml", "lmstudio.yaml", "zai.yaml"
         )
         for (fileName in knownFiles) {
             val url = classLoader.getResource("models/$fileName") ?: continue
@@ -365,6 +365,7 @@ object ModelRegistry {
             "kimi", "moonshot" -> LLMProvider.OpenAI
             "minimax" -> LLMProvider.OpenAI
             "lmstudio", "lm-studio", "lm_studio" -> LLMProvider.OpenAI
+            "zai", "z_ai", "z-ai", "zhipuai", "zhipu_ai" -> LLMProvider.OpenAI
             "meta", "meta-llama" -> LLMProvider.OpenRouter
             "mistral", "mistralai" -> LLMProvider.OpenRouter
             "perplexity" -> LLMProvider.OpenRouter

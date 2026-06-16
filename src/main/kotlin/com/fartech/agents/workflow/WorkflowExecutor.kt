@@ -4229,7 +4229,11 @@ IMPORTANT: You MUST respond with ONLY the category name (one of: ${config.catego
         // 构建监控 Features
         val monitoringInstallFeatures: ai.koog.agents.core.agent.GraphAIAgent.FeatureContext.() -> Unit =
             if (enableMonitoring) {
-                createMonitoringInstallFeatures(context.executionId, step.step)
+                createMonitoringInstallFeatures(
+                    context.executionId,
+                    step.step,
+                    imService = parameters.parameter("im_service", "telegram").lowercase()
+                )
             } else {
                 defaultInstallFeatures
             }
@@ -5683,7 +5687,12 @@ IMPORTANT: You MUST respond with ONLY the category name (one of: ${config.catego
         // 构建监控事件收集的 installFeatures
         val monitoringInstallFeatures: GraphAIAgent.FeatureContext.() -> Unit =
             if (enableMonitoring && executionId != null && stepName != null) {
-                createMonitoringInstallFeatures(executionId, stepName, userProgressNotifier)
+                createMonitoringInstallFeatures(
+                    executionId,
+                    stepName,
+                    userProgressNotifier,
+                    parameters.parameter("im_service", "telegram").lowercase()
+                )
             } else {
                 defaultInstallFeatures
             }
@@ -7002,7 +7011,8 @@ IMPORTANT: You MUST respond with ONLY the category name (one of: ${config.catego
     private fun createMonitoringInstallFeatures(
         executionId: String,
         stepName: String,
-        userProgressNotifier: UserProgressNotifier? = null
+        userProgressNotifier: UserProgressNotifier? = null,
+        imService: String = "telegram"
     ): GraphAIAgent.FeatureContext.() -> Unit = {
         fun emit(
             type: String,
@@ -7051,6 +7061,7 @@ IMPORTANT: You MUST respond with ONLY the category name (one of: ${config.catego
         }
 
         val telegramToolNames = setOf("sendMessageToUser", "askUserViaIM", "waitUserMessage", "sendFileToUser")
+        val externalMessageService = imService.ifBlank { "telegram" }
 
         // 直接读取 koog 的结构化参数/结果,而不是重新解析 toString() 渲染:
         // koog 1.0.0 的 JSONPrimitive.toString() 会带引号且不做转义,导致
@@ -7115,7 +7126,7 @@ IMPORTANT: You MUST respond with ONLY the category name (one of: ${config.catego
             (metadata + extra).forEach { (key, value) ->
                 if (value.isNotBlank()) fields[key] = JsonPrimitive(value)
             }
-            fields["service"] = JsonPrimitive("telegram")
+            fields["service"] = JsonPrimitive(externalMessageService)
             fields["direction"] = JsonPrimitive(direction)
             fields["toolName"] = JsonPrimitive(toolName)
             fields["content"] = JsonPrimitive(content)
@@ -7130,9 +7141,9 @@ IMPORTANT: You MUST respond with ONLY the category name (one of: ${config.catego
                 ?.take(120)
                 .orEmpty()
             val label = when (direction) {
-                "incoming" -> "收到 Telegram 消息"
-                "outgoing" -> "发送 Telegram 消息"
-                "outgoing_file" -> "发送 Telegram 文件"
+                "incoming" -> "收到消息"
+                "outgoing" -> "发送消息"
+                "outgoing_file" -> "发送文件"
                 else -> fallback
             }
             return if (preview.isBlank()) "📨 $label" else "📨 $label: $preview"
@@ -7147,10 +7158,10 @@ IMPORTANT: You MUST respond with ONLY the category name (one of: ${config.catego
         ) {
             if (content.isBlank()) return
             emit(
-                type = "telegram_message",
-                category = "telegram",
+                type = "external_message",
+                category = "message",
                 subCategory = direction,
-                summary = summarizeTelegram(direction, content, "Telegram 消息"),
+                summary = summarizeTelegram(direction, content, "消息"),
                 detail = telegramDetailJson(direction, toolName, content, metadata, extra)
             )
         }
@@ -7185,7 +7196,7 @@ IMPORTANT: You MUST respond with ONLY the category name (one of: ${config.catego
                     if (prompt != null && didAskUserPromptReachTelegram(resultStr)) {
                         emitTelegramRecord("outgoing", toolName, prompt)
                     }
-                    if (isTelegramToolSuccess(resultStr)) {
+                    if (externalMessageService == "telegram" && isTelegramToolSuccess(resultStr)) {
                         val (content, metadata) = parseTelegramIncoming(resultStr!!.trim())
                         emitTelegramRecord("incoming", toolName, content, metadata)
                     }

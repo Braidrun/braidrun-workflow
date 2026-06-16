@@ -30,8 +30,8 @@ import java.io.File
 import java.nio.charset.StandardCharsets
 
 private val logger = KotlinLogging.logger {}
-private const val DEFAULT_OPENAI_EMBEDBRAIDRUN_BASE_URL = "https://api.openai.com/v1"
-private const val DEFAULT_OPENROUTER_EMBEDBRAIDRUN_BASE_URL = "https://openrouter.ai/api/v1"
+private const val DEFAULT_OPENAI_EMBEDDING_BASE_URL = "https://api.openai.com/v1"
+private const val DEFAULT_OPENROUTER_EMBEDDING_BASE_URL = "https://openrouter.ai/api/v1"
 
 // ============================================================================
 // runBlocking policy in this file
@@ -132,8 +132,11 @@ interface EmbedderFactory {
          */
         val Default: EmbedderFactory = object : EmbedderFactory {
             override fun create(parameters: List<ConfigurationParameter>, baseClient: HttpClient?): Embedder {
-                val embeddingModel = parameters.parameter("rag_embedding_model", "text-embedding-3-small")
                 val baseUrl = resolveEmbeddingBaseUrl(parameters)
+                val embeddingModel = normalizeEmbeddingModelId(
+                    parameters.parameter("rag_embedding_model", "text-embedding-3-small"),
+                    baseUrl
+                )
                 val apiKey = resolveEmbeddingApiKey(parameters)
 
                 val model = LLModel(
@@ -155,7 +158,10 @@ interface EmbedderFactory {
                 // threaded through RAG tooling.
                 val client = OpenAILLMClient(
                     apiKey = apiKey,
-                    settings = OpenAIClientSettings(baseUrl = baseUrl)
+                    settings = OpenAIClientSettings(
+                        baseUrl = baseUrl,
+                        embeddingsPath = resolveEmbeddingsPath(baseUrl)
+                    )
                 )
 
                 return LLMEmbedder(client, model)
@@ -209,11 +215,35 @@ internal fun resolveEmbeddingBaseUrl(
     parameterValue(parameters, "rag_embedding_base_url")?.let { return normalizeEmbeddingBaseUrl(it) }
 
     val openRouterBaseUrl = parameterValue(parameters, "openrouter_base_url")?.let(::normalizeEmbeddingBaseUrl)
-    if (openRouterBaseUrl != null || hasOpenRouterEmbeddingCredentials(parameters, env)) {
-        return openRouterBaseUrl ?: DEFAULT_OPENROUTER_EMBEDBRAIDRUN_BASE_URL
+
+    // An explicit rag_embedding_api_key that carries OpenRouter's key prefix
+    // pins the base URL to OpenRouter regardless of other configured keys.
+    val ragKey = parameterValue(parameters, "rag_embedding_api_key")
+    if (ragKey != null && looksLikeOpenRouterKey(ragKey)) {
+        return openRouterBaseUrl ?: DEFAULT_OPENROUTER_EMBEDDING_BASE_URL
     }
 
-    return DEFAULT_OPENAI_EMBEDBRAIDRUN_BASE_URL
+    // [resolveEmbeddingApiKey] prefers OpenAI param credentials over OpenRouter
+    // ones; when both providers are configured (common once chat runs through
+    // OpenRouter while embeddings use OpenAI) the base URL must stay paired
+    // with the credential that key resolution will actually pick — otherwise
+    // an OpenAI key gets sent to openrouter.ai and fails with a 401.
+    val hasOpenAIParamCredentials = parameterValue(parameters, "openai_api_key") != null ||
+        providerKey(parameters, "openai") != null
+    if (hasOpenAIParamCredentials) {
+        return DEFAULT_OPENAI_EMBEDDING_BASE_URL
+    }
+
+    if (openRouterBaseUrl != null || hasOpenRouterEmbeddingCredentials(parameters, env)) {
+        return openRouterBaseUrl ?: DEFAULT_OPENROUTER_EMBEDDING_BASE_URL
+    }
+
+    return DEFAULT_OPENAI_EMBEDDING_BASE_URL
+}
+
+private fun looksLikeOpenRouterKey(apiKey: String): Boolean {
+    val trimmed = apiKey.trim()
+    return trimmed.startsWith("sk-or-") || trimmed.startsWith("k-or-")
 }
 
 private fun hasOpenRouterEmbeddingCredentials(
@@ -227,9 +257,50 @@ private fun hasOpenRouterEmbeddingCredentials(
         !env["OPEN_ROUTER_API_KEY"].isNullOrBlank()
 }
 
+/**
+ * Derives the request path Koog should join onto [baseUrl] for the
+ * embeddings endpoint.
+ *
+ * Koog's `OpenAIClientSettings.embeddingsPath` defaults to `"v1/embeddings"`
+ * and is resolved RELATIVE to the base URL (Ktor's `DefaultRequest`
+ * concatenates path segments when the request path has no leading slash).
+ * That default assumes a bare-host base URL (`https://api.openai.com`); our
+ * resolved base URLs carry the version segment (`…/v1`, `…/api/v1`,
+ * `…/compatible-mode/v1`), so keeping the default produced
+ * `…/v1/v1/embeddings` → HTTP 404 from every provider. The chat path dodged
+ * the same trap with an explicit leading-slash `chatCompletionsPath`
+ * override (see `AgentModels.determineLLMClient`); embeddings never did.
+ *
+ * Rule: a base URL with any path component already points at the API
+ * version root → append just `embeddings`; a bare host follows the
+ * OpenAI/Koog convention → `v1/embeddings`.
+ */
+internal fun resolveEmbeddingsPath(baseUrl: String): String {
+    val withoutScheme = baseUrl.substringAfter("://", baseUrl)
+    val path = withoutScheme.substringAfter('/', "").trim('/')
+    return if (path.isEmpty()) "v1/embeddings" else "embeddings"
+}
+
+/**
+ * Aligns the embedding model id with the catalog conventions of the target
+ * endpoint. OpenRouter namespaces every model (`openai/text-embedding-3-small`)
+ * and 404s on bare OpenAI ids, while OpenAI-compatible endpoints expect the
+ * bare id and reject the namespaced form. Normalizing here lets the same
+ * configured model (`text-embedding-3-small` by default) work no matter which
+ * provider the credentials route it to.
+ */
+internal fun normalizeEmbeddingModelId(model: String, baseUrl: String): String {
+    val trimmed = model.trim()
+    return if (baseUrl.contains("openrouter.ai", ignoreCase = true)) {
+        if (trimmed.contains('/')) trimmed else "openai/$trimmed"
+    } else {
+        trimmed.removePrefix("openai/")
+    }
+}
+
 private fun normalizeEmbeddingBaseUrl(baseUrl: String): String {
     val trimmed = baseUrl.trim().trimEnd('/')
-    if (trimmed.isEmpty()) return DEFAULT_OPENAI_EMBEDBRAIDRUN_BASE_URL
+    if (trimmed.isEmpty()) return DEFAULT_OPENAI_EMBEDDING_BASE_URL
     return if (trimmed.contains("openrouter.ai") && !trimmed.endsWith("/api/v1")) {
         "$trimmed/api/v1"
     } else {
