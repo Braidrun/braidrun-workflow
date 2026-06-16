@@ -310,6 +310,16 @@ sourceSets {
 }
 tasks.test {
     useJUnitPlatform()
+    // Surface failing test names + stack traces on the console (CI logs only
+    // show "N failed" otherwise — the details would be buried in the HTML
+    // report artifact).
+    testLogging {
+        events("failed", "skipped")
+        exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+        showStackTraces = true
+        showCauses = true
+        showExceptions = true
+    }
 }
 
 publishing {
