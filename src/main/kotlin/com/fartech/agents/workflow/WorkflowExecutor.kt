@@ -8,8 +8,11 @@ import ai.koog.agents.features.eventHandler.feature.handleEvents
 import ai.koog.prompt.message.Message
 import ai.koog.prompt.message.MessagePart
 import com.fartech.agents.commons.*
+import com.fartech.agents.tools.ExternalAgentContext
+import com.fartech.agents.tools.ExternalAgentTools
 import com.fartech.agents.tools.RAGTools
 import com.fartech.agents.tools.exec.SubprocessExecutor
+import com.fartech.agents.tools.exec.SubprocessToolContext
 import com.fartech.agents.tools.exec.DockerSubprocessExecutor
 import com.fartech.agents.tools.EmbedderFactory
 import com.fartech.ftapp2.commonsKt.AnsiColor
@@ -6197,6 +6200,17 @@ IMPORTANT: You MUST respond with ONLY the category name (one of: ${config.catego
         input: String,
         directoryIsolation: DirectoryIsolationConfig = DirectoryIsolationConfig()
     ): String {
+        if (agentDef.isClaudeCodeAgent()) {
+            return runClaudeCodeAgentStep(
+                agentName = agentName,
+                agentDef = agentDef,
+                context = context,
+                stepName = stepName,
+                input = input,
+                directoryIsolation = directoryIsolation
+            )
+        }
+
         val managedAgent = createManagedAgentForStep(
             agentName = agentName,
             agentDef = agentDef,
@@ -6208,6 +6222,142 @@ IMPORTANT: You MUST respond with ONLY the category name (one of: ${config.catego
         return enrichAgentOutputWithExitToolPayload(context.executionId, stepName, output)
     }
 
+    private suspend fun runClaudeCodeAgentStep(
+        agentName: String,
+        agentDef: AgentDefinition,
+        context: WorkflowExecutionContext,
+        stepName: String,
+        input: String,
+        directoryIsolation: DirectoryIsolationConfig = DirectoryIsolationConfig()
+    ): String {
+        val executor = codeStepExecutor
+            ?: throw WorkflowExecutionException(
+                "Claude Code Agent '$agentName' requires a SubprocessExecutor. " +
+                    "Configure codeStepExecutor / subprocess_mode for this runtime."
+            )
+
+        val sessionId = resolveSessionId(agentDef, context, agentName, stepName)
+        val resolvedParams = resolveRuntimeParametersForDirectAgent(
+            agentDef = agentDef,
+            sessionId = sessionId,
+            context = context,
+            executionId = context.executionId,
+            stepName = stepName,
+            directoryIsolation = directoryIsolation,
+            agentName = agentName,
+            workflowName = context.workflowName
+        )
+        val parameters = mergeParameters(baseParameters, resolvedParams)
+        val workingDir = parameters.parameter("working_dir", "").trim().takeIf { it.isNotEmpty() }?.let(::File)
+        val outputDir = parameters.parameter("output_dir", "").trim().takeIf { it.isNotEmpty() }?.let(::File)
+        val skillsDir = parameters.parameter("skills_dir", "").trim().takeIf { it.isNotEmpty() }?.let(::File)
+
+        val eventCallback: MonitoringEventCallback? =
+            if (enableMonitoring) {
+                { type, summary, detail ->
+                    WorkflowMonitor.addEvent(
+                        context.executionId,
+                        stepName,
+                        AgentEvent(
+                            type = type,
+                            category = "agent",
+                            subCategory = "claude_code_agent",
+                            summary = summary,
+                            detail = detail,
+                            inputTokens = parseLongFromEventDetail(detail, "input_tokens")?.toInt(),
+                            outputTokens = parseLongFromEventDetail(detail, "output_tokens")?.toInt()
+                        )
+                    )
+                }
+            } else null
+
+        val claudeAgent = ExternalAgentTools(
+            executor = executor,
+            parameters = parameters,
+            userId = baseParameters.parameter("user_id", "default"),
+            context = SubprocessToolContext(
+                workspaceDir = workingDir,
+                outputDir = outputDir,
+                skillsDir = skillsDir,
+                executionId = context.executionId,
+                stepName = stepName,
+                sessionId = sessionId
+            ),
+            onMonitorEvent = eventCallback
+        )
+
+        return claudeAgent.runClaudeCodeSubAgent(
+            ExternalAgentContext(
+                prompt = input,
+                name = agentName,
+                allowedTools = parseExternalAgentListParameter(parameters, "external_agent_claude_allowed_tools"),
+                disallowedTools = parseExternalAgentListParameter(parameters, "external_agent_claude_disallowed_tools"),
+                workingDir = workingDir?.absolutePath,
+                maxTurns = parameters.parameter("external_agent_claude_max_turns", 32),
+                timeoutSeconds = parameters.parameter("external_agent_claude_timeout_seconds", 1800),
+                model = ""
+            )
+        )
+    }
+
+    private fun AgentDefinition.isClaudeCodeAgent(): Boolean {
+        val resolvedType = resolveParameters()["type"]?.jsonPrimitive?.contentOrNull ?: type
+        return resolvedType == "claude_code_agent"
+    }
+
+    private fun resolveRuntimeParametersForDirectAgent(
+        agentDef: AgentDefinition,
+        sessionId: String,
+        context: WorkflowExecutionContext,
+        executionId: String?,
+        stepName: String?,
+        directoryIsolation: DirectoryIsolationConfig,
+        agentName: String?,
+        workflowName: String?
+    ): MutableMap<String, JsonElement> {
+        val resolvedParams = agentDef.resolveParameters().toMutableMap()
+        injectWorkflowRuntimeParameters(
+            target = resolvedParams,
+            sessionId = sessionId,
+            executionId = executionId,
+            stepName = stepName,
+            directoryIsolation = directoryIsolation,
+            agentName = agentName,
+            workflowName = workflowName
+        )
+        context.let { workflowContext ->
+            val templateContext = createStepTemplateContext(
+                context = workflowContext,
+                stepName = stepName ?: "default",
+                agentName = agentName,
+                directoryIsolation = directoryIsolation
+            )
+            resolvedParams.replaceAll { _, value -> resolveJsonTemplates(value, templateContext) }
+        }
+        enforceProtectedRuntimeParameters(resolvedParams)
+        return resolvedParams
+    }
+
+    private fun parseExternalAgentListParameter(
+        parameters: List<ConfigurationParameter>,
+        key: String
+    ): List<String> {
+        val raw = parameters.parameter(key, "").trim()
+        if (raw.isBlank()) return emptyList()
+        return raw.split(',', ';')
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+    }
+
+    private fun parseLongFromEventDetail(detail: String?, key: String): Long? {
+        if (detail.isNullOrBlank()) return null
+        return Regex("""(?:^|,\s*)${Regex.escape(key)}=([0-9]+)""")
+            .find(detail)
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.toLongOrNull()
+    }
+
     private suspend fun runStepAgentWithStructuredOutput(
         agentName: String,
         agentDef: AgentDefinition,
@@ -6217,6 +6367,17 @@ IMPORTANT: You MUST respond with ONLY the category name (one of: ${config.catego
         structuredOutput: StructuredOutputConfig,
         directoryIsolation: DirectoryIsolationConfig = DirectoryIsolationConfig()
     ): String {
+        if (agentDef.isClaudeCodeAgent()) {
+            return runStepAgent(
+                agentName = agentName,
+                agentDef = agentDef,
+                context = context,
+                stepName = stepName,
+                input = input,
+                directoryIsolation = directoryIsolation
+            )
+        }
+
         return when (normalizeStructuredOutputSchema(structuredOutput.schema)) {
             "ai_commentary_parts", "ai_commentary_parts_v1", "periodic_ai_commentary_parts" ->
                 runTypedStructuredStep<AiCommentaryStructuredOutput>(

@@ -2292,8 +2292,8 @@ data class StateStepConfig(
      * context, and writes `outputs` back as parent variables — identical
      * semantics to a top-level `sub_workflow` step.
      *
-     * This is what lets braidrun-module-telegram-deliver (and any future
-     * deterministic module) be invoked from an `alert` state in a state
+     * This is what lets deterministic modules such as
+     * braidrun-module-slack-deliver be invoked from an `alert` state in a state
      * machine without needing to fall back to an LLM agent.
      */
     @SerialName("sub_workflow")

@@ -73,7 +73,7 @@ private val logger = KotlinLogging.logger {}
  *     - `external_agent_codex_command=npx`,  `external_agent_codex_extra_args=-y,@openai/codex`
  *  3. **Native dev mode**: `npm install -g` on the host, or `brew install`, etc.
  *
- * ## API key resolution
+ * ## API key / subscription token resolution
  *
  * Reuses the same precedence chain as the main LLM client factory
  * ([com.fartech.agents.commons.resolveConfiguredApiKey]):
@@ -81,6 +81,14 @@ private val logger = KotlinLogging.logger {}
  * 1. Workflow parameter `anthropic_api_key` / `openai_api_key`
  * 2. `llm_provider_keys` map entry
  * 3. Environment variable `ANTHROPIC_API_KEY` / `OPENAI_API_KEY`
+ *
+ * Claude Code can alternatively run against a user's Claude subscription quota
+ * by setting `external_agent_claude_auth_mode=subscription` and providing a
+ * `claude_code_oauth` credential. At execution time Braidrun injects that secret
+ * as `CLAUDE_CODE_OAUTH_TOKEN` only for the child `claude` process.
+ * Set `external_agent_claude_model` to choose the default Claude Code model
+ * (`sonnet`, `opus`, `haiku`, or a full model id); a tool-call `model` field
+ * can still override it for one invocation.
  *
  * The resolved key is injected via [ExecRequest.env]; the rest of the parent JVM's
  * environment is *not* leaked into the subprocess (native executor strips it, docker
@@ -212,24 +220,56 @@ class ExternalAgentTools(
         )
     }
 
+    private enum class ExternalAuthMode(val detailValue: String) {
+        API_KEY("api_key"),
+        SUBSCRIPTION("subscription");
+
+        companion object {
+            fun parse(raw: String?): ExternalAuthMode {
+                val normalized = raw
+                    ?.trim()
+                    ?.lowercase()
+                    ?.replace('-', '_')
+                    ?.takeIf { it.isNotEmpty() }
+                    ?: return API_KEY
+
+                return when (normalized) {
+                    "api", "api_key", "apikey", "direct" -> API_KEY
+                    "oauth", "oauth_token", "subscription", "claude_subscription" -> SUBSCRIPTION
+                    else -> throw IllegalArgumentException(
+                        "external_agent_claude_auth_mode='$raw' is invalid. " +
+                            "Use 'api_key' or 'subscription'."
+                    )
+                }
+            }
+        }
+    }
+
+    private data class ResolvedExternalAuth(
+        val mode: ExternalAuthMode,
+        val env: Map<String, String>
+    )
+
     private suspend fun runExternal(engine: Engine, ctx: ExternalAgentContext): String {
         val resolvedName = ctx.name.takeIf { it.isNotBlank() } ?: UUID.randomUUID().toString()
         val workDir = resolveWorkingDir(ctx.workingDir)
 
-        // Resolve the API key BEFORE building any subprocess so a misconfiguration fails
-        // fast with a clear error instead of leaving the LLM staring at a 401 from the SDK.
-        val apiKey = resolveApiKey(engine)
-            ?: throw IllegalStateException(
-                "Missing API key for ${engine.displayName}. " +
-                    "Set workflow parameter '${engine.providerKey}_api_key', " +
-                    "or 'llm_provider_keys.${engine.providerKey}', " +
-                    "or environment variable ${engine.apiKeyEnvVar}."
+        // Resolve authentication BEFORE building any subprocess so misconfiguration fails
+        // with a clear error instead of leaving the LLM staring at a 401 from the SDK.
+        val auth = runCatching { resolveExternalAuth(engine) }.getOrElse { e ->
+            emit(
+                type = engine.failedEventType(),
+                summary = "❌ ${engine.displayName} Sub Agent 配置错误: $resolvedName",
+                detail = e.message
             )
+            throw e
+        }
 
         // Build the command. Operators can override the binary name (e.g. "npx -y @anthropic-ai/claude-code")
         // by setting external_agent_<engine>_command / _extra_args parameters; default is "claude" / "codex"
         // assumed to be on PATH inside the container or host.
-        val command = buildCommand(engine, ctx)
+        val effectiveModel = resolveModel(engine, ctx)
+        val command = buildCommand(engine, ctx, effectiveModel)
 
         val timeoutSeconds = ctx.timeoutSeconds
             .coerceAtLeast(MIN_TIMEOUT_SECONDS)
@@ -240,7 +280,7 @@ class ExternalAgentTools(
         // OpenRouter or directly to Anthropic / OpenAI) AND inside buildEnvironment.
         // The double-resolve is intentional — both call sites use the same validator
         // so a malformed URL fails fast before we spawn anything.
-        val baseUrlOverride = runCatching { resolveBaseUrlOverride(engine) }.getOrElse { e ->
+        val baseUrlOverride = runCatching { resolveBaseUrlOverride(engine, auth) }.getOrElse { e ->
             emit(
                 type = engine.failedEventType(),
                 summary = "❌ ${engine.displayName} Sub Agent 配置错误: $resolvedName",
@@ -253,12 +293,13 @@ class ExternalAgentTools(
             type = engine.startEventType(),
             summary = "${engine.startEmoji()} 启动 ${engine.displayName} Sub Agent: $resolvedName",
             detail = buildString {
-                append("model=${ctx.model.ifBlank { "<sdk-default>" }}, ")
+                append("model=${effectiveModel.ifBlank { "<sdk-default>" }}, ")
                 append("maxTurns=${ctx.maxTurns}, ")
                 append("allowedTools=${ctx.allowedTools}, ")
                 append("timeout=${timeoutSeconds}s, ")
                 append("workDir=${workDir.absolutePath}, ")
-                append("executor=${if (isDocker) "docker" else "native"}")
+                append("executor=${if (isDocker) "docker" else "native"}, ")
+                append("authMode=${auth.mode.detailValue}")
                 if (baseUrlOverride != null) append(", baseUrl=$baseUrlOverride")
             }
         )
@@ -274,7 +315,7 @@ class ExternalAgentTools(
             workingDir = workDir,
             stdin = ctx.prompt,
             timeoutSeconds = timeoutSeconds.toLong(),
-            env = buildEnvironment(engine, apiKey),
+            env = buildEnvironment(engine, auth),
             mounts = buildMounts(),
             imageHint = "node",
             userId = userId
@@ -364,7 +405,7 @@ class ExternalAgentTools(
         return context.workspaceDir?.takeIf { it.isDirectory } ?: File(".")
     }
 
-    private fun buildCommand(engine: Engine, ctx: ExternalAgentContext): List<String> {
+    private fun buildCommand(engine: Engine, ctx: ExternalAgentContext, model: String): List<String> {
         val baseCommand = parameters.parameter(engine.commandParameterKey, engine.defaultCommand)
             .trim()
             .takeIf { it.isNotEmpty() }
@@ -380,8 +421,8 @@ class ExternalAgentTools(
             .filter { it.isNotEmpty() }
 
         val cliFlags = when (engine) {
-            Engine.CLAUDE -> buildClaudeFlags(ctx)
-            Engine.CODEX -> buildCodexFlags(ctx)
+            Engine.CLAUDE -> buildClaudeFlags(ctx, model)
+            Engine.CODEX -> buildCodexFlags(ctx, model)
         }
 
         return buildList {
@@ -391,15 +432,15 @@ class ExternalAgentTools(
         }
     }
 
-    private fun buildClaudeFlags(ctx: ExternalAgentContext): List<String> = buildList {
+    private fun buildClaudeFlags(ctx: ExternalAgentContext, model: String): List<String> = buildList {
         // -p with no positional arg → claude reads the prompt from stdin (we pipe ctx.prompt
         // via ExecRequest.stdin so prompts of arbitrary length avoid argv limits).
         add("-p")
         add("--output-format")
         add("json")
-        if (ctx.model.isNotBlank()) {
+        if (model.isNotBlank()) {
             add("--model")
-            add(ctx.model)
+            add(model)
         }
         if (ctx.maxTurns > 0) {
             add("--max-turns")
@@ -415,25 +456,25 @@ class ExternalAgentTools(
         }
     }
 
-    private fun buildCodexFlags(ctx: ExternalAgentContext): List<String> = buildList {
+    private fun buildCodexFlags(ctx: ExternalAgentContext, model: String): List<String> = buildList {
         add("exec")
         // Codex reads prompt from stdin when no positional prompt is provided.
-        if (ctx.model.isNotBlank()) {
+        if (model.isNotBlank()) {
             add("--model")
-            add(ctx.model)
+            add(model)
         }
         // --full-auto / --json flags are codex-version-dependent; operators can append
         // them through external_agent_codex_extra_args until we standardise across
         // versions.
     }
 
-    private fun buildEnvironment(engine: Engine, apiKey: String): Map<String, String> = buildMap {
-        put(engine.apiKeyEnvVar, apiKey)
+    private fun buildEnvironment(engine: Engine, auth: ResolvedExternalAuth): Map<String, String> = buildMap {
+        putAll(auth.env)
         // Optional custom API base URL — lets the operator route the SDK through
         // OpenRouter (or any Anthropic-/OpenAI-compatible proxy). Validated to
         // reject obviously-broken values so a typo in the workflow YAML doesn't
         // silently disable the override.
-        resolveBaseUrlOverride(engine)?.let { baseUrl -> put(engine.baseUrlEnvVar, baseUrl) }
+        resolveBaseUrlOverride(engine, auth)?.let { baseUrl -> put(engine.baseUrlEnvVar, baseUrl) }
         // Surface workspace identity, mirroring ShellTools so any audit / log integration in
         // the user's external SDK config can pick them up.
         put("BRAIDRUN_USER_ID", userId)
@@ -453,9 +494,14 @@ class ExternalAgentTools(
      * not from an LLM prompt or end-user input. The validation exists to catch
      * typos (`htps://`, `://`) before they surface as opaque CLI errors.
      */
-    private fun resolveBaseUrlOverride(engine: Engine): String? {
+    private fun resolveBaseUrlOverride(engine: Engine, auth: ResolvedExternalAuth): String? {
         val raw = parameters.parameter(engine.baseUrlParameterKey, "").trim()
         if (raw.isEmpty()) return null
+        require(auth.mode == ExternalAuthMode.API_KEY) {
+            "${engine.baseUrlParameterKey} cannot be used when " +
+                "$CLAUDE_AUTH_MODE_PARAMETER=subscription. Claude subscription tokens must be sent " +
+                "directly to Claude Code, not to a custom API proxy."
+        }
         require(BASE_URL_REGEX.matches(raw)) {
             "${engine.baseUrlParameterKey}='$raw' must be a fully-qualified URL " +
                 "(https:// or http://localhost[:port] for dev)"
@@ -475,6 +521,93 @@ class ExternalAgentTools(
     private fun resolveApiKey(engine: Engine): String? {
         val keys = parameters.parameter("llm_provider_keys", mapOf<String, String>())
         return resolveConfiguredApiKey(parameters, engine.providerKey, keys)
+    }
+
+    private fun resolveModel(engine: Engine, ctx: ExternalAgentContext): String {
+        val requested = ctx.model.trim()
+        if (requested.isNotEmpty()) return requested
+        return when (engine) {
+            Engine.CLAUDE -> parameters.parameter(CLAUDE_MODEL_PARAMETER, "").trim()
+            Engine.CODEX -> ""
+        }
+    }
+
+    private fun resolveExternalAuth(engine: Engine): ResolvedExternalAuth {
+        val mode = if (engine == Engine.CLAUDE) {
+            ExternalAuthMode.parse(parameters.parameter(CLAUDE_AUTH_MODE_PARAMETER, "api_key"))
+        } else {
+            ExternalAuthMode.API_KEY
+        }
+
+        if (mode == ExternalAuthMode.SUBSCRIPTION) {
+            require(engine == Engine.CLAUDE) {
+                "Subscription OAuth mode is only supported by Claude Code."
+            }
+            val token = resolveClaudeCodeOAuthToken()
+                ?: throw IllegalStateException(
+                    "Missing Claude subscription OAuth token. Create a credential with provider " +
+                        "'$CLAUDE_CODE_OAUTH_PROVIDER', or set workflow parameter " +
+                        "'$CLAUDE_OAUTH_TOKEN_PARAMETER'."
+                )
+            return ResolvedExternalAuth(
+                mode = mode,
+                env = buildMap {
+                    put("CLAUDE_CODE_OAUTH_TOKEN", token)
+                    put("CLAUDE_CONFIG_DIR", resolveClaudeConfigDir())
+                    put("DISABLE_AUTOUPDATER", "1")
+                }
+            )
+        }
+
+        val apiKey = resolveApiKey(engine)
+            ?: throw IllegalStateException(
+                "Missing API key for ${engine.displayName}. " +
+                    "Set workflow parameter '${engine.providerKey}_api_key', " +
+                    "or 'llm_provider_keys.${engine.providerKey}', " +
+                    "or environment variable ${engine.apiKeyEnvVar}."
+            )
+        return ResolvedExternalAuth(
+            mode = ExternalAuthMode.API_KEY,
+            env = mapOf(engine.apiKeyEnvVar to apiKey)
+        )
+    }
+
+    private fun resolveClaudeCodeOAuthToken(): String? {
+        val direct = parameters.parameter(CLAUDE_OAUTH_TOKEN_PARAMETER, "")
+        normalizeOAuthToken(direct)?.let { return it }
+
+        val keys = parameters.parameter("llm_provider_keys", mapOf<String, String>())
+        CLAUDE_CODE_OAUTH_PROVIDER_ALIASES.forEach { alias ->
+            normalizeOAuthToken(keys[alias])?.let { return it }
+        }
+
+        return null
+    }
+
+    private fun normalizeOAuthToken(value: String?): String? {
+        return value
+            ?.replace(Regex("\\s+"), "")
+            ?.takeIf { it.isNotEmpty() }
+    }
+
+    private fun resolveClaudeConfigDir(): String {
+        val configured = parameters.parameter(CLAUDE_CONFIG_DIR_PARAMETER, "").trim()
+        if (configured.isNotEmpty()) return configured
+
+        val base = if (isDocker) {
+            File("/tmp/braidrun-claude")
+        } else {
+            File(System.getProperty("java.io.tmpdir"), "braidrun-claude")
+        }
+        val runId = context.executionId ?: context.sessionId ?: UUID.randomUUID().toString()
+        return File(File(base, safePathSegment(userId)), safePathSegment(runId)).absolutePath
+    }
+
+    private fun safePathSegment(value: String): String {
+        return value
+            .replace(Regex("[^A-Za-z0-9._-]"), "_")
+            .take(80)
+            .ifBlank { "unknown" }
     }
 
     // ------------------------------------------------------------------------
@@ -605,6 +738,18 @@ class ExternalAgentTools(
     companion object {
         const val MIN_TIMEOUT_SECONDS = 10
         const val MAX_TIMEOUT_SECONDS = 3600
+        const val CLAUDE_AUTH_MODE_PARAMETER = "external_agent_claude_auth_mode"
+        const val CLAUDE_MODEL_PARAMETER = "external_agent_claude_model"
+        const val CLAUDE_OAUTH_TOKEN_PARAMETER = "external_agent_claude_oauth_token"
+        const val CLAUDE_CONFIG_DIR_PARAMETER = "external_agent_claude_config_dir"
+        const val CLAUDE_CODE_OAUTH_PROVIDER = "claude_code_oauth"
+
+        private val CLAUDE_CODE_OAUTH_PROVIDER_ALIASES = listOf(
+            "claude_code_oauth",
+            "claude_code_oauth_token",
+            "claude_oauth",
+            "claude_subscription"
+        )
 
         internal val permissiveJson = Json {
             ignoreUnknownKeys = true
