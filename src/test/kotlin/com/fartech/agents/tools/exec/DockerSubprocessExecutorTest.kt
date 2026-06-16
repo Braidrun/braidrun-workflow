@@ -12,14 +12,16 @@ import com.github.dockerjava.api.DockerClient
  *
  * Container-level integration tests (echo, timeout, OOM, network policy) require
  * a running Docker daemon and pre-built images — they are gated behind
- * [dockerAvailable] so they run in CI but are silently skipped on dev machines
- * without Docker.
+ * [dockerAvailable], which is opt-in: they run only when RUN_DOCKER_TESTS=true
+ * (with Docker reachable). The standard hermetic CI does not set that flag, so
+ * these are skipped there; set it locally to exercise the container path.
  */
 class DockerSubprocessExecutorTest {
 
     companion object {
         @JvmStatic
-        fun dockerAvailable(): Boolean = DockerSubprocessExecutor.canConnect()
+        fun dockerAvailable(): Boolean =
+            System.getenv("RUN_DOCKER_TESTS") == "true" && DockerSubprocessExecutor.canConnect()
     }
 
     // ─── Static utility tests (no Docker required) ───
