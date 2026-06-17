@@ -313,7 +313,12 @@ class ExternalAgentTools(
         val request = ExecRequest(
             command = command,
             workingDir = workDir,
-            stdin = ctx.prompt,
+            // Claude takes the prompt as a positional argv argument (see
+            // buildClaudeFlags); it must NOT also receive it on stdin. The Docker
+            // executor only attaches stdin *after* the container has started, so a
+            // stdin-reading `claude -p` sees EOF and aborts with
+            // "Input must be provided ...". Codex still reads from stdin.
+            stdin = if (engine == Engine.CLAUDE) null else ctx.prompt,
             timeoutSeconds = timeoutSeconds.toLong(),
             env = buildEnvironment(engine, auth),
             mounts = buildMounts(),
@@ -433,8 +438,13 @@ class ExternalAgentTools(
     }
 
     private fun buildClaudeFlags(ctx: ExternalAgentContext, model: String): List<String> = buildList {
-        // -p with no positional arg → claude reads the prompt from stdin (we pipe ctx.prompt
-        // via ExecRequest.stdin so prompts of arbitrary length avoid argv limits).
+        // `-p` (= --print) runs Claude non-interactively. The prompt is passed as
+        // the positional argument at the end rather than via stdin: the Docker
+        // subprocess executor attaches stdin only after the container has already
+        // started, so `claude -p` reading from stdin sees EOF and aborts with
+        // "Input must be provided either through stdin or as a prompt argument".
+        // Passing it as argv sidesteps that; per-arg length limits (ARG_MAX) are
+        // not a concern for the prompt sizes we send.
         add("-p")
         add("--output-format")
         add("json")
@@ -454,6 +464,8 @@ class ExternalAgentTools(
             add("--disallowedTools")
             add(ctx.disallowedTools.joinToString(","))
         }
+        // Positional prompt — must come after the flags.
+        add(ctx.prompt)
     }
 
     private fun buildCodexFlags(ctx: ExternalAgentContext, model: String): List<String> = buildList {

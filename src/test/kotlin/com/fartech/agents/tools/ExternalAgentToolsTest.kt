@@ -134,7 +134,7 @@ class ExternalAgentToolsTest {
     // ------------------------------------------------------------------------
 
     @Test
-    fun `claude command uses -p and pipes prompt via stdin`() = runBlocking {
+    fun `claude command uses -p and passes prompt as a positional arg`() = runBlocking {
         val executor = FakeSubprocessExecutor(ExecResult(0, """{"result":"ok"}""", "", 1))
         val (tools, _) = buildTools(executor)
 
@@ -149,8 +149,11 @@ class ExternalAgentToolsTest {
             req.command.subList(req.command.indexOf("--output-format"), req.command.indexOf("--output-format") + 2))
         assertTrue(req.command.containsInOrder("--model", "claude-sonnet-4-5"))
         assertTrue(req.command.containsInOrder("--max-turns", "16"))
-        // Prompt is piped via stdin so we don't blow argv limits.
-        assertEquals("very long prompt", req.stdin)
+        // Prompt is the positional arg (last element), not stdin: the Docker
+        // executor attaches stdin only after the container starts, so a
+        // stdin-reading `claude -p` would see EOF and abort.
+        assertEquals("very long prompt", req.command.last())
+        assertNull(req.stdin)
     }
 
     @Test
