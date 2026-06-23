@@ -546,6 +546,75 @@ class RAGToolsTest {
 
             assertEquals("sk-or-v1-openrouter", resolveEmbeddingApiKey(params, env = emptyMap()))
         }
+
+        @Test
+        fun `embedding base url stays paired with openai when both provider keys are configured`() {
+            val params = listOf(
+                ConfigurationParameter("openai_api_key", JsonPrimitive("sk-openai")),
+                ConfigurationParameter("openrouter_api_key", JsonPrimitive("sk-or-v1-openrouter"))
+            )
+
+            // Key resolution picks the OpenAI credential, so the base URL must
+            // not drift to openrouter.ai (that pairing mismatch is a 401).
+            assertEquals("sk-openai", resolveEmbeddingApiKey(params, env = emptyMap()))
+            assertEquals(
+                "https://api.openai.com/v1",
+                resolveEmbeddingBaseUrl(params, env = emptyMap())
+            )
+        }
+
+        @Test
+        fun `embedding base url honors openrouter prefixed rag key over openai credentials`() {
+            val params = listOf(
+                ConfigurationParameter("rag_embedding_api_key", JsonPrimitive("sk-or-v1-explicit")),
+                ConfigurationParameter("openai_api_key", JsonPrimitive("sk-openai"))
+            )
+
+            assertEquals("sk-or-v1-explicit", resolveEmbeddingApiKey(params, env = emptyMap()))
+            assertEquals(
+                "https://openrouter.ai/api/v1",
+                resolveEmbeddingBaseUrl(params, env = emptyMap())
+            )
+        }
+
+        @Test
+        fun `embeddings path is relative when base url already carries a version segment`() {
+            // Koog joins the path onto the base URL; a "v1/embeddings" default
+            // against ".../v1" or ".../api/v1" doubles the version segment.
+            assertEquals("embeddings", resolveEmbeddingsPath("https://api.openai.com/v1"))
+            assertEquals("embeddings", resolveEmbeddingsPath("https://openrouter.ai/api/v1"))
+            assertEquals("embeddings", resolveEmbeddingsPath("https://dashscope.aliyuncs.com/compatible-mode/v1"))
+        }
+
+        @Test
+        fun `embeddings path keeps openai convention for bare host base url`() {
+            assertEquals("v1/embeddings", resolveEmbeddingsPath("https://api.openai.com"))
+            assertEquals("v1/embeddings", resolveEmbeddingsPath("https://my-proxy.example.com/"))
+        }
+
+        @Test
+        fun `embedding model id gains openai namespace for openrouter`() {
+            assertEquals(
+                "openai/text-embedding-3-small",
+                normalizeEmbeddingModelId("text-embedding-3-small", "https://openrouter.ai/api/v1")
+            )
+            assertEquals(
+                "qwen/qwen3-embedding-8b",
+                normalizeEmbeddingModelId("qwen/qwen3-embedding-8b", "https://openrouter.ai/api/v1")
+            )
+        }
+
+        @Test
+        fun `embedding model id drops openrouter namespace for direct openai`() {
+            assertEquals(
+                "text-embedding-3-small",
+                normalizeEmbeddingModelId("openai/text-embedding-3-small", "https://api.openai.com/v1")
+            )
+            assertEquals(
+                "text-embedding-3-small",
+                normalizeEmbeddingModelId("text-embedding-3-small", "https://api.openai.com/v1")
+            )
+        }
     }
 
     // ==================== Integration Tests ====================

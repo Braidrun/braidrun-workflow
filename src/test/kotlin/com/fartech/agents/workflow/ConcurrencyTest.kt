@@ -434,5 +434,49 @@ class ConcurrencyTest {
                 eventDir.toFile().deleteRecursively()
             }
         }
+
+        @Test
+        fun `concurrent executor marks running siblings cancelled after branch failure`() = runBlocking {
+            WorkflowMonitor.clear()
+            val yaml = """
+                name: failing-concurrent-workflow
+                version: "1.0"
+                agents: {}
+                workflow:
+                  - step: fail_fast
+                    code:
+                      language: python
+                      timeout: 5
+                      script: |
+                        raise RuntimeError("boom")
+                  - step: slow_sibling
+                    code:
+                      language: python
+                      timeout: 5
+                      script: |
+                        import time
+                        time.sleep(2.0)
+                        print("slow_status=ok")
+                concurrency:
+                  enabled: true
+                  max_concurrency: 2
+            """.trimIndent()
+
+            val workflow = WorkflowParser.parseYaml(yaml)
+            val executor = WorkflowExecutor(
+                httpAccess = HttpAccess(),
+                baseParameters = emptyList(),
+                enableMonitoring = true
+            )
+            val executionId = "concurrent-failure-cancels-sibling"
+
+            val result = executor.execute(workflow, externalExecutionId = executionId)
+
+            assertFalse(result.success)
+            val metrics = WorkflowMonitor.getMetrics(executionId)
+            assertEquals(ExecutionStatus.FAILED, metrics?.status)
+            assertEquals(ExecutionStatus.FAILED, metrics?.stepMetrics?.get("fail_fast")?.status)
+            assertEquals(ExecutionStatus.CANCELLED, metrics?.stepMetrics?.get("slow_sibling")?.status)
+        }
     }
 }

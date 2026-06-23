@@ -369,6 +369,49 @@ class WorkflowMonitorExtendedTest {
         }
 
         @Test
+        fun `Claude progress heartbeat replaces previous heartbeat for same invocation`() {
+            WorkflowMonitor.startExecution("e1", "wf", 1)
+            WorkflowMonitor.startStep("e1", "analyze")
+
+            WorkflowMonitor.addEvent(
+                "e1", "analyze",
+                AgentEvent(
+                    type = "claude_code_sub_agent_progress",
+                    category = "agent",
+                    subCategory = "claude_code_agent",
+                    summary = "⏳ Claude Code Sub Agent 正在思考: reviewer#abc12345 (8s)",
+                    detail = "invocation_id=abc12345, phase=running, elapsed_ms=8000"
+                )
+            )
+            WorkflowMonitor.addEvent(
+                "e1", "analyze",
+                AgentEvent(
+                    type = "claude_code_sub_agent_progress",
+                    category = "agent",
+                    subCategory = "claude_code_agent",
+                    summary = "⏳ Claude Code Sub Agent 正在思考: reviewer#def67890 (8s)",
+                    detail = "invocation_id=def67890, phase=running, elapsed_ms=8000"
+                )
+            )
+            WorkflowMonitor.addEvent(
+                "e1", "analyze",
+                AgentEvent(
+                    type = "claude_code_sub_agent_progress",
+                    category = "agent",
+                    subCategory = "claude_code_agent",
+                    summary = "⏳ Claude Code Sub Agent 正在思考: reviewer#abc12345 (16s)",
+                    detail = "invocation_id=abc12345, phase=running, elapsed_ms=16000"
+                )
+            )
+
+            val events = WorkflowMonitor.getMetrics("e1")!!.stepMetrics["analyze"]!!.eventsSnapshot()
+            assertEquals(2, events.size)
+            assertTrue(events.any { it.summary.contains("abc12345 (16s)") })
+            assertTrue(events.any { it.summary.contains("def67890 (8s)") })
+            assertTrue(events.none { it.summary.contains("abc12345 (8s)") })
+        }
+
+        @Test
         fun `cancelExecution keeps completed history bounded`() {
             // Bound is 1000; cancelling more than that must not grow the list past it.
             repeat(1005) { i ->

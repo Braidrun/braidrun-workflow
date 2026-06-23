@@ -92,6 +92,14 @@ class DockerSubprocessExecutor(
                     "braidrun.created_at" to System.currentTimeMillis().toString()
                 )
             )
+            .withAttachStdin(request.stdin != null)
+            .withStdinOpen(request.stdin != null)
+            // StdinOnce: after the one-shot attach below finishes writing the input and
+            // disconnects, Docker CLOSES the container's stdin (delivers EOF). Without
+            // it, OpenStdin keeps stdin open forever and a stdin-reading child (e.g.
+            // `codex exec`) blocks indefinitely waiting for an EOF that never comes —
+            // the "runs 20+ min with no output" hang.
+            .withStdInOnce(request.stdin != null)
 
         // Override the Dockerfile entrypoint: first element is the interpreter,
         // remaining elements are arguments. This allows running both inline code
@@ -110,25 +118,41 @@ class DockerSubprocessExecutor(
         try {
             dockerClient.startContainerCmd(containerId).exec()
 
-            // Pipe stdin if provided
+            val stdoutCapture = LogCaptureCallback(request.stdoutLineCallback)
+            val stderrCapture = LogCaptureCallback()
+            dockerClient.logContainerCmd(containerId)
+                .withStdOut(true)
+                .withStdErr(false)
+                .withFollowStream(true)
+                .exec(stdoutCapture)
+            dockerClient.logContainerCmd(containerId)
+                .withStdOut(false)
+                .withStdErr(true)
+                .withFollowStream(true)
+                .exec(stderrCapture)
+
+            // Pipe stdin if provided, then explicitly close the attach so the StdinOnce
+            // session ends and Docker delivers EOF to the child. Leaving the attach open
+            // would keep the single stdin session alive and the child would never see EOF.
             if (request.stdin != null) {
-                dockerClient.attachContainerCmd(containerId)
+                val stdinAttach = dockerClient.attachContainerCmd(containerId)
                     .withStdIn(request.stdin.byteInputStream())
                     .exec(object : ResultCallback.Adapter<Frame>() {})
-                    .awaitCompletion(5, TimeUnit.SECONDS)
+                stdinAttach.awaitCompletion(30, TimeUnit.SECONDS)
+                runCatching { stdinAttach.close() }
             }
 
             val exitCode = dockerClient.waitContainerCmd(containerId)
                 .exec(WaitContainerResultCallback())
                 .awaitStatusCode(request.timeoutSeconds, TimeUnit.SECONDS)
 
-            val stdout = collectLogs(containerId, stdOut = true)
-            val stderr = collectLogs(containerId, stdOut = false)
+            stdoutCapture.awaitCompletion(10, TimeUnit.SECONDS)
+            stderrCapture.awaitCompletion(10, TimeUnit.SECONDS)
 
             return ExecResult(
                 exitCode = exitCode,
-                stdout = stdout,
-                stderr = stderr,
+                stdout = stdoutCapture.text(),
+                stderr = stderrCapture.text(),
                 durationMs = System.currentTimeMillis() - startMs
             )
         } catch (e: Exception) {
@@ -149,6 +173,64 @@ class DockerSubprocessExecutor(
             runCatching {
                 dockerClient.removeContainerCmd(containerId).withForce(true).exec()
                 logger.debug { "[DockerExec] Removed container $containerId" }
+            }
+        }
+    }
+
+    internal class LogCaptureCallback(
+        private val lineCallback: ((String) -> Unit)? = null
+    ) : ResultCallback.Adapter<Frame>() {
+        private val buffer = java.io.ByteArrayOutputStream()
+        private val lineBuffer = java.io.ByteArrayOutputStream()
+        private var truncated = false
+
+        @Synchronized
+        override fun onNext(frame: Frame) {
+            if (truncated) return
+            val remaining = SubprocessExecutor.MAX_STREAM_BYTES - buffer.size()
+            if (remaining <= 0) {
+                truncated = true
+                return
+            }
+            val payload = frame.payload
+            val take = minOf(payload.size, remaining)
+            buffer.write(payload, 0, take)
+            emitCallbackLines(payload, take)
+            if (take < payload.size) truncated = true
+        }
+
+        @Synchronized
+        fun text(): String {
+            flushPendingLine()
+            return buffer.toString(Charsets.UTF_8) +
+                if (truncated) SubprocessExecutor.STREAM_TRUNCATION_MARKER else ""
+        }
+
+        private fun emitCallbackLines(bytes: ByteArray, length: Int) {
+            val callback = lineCallback ?: return
+            for (index in 0 until length) {
+                val byte = bytes[index]
+                if (byte == '\n'.code.toByte()) {
+                    val line = lineBuffer.toString(Charsets.UTF_8).trimEnd('\r')
+                    lineBuffer.reset()
+                    if (line.isNotEmpty()) {
+                        runCatching { callback.invoke(line) }
+                            .onFailure { e -> logger.debug(e) { "[DockerExec] stdout line callback failed" } }
+                    }
+                } else {
+                    lineBuffer.write(byte.toInt())
+                }
+            }
+        }
+
+        private fun flushPendingLine() {
+            val callback = lineCallback ?: return
+            if (lineBuffer.size() == 0) return
+            val line = lineBuffer.toString(Charsets.UTF_8).trimEnd('\r')
+            lineBuffer.reset()
+            if (line.isNotEmpty()) {
+                runCatching { callback.invoke(line) }
+                    .onFailure { e -> logger.debug(e) { "[DockerExec] stdout line callback failed" } }
             }
         }
     }

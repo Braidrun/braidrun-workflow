@@ -181,6 +181,26 @@ class DirectoryIsolationTest {
                 config.getWorkingDir("exec-1", "analyze:parallel:$i")
             }
             assertEquals(3, dirs.toSet().size, "All parallel step dirs should be unique")
+            assertTrue(dirs.all { ":" !in it }, "Working dirs must be safe as Docker bind-mount sources")
+            assertTrue(dirs.all { "analyze_parallel_" in it })
+        }
+
+        @Test
+        fun `internal workflow step names resolve to docker safe path segments`() {
+            val config = DirectoryIsolationConfig()
+            val dirs = listOf(
+                config.getWorkingDir("exec:123", "review:iterate:0"),
+                config.getWorkingDir("exec:123", "review:parallel:1"),
+                config.getWorkingDir("exec:123", "review:classifier"),
+                config.getWorkingDir("exec:123", "review:group_chat:round1:analyst")
+            )
+
+            assertTrue(dirs.all { ":" !in it }, "Resolved runtime dirs must not contain Docker volume separators")
+            assertTrue(dirs.any { "review_iterate_0" in it })
+            assertTrue(dirs.any { "review_parallel_1" in it })
+            assertTrue(dirs.any { "review_classifier" in it })
+            assertTrue(dirs.any { "review_group_chat_round1_analyst" in it })
+            assertTrue(dirs.all { "exec_123" in it })
         }
     }
 

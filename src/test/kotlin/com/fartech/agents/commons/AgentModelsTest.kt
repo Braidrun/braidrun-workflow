@@ -1,5 +1,10 @@
 package com.fartech.agents.commons
 
+import ai.koog.prompt.executor.clients.anthropic.AnthropicClientSettings
+import ai.koog.prompt.executor.clients.deepseek.DeepSeekClientSettings
+import ai.koog.prompt.executor.clients.google.GoogleClientSettings
+import ai.koog.prompt.executor.clients.mistralai.MistralAIClientSettings
+import ai.koog.prompt.executor.clients.openai.OpenAIClientSettings
 import ai.koog.prompt.executor.llms.MultiLLMPromptExecutor
 import ai.koog.prompt.llm.LLMCapability
 import ai.koog.prompt.llm.LLMProvider
@@ -344,6 +349,15 @@ class AgentModelsTest {
         }
 
         @Test
+        fun `resolves built-in ZAI model through OpenAI compatible provider`() {
+            val config = LLModelConfig(provider = "zai", model = "glm-5.1")
+            val model = determineLLMModel(config)
+            assertEquals(LLMProvider.OpenAI, model.provider)
+            assertEquals("glm-5.1", model.id)
+            assertTrue(model.supports(LLMCapability.OpenAIEndpoint.Completions))
+        }
+
+        @Test
         fun `creates dynamic model for unknown model name`() {
             val config = LLModelConfig(
                 provider = "openai",
@@ -416,6 +430,12 @@ class AgentModelsTest {
             // DeepSeek
             val deepseekModel = determineLLMModel(LLModelConfig(provider = "deepseek", model = "unknown-alias-test"))
             assertEquals(LLMProvider.DeepSeek, deepseekModel.provider)
+
+            // Z.ai official OpenAI-compatible aliases
+            for (alias in listOf("zai", "z_ai", "z-ai", "zhipuai", "zhipu_ai")) {
+                val model = determineLLMModel(LLModelConfig(provider = alias, model = "unknown-alias-test"))
+                assertEquals(LLMProvider.OpenAI, model.provider, "Failed for alias: $alias")
+            }
 
             // Ollama aliases
             for (alias in listOf("ollama", "local", "olla")) {
@@ -504,6 +524,28 @@ class AgentModelsTest {
         }
 
         @Test
+        fun `standalone zai api key is honored`() {
+            val parameters = listOf(
+                ConfigurationParameter("zai_api_key", JsonPrimitive("sk-zai-direct"))
+            )
+
+            val resolved = resolveConfiguredApiKey(parameters, "zai", emptyMap())
+
+            assertEquals("sk-zai-direct", resolved)
+        }
+
+        @Test
+        fun `zai aliases resolve provider keys`() {
+            val resolved = resolveConfiguredApiKey(
+                emptyList(),
+                "z-ai",
+                mapOf("zai" to "sk-zai-from-map")
+            )
+
+            assertEquals("sk-zai-from-map", resolved)
+        }
+
+        @Test
         fun `missing openrouter api key throws actionable error`() {
             val message = buildMissingApiKeyMessage("open_router")
 
@@ -512,6 +554,16 @@ class AgentModelsTest {
             assertTrue(message.contains("OPEN_ROUTER_API_KEY"))
             assertTrue(message.contains("openrouter_api_key"))
             assertTrue(message.contains("open_router_api_key"))
+            assertTrue(message.contains("llm_provider_keys"))
+        }
+
+        @Test
+        fun `missing zai api key throws actionable error`() {
+            val message = buildMissingApiKeyMessage("zai")
+
+            assertTrue(message.contains("Missing API key for provider 'zai'"))
+            assertTrue(message.contains("ZAI_API_KEY"))
+            assertTrue(message.contains("zai_api_key"))
             assertTrue(message.contains("llm_provider_keys"))
         }
     }
@@ -746,6 +798,107 @@ class AgentModelsTest {
             assertEquals(1, clients.size, "no extra fallback entry should be added when primary already covers it")
             assertTrue(clients.containsKey(LLMProvider.OpenRouter))
             assertEquals(LLMProvider.OpenRouter, fallback.fallbackProvider)
+        }
+    }
+
+    // =========================================================================
+    // resolveVersionedEndpointPath
+    //
+    // Koog joins endpoint paths RELATIVE to the client base URL, so a
+    // version-carrying stock default path (`v1/chat/completions`, `v1/messages`,
+    // `v1beta/models`) double-joins onto a base URL that already carries the
+    // version segment (`.../v1`) → `.../v1/v1/...` → HTTP 404. These tests pin
+    // the resolved request path for both bare-host and versioned base URLs.
+    // =========================================================================
+
+    @Nested
+    inner class ResolveVersionedEndpointPathTest {
+
+        @Test
+        fun `versioned base drops the v1 prefix for OpenAI-compatible chat completions`() {
+            // Mirrors every defaultBaseUrl in the OpenAI branch plus the else fallback.
+            for (base in listOf(
+                "https://api.openai.com/v1",
+                "https://api.moonshot.cn/v1",
+                "https://api.minimax.chat/v1",
+                "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                "http://localhost:1234/v1",
+            )) {
+                assertEquals(
+                    "chat/completions",
+                    resolveVersionedEndpointPath(base, "v1/chat/completions"),
+                    "expected no double-join for $base",
+                )
+            }
+        }
+
+        @Test
+        fun `bare host keeps the v1 prefix for OpenAI-compatible chat completions`() {
+            assertEquals("v1/chat/completions", resolveVersionedEndpointPath("https://api.openai.com", "v1/chat/completions"))
+            // A trailing slash with no path is still a bare host.
+            assertEquals("v1/chat/completions", resolveVersionedEndpointPath("https://api.openai.com/", "v1/chat/completions"))
+        }
+
+        @Test
+        fun `versioned base drops the v1 prefix for anthropic messages`() {
+            assertEquals("messages", resolveVersionedEndpointPath("https://api.anthropic.com/v1", "v1/messages"))
+        }
+
+        @Test
+        fun `bare host keeps the v1 prefix for anthropic messages`() {
+            assertEquals("v1/messages", resolveVersionedEndpointPath("https://api.anthropic.com", "v1/messages"))
+        }
+
+        @Test
+        fun `bare host keeps the v1beta prefix for google models`() {
+            // The Google branch's default base URL is a bare host.
+            assertEquals(
+                "v1beta/models",
+                resolveVersionedEndpointPath("https://generativelanguage.googleapis.com", "v1beta/models"),
+            )
+        }
+
+        @Test
+        fun `versioned google base drops the v1beta prefix`() {
+            assertEquals(
+                "models",
+                resolveVersionedEndpointPath("https://generativelanguage.googleapis.com/v1beta", "v1beta/models"),
+            )
+        }
+
+        @Test
+        fun `deepseek path without a version prefix is unchanged for both base styles`() {
+            // DeepSeek's stock default has no version segment, so it must never be
+            // altered — a versioned base correctly yields `.../v1/chat/completions`.
+            assertEquals("chat/completions", resolveVersionedEndpointPath("https://api.deepseek.com/v1", "chat/completions"))
+            assertEquals("chat/completions", resolveVersionedEndpointPath("https://api.deepseek.com", "chat/completions"))
+        }
+
+        @Test
+        fun `version-less proxy subpath keeps the version prefix`() {
+            // Refinement over the embeddings heuristic: a proxy base whose trailing
+            // segment is NOT a version must keep the version prefix, otherwise the
+            // request would lose `/v1` entirely.
+            assertEquals(
+                "v1/chat/completions",
+                resolveVersionedEndpointPath("https://proxy.example.com/openai", "v1/chat/completions"),
+            )
+            assertEquals(
+                "v1beta/models",
+                resolveVersionedEndpointPath("https://proxy.example.com/google", "v1beta/models"),
+            )
+        }
+
+        @Test
+        fun `koog client settings default paths still match the constants the resolver strips`() {
+            // Guard: the fix assumes specific Koog stock default paths. If a Koog
+            // upgrade changes any of these, the createLLMClient literals (and the
+            // expectations above) must be revisited — this test fails loudly first.
+            assertEquals("v1/chat/completions", OpenAIClientSettings().chatCompletionsPath)
+            assertEquals("v1/chat/completions", MistralAIClientSettings().chatCompletionsPath)
+            assertEquals("chat/completions", DeepSeekClientSettings().chatCompletionsPath)
+            assertEquals("v1/messages", AnthropicClientSettings().messagesPath)
+            assertEquals("v1beta/models", GoogleClientSettings().defaultPath)
         }
     }
 }

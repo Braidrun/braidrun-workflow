@@ -89,7 +89,7 @@ class NativeSubprocessExecutor : SubprocessExecutor {
             // child can't OOM the JVM by spamming output; appends a marker on
             // truncation so callers can distinguish from legitimate empty output.
             val stdoutFuture = CompletableFuture.supplyAsync {
-                readBoundedStream(proc.inputStream)
+                readBoundedStream(proc.inputStream, request.stdoutLineCallback)
             }
             val stderrFuture = CompletableFuture.supplyAsync {
                 readBoundedStream(proc.errorStream)
@@ -185,10 +185,31 @@ class NativeSubprocessExecutor : SubprocessExecutor {
      * pipe buffer (which would deadlock waitFor); any bytes past the cap
      * are discarded.
      */
-    private fun readBoundedStream(input: java.io.InputStream): String {
+    private fun readBoundedStream(
+        input: java.io.InputStream,
+        lineCallback: ((String) -> Unit)? = null
+    ): String {
         val buffer = java.io.ByteArrayOutputStream()
         val chunk = ByteArray(8 * 1024)
         var truncated = false
+        val lineBuffer = StringBuilder()
+
+        fun emitCallbackLines(text: String) {
+            if (lineCallback == null) return
+            text.forEach { ch ->
+                if (ch == '\n') {
+                    val line = lineBuffer.toString().trimEnd('\r')
+                    lineBuffer.setLength(0)
+                    if (line.isNotEmpty()) {
+                        runCatching { lineCallback.invoke(line) }
+                            .onFailure { e -> logger.debug(e) { "[NativeExec] stdout line callback failed" } }
+                    }
+                } else {
+                    lineBuffer.append(ch)
+                }
+            }
+        }
+
         input.use { stream ->
             while (true) {
                 val read = stream.read(chunk)
@@ -201,10 +222,19 @@ class NativeSubprocessExecutor : SubprocessExecutor {
                 }
                 if (read <= remaining) {
                     buffer.write(chunk, 0, read)
+                    emitCallbackLines(String(chunk, 0, read, Charsets.UTF_8))
                 } else {
                     buffer.write(chunk, 0, remaining)
+                    emitCallbackLines(String(chunk, 0, remaining, Charsets.UTF_8))
                     truncated = true
                 }
+            }
+        }
+        if (lineCallback != null && lineBuffer.isNotEmpty()) {
+            val line = lineBuffer.toString().trimEnd('\r')
+            if (line.isNotEmpty()) {
+                runCatching { lineCallback.invoke(line) }
+                    .onFailure { e -> logger.debug(e) { "[NativeExec] stdout line callback failed" } }
             }
         }
         val text = buffer.toString(Charsets.UTF_8)

@@ -70,6 +70,173 @@ private val CODE_STEP_ENV_ALLOWLIST = setOf(
     "SYSTEMROOT",
     "COMSPEC"
 )
+private val PYTHON_SPILLED_ENV_BRIDGE = """
+    import os
+    from pathlib import Path
+
+    _braidrun_original_getitem = type(os.environ).__getitem__
+    _braidrun_original_contains = type(os.environ).__contains__
+    _braidrun_original_iter = type(os.environ).__iter__
+    _braidrun_original_len = type(os.environ).__len__
+
+    def _braidrun_raw_get(key, default=None):
+        try:
+            return _braidrun_original_getitem(os.environ, key)
+        except KeyError:
+            return default
+
+    def _braidrun_read_spilled_env(key, default=None):
+        file_path = _braidrun_raw_get(f"{key}__FILE")
+        if not file_path:
+            return default
+        try:
+            return Path(file_path).read_text(encoding="utf-8")
+        except OSError:
+            return default
+
+    def _braidrun_environ_get(key, default=None):
+        value = _braidrun_raw_get(key)
+        if value is not None:
+            return value
+        return _braidrun_read_spilled_env(key, default)
+
+    def _braidrun_environ_getitem(self, key):
+        try:
+            return _braidrun_original_getitem(self, key)
+        except KeyError:
+            value = _braidrun_read_spilled_env(key)
+            if value is None:
+                raise
+            return value
+
+    def _braidrun_environ_contains(self, key):
+        return _braidrun_original_contains(self, key) or _braidrun_raw_get(f"{key}__FILE") is not None
+
+    def _braidrun_virtual_spilled_keys():
+        original_keys = set(_braidrun_original_iter(os.environ))
+        for file_key in list(original_keys):
+            if not file_key.endswith("__FILE"):
+                continue
+            key = file_key[:-6]
+            if key and key not in original_keys and _braidrun_read_spilled_env(key) is not None:
+                yield key
+
+    def _braidrun_environ_iter(self):
+        yield from _braidrun_original_iter(self)
+        yield from _braidrun_virtual_spilled_keys()
+
+    def _braidrun_environ_len(self):
+        return _braidrun_original_len(self) + sum(1 for _ in _braidrun_virtual_spilled_keys())
+
+    def _braidrun_environ_copy():
+        return dict(os.environ)
+
+    def _braidrun_load_chained_sitecustomize():
+        import importlib.util
+        import sys
+
+        current_file = Path(__file__).resolve()
+        for path_entry in sys.path:
+            if not path_entry:
+                continue
+            candidate = Path(path_entry) / "sitecustomize.py"
+            try:
+                if not candidate.is_file() or candidate.resolve() == current_file:
+                    continue
+            except OSError:
+                continue
+            spec = importlib.util.spec_from_file_location("_braidrun_chained_sitecustomize", candidate)
+            if spec is not None and spec.loader is not None:
+                module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(module)
+            break
+
+    os.environ.get = _braidrun_environ_get
+    os.environ.copy = _braidrun_environ_copy
+    type(os.environ).__getitem__ = _braidrun_environ_getitem
+    type(os.environ).__contains__ = _braidrun_environ_contains
+    type(os.environ).__iter__ = _braidrun_environ_iter
+    type(os.environ).__len__ = _braidrun_environ_len
+    _braidrun_load_chained_sitecustomize()
+""".trimIndent()
+private val NODE_SPILLED_ENV_BRIDGE = """
+    const fs = require('fs');
+
+    const baseEnv = process.env;
+    const cache = new Map();
+
+    function hasSpilledEnv(key) {
+      return Object.prototype.hasOwnProperty.call(baseEnv, `${'$'}{key}__FILE`);
+    }
+
+    function readSpilledEnv(key) {
+      if (cache.has(key)) return cache.get(key);
+      const filePath = baseEnv[`${'$'}{key}__FILE`];
+      if (!filePath) return undefined;
+      try {
+        const value = fs.readFileSync(filePath, 'utf8');
+        cache.set(key, value);
+        return value;
+      } catch {
+        return undefined;
+      }
+    }
+
+    process.env = new Proxy(baseEnv, {
+      get(target, prop) {
+        if (typeof prop !== 'string') return target[prop];
+        if (Object.prototype.hasOwnProperty.call(target, prop)) return target[prop];
+        return readSpilledEnv(prop);
+      },
+      has(target, prop) {
+        if (typeof prop !== 'string') return prop in target;
+        return prop in target || hasSpilledEnv(prop);
+      },
+      getOwnPropertyDescriptor(target, prop) {
+        if (Reflect.has(target, prop)) return Reflect.getOwnPropertyDescriptor(target, prop);
+        if (typeof prop === 'string' && hasSpilledEnv(prop)) {
+          return {
+            enumerable: true,
+            configurable: true,
+            writable: true,
+            value: readSpilledEnv(prop)
+          };
+        }
+        return undefined;
+      },
+      ownKeys(target) {
+        const keys = new Set(Reflect.ownKeys(target));
+        for (const key of Object.keys(target)) {
+          if (key.endsWith('__FILE')) keys.add(key.slice(0, -6));
+        }
+        return Array.from(keys);
+      }
+    });
+""".trimIndent()
+private const val NODE_SPILLED_ENV_BRIDGE_MODULE = "braidrun-spilled-env-bridge"
+private val SHELL_SPILLED_ENV_BRIDGE = """
+    # Braidrun: restore spilled workflow env values as shell variables.
+    # Values stay non-exported to avoid reintroducing ARG_MAX failures for child processes.
+    _braidrun_restore_spilled_env() {
+      local _braidrun_file_key _braidrun_var _braidrun_file
+      while IFS='=' read -r _braidrun_file_key _; do
+        case "${'$'}_braidrun_file_key" in
+          *__FILE) ;;
+          *) continue ;;
+        esac
+        _braidrun_var="${'$'}{_braidrun_file_key%__FILE}"
+        case "${'$'}_braidrun_var" in
+          ""|[0-9]*|*[!A-Za-z0-9_]*) continue ;;
+        esac
+        _braidrun_file="${'$'}{!_braidrun_file_key:-}"
+        if [ -r "${'$'}_braidrun_file" ]; then
+          IFS= read -r -d '' "${'$'}_braidrun_var" < "${'$'}_braidrun_file" || true
+        fi
+      done < <(env)
+    }
+    _braidrun_restore_spilled_env
+    unset -f _braidrun_restore_spilled_env
+""".trimIndent()
 
 object WorkflowRuntimeParameterKeys {
     private const val CODE_INTERPRETER_PREFIX = "workflow_code_interpreter_"
@@ -323,6 +490,15 @@ internal fun autoPersistStepOutputIfPossible(
     targetFile.parentFile?.mkdirs()
     targetFile.writeText(output)
     return targetFile.path
+}
+
+internal fun externalStructuredOutputPersistedFiles(
+    structuredOutput: StructuredOutputConfig?,
+    isExternalAgent: Boolean
+): Set<String> {
+    if (!isExternalAgent) return emptySet()
+    val writeTo = structuredOutput?.writeTo?.trim().orEmpty()
+    return if (writeTo.isBlank()) emptySet() else setOf(writeTo)
 }
 
 internal fun validatePersistedFilePaths(
@@ -614,12 +790,15 @@ class WorkflowExecutor(
     companion object {
         /** Pre-compiled regex for rewriting ./output paths to absolute paths. */
         private val OUTPUT_PATH_REGEX = Regex("""(?<![\w/.-])\./output(?=(/|\\|$))""")
+        private const val HOST_OUTPUT_DIR_RUNTIME_KEY = "__braidrun_host_output_dir"
+        private const val CONTAINER_OUTPUT_DIR = "/output"
 
         /** Pre-compiled regex for sanitizing env var keys. */
         private val ENV_KEY_SANITIZE_REGEX = Regex("[^A-Z0-9_]")
 
         /** Max events stored per step to prevent unbounded memory growth. */
         private const val MAX_EVENTS_PER_STEP = 500
+        private const val CODE_STEP_ENV_FILE_THRESHOLD_BYTES = 16 * 1024
 
         /** 子工作流最大嵌套深度的默认值,可被 [ErrorHandlingConfig.maxSubWorkflowDepth] 或 [SubWorkflowConfig.maxDepth] 覆盖 */
         const val DEFAULT_MAX_SUB_WORKFLOW_DEPTH = 8
@@ -1228,6 +1407,13 @@ class WorkflowExecutor(
             return maxConcurrency?.let { maxOf(0, it - runningSteps.size) } ?: Int.MAX_VALUE
         }
 
+        fun markRunningStepsCancelled(reason: String) {
+            if (!enableMonitoring) return
+            runningSteps.keys.forEach { stepName ->
+                WorkflowMonitor.cancelStep(executionId, stepName, reason)
+            }
+        }
+
         fun launchStep(step: WorkflowStep) {
             pendingSteps.remove(step.step)
 
@@ -1261,8 +1447,15 @@ class WorkflowExecutor(
         suspend fun handleCompletion(): Boolean {
             val completion = completionChannel.receive()
             runningSteps.remove(completion.stepName)
-            completion.error?.let { throw it }
+            completion.error?.let { error ->
+                if (runningSteps.isNotEmpty()) {
+                    markRunningStepsCancelled("Cancelled because concurrent step '${completion.stepName}' failed")
+                    runningSteps.values.forEach { it.cancel(CancellationException("Concurrent step '${completion.stepName}' failed", error)) }
+                }
+                throw error
+            }
             if (completion.shouldStop) {
+                markRunningStepsCancelled("Cancelled because concurrent step '${completion.stepName}' stopped workflow")
                 runningSteps.values.forEach { it.cancel() }
                 runningSteps.values.joinAll()
                 return true
@@ -1323,6 +1516,7 @@ class WorkflowExecutor(
             }
         } finally {
             completionChannel.close()
+            markRunningStepsCancelled("Cancelled because concurrent workflow branch is closing")
             runningSteps.values.forEach { job ->
                 if (job.isActive) {
                     job.cancel()
@@ -2041,27 +2235,38 @@ class WorkflowExecutor(
             step.input ?: throw WorkflowExecutionException("Input is required for step '${step.step}'"),
             templateContext
         )
+        val resolvedStructuredOutput = step.structuredOutput?.copy(
+            writeTo = step.structuredOutput.writeTo?.let { resolveTemplate(it, templateContext) }
+        )
         // 只从原始模板提取显式落盘目标，避免把上游输出里嵌入的 YAML/评审文本误当成当前步骤义务。
-        val expectedPersistedFiles = resolvePersistedFilePathCandidates(
-            candidates = extractRequiredPersistedFilePathCandidatesFromPrompt(step.input),
-            baseDir = workingDir
-        ) { candidate ->
-            resolveTemplate(candidate, templateContext)
+        // structured_output.write_to 由 executor 负责；不要把 schema 文件名、禁止写文件提示中的路径误当成 prompt 落盘义务。
+        val promptPersistedFiles = if (resolvedStructuredOutput == null) {
+            resolvePersistedFilePathCandidates(
+                candidates = extractRequiredPersistedFilePathCandidatesFromPrompt(step.input),
+                baseDir = workingDir
+            ) { candidate ->
+                resolveTemplate(candidate, templateContext)
+            }
+        } else {
+            emptySet()
         }
-        val effectiveInput = augmentPromptWithPersistenceRequirements(resolvedInput, expectedPersistedFiles)
+        val structuredOutputPersistedFiles = externalStructuredOutputPersistedFiles(
+            structuredOutput = resolvedStructuredOutput,
+            isExternalAgent = agentDef.isClaudeCodeAgent() || agentDef.isCodexAgent()
+        )
+        val expectedPersistedFiles = (promptPersistedFiles + structuredOutputPersistedFiles).toSortedSet()
+        val effectiveInput = augmentPromptWithPersistenceRequirements(resolvedInput, promptPersistedFiles)
 
         val stepAgentName = step.agent
             ?: throw WorkflowExecutionException("Agent name is required for step '${step.step}'")
-        val output = if (step.structuredOutput != null) {
+        val output = if (resolvedStructuredOutput != null) {
             runStepAgentWithStructuredOutput(
                 agentName = stepAgentName,
                 agentDef = agentDef,
                 context = context,
                 stepName = step.step,
                 input = effectiveInput,
-                structuredOutput = step.structuredOutput.copy(
-                    writeTo = step.structuredOutput.writeTo?.let { resolveTemplate(it, templateContext) }
-                ),
+                structuredOutput = resolvedStructuredOutput,
                 directoryIsolation = directoryIsolation
             )
         } else {
@@ -2508,10 +2713,10 @@ class WorkflowExecutor(
             relaxDockerPermissions = directoryIsolation.enabled
         )
 
-        // 2. 将脚本写入工作目录 (Docker 会将此目录挂载为 /workspace)
+        // 2. 准备脚本文件路径；脚本内容会在 env spill 后写入，因为 bash
+        //    需要根据 spill 结果决定是否注入兼容头。
         val scriptFileName = "wf_code_${sanitizeStepNameForId(step.step)}${interpreterResolution.suffix}"
         val scriptFile = File(workDir, scriptFileName)
-        scriptFile.writeText(finalScript)
 
         try {
             // 3. 构建挂载列表
@@ -2592,6 +2797,14 @@ class WorkflowExecutor(
             sandboxEnv["BRAIDRUN_EXECUTION_ID"] = context.executionId
             sandboxEnv["BRAIDRUN_STEP_NAME"] = step.step
 
+            val spillResult = spillLargeCodeStepEnvValues(
+                env = sandboxEnv,
+                hostWorkingDir = workDir,
+                containerWorkingDir = if (isDocker) "/workspace" else null,
+                bridgeLanguage = config.language
+            )
+            scriptFile.writeText(scriptWithSpilledEnvBridge(finalScript, config.language, spillResult))
+
             // 5. 执行
             val command = interpreterResolution.command + scriptFileName
             return executor.execute(
@@ -2620,9 +2833,9 @@ class WorkflowExecutor(
         env: Map<String, String>
     ): Pair<String, Int> {
         val tempFile = File.createTempFile("wf_code_${step.step}_", interpreterResolution.suffix)
+        val spillWorkDir = Files.createTempDirectory("wf_code_env_${sanitizeStepNameForId(step.step)}_").toFile()
         tempFile.deleteOnExit()
-        tempFile.writeText(finalScript)
-
+        spillWorkDir.deleteOnExit()
         try {
             val processBuilder = ProcessBuilder(interpreterResolution.command + tempFile.absolutePath)
                 .redirectErrorStream(true)
@@ -2632,7 +2845,15 @@ class WorkflowExecutor(
                 processBuilder.directory(workDir)
             }
 
-            applyLegacyCodeStepEnvironment(processBuilder, env)
+            val legacyEnv = env.toMutableMap()
+            val spillResult = spillLargeCodeStepEnvValues(
+                env = legacyEnv,
+                hostWorkingDir = spillWorkDir,
+                containerWorkingDir = null,
+                bridgeLanguage = config.language
+            )
+            tempFile.writeText(scriptWithSpilledEnvBridge(finalScript, config.language, spillResult))
+            applyLegacyCodeStepEnvironment(processBuilder, legacyEnv)
 
             val process = processBuilder.start()
             // Consume stdout on a separate thread: a blocking readText() before
@@ -2663,6 +2884,7 @@ class WorkflowExecutor(
             return outputRef.get() to process.exitValue()
         } finally {
             tempFile.delete()
+            spillWorkDir.deleteRecursively()
         }
     }
 
@@ -2701,6 +2923,162 @@ class WorkflowExecutor(
         } else {
             text
         }
+    }
+
+    private fun spillLargeCodeStepEnvValues(
+        env: MutableMap<String, String>,
+        hostWorkingDir: File,
+        containerWorkingDir: String?,
+        bridgeLanguage: String
+    ): CodeStepEnvSpillResult {
+        val oversized = env.entries
+            .filter { (key, value) -> shouldSpillCodeStepEnvValue(key, value) }
+            .map { it.key to it.value }
+        if (oversized.isEmpty()) return CodeStepEnvSpillResult()
+
+        val hostEnvDir = File(hostWorkingDir, ".wf_env").apply { mkdirs() }
+        if (containerWorkingDir != null) {
+            relaxCodeStepEnvDirectoryPermissionsForDocker(hostEnvDir)
+        }
+        oversized.forEach { (key, value) ->
+            val fileName = "${sanitizeStepNameForId(key)}.txt"
+            val hostFile = File(hostEnvDir, fileName)
+            hostFile.writeText(value, Charsets.UTF_8)
+            if (containerWorkingDir != null) {
+                relaxCodeStepEnvFilePermissionsForDocker(hostFile)
+            }
+            env.remove(key)
+            env["${key}__FILE"] = if (containerWorkingDir != null) {
+                "$containerWorkingDir/.wf_env/$fileName"
+            } else {
+                hostFile.absolutePath
+            }
+        }
+        when (bridgeLanguage.lowercase()) {
+            "python" -> installPythonSpilledEnvBridge(env, hostEnvDir, containerWorkingDir)
+            "javascript", "typescript" -> installNodeSpilledEnvBridge(env, hostEnvDir, containerWorkingDir)
+        }
+        return CodeStepEnvSpillResult(spilled = true)
+    }
+
+    private data class CodeStepEnvSpillResult(
+        val spilled: Boolean = false
+    )
+
+    private fun installPythonSpilledEnvBridge(
+        env: MutableMap<String, String>,
+        hostEnvDir: File,
+        containerWorkingDir: String?
+    ) {
+        val bridgeFile = File(hostEnvDir, "sitecustomize.py")
+        bridgeFile.writeText(PYTHON_SPILLED_ENV_BRIDGE, Charsets.UTF_8)
+        if (containerWorkingDir != null) {
+            relaxCodeStepEnvFilePermissionsForDocker(bridgeFile)
+        }
+        val bridgePath = if (containerWorkingDir != null) {
+            "$containerWorkingDir/.wf_env"
+        } else {
+            hostEnvDir.absolutePath
+        }
+        val existing = env["PYTHONPATH"].orEmpty()
+        env["PYTHONPATH"] = if (existing.isBlank()) {
+            bridgePath
+        } else {
+            "$bridgePath${pathListSeparator(containerWorkingDir)}$existing"
+        }
+    }
+
+    private fun installNodeSpilledEnvBridge(
+        env: MutableMap<String, String>,
+        hostEnvDir: File,
+        containerWorkingDir: String?
+    ) {
+        val hostNodeModulesDir = File(hostEnvDir, "node_modules").apply { mkdirs() }
+        val hostModuleDir = File(hostNodeModulesDir, NODE_SPILLED_ENV_BRIDGE_MODULE).apply { mkdirs() }
+        val bridgeFile = File(hostModuleDir, "index.js")
+        bridgeFile.writeText(NODE_SPILLED_ENV_BRIDGE, Charsets.UTF_8)
+        if (containerWorkingDir != null) {
+            relaxCodeStepEnvDirectoryPermissionsForDocker(hostNodeModulesDir)
+            relaxCodeStepEnvDirectoryPermissionsForDocker(hostModuleDir)
+            relaxCodeStepEnvFilePermissionsForDocker(bridgeFile)
+        }
+        val nodePath = if (containerWorkingDir != null) {
+            "$containerWorkingDir/.wf_env/node_modules"
+        } else {
+            hostNodeModulesDir.absolutePath
+        }
+        val existingNodePath = env["NODE_PATH"].orEmpty()
+        env["NODE_PATH"] = if (existingNodePath.isBlank()) {
+            nodePath
+        } else {
+            "$nodePath${pathListSeparator(containerWorkingDir)}$existingNodePath"
+        }
+        val existing = env["NODE_OPTIONS"].orEmpty()
+        env["NODE_OPTIONS"] = if (existing.isBlank()) {
+            "--require $NODE_SPILLED_ENV_BRIDGE_MODULE"
+        } else {
+            "--require $NODE_SPILLED_ENV_BRIDGE_MODULE $existing"
+        }
+    }
+
+    private fun pathListSeparator(containerWorkingDir: String?): String =
+        if (containerWorkingDir != null) ":" else File.pathSeparator
+
+    private fun relaxCodeStepEnvDirectoryPermissionsForDocker(directory: File) {
+        val target = runCatching { directory.canonicalFile }.getOrDefault(directory.absoluteFile)
+        target.setReadable(true, false)
+        target.setWritable(true, true)
+        target.setExecutable(true, false)
+        runCatching {
+            Files.setPosixFilePermissions(
+                target.toPath(),
+                setOf(
+                    PosixFilePermission.OWNER_READ,
+                    PosixFilePermission.OWNER_WRITE,
+                    PosixFilePermission.OWNER_EXECUTE,
+                    PosixFilePermission.GROUP_READ,
+                    PosixFilePermission.GROUP_EXECUTE,
+                    PosixFilePermission.OTHERS_READ,
+                    PosixFilePermission.OTHERS_EXECUTE
+                )
+            )
+        }
+    }
+
+    private fun relaxCodeStepEnvFilePermissionsForDocker(file: File) {
+        val target = runCatching { file.canonicalFile }.getOrDefault(file.absoluteFile)
+        target.setReadable(true, false)
+        target.setWritable(true, true)
+        runCatching {
+            Files.setPosixFilePermissions(
+                target.toPath(),
+                setOf(
+                    PosixFilePermission.OWNER_READ,
+                    PosixFilePermission.OWNER_WRITE,
+                    PosixFilePermission.GROUP_READ,
+                    PosixFilePermission.OTHERS_READ
+                )
+            )
+        }
+    }
+
+    private fun scriptWithSpilledEnvBridge(
+        script: String,
+        language: String,
+        spillResult: CodeStepEnvSpillResult
+    ): String {
+        if (!spillResult.spilled) return script
+        return when (language.lowercase()) {
+            "bash" -> "$SHELL_SPILLED_ENV_BRIDGE\n\n$script"
+            else -> script
+        }
+    }
+
+    private fun shouldSpillCodeStepEnvValue(key: String, value: String): Boolean {
+        if (value.toByteArray(Charsets.UTF_8).size <= CODE_STEP_ENV_FILE_THRESHOLD_BYTES) return false
+        return key.startsWith("WF_VAR_") ||
+            key.startsWith("STEP_OUTPUT_") ||
+            key == "STEP_INPUTS"
     }
 
     /**
@@ -5559,6 +5937,7 @@ IMPORTANT: You MUST respond with ONLY the category name (one of: ${config.catego
     ): PreparedAgentRuntime {
         // 解析最终参数（预设 + 覆盖 或 向后兼容字段）
         val resolvedParams = agentDef.resolveParameters().toMutableMap()
+        normalizeRuntimeDirectoryAliases(resolvedParams)
         injectWorkflowRuntimeParameters(
             target = resolvedParams,
             sessionId = sessionId,
@@ -5684,7 +6063,7 @@ IMPORTANT: You MUST respond with ONLY the category name (one of: ${config.catego
                 }
             } else null
 
-        val userProgressNotifier: UserProgressNotifier? = createUserProgressNotifier(parameters)
+        val userProgressNotifier: UserProgressNotifier? = createUserProgressNotifier(parameters, executionId, stepName)
         val skillManager = createSkillManager(parameters)
 
         // 构建监控事件收集的 installFeatures
@@ -6071,7 +6450,9 @@ IMPORTANT: You MUST respond with ONLY the category name (one of: ${config.catego
             directoryIsolation.getPersistenceDir(executionId, safeStepName, safeAgentName, safeWorkflowName, userId)
         ).canonicalPath
 
-        target["working_dir"] = JsonPrimitive(workingDir)
+        if (target["working_dir"]?.jsonPrimitive?.contentOrNull.isNullOrBlank()) {
+            target["working_dir"] = JsonPrimitive(workingDir)
+        }
         target["output_dir"] = JsonPrimitive(outputDir)
         target["persistence_storage_root"] = JsonPrimitive(persistenceDir)
 
@@ -6085,6 +6466,14 @@ IMPORTANT: You MUST respond with ONLY the category name (one of: ${config.catego
         logger.info {
             "[DirIsolation] Agent '$safeAgentName' step '$safeStepName': " +
                 "working=$workingDir, output=$outputDir, persistence=$persistenceDir"
+        }
+    }
+
+    private fun normalizeRuntimeDirectoryAliases(target: MutableMap<String, JsonElement>) {
+        val workingDir = target["working_dir"]?.jsonPrimitive?.contentOrNull
+        val workspaceDir = target["workspace_dir"]?.jsonPrimitive?.contentOrNull
+        if (workingDir.isNullOrBlank() && !workspaceDir.isNullOrBlank()) {
+            target["working_dir"] = JsonPrimitive(workspaceDir)
         }
     }
 
@@ -6211,6 +6600,17 @@ IMPORTANT: You MUST respond with ONLY the category name (one of: ${config.catego
             )
         }
 
+        if (agentDef.isCodexAgent()) {
+            return runCodexAgentStep(
+                agentName = agentName,
+                agentDef = agentDef,
+                context = context,
+                stepName = stepName,
+                input = input,
+                directoryIsolation = directoryIsolation
+            )
+        }
+
         val managedAgent = createManagedAgentForStep(
             agentName = agentName,
             agentDef = agentDef,
@@ -6249,7 +6649,8 @@ IMPORTANT: You MUST respond with ONLY the category name (one of: ${config.catego
         )
         val parameters = mergeParameters(baseParameters, resolvedParams)
         val workingDir = parameters.parameter("working_dir", "").trim().takeIf { it.isNotEmpty() }?.let(::File)
-        val outputDir = parameters.parameter("output_dir", "").trim().takeIf { it.isNotEmpty() }?.let(::File)
+        val outputDir = parameters.parameter(HOST_OUTPUT_DIR_RUNTIME_KEY, "").trim().takeIf { it.isNotEmpty() }?.let(::File)
+            ?: parameters.parameter("output_dir", "").trim().takeIf { it.isNotEmpty() }?.let(::File)
         val skillsDir = parameters.parameter("skills_dir", "").trim().takeIf { it.isNotEmpty() }?.let(::File)
 
         val eventCallback: MonitoringEventCallback? =
@@ -6293,8 +6694,91 @@ IMPORTANT: You MUST respond with ONLY the category name (one of: ${config.catego
                 allowedTools = parseExternalAgentListParameter(parameters, "external_agent_claude_allowed_tools"),
                 disallowedTools = parseExternalAgentListParameter(parameters, "external_agent_claude_disallowed_tools"),
                 workingDir = workingDir?.absolutePath,
+                systemPrompt = parameters.parameter("system_prompt", ""),
                 maxTurns = parameters.parameter("external_agent_claude_max_turns", 32),
                 timeoutSeconds = parameters.parameter("external_agent_claude_timeout_seconds", 1800),
+                model = ""
+            )
+        )
+    }
+
+    private suspend fun runCodexAgentStep(
+        agentName: String,
+        agentDef: AgentDefinition,
+        context: WorkflowExecutionContext,
+        stepName: String,
+        input: String,
+        directoryIsolation: DirectoryIsolationConfig = DirectoryIsolationConfig()
+    ): String {
+        val executor = codeStepExecutor
+            ?: throw WorkflowExecutionException(
+                "Codex Agent '$agentName' requires a SubprocessExecutor. " +
+                    "Configure codeStepExecutor / subprocess_mode for this runtime."
+            )
+
+        val sessionId = resolveSessionId(agentDef, context, agentName, stepName)
+        val resolvedParams = resolveRuntimeParametersForDirectAgent(
+            agentDef = agentDef,
+            sessionId = sessionId,
+            context = context,
+            executionId = context.executionId,
+            stepName = stepName,
+            directoryIsolation = directoryIsolation,
+            agentName = agentName,
+            workflowName = context.workflowName
+        )
+        val parameters = mergeParameters(baseParameters, resolvedParams)
+        val workingDir = parameters.parameter("working_dir", "").trim().takeIf { it.isNotEmpty() }?.let(::File)
+        val outputDir = parameters.parameter(HOST_OUTPUT_DIR_RUNTIME_KEY, "").trim().takeIf { it.isNotEmpty() }?.let(::File)
+            ?: parameters.parameter("output_dir", "").trim().takeIf { it.isNotEmpty() }?.let(::File)
+        val skillsDir = parameters.parameter("skills_dir", "").trim().takeIf { it.isNotEmpty() }?.let(::File)
+
+        val eventCallback: MonitoringEventCallback? =
+            if (enableMonitoring) {
+                { type, summary, detail ->
+                    WorkflowMonitor.addEvent(
+                        context.executionId,
+                        stepName,
+                        AgentEvent(
+                            type = type,
+                            category = "agent",
+                            subCategory = "codex_agent",
+                            summary = summary,
+                            detail = detail,
+                            inputTokens = parseLongFromEventDetail(detail, "input_tokens")?.toInt(),
+                            outputTokens = parseLongFromEventDetail(detail, "output_tokens")?.toInt()
+                        )
+                    )
+                }
+            } else null
+
+        val codexAgent = ExternalAgentTools(
+            executor = executor,
+            parameters = parameters,
+            userId = baseParameters.parameter("user_id", "default"),
+            context = SubprocessToolContext(
+                workspaceDir = workingDir,
+                outputDir = outputDir,
+                skillsDir = skillsDir,
+                executionId = context.executionId,
+                stepName = stepName,
+                sessionId = sessionId
+            ),
+            onMonitorEvent = eventCallback
+        )
+
+        // Codex `exec` has no --append-system-prompt; fold the system prompt into the
+        // prompt so the field stays meaningful for a Codex Agent step.
+        val systemPrompt = parameters.parameter("system_prompt", "").trim()
+        val effectivePrompt = if (systemPrompt.isEmpty()) input else "$systemPrompt\n\n$input"
+
+        return codexAgent.runCodexSubAgent(
+            ExternalAgentContext(
+                prompt = effectivePrompt,
+                name = agentName,
+                workingDir = workingDir?.absolutePath,
+                maxTurns = parameters.parameter("external_agent_codex_max_turns", 32),
+                timeoutSeconds = parameters.parameter("external_agent_codex_timeout_seconds", 1800),
                 model = ""
             )
         )
@@ -6303,6 +6787,11 @@ IMPORTANT: You MUST respond with ONLY the category name (one of: ${config.catego
     private fun AgentDefinition.isClaudeCodeAgent(): Boolean {
         val resolvedType = resolveParameters()["type"]?.jsonPrimitive?.contentOrNull ?: type
         return resolvedType == "claude_code_agent"
+    }
+
+    private fun AgentDefinition.isCodexAgent(): Boolean {
+        val resolvedType = resolveParameters()["type"]?.jsonPrimitive?.contentOrNull ?: type
+        return resolvedType == "codex_agent"
     }
 
     private fun resolveRuntimeParametersForDirectAgent(
@@ -6316,6 +6805,7 @@ IMPORTANT: You MUST respond with ONLY the category name (one of: ${config.catego
         workflowName: String?
     ): MutableMap<String, JsonElement> {
         val resolvedParams = agentDef.resolveParameters().toMutableMap()
+        normalizeRuntimeDirectoryAliases(resolvedParams)
         injectWorkflowRuntimeParameters(
             target = resolvedParams,
             sessionId = sessionId,
@@ -6335,7 +6825,77 @@ IMPORTANT: You MUST respond with ONLY the category name (one of: ${config.catego
             resolvedParams.replaceAll { _, value -> resolveJsonTemplates(value, templateContext) }
         }
         enforceProtectedRuntimeParameters(resolvedParams)
+        rewriteDirectAgentRuntimePathsForDocker(resolvedParams)
         return resolvedParams
+    }
+
+    private fun rewriteDirectAgentRuntimePathsForDocker(resolvedParams: MutableMap<String, JsonElement>) {
+        if (!isDockerSubprocessMode()) return
+
+        val rawHostOutputDir = resolvedParams["output_dir"]?.jsonPrimitive?.content.orEmpty()
+        if (rawHostOutputDir.isBlank()) return
+
+        val resolvedHostOutputDir = runCatching { File(rawHostOutputDir).canonicalFile.path }
+            .getOrElse { rawHostOutputDir }
+        resolvedParams[HOST_OUTPUT_DIR_RUNTIME_KEY] = JsonPrimitive(resolvedHostOutputDir)
+        resolvedParams["output_dir"] = JsonPrimitive(CONTAINER_OUTPUT_DIR)
+        resolvedParams["output_dir_abs"] = JsonPrimitive(CONTAINER_OUTPUT_DIR)
+
+        resolvedParams.replaceAll { key, value ->
+            rewriteRuntimePathValueByKey(key, value, resolvedHostOutputDir, rawHostOutputDir)
+        }
+    }
+
+    private fun rewriteRuntimePathValueByKey(
+        key: String,
+        value: JsonElement,
+        resolvedHostOutputDir: String,
+        rawHostOutputDir: String
+    ): JsonElement = when (value) {
+        is JsonArray -> JsonArray(value.map { rewriteRuntimePathValueByKey(key, it, resolvedHostOutputDir, rawHostOutputDir) })
+        is JsonObject -> JsonObject(
+            value.mapValues { (nestedKey, nestedValue) ->
+                rewriteRuntimePathValueByKey(
+                    nestedKey,
+                    nestedValue,
+                    resolvedHostOutputDir,
+                    rawHostOutputDir
+                )
+            }
+        )
+        is JsonPrimitive -> {
+            if (!value.isString || value.content.isBlank() || key !in setOf("dataset_path", "write_to")) {
+                value
+            } else {
+                JsonPrimitive(rewriteDirectAgentPathValue(value.content, resolvedHostOutputDir, rawHostOutputDir))
+            }
+        }
+    }
+
+    private fun rewriteDirectAgentPathValue(
+        value: String,
+        resolvedHostOutputDir: String,
+        rawHostOutputDir: String
+    ): String {
+        if (value == resolvedHostOutputDir || value == rawHostOutputDir) return CONTAINER_OUTPUT_DIR
+
+        val hostPrefixes = listOfNotNull(
+            rawHostOutputDir.takeIf { it.isNotBlank() },
+            resolvedHostOutputDir.takeIf { it.isNotBlank() }
+        ).flatMap { base ->
+            listOf("$base/", "$base\\")
+        }
+
+        for (hostPrefix in hostPrefixes) {
+            if (!value.startsWith(hostPrefix)) continue
+            val suffix = value.substring(hostPrefix.length)
+            return when {
+                hostPrefix.endsWith("\\") -> "$CONTAINER_OUTPUT_DIR/$suffix"
+                else -> CONTAINER_OUTPUT_DIR + "/$suffix"
+            }
+        }
+
+        return value
     }
 
     private fun parseExternalAgentListParameter(
@@ -6367,7 +6927,7 @@ IMPORTANT: You MUST respond with ONLY the category name (one of: ${config.catego
         structuredOutput: StructuredOutputConfig,
         directoryIsolation: DirectoryIsolationConfig = DirectoryIsolationConfig()
     ): String {
-        if (agentDef.isClaudeCodeAgent()) {
+        if (agentDef.isClaudeCodeAgent() || agentDef.isCodexAgent()) {
             return runStepAgent(
                 agentName = agentName,
                 agentDef = agentDef,
@@ -7036,7 +7596,9 @@ IMPORTANT: You MUST respond with ONLY the category name (one of: ${config.catego
      * 供前端实时展示执行过程中的详细信息。
      */
     private fun createUserProgressNotifier(
-        parameters: List<ConfigurationParameter>
+        parameters: List<ConfigurationParameter>,
+        executionId: String? = null,
+        stepName: String? = null
     ): UserProgressNotifier? {
         if (!parameters.parameter("im_progress_notify_enabled", false)) return null
 
@@ -7133,6 +7695,27 @@ IMPORTANT: You MUST respond with ONLY the category name (one of: ${config.catego
                             mapOf("chat_id" to chatId, "text" to message),
                             mapOf("Content-Type" to "application/json")
                         )
+                        if (!executionId.isNullOrBlank() && !stepName.isNullOrBlank()) {
+                            WorkflowMonitor.addEvent(
+                                executionId,
+                                stepName,
+                                AgentEvent(
+                                    type = "external_message",
+                                    category = "message",
+                                    subCategory = "outgoing_progress",
+                                    summary = "发送消息: ${message.lineSequence().firstOrNull { it.isNotBlank() }?.trim().orEmpty()}",
+                                    detail = JsonObject(
+                                        linkedMapOf(
+                                            "service" to JsonPrimitive("telegram"),
+                                            "direction" to JsonPrimitive("outgoing_progress"),
+                                            "toolName" to JsonPrimitive("im_progress_notify"),
+                                            "content" to JsonPrimitive(message),
+                                            "chat_id" to JsonPrimitive(chatId)
+                                        )
+                                    ).toString()
+                                )
+                            )
+                        }
                         logger.info { "[ProgressNotify] Telegram progress update sent to chat $chatId" }
                     } catch (e: Exception) {
                         logger.warn(e) { "[ProgressNotify] Failed to send Telegram progress update to chat $chatId" }

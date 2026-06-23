@@ -7,6 +7,7 @@ import com.fartech.ftapp2.commonsKt.HttpAccess
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.encodeToJsonElement
 import kotlinx.serialization.json.JsonPrimitive
 import org.junit.jupiter.api.Assumptions.assumeTrue
@@ -107,6 +108,43 @@ class WorkflowExecutorRuntimeParameterTest {
     }
 
     @Test
+    fun `injectWorkflowRuntimeParameters preserves agent supplied working directory`(@TempDir tempDir: Path) {
+        val baseDir = tempDir.resolve("runs").toFile()
+        val customWorkingDir = tempDir.resolve("custom-workspace").toString()
+        val executor = WorkflowExecutor(
+            httpAccess = HttpAccess(),
+            baseParameters = emptyList(),
+            enableMonitoring = false
+        )
+        val params = mutableMapOf<String, JsonElement>(
+            "working_dir" to JsonPrimitive(customWorkingDir)
+        )
+        val config = DirectoryIsolationConfig(
+            enabled = true,
+            baseDir = baseDir.absolutePath,
+            sharedCacheDir = tempDir.resolve("cache").toString(),
+            sharedHistoryDir = tempDir.resolve("history").toString(),
+            sharedSkillsDir = tempDir.resolve("skills").toString()
+        )
+
+        WorkflowExecutor::class.java.getDeclaredMethod(
+            "injectWorkflowRuntimeParameters",
+            MutableMap::class.java,
+            String::class.java,
+            String::class.java,
+            String::class.java,
+            DirectoryIsolationConfig::class.java,
+            String::class.java,
+            String::class.java
+        ).apply { isAccessible = true }
+            .invoke(executor, params, "session-1", "exec-1", "plan", config, "worker", "demo-workflow")
+
+        assertEquals(customWorkingDir, (params.getValue("working_dir") as JsonPrimitive).content)
+        assertTrue((params.getValue("output_dir") as JsonPrimitive).content.startsWith(baseDir.canonicalPath))
+        assertTrue((params.getValue("persistence_storage_root") as JsonPrimitive).content.startsWith(baseDir.canonicalPath))
+    }
+
+    @Test
     fun `injectWorkflowRuntimeParameters makes docker mounted dirs writable for sandbox user`(@TempDir tempDir: Path) {
         val baseDir = tempDir.resolve("runs").toFile()
         val cacheDir = tempDir.resolve("cache").toFile()
@@ -146,6 +184,82 @@ class WorkflowExecutorRuntimeParameterTest {
         assertContainerWritableDirectory(File((params.getValue("persistence_storage_root") as JsonPrimitive).content))
         assertContainerWritableDirectory(File((params.getValue("file_cache_storage") as JsonPrimitive).content))
         assertContainerWritableDirectory(File((params.getValue("history_storage_root") as JsonPrimitive).content))
+    }
+
+    @Test
+    fun `resolveRuntimeParametersForDirectAgent rewrites docker output paths to output mount`(@TempDir tempDir: Path) {
+        val baseDir = tempDir.resolve("runs").toFile()
+        val executor = WorkflowExecutor(
+            httpAccess = HttpAccess(),
+            baseParameters = listOf(
+                ConfigurationParameter("subprocess_mode", JsonPrimitive("docker")),
+                ConfigurationParameter("user_id", JsonPrimitive("actor-9"))
+            ),
+            enableMonitoring = false
+        )
+        val isolation = DirectoryIsolationConfig(
+            enabled = true,
+            baseDir = baseDir.absolutePath,
+            sharedCacheDir = tempDir.resolve("cache").toString(),
+            sharedHistoryDir = tempDir.resolve("history").toString(),
+            sharedSkillsDir = tempDir.resolve("skills").toString()
+        )
+        val executionId = "exec-1"
+        val stepName = "claude-code-step"
+        val userId = "actor-9"
+        val expectedHostOutputDir = File(
+            isolation.getOutputDir(executionId, stepName, "default", "demo-workflow", userId)
+        ).canonicalPath
+
+        val agentDef = AgentDefinition(
+            overrides = mapOf(
+                "type" to JsonPrimitive("claude_code_agent"),
+                "workspace_dir" to JsonPrimitive(expectedHostOutputDir),
+                "dataset_path" to JsonPrimitive("$expectedHostOutputDir/datasets/input.json"),
+                "structured_output" to JsonObject(
+                    mapOf(
+                        "write_to" to JsonPrimitive("$expectedHostOutputDir/outputs/summary.json"),
+                        "schema" to JsonPrimitive("json")
+                    )
+                )
+            )
+        )
+
+        val params = WorkflowExecutor::class.java.getDeclaredMethod(
+            "resolveRuntimeParametersForDirectAgent",
+            AgentDefinition::class.java,
+            String::class.java,
+            WorkflowExecutionContext::class.java,
+            String::class.java,
+            String::class.java,
+            DirectoryIsolationConfig::class.java,
+            String::class.java,
+            String::class.java
+        ).apply { isAccessible = true }
+            .invoke(
+                executor,
+                agentDef,
+                "session-1",
+                WorkflowExecutionContext(
+                    workflowName = "demo-workflow",
+                    executionId = executionId
+                ),
+                executionId,
+                stepName,
+                isolation,
+                "agent-1",
+                "demo-workflow"
+            ) as MutableMap<String, JsonElement>
+
+        assertEquals("/output", (params["output_dir"] as JsonPrimitive).content)
+        assertEquals("/output", (params["output_dir_abs"] as JsonPrimitive).content)
+        assertEquals(expectedHostOutputDir, (params["working_dir"] as JsonPrimitive).content)
+        assertEquals("$expectedHostOutputDir", (params["__braidrun_host_output_dir"] as JsonPrimitive).content)
+        assertEquals("/output/datasets/input.json", (params["dataset_path"] as JsonPrimitive).content)
+        assertEquals(
+            "/output/outputs/summary.json",
+            ((params["structured_output"] as JsonObject)["write_to"] as JsonPrimitive).content
+        )
     }
 
     @Test

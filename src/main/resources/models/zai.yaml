@@ -9,6 +9,10 @@ models:
     id: "glm-5.1"
     capabilities: completion, temperature, tools, tool_choice, json.basic, json, multiple_choices, openai.completions
     context_length: 202752
+  "glm-5.2":
+    id: "glm-5.2"
+    capabilities: completion, temperature, tools, tool_choice, json.basic, json, multiple_choices, openai.completions
+    context_length: 202752
   "glm-5v-turbo":
     id: "glm-5v-turbo"
     capabilities: completion, temperature, tools, tool_choice, json.basic, json, multiple_choices, vision, openai.completions

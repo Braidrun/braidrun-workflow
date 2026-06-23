@@ -88,6 +88,10 @@ object WorkflowMonitor {
     ) {
         activeExecutions[executionId]?.let { metrics ->
             metrics.stepMetrics[stepName]?.let { stepMetrics ->
+                if (stepMetrics.status == ExecutionStatus.CANCELLED) {
+                    logger.debug { "Ignoring completion for already-cancelled step: $stepName in execution: $executionId" }
+                    return@let
+                }
                 stepMetrics.endTime = System.currentTimeMillis()
                 stepMetrics.status = if (success) ExecutionStatus.COMPLETED else ExecutionStatus.FAILED
                 stepMetrics.error = error
@@ -124,6 +128,26 @@ object WorkflowMonitor {
     }
 
     /**
+     * 标记一个已经启动但被上层并发失败/停止信号取消的步骤。
+     */
+    fun cancelStep(executionId: String, stepName: String, reason: String? = null) {
+        activeExecutions[executionId]?.let { metrics ->
+            metrics.stepMetrics[stepName]?.let { stepMetrics ->
+                if (stepMetrics.status != ExecutionStatus.RUNNING &&
+                    stepMetrics.status != ExecutionStatus.AWAITING_APPROVAL
+                ) {
+                    return@let
+                }
+                stepMetrics.endTime = System.currentTimeMillis()
+                stepMetrics.status = ExecutionStatus.CANCELLED
+                stepMetrics.error = reason
+                synchronized(metrics) { metrics.skippedSteps++ }
+                logger.debug { "Cancelled step: $stepName in execution: $executionId${reason?.let { " ($it)" } ?: ""}" }
+            }
+        }
+    }
+
+    /**
      * 记录 Agent 执行事件（工具调用、LLM 消息等）
      *
      * Delegates to [StepMetrics.addEventBounded], which atomically checks the size cap and
@@ -147,7 +171,30 @@ object WorkflowMonitor {
             name = name.substring(0, cut)
             stepMetrics = allSteps[name]
         }
-        stepMetrics.addEventBounded(event, MAX_EVENTS_PER_STEP)
+        val claudeInvocationId = claudeProgressInvocationId(event)
+        if (claudeInvocationId != null) {
+            stepMetrics.replaceOrAddEventBounded(event, MAX_EVENTS_PER_STEP) {
+                it.type == event.type && claudeProgressInvocationId(it) == claudeInvocationId
+            }
+        } else {
+            stepMetrics.addEventBounded(event, MAX_EVENTS_PER_STEP)
+        }
+    }
+
+    private fun claudeProgressInvocationId(event: AgentEvent): String? {
+        if (event.type != "claude_code_sub_agent_progress") return null
+        val detail = event.detail.orEmpty()
+        Regex("""(?:^|[,;\s])invocation_id=([A-Za-z0-9._-]+)""")
+            .find(detail)
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.takeIf { it.isNotBlank() }
+            ?.let { return it }
+        return Regex("""#([A-Za-z0-9]{6,12})\b""")
+            .find(event.summary)
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.takeIf { it.isNotBlank() }
     }
 
     /** Maximum events stored per step to prevent unbounded memory growth. */

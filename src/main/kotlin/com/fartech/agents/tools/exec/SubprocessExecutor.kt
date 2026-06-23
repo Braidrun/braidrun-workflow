@@ -46,7 +46,13 @@ interface SubprocessExecutor {
          */
         val imageHint: String? = null,
         /** User ID for audit labels (Docker) and logging. */
-        val userId: String = "local-user"
+        val userId: String = "local-user",
+        /**
+         * Optional line-level callback for stdout. Executors still capture and
+         * return stdout normally; this lets long-running JSONL emitters surface
+         * progress before the process exits.
+         */
+        val stdoutLineCallback: ((String) -> Unit)? = null
     )
 
     data class Mount(

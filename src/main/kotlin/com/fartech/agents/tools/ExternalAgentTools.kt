@@ -13,10 +13,17 @@ import com.fartech.ftapp2.commonsKt.AnsiColor
 import com.fartech.ftapp2.commonsKt.ConfigurationParameter
 import com.fartech.ftapp2.commonsKt.parameter
 import com.fartech.ftapp2.commonsKt.printlnColor
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import mu.KotlinLogging
@@ -82,13 +89,31 @@ private val logger = KotlinLogging.logger {}
  * 2. `llm_provider_keys` map entry
  * 3. Environment variable `ANTHROPIC_API_KEY` / `OPENAI_API_KEY`
  *
- * Claude Code can alternatively run against a user's Claude subscription quota
- * by setting `external_agent_claude_auth_mode=subscription` and providing a
- * `claude_code_oauth` credential. At execution time Braidrun injects that secret
- * as `CLAUDE_CODE_OAUTH_TOKEN` only for the child `claude` process.
+ * Either engine can alternatively run against a user's **subscription quota**
+ * instead of metered API billing:
+ *
+ *   - **Claude** — set `external_agent_claude_auth_mode=subscription` and provide a
+ *     `claude_code_oauth` credential (a long-lived `claude setup-token` value).
+ *     Braidrun injects it as `CLAUDE_CODE_OAUTH_TOKEN` for the child `claude`.
+ *   - **Codex** — set `external_agent_codex_auth_mode=subscription` and provide a
+ *     `codex_subscription` credential: the **full JSON contents of `~/.codex/auth.json`**
+ *     from a `codex login` (ChatGPT) session. Braidrun writes it into a per-run
+ *     `CODEX_HOME` (and bind-mounts that dir in Docker), then runs
+ *     `codex exec --ignore-user-config` so the CLI resolves auth from there.
+ *     Codex subscription mode **requires** an explicit model via
+ *     `external_agent_codex_model` (e.g. `gpt-5.5`) or the tool-call `model` field —
+ *     a ChatGPT account only accepts its provisioned models. The auth.json token is
+ *     not rewritten while valid, so there is no write-back; if it ever expires the
+ *     credential must be refreshed (re-`codex login`).
+ *
  * Set `external_agent_claude_model` to choose the default Claude Code model
  * (`sonnet`, `opus`, `haiku`, or a full model id); a tool-call `model` field
  * can still override it for one invocation.
+ *
+ * ⚠️ Using a subscription through a multi-tenant platform is outside the vendors'
+ * official terms (which sanction the official client for the account owner, or the
+ * paid API for programmatic use); accounts may be rate-limited or banned. Prefer
+ * the API-key path when stability matters.
  *
  * The resolved key is injected via [ExecRequest.env]; the rest of the parent JVM's
  * environment is *not* leaked into the subprocess (native executor strips it, docker
@@ -133,10 +158,11 @@ class ExternalAgentTools(
     private val parameters: List<ConfigurationParameter>,
     private val userId: String = "local-user",
     private val context: SubprocessToolContext = SubprocessToolContext(),
-    private val onMonitorEvent: MonitoringEventCallback? = null
+    private val onMonitorEvent: MonitoringEventCallback? = null,
+    private val trustExecutorSandbox: Boolean = executor is DockerSubprocessExecutor
 ) : ToolSet {
 
-    private val isDocker: Boolean = executor is DockerSubprocessExecutor
+    private val isDocker: Boolean = trustExecutorSandbox
 
     private fun emit(type: String, summary: String, detail: String? = null) {
         onMonitorEvent?.invoke(type, summary, detail)
@@ -196,7 +222,14 @@ class ExternalAgentTools(
          * preserved, cost JSON may be empty, and Codex's Responses API isn't
          * supported by all proxies — are documented in the class kdoc.
          */
-        val baseUrlParameterKey: String
+        val baseUrlParameterKey: String,
+        /**
+         * Workflow parameter selecting the auth mode (`api_key` | `subscription`).
+         * Both engines now support subscription: Claude injects a long-lived
+         * `CLAUDE_CODE_OAUTH_TOKEN`, Codex materialises a per-tenant
+         * `CODEX_HOME/auth.json`.
+         */
+        val authModeParameterKey: String
     ) {
         CLAUDE(
             displayName = "Claude Code",
@@ -206,7 +239,8 @@ class ExternalAgentTools(
             baseUrlEnvVar = "ANTHROPIC_BASE_URL",
             commandParameterKey = "external_agent_claude_command",
             extraArgsParameterKey = "external_agent_claude_extra_args",
-            baseUrlParameterKey = "external_agent_claude_base_url"
+            baseUrlParameterKey = "external_agent_claude_base_url",
+            authModeParameterKey = "external_agent_claude_auth_mode"
         ),
         CODEX(
             displayName = "Codex",
@@ -216,7 +250,8 @@ class ExternalAgentTools(
             baseUrlEnvVar = "OPENAI_BASE_URL",
             commandParameterKey = "external_agent_codex_command",
             extraArgsParameterKey = "external_agent_codex_extra_args",
-            baseUrlParameterKey = "external_agent_codex_base_url"
+            baseUrlParameterKey = "external_agent_codex_base_url",
+            authModeParameterKey = "external_agent_codex_auth_mode"
         )
     }
 
@@ -225,7 +260,7 @@ class ExternalAgentTools(
         SUBSCRIPTION("subscription");
 
         companion object {
-            fun parse(raw: String?): ExternalAuthMode {
+            fun parse(raw: String?, parameterName: String): ExternalAuthMode {
                 val normalized = raw
                     ?.trim()
                     ?.lowercase()
@@ -235,9 +270,9 @@ class ExternalAgentTools(
 
                 return when (normalized) {
                     "api", "api_key", "apikey", "direct" -> API_KEY
-                    "oauth", "oauth_token", "subscription", "claude_subscription" -> SUBSCRIPTION
+                    "oauth", "oauth_token", "subscription", "claude_subscription", "codex_subscription" -> SUBSCRIPTION
                     else -> throw IllegalArgumentException(
-                        "external_agent_claude_auth_mode='$raw' is invalid. " +
+                        "$parameterName='$raw' is invalid. " +
                             "Use 'api_key' or 'subscription'."
                     )
                 }
@@ -247,11 +282,19 @@ class ExternalAgentTools(
 
     private data class ResolvedExternalAuth(
         val mode: ExternalAuthMode,
-        val env: Map<String, String>
+        val env: Map<String, String>,
+        /**
+         * Codex subscription mode only: the host directory we materialised the
+         * tenant's `auth.json` into. [buildMounts] bind-mounts it into the
+         * container at [CODEX_HOME_CONTAINER_PATH]; null for every other mode.
+         */
+        val codexHomeHostDir: File? = null
     )
 
     private suspend fun runExternal(engine: Engine, ctx: ExternalAgentContext): String {
         val resolvedName = ctx.name.takeIf { it.isNotBlank() } ?: UUID.randomUUID().toString()
+        val invocationId = UUID.randomUUID().toString().take(8)
+        val invocationLabel = invocationLabel(resolvedName, invocationId)
         val workDir = resolveWorkingDir(ctx.workingDir)
 
         // Resolve authentication BEFORE building any subprocess so misconfiguration fails
@@ -259,17 +302,22 @@ class ExternalAgentTools(
         val auth = runCatching { resolveExternalAuth(engine) }.getOrElse { e ->
             emit(
                 type = engine.failedEventType(),
-                summary = "❌ ${engine.displayName} Sub Agent 配置错误: $resolvedName",
-                detail = e.message
+                summary = "❌ ${engine.displayName} Sub Agent 配置错误: $invocationLabel",
+                detail = listOfNotNull("invocation_id=$invocationId", e.message).joinToString(", ")
             )
             throw e
         }
+
+        // Wrap the rest so the per-run Codex auth.json (a live subscription token we
+        // materialise on the host) is always removed once the subprocess finishes —
+        // on success, failure, or timeout. Avoids leaving customer tokens on disk.
+        try {
 
         // Build the command. Operators can override the binary name (e.g. "npx -y @anthropic-ai/claude-code")
         // by setting external_agent_<engine>_command / _extra_args parameters; default is "claude" / "codex"
         // assumed to be on PATH inside the container or host.
         val effectiveModel = resolveModel(engine, ctx)
-        val command = buildCommand(engine, ctx, effectiveModel)
+        val command = buildCommand(engine, ctx, effectiveModel, auth)
 
         val timeoutSeconds = ctx.timeoutSeconds
             .coerceAtLeast(MIN_TIMEOUT_SECONDS)
@@ -283,16 +331,17 @@ class ExternalAgentTools(
         val baseUrlOverride = runCatching { resolveBaseUrlOverride(engine, auth) }.getOrElse { e ->
             emit(
                 type = engine.failedEventType(),
-                summary = "❌ ${engine.displayName} Sub Agent 配置错误: $resolvedName",
-                detail = e.message
+                summary = "❌ ${engine.displayName} Sub Agent 配置错误: $invocationLabel",
+                detail = listOfNotNull("invocation_id=$invocationId", e.message).joinToString(", ")
             )
             throw e
         }
 
         emit(
             type = engine.startEventType(),
-            summary = "${engine.startEmoji()} 启动 ${engine.displayName} Sub Agent: $resolvedName",
+            summary = "${engine.startEmoji()} 启动 ${engine.displayName} Sub Agent: $invocationLabel",
             detail = buildString {
+                append("invocation_id=$invocationId, ")
                 append("model=${effectiveModel.ifBlank { "<sdk-default>" }}, ")
                 append("maxTurns=${ctx.maxTurns}, ")
                 append("allowedTools=${ctx.allowedTools}, ")
@@ -310,30 +359,44 @@ class ExternalAgentTools(
                 command.joinToString(" ").take(200)
         )
 
+        val claudeStreamEmitter = if (engine == Engine.CLAUDE && onMonitorEvent != null) {
+            ClaudeStreamEventEmitter(resolvedName, invocationId)
+        } else null
+
         val request = ExecRequest(
             command = command,
             workingDir = workDir,
-            // Claude takes the prompt as a positional argv argument (see
-            // buildClaudeFlags); it must NOT also receive it on stdin. The Docker
-            // executor only attaches stdin *after* the container has started, so a
-            // stdin-reading `claude -p` sees EOF and aborts with
-            // "Input must be provided ...". Codex still reads from stdin.
-            stdin = if (engine == Engine.CLAUDE) null else ctx.prompt,
+            // BOTH engines take the prompt as a positional argv argument (see
+            // buildClaudeFlags / buildCodexFlags). We deliberately never use stdin:
+            // the Docker executor keeps stdin open (OpenStdin), so a stdin-reading
+            // `claude -p` / `codex exec` blocks forever waiting for an EOF that never
+            // comes (the "runs 20+ min with no output" hang).
+            stdin = null,
             timeoutSeconds = timeoutSeconds.toLong(),
             env = buildEnvironment(engine, auth),
-            mounts = buildMounts(),
+            mounts = buildMounts(auth),
             imageHint = "node",
-            userId = userId
+            userId = userId,
+            stdoutLineCallback = claudeStreamEmitter?.let { emitter ->
+                { line -> emitter.handleLine(line) }
+            }
         )
 
         val result = try {
-            executor.execute(request)
+            executeWithProgress(
+                engine = engine,
+                request = request,
+                resolvedName = resolvedName,
+                invocationId = invocationId,
+                model = effectiveModel,
+                authMode = auth.mode
+            )
         } catch (e: Throwable) {
             logger.error(e) { "[ExternalAgent] ${engine.displayName} sub-agent '$resolvedName' subprocess failed" }
             emit(
                 type = engine.failedEventType(),
-                summary = "❌ ${engine.displayName} Sub Agent 失败: $resolvedName",
-                detail = "executor_error: ${e.message}"
+                summary = "❌ ${engine.displayName} Sub Agent 失败: $invocationLabel",
+                detail = "invocation_id=$invocationId, executor_error: ${e.message}"
             )
             throw e
         }
@@ -346,8 +409,8 @@ class ExternalAgentTools(
         if (result.exitCode == -1 && result.stderr.contains("TIMED OUT")) {
             emit(
                 type = engine.timeoutEventType(),
-                summary = "⏱️ ${engine.displayName} Sub Agent 超时: $resolvedName",
-                detail = "timeout=${timeoutSeconds}s, stderr_tail=${result.stderr.takeLast(500)}"
+                summary = "⏱️ ${engine.displayName} Sub Agent 超时: $invocationLabel",
+                detail = "invocation_id=$invocationId, timeout=${timeoutSeconds}s, stderr_tail=${result.stderr.takeLast(500)}"
             )
             throw ExternalAgentTimeoutException(
                 "${engine.displayName} sub-agent '$resolvedName' timed out after ${timeoutSeconds}s"
@@ -356,10 +419,32 @@ class ExternalAgentTools(
 
         if (result.exitCode != 0) {
             val tail = result.stderr.takeLast(2000).ifBlank { result.stdout.takeLast(2000) }
+            // Codex subscription credentials are short-lived OAuth tokens. When the
+            // access token can no longer be refreshed (revoked / refresh token expired)
+            // codex returns a 401. Surface that as a distinct, actionable alert so the
+            // operator knows the fix is "re-run codex login + update the credential",
+            // not "retry" or "check the prompt".
+            if (engine == Engine.CODEX &&
+                auth.mode == ExternalAuthMode.SUBSCRIPTION &&
+                isCodexAuthFailure("${result.stderr}\n${result.stdout}")
+            ) {
+                emit(
+                    type = CODEX_SUBSCRIPTION_EXPIRED_EVENT,
+                    summary = "🔑 Codex 订阅凭据失效: $invocationLabel",
+                    detail = "invocation_id=$invocationId, 该 ChatGPT 订阅凭据已过期或被吊销," +
+                        "需重新执行 `codex login` 并更新凭据中心 provider=$CODEX_SUBSCRIPTION_PROVIDER 的 auth.json。" +
+                        "stderr_tail=$tail"
+                )
+                throw ExternalAgentExecutionException(
+                    "Codex sub-agent '$resolvedName' failed authentication — the ChatGPT subscription " +
+                        "credential ('$CODEX_SUBSCRIPTION_PROVIDER') has expired or been revoked. The user must " +
+                        "re-run `codex login` and update the stored auth.json. stderr: $tail"
+                )
+            }
             emit(
                 type = engine.failedEventType(),
-                summary = "❌ ${engine.displayName} Sub Agent 失败: $resolvedName",
-                detail = "exit_code=${result.exitCode}, stderr_tail=$tail"
+                summary = "❌ ${engine.displayName} Sub Agent 失败: $invocationLabel",
+                detail = "invocation_id=$invocationId, exit_code=${result.exitCode}, stderr_tail=$tail"
             )
             throw ExternalAgentExecutionException(
                 "${engine.displayName} sub-agent '$resolvedName' exited with code ${result.exitCode}. " +
@@ -379,9 +464,9 @@ class ExternalAgentTools(
 
         emit(
             type = engine.completedEventType(),
-            summary = "✅ ${engine.displayName} Sub Agent 完成: $resolvedName",
+            summary = "✅ ${engine.displayName} Sub Agent 完成: $invocationLabel",
             detail = buildString {
-                append("duration_ms=${result.durationMs}")
+                append("invocation_id=$invocationId, duration_ms=${result.durationMs}")
                 parsed.costUsd?.let { append(", cost_usd=").append(formatCost(it)) }
                 parsed.usage?.let { u ->
                     append(", input_tokens=${u.inputTokens ?: "?"}")
@@ -396,6 +481,211 @@ class ExternalAgentTools(
         )
 
         return parsed.text
+        } finally {
+            auth.codexHomeHostDir?.let { dir -> runCatching { dir.deleteRecursively() } }
+        }
+    }
+
+    private suspend fun executeWithProgress(
+        engine: Engine,
+        request: ExecRequest,
+        resolvedName: String,
+        invocationId: String,
+        model: String,
+        authMode: ExternalAuthMode
+    ): SubprocessExecutor.ExecResult {
+        if (engine != Engine.CLAUDE || onMonitorEvent == null) {
+            return executor.execute(request)
+        }
+
+        return coroutineScope {
+            val startedAt = System.currentTimeMillis()
+            val intervalMs = resolveClaudeProgressIntervalMs()
+            val progressJob = launch {
+                while (true) {
+                    delay(intervalMs)
+                    val elapsedMs = System.currentTimeMillis() - startedAt
+                    val elapsedSeconds = elapsedMs / 1000
+                    emit(
+                        type = engine.progressEventType(),
+                        summary = "⏳ ${engine.displayName} Sub Agent 正在思考: ${invocationLabel(resolvedName, invocationId)} (${elapsedSeconds}s)",
+                        detail = buildString {
+                            append("invocation_id=$invocationId, ")
+                            append("phase=running, ")
+                            append("elapsed_ms=$elapsedMs, ")
+                            append("model=${model.ifBlank { "<sdk-default>" }}, ")
+                            append("authMode=${authMode.detailValue}, ")
+                            append("executor=${if (isDocker) "docker" else "native"}")
+                        }
+                    )
+                }
+            }
+
+            try {
+                executor.execute(request)
+            } finally {
+                progressJob.cancelAndJoin()
+            }
+        }
+    }
+
+    private inner class ClaudeStreamEventEmitter(
+        private val resolvedName: String,
+        private val invocationId: String
+    ) {
+        private val label = invocationLabel(resolvedName, invocationId)
+        private var lastAssistantText = ""
+        private val seenToolCalls = linkedSetOf<String>()
+        private val seenToolResults = linkedSetOf<String>()
+        private var systemEventEmitted = false
+
+        fun handleLine(line: String) {
+            val obj = parseJsonObjectOrNull(line) ?: return
+            when (obj.stringField("type")) {
+                "system" -> handleSystem(obj)
+                "assistant" -> handleAssistant(obj)
+                "user" -> handleUser(obj)
+                "result" -> handleResult(obj)
+                "hook" -> handleHook(obj)
+                else -> handleGeneric(obj)
+            }
+        }
+
+        private fun handleSystem(obj: JsonObject) {
+            if (systemEventEmitted) return
+            systemEventEmitted = true
+            val model = obj.stringField("model")
+            val sessionId = obj.stringField("session_id")
+            emit(
+                type = "claude_code_stream_system",
+                summary = "⚙️ Claude Code 会话已初始化: $label",
+                detail = listOfNotNull(
+                    "invocation_id=$invocationId",
+                    model?.let { "model=$it" },
+                    sessionId?.let { "session_id=${it.take(16)}" },
+                    obj.stringField("cwd")?.let { "cwd=$it" }
+                ).joinToString(", ").ifBlank { null }
+            )
+        }
+
+        private fun handleAssistant(obj: JsonObject) {
+            val message = (obj["message"] as? JsonObject) ?: obj
+            val content = message["content"] as? JsonArray ?: obj["content"] as? JsonArray ?: return
+            val textParts = mutableListOf<String>()
+
+            content.mapNotNull { it as? JsonObject }.forEach { part ->
+                when (part.stringField("type")) {
+                    "text" -> part.stringField("text")?.let { textParts += it }
+                    "tool_use" -> handleToolUse(part)
+                    "thinking", "reasoning" -> handleReasoningSummary(part)
+                }
+            }
+
+            val text = textParts.joinToString("")
+            if (text.isNotBlank()) emitAssistantDelta(text)
+        }
+
+        private fun handleUser(obj: JsonObject) {
+            val message = (obj["message"] as? JsonObject) ?: obj
+            val content = message["content"] as? JsonArray ?: obj["content"] as? JsonArray ?: return
+            content.mapNotNull { it as? JsonObject }
+                .filter { it.stringField("type") == "tool_result" }
+                .forEach { handleToolResult(it) }
+        }
+
+        private fun handleResult(obj: JsonObject) {
+            val result = obj.stringField("result")?.trim().orEmpty()
+            emit(
+                type = "claude_code_stream_result",
+                summary = buildSummaryWithPreview("🏁 Claude Code 最终结果: $label", result.ifBlank { obj.stringField("subtype") ?: "done" }),
+                detail = buildString {
+                    append("invocation_id=$invocationId")
+                    obj.stringField("subtype")?.let { append(", subtype=$it") }
+                    obj.stringField("session_id")?.let {
+                        append(", session_id=${it.take(16)}")
+                    }
+                    obj.doubleField("cost_usd")?.let {
+                        append(", cost_usd=${formatCost(it)}")
+                    }
+                }.ifBlank { null }
+            )
+        }
+
+        private fun handleHook(obj: JsonObject) {
+            val name = obj.stringField("hook") ?: obj.stringField("name") ?: obj.stringField("subtype") ?: "hook"
+            emit(
+                type = "claude_code_stream_hook",
+                summary = "🪝 Claude Code Hook: $label / $name",
+                detail = "invocation_id=$invocationId, payload=${compactJson(obj, 600)}"
+            )
+        }
+
+        private fun handleGeneric(obj: JsonObject) {
+            val type = obj.stringField("type") ?: return
+            if (type.endsWith("_delta")) {
+                val text = obj.stringField("text")
+                    ?: obj.stringField("delta")
+                    ?: (obj["delta"] as? JsonObject)?.stringField("text")
+                if (!text.isNullOrBlank()) {
+                    emit(
+                        type = "claude_code_stream_text_delta",
+                        summary = buildSummaryWithPreview("💬 Claude Code 输出: $label", text),
+                        detail = truncateDetail("invocation_id=$invocationId\n$text")
+                    )
+                }
+            }
+        }
+
+        private fun handleToolUse(part: JsonObject) {
+            val id = part.stringField("id") ?: part.stringField("tool_use_id") ?: part.toString().take(80)
+            if (!seenToolCalls.add(id)) return
+            val name = part.stringField("name") ?: "tool"
+            emit(
+                type = "claude_code_stream_tool_call",
+                summary = "🔧 Claude Code 调用工具: $label / $name",
+                detail = buildString {
+                    append("invocation_id=$invocationId, id=$id")
+                    part["input"]?.let { append(", input=").append(compactJson(it, 900)) }
+                }
+            )
+        }
+
+        private fun handleToolResult(part: JsonObject) {
+            val id = part.stringField("tool_use_id") ?: part.stringField("id") ?: part.toString().take(80)
+            val content = extractToolResultContent(part)
+            val fingerprint = "$id:${content.take(120)}"
+            if (!seenToolResults.add(fingerprint)) return
+            emit(
+                type = "claude_code_stream_tool_result",
+                summary = buildSummaryWithPreview("📥 Claude Code 工具结果: $label", content.ifBlank { id }),
+                detail = truncateDetail("invocation_id=$invocationId\n${content.ifBlank { compactJson(part, 900) }}")
+            )
+        }
+
+        private fun handleReasoningSummary(part: JsonObject) {
+            val text = part.stringField("text") ?: part.stringField("summary") ?: return
+            if (text.isBlank()) return
+            emit(
+                type = "claude_code_stream_reasoning_summary",
+                summary = buildSummaryWithPreview("💭 Claude Code 思考摘要: $label", text),
+                detail = truncateDetail("invocation_id=$invocationId\n$text")
+            )
+        }
+
+        private fun emitAssistantDelta(text: String) {
+            val delta = when {
+                lastAssistantText.isEmpty() -> text
+                text.startsWith(lastAssistantText) -> text.removePrefix(lastAssistantText)
+                else -> text
+            }.trim()
+            lastAssistantText = text
+            if (delta.isBlank()) return
+            emit(
+                type = "claude_code_stream_text_delta",
+                summary = buildSummaryWithPreview("💬 Claude Code 输出: $label", delta),
+                detail = truncateDetail("invocation_id=$invocationId\n$delta")
+            )
+        }
     }
 
     private fun resolveWorkingDir(requested: String?): File {
@@ -410,7 +700,14 @@ class ExternalAgentTools(
         return context.workspaceDir?.takeIf { it.isDirectory } ?: File(".")
     }
 
-    private fun buildCommand(engine: Engine, ctx: ExternalAgentContext, model: String): List<String> {
+    private fun invocationLabel(name: String, invocationId: String): String = "$name#$invocationId"
+
+    private fun buildCommand(
+        engine: Engine,
+        ctx: ExternalAgentContext,
+        model: String,
+        auth: ResolvedExternalAuth
+    ): List<String> {
         val baseCommand = parameters.parameter(engine.commandParameterKey, engine.defaultCommand)
             .trim()
             .takeIf { it.isNotEmpty() }
@@ -427,7 +724,7 @@ class ExternalAgentTools(
 
         val cliFlags = when (engine) {
             Engine.CLAUDE -> buildClaudeFlags(ctx, model)
-            Engine.CODEX -> buildCodexFlags(ctx, model)
+            Engine.CODEX -> buildCodexFlags(ctx, model, auth.mode == ExternalAuthMode.SUBSCRIPTION)
         }
 
         return buildList {
@@ -446,8 +743,26 @@ class ExternalAgentTools(
         // Passing it as argv sidesteps that; per-arg length limits (ARG_MAX) are
         // not a concern for the prompt sizes we send.
         add("-p")
+        val extraAllowedDirs = claudeAdditionalAllowedDirs()
+        if (extraAllowedDirs.isNotEmpty()) {
+            add("--add-dir")
+            addAll(extraAllowedDirs)
+        }
+        val appendSystemPrompt = claudeAppendSystemPrompt(ctx)
+        if (appendSystemPrompt.isNotBlank()) {
+            add("--append-system-prompt")
+            add(appendSystemPrompt)
+        }
         add("--output-format")
-        add("json")
+        add("stream-json")
+        // Claude CLI rejects `-p --output-format=stream-json` unless --verbose is set
+        // ("Error: When using --print, --output-format=stream-json requires --verbose").
+        add("--verbose")
+        add("--include-partial-messages")
+        add("--include-hook-events")
+        if (trustExecutorSandbox) {
+            add("--dangerously-skip-permissions")
+        }
         if (model.isNotBlank()) {
             add("--model")
             add(model)
@@ -464,13 +779,49 @@ class ExternalAgentTools(
             add("--disallowedTools")
             add(ctx.disallowedTools.joinToString(","))
         }
+        // `--` terminates option parsing. Without it, claude's *variadic* flags
+        // (--allowedTools / --disallowedTools / --add-dir) swallow the trailing
+        // positional prompt, so claude aborts with
+        // "Error: Input must be provided either through stdin or as a prompt argument
+        // when using --print". Verified against claude 2.1.x. Must stay immediately
+        // before the positional prompt.
+        add("--")
         // Positional prompt — must come after the flags.
         add(ctx.prompt)
     }
 
-    private fun buildCodexFlags(ctx: ExternalAgentContext, model: String): List<String> = buildList {
+    private fun buildCodexFlags(
+        ctx: ExternalAgentContext,
+        model: String,
+        subscription: Boolean
+    ): List<String> = buildList {
         add("exec")
-        // Codex reads prompt from stdin when no positional prompt is provided.
+        // Allow running outside a git repo — the bind-mounted workspace is usually
+        // not a git checkout, and `codex exec` otherwise refuses to start.
+        add("--skip-git-repo-check")
+        if (trustExecutorSandbox) {
+            // In production, Codex already runs inside Braidrun's Docker sandbox
+            // (read-only rootfs, non-root UID, restricted network, bounded streams).
+            // Skip Codex's own interactive approval prompts so workflow steps cannot
+            // wedge waiting for an operator inside a headless subprocess.
+            add("--dangerously-bypass-approvals-and-sandbox")
+        }
+        if (subscription) {
+            // The per-tenant CODEX_HOME holds only the tenant's auth.json — no
+            // config.toml. `--ignore-user-config` skips the (absent) config while
+            // STILL resolving auth from CODEX_HOME (per `codex exec --help`:
+            // "auth still uses CODEX_HOME"), and avoids inheriting any operator-host
+            // config that could pin an unsupported model.
+            add("--ignore-user-config")
+            // A ChatGPT subscription only accepts the model(s) provisioned for that
+            // account; codex's built-in default is frequently NOT one of them and
+            // fails with a 400. Force the operator to pick one explicitly.
+            require(model.isNotBlank()) {
+                "Codex subscription mode requires an explicit model — a ChatGPT subscription " +
+                    "only accepts the models provisioned for that account (e.g. gpt-5.5). " +
+                    "Set parameter '$CODEX_MODEL_PARAMETER' or the tool-call 'model' field."
+            }
+        }
         if (model.isNotBlank()) {
             add("--model")
             add(model)
@@ -478,19 +829,44 @@ class ExternalAgentTools(
         // --full-auto / --json flags are codex-version-dependent; operators can append
         // them through external_agent_codex_extra_args until we standardise across
         // versions.
+        //
+        // Pass the prompt as a POSITIONAL argument (`codex exec [OPTIONS] [PROMPT]`),
+        // not via stdin. The Docker executor keeps stdin open (OpenStdin), so a
+        // stdin-reading `codex exec` blocks forever waiting for an EOF that never
+        // comes — the cause of the "runs for 20+ min, no output" hang. `--`
+        // terminates option parsing so the prompt can't be taken as a subcommand
+        // (resume / review) or swallowed by a flag.
+        add("--")
+        add(ctx.prompt)
     }
 
     private fun buildEnvironment(engine: Engine, auth: ResolvedExternalAuth): Map<String, String> = buildMap {
         putAll(auth.env)
+        // Codex writes session / cache / state into CODEX_HOME (default ~/.codex) and
+        // touches HOME on startup. In the read-only-rootfs container both default to
+        // the non-writable /home/runner, so codex aborts with "Permission denied
+        // (os error 13)" regardless of auth mode. Point both at the writable tmpfs.
+        // Subscription mode already set CODEX_HOME to the bind-mounted auth dir
+        // (putIfAbsent keeps it); API-key mode gets a fresh tmpfs CODEX_HOME.
+        if (engine == Engine.CODEX && isDocker) {
+            putIfAbsent("CODEX_HOME", "/tmp/codex-home")
+            put("HOME", "/tmp")
+        }
         // Optional custom API base URL — lets the operator route the SDK through
         // OpenRouter (or any Anthropic-/OpenAI-compatible proxy). Validated to
         // reject obviously-broken values so a typo in the workflow YAML doesn't
         // silently disable the override.
         resolveBaseUrlOverride(engine, auth)?.let { baseUrl -> put(engine.baseUrlEnvVar, baseUrl) }
+        val outputPath = when {
+            context.outputDir == null -> null
+            isDocker -> "/output"
+            else -> context.outputDir.absolutePath
+        }
         // Surface workspace identity, mirroring ShellTools so any audit / log integration in
         // the user's external SDK config can pick them up.
         put("BRAIDRUN_USER_ID", userId)
         put("BRAIDRUN_WORKSPACE", if (isDocker) "/workspace" else (context.workspaceDir?.absolutePath ?: "."))
+        outputPath?.let { put("BRAIDRUN_OUTPUT_DIR", it) }
         context.executionId?.let { put("BRAIDRUN_EXECUTION_ID", it) }
         context.stepName?.let { put("BRAIDRUN_STEP_NAME", it) }
         context.sessionId?.let { put("BRAIDRUN_SESSION_ID", it) }
@@ -511,8 +887,8 @@ class ExternalAgentTools(
         if (raw.isEmpty()) return null
         require(auth.mode == ExternalAuthMode.API_KEY) {
             "${engine.baseUrlParameterKey} cannot be used when " +
-                "$CLAUDE_AUTH_MODE_PARAMETER=subscription. Claude subscription tokens must be sent " +
-                "directly to Claude Code, not to a custom API proxy."
+                "${engine.authModeParameterKey}=subscription. Subscription credentials must be sent " +
+                "directly to the agent CLI, not to a custom API proxy."
         }
         require(BASE_URL_REGEX.matches(raw)) {
             "${engine.baseUrlParameterKey}='$raw' must be a fully-qualified URL " +
@@ -521,13 +897,75 @@ class ExternalAgentTools(
         return raw
     }
 
-    private fun buildMounts(): List<SubprocessExecutor.Mount> {
+    private fun buildMounts(auth: ResolvedExternalAuth): List<SubprocessExecutor.Mount> {
         if (!isDocker) return emptyList()
-        // For v1 we don't mount /skills or /output for external agents — Claude/Codex run
-        // entirely inside their workspace. Future enhancement: mount /skills RO when the
-        // operator opts in via parameter, to share braidrun skills with Claude Code's
-        // skill loader.
-        return emptyList()
+        val mounts = mutableListOf<SubprocessExecutor.Mount>()
+        // Codex subscription: bind the host dir holding the tenant's auth.json into
+        // the container so `codex` can read it via CODEX_HOME. RW because codex
+        // writes cache / session / state files there during the run.
+        auth.codexHomeHostDir?.let { homeDir ->
+            val canonical = runCatching { homeDir.canonicalFile }.getOrDefault(homeDir.absoluteFile)
+            mounts += SubprocessExecutor.Mount(
+                hostPath = canonical,
+                containerPath = CODEX_HOME_CONTAINER_PATH,
+                readOnly = false
+            )
+        }
+        context.outputDir
+            ?.takeIf { it.exists() || it.mkdirs() }
+            ?.let { outputDir ->
+                val canonicalOutputDir = runCatching { outputDir.canonicalFile }.getOrDefault(outputDir.absoluteFile)
+                mounts += SubprocessExecutor.Mount(
+                    hostPath = canonicalOutputDir,
+                    containerPath = "/output",
+                    readOnly = false
+                )
+
+                val hostVisibleOutputPath = canonicalOutputDir.absolutePath
+                if (hostVisibleOutputPath != "/output") {
+                    mounts += SubprocessExecutor.Mount(
+                        hostPath = canonicalOutputDir,
+                        containerPath = hostVisibleOutputPath,
+                        readOnly = false
+                    )
+                }
+        }
+        // For now we don't mount /skills for external agents. Future enhancement: mount
+        // /skills RO when the operator opts in via parameter, to share braidrun skills
+        // with Claude Code's skill loader.
+        return mounts
+    }
+
+    private fun claudeAdditionalAllowedDirs(): List<String> {
+        val dirs = linkedSetOf<String>()
+        if (!isDocker) {
+            context.outputDir
+                ?.takeIf { it.exists() && it.isDirectory }
+                ?.let { outputDir ->
+                    dirs += outputDir.canonicalPath
+                }
+            return dirs.toList()
+        }
+
+        dirs += "/output"
+        context.outputDir
+            ?.takeIf { (it.exists() && it.isDirectory) || it.mkdirs() }
+            ?.let { outputDir ->
+                dirs += runCatching { outputDir.canonicalPath }.getOrDefault(outputDir.absolutePath)
+            }
+        return dirs.toList()
+    }
+
+    private fun claudeAppendSystemPrompt(ctx: ExternalAgentContext): String {
+        val workflowPrompt = ctx.systemPrompt.trim()
+        val configuredPrompt = parameters.parameter(CLAUDE_APPEND_SYSTEM_PROMPT_PARAMETER, "").trim()
+        return listOf(
+            workflowPrompt,
+            configuredPrompt,
+            DEFAULT_CLAUDE_CHINESE_SYSTEM_PROMPT
+        )
+            .filter { it.isNotBlank() }
+            .joinToString("\n\n")
     }
 
     private fun resolveApiKey(engine: Engine): String? {
@@ -540,35 +978,35 @@ class ExternalAgentTools(
         if (requested.isNotEmpty()) return requested
         return when (engine) {
             Engine.CLAUDE -> parameters.parameter(CLAUDE_MODEL_PARAMETER, "").trim()
-            Engine.CODEX -> ""
+            Engine.CODEX -> parameters.parameter(CODEX_MODEL_PARAMETER, "").trim()
         }
     }
 
+    private fun resolveClaudeProgressIntervalMs(): Long {
+        val raw = parameters.parameter(
+            CLAUDE_PROGRESS_INTERVAL_SECONDS_PARAMETER,
+            DEFAULT_CLAUDE_PROGRESS_INTERVAL_SECONDS.toString()
+        )
+        val seconds = raw
+            .trim()
+            .toDoubleOrNull()
+            ?: DEFAULT_CLAUDE_PROGRESS_INTERVAL_SECONDS
+        return (seconds
+            .coerceAtLeast(MIN_CLAUDE_PROGRESS_INTERVAL_SECONDS)
+            .coerceAtMost(MAX_CLAUDE_PROGRESS_INTERVAL_SECONDS) * 1000).toLong()
+    }
+
     private fun resolveExternalAuth(engine: Engine): ResolvedExternalAuth {
-        val mode = if (engine == Engine.CLAUDE) {
-            ExternalAuthMode.parse(parameters.parameter(CLAUDE_AUTH_MODE_PARAMETER, "api_key"))
-        } else {
-            ExternalAuthMode.API_KEY
-        }
+        val mode = ExternalAuthMode.parse(
+            parameters.parameter(engine.authModeParameterKey, "api_key"),
+            engine.authModeParameterKey
+        )
 
         if (mode == ExternalAuthMode.SUBSCRIPTION) {
-            require(engine == Engine.CLAUDE) {
-                "Subscription OAuth mode is only supported by Claude Code."
+            return when (engine) {
+                Engine.CLAUDE -> resolveClaudeSubscriptionAuth()
+                Engine.CODEX -> resolveCodexSubscriptionAuth()
             }
-            val token = resolveClaudeCodeOAuthToken()
-                ?: throw IllegalStateException(
-                    "Missing Claude subscription OAuth token. Create a credential with provider " +
-                        "'$CLAUDE_CODE_OAUTH_PROVIDER', or set workflow parameter " +
-                        "'$CLAUDE_OAUTH_TOKEN_PARAMETER'."
-                )
-            return ResolvedExternalAuth(
-                mode = mode,
-                env = buildMap {
-                    put("CLAUDE_CODE_OAUTH_TOKEN", token)
-                    put("CLAUDE_CONFIG_DIR", resolveClaudeConfigDir())
-                    put("DISABLE_AUTOUPDATER", "1")
-                }
-            )
         }
 
         val apiKey = resolveApiKey(engine)
@@ -582,6 +1020,138 @@ class ExternalAgentTools(
             mode = ExternalAuthMode.API_KEY,
             env = mapOf(engine.apiKeyEnvVar to apiKey)
         )
+    }
+
+    private fun resolveClaudeSubscriptionAuth(): ResolvedExternalAuth {
+        val token = resolveClaudeCodeOAuthToken()
+            ?: throw IllegalStateException(
+                "Missing Claude subscription OAuth token. Create a credential with provider " +
+                    "'$CLAUDE_CODE_OAUTH_PROVIDER', or set workflow parameter " +
+                    "'$CLAUDE_OAUTH_TOKEN_PARAMETER'."
+            )
+        return ResolvedExternalAuth(
+            mode = ExternalAuthMode.SUBSCRIPTION,
+            env = buildMap {
+                put("CLAUDE_CODE_OAUTH_TOKEN", token)
+                put("CLAUDE_CONFIG_DIR", resolveClaudeConfigDir())
+                put("DISABLE_AUTOUPDATER", "1")
+            }
+        )
+    }
+
+    /**
+     * Codex subscription auth: unlike Claude (a single long-lived token in an env
+     * var), the `codex` CLI only reads ChatGPT credentials from `CODEX_HOME/auth.json`.
+     * We write the tenant's `auth.json` into a per-run dir and point `CODEX_HOME` at
+     * it. Verified locally: a transplanted auth.json + `--ignore-user-config` is
+     * accepted, and codex does NOT rewrite the file while the token is valid, so no
+     * write-back channel is required.
+     */
+    private fun resolveCodexSubscriptionAuth(): ResolvedExternalAuth {
+        val authJson = resolveCodexAuthJson()
+            ?: throw IllegalStateException(
+                "Missing Codex subscription credential. Create a credential with provider " +
+                    "'$CODEX_SUBSCRIPTION_PROVIDER' (the contents of ~/.codex/auth.json from a " +
+                    "`codex login` ChatGPT session), or set workflow parameter " +
+                    "'$CODEX_AUTH_JSON_PARAMETER'."
+            )
+        val homeDir = materializeCodexHome(authJson)
+        val codexHomeEnv = if (isDocker) CODEX_HOME_CONTAINER_PATH else homeDir.absolutePath
+        // HOME (and an API-key-mode CODEX_HOME fallback) are set centrally for codex in
+        // [buildEnvironment]; here we only pin CODEX_HOME to the materialised auth dir.
+        return ResolvedExternalAuth(
+            mode = ExternalAuthMode.SUBSCRIPTION,
+            env = mapOf("CODEX_HOME" to codexHomeEnv),
+            codexHomeHostDir = homeDir
+        )
+    }
+
+    private fun resolveCodexAuthJson(): String? {
+        normalizeCodexAuthJson(parameters.parameter(CODEX_AUTH_JSON_PARAMETER, ""))?.let { return it }
+
+        val keys = parameters.parameter("llm_provider_keys", mapOf<String, String>())
+        CODEX_SUBSCRIPTION_PROVIDER_ALIASES.forEach { alias ->
+            normalizeCodexAuthJson(keys[alias])?.let { return it }
+        }
+        return null
+    }
+
+    /**
+     * Validate that the supplied value is a Codex `auth.json` blob (not an API key
+     * pasted by mistake). Only trims — unlike the Claude OAuth token this is JSON, so
+     * collapsing internal whitespace would corrupt it.
+     */
+    private fun normalizeCodexAuthJson(value: String?): String? {
+        val trimmed = value?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+        val obj = runCatching { permissiveJson.parseToJsonElement(trimmed).jsonObject }.getOrNull()
+            ?: throw IllegalArgumentException(
+                "Codex subscription credential must be the JSON contents of ~/.codex/auth.json, " +
+                    "but the supplied value is not valid JSON."
+            )
+        require(obj["tokens"] is JsonObject) {
+            "Codex subscription credential is missing the 'tokens' object — paste the full " +
+                "~/.codex/auth.json from a `codex login` (ChatGPT) session, not an API key."
+        }
+        return trimmed
+    }
+
+    /**
+     * Create a per-invocation host directory, write the tenant's `auth.json` into it (owner
+     * read/write only), and return it. In Docker mode [buildMounts] bind-mounts this
+     * dir to [CODEX_HOME_CONTAINER_PATH]; in native mode `CODEX_HOME` points straight
+     * at it.
+     */
+    private fun materializeCodexHome(authJson: String): File {
+        val configured = parameters.parameter(CODEX_HOME_DIR_PARAMETER, "").trim()
+        val base = if (configured.isNotEmpty()) {
+            File(configured)
+        } else {
+            val runId = context.executionId ?: context.sessionId ?: UUID.randomUUID().toString()
+            val invocationId = listOfNotNull(context.stepName, context.sessionId)
+                .joinToString("_")
+                .ifBlank { UUID.randomUUID().toString() }
+            val userDir = File(
+                File(System.getProperty("java.io.tmpdir"), "braidrun-codex"),
+                safePathSegment(userId)
+            )
+            File(
+                File(userDir, safePathSegment(runId)),
+                safePathSegment(invocationId)
+            )
+        }
+        if (!base.isDirectory && !base.mkdirs()) {
+            throw IllegalStateException("Unable to create Codex home dir: ${base.absolutePath}")
+        }
+        val authFile = File(base, "auth.json")
+        authFile.writeText(authJson)
+        applyCodexHomePermissions(base, authFile)
+        return base
+    }
+
+    /**
+     * Docker mode runs the codex container as an unprivileged uid (2000:2000) that
+     * differs from the agent JVM which created this dir. The bind-mounted CODEX_HOME
+     * must therefore be writable by that other uid (codex writes cache / session /
+     * state files into it) and the auth.json readable by it — otherwise codex aborts
+     * with "Permission denied (os error 13)". So we open the perms up (the dir is a
+     * per-run host temp dir that gets cleaned up). In native mode the same uid runs
+     * codex, so keep it owner-only (0700 / 0600) to limit token exposure.
+     */
+    private fun applyCodexHomePermissions(dir: File, authFile: File) {
+        runCatching {
+            if (isDocker) {
+                dir.setReadable(true, false)
+                dir.setWritable(true, false)
+                dir.setExecutable(true, false)
+                authFile.setReadable(true, false)
+                authFile.setWritable(true, false)
+            } else {
+                authFile.setReadable(false, false)
+                authFile.setWritable(false, false)
+                authFile.setReadable(true, true)
+                authFile.setWritable(true, true)
+            }
+        }
     }
 
     private fun resolveClaudeCodeOAuthToken(): String? {
@@ -651,9 +1221,48 @@ class ExternalAgentTools(
         }
     }
 
+    private fun parseJsonObjectOrNull(text: String): JsonObject? =
+        runCatching { permissiveJson.parseToJsonElement(text).jsonObject }.getOrNull()
+
+    private fun buildSummaryWithPreview(prefix: String, content: String?, maxLength: Int = 120): String {
+        val normalized = content
+            ?.replace('\n', ' ')
+            ?.replace(Regex("\\s+"), " ")
+            ?.trim()
+            .orEmpty()
+        if (normalized.isBlank()) return prefix
+        return "$prefix: " + if (normalized.length > maxLength) "${normalized.take(maxLength)}..." else normalized
+    }
+
+    private fun truncateDetail(content: String?, maxLength: Int = 2000): String? {
+        val trimmed = content?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+        return if (trimmed.length > maxLength) trimmed.take(maxLength) + "..." else trimmed
+    }
+
+    private fun compactJson(element: JsonElement, maxLength: Int = 1000): String {
+        val raw = element.toString().replace('\n', ' ')
+        return if (raw.length > maxLength) raw.take(maxLength) + "..." else raw
+    }
+
+    private fun extractToolResultContent(part: JsonObject): String {
+        val content = part["content"] ?: return ""
+        return when (content) {
+            is JsonPrimitive -> content.contentOrNull.orEmpty()
+            is JsonArray -> content.joinToString("\n") { item ->
+                when (item) {
+                    is JsonPrimitive -> item.contentOrNull.orEmpty()
+                    is JsonObject -> item.stringField("text") ?: item.stringField("content") ?: compactJson(item, 500)
+                    else -> item.toString()
+                }
+            }.trim()
+            else -> compactJson(content, 1000)
+        }
+    }
+
     /**
-     * Claude CLI `--output-format json` emits a single JSON object. The relevant fields
-     * we observe in practice:
+     * Claude CLI `--output-format json` emits a single JSON object; `stream-json`
+     * emits one JSON object per line and ends with a `type=result` record. The
+     * relevant result fields we observe in practice:
      *
      * ```
      * {
@@ -681,7 +1290,11 @@ class ExternalAgentTools(
         if (trimmed.isEmpty()) {
             return ParsedSdkOutput(text = "", usage = null, costUsd = null, sessionId = null)
         }
-        val obj = runCatching { permissiveJson.parseToJsonElement(trimmed).jsonObject }.getOrNull()
+        val obj = parseJsonObjectOrNull(trimmed)
+            ?: trimmed
+                .lineSequence()
+                .mapNotNull { parseJsonObjectOrNull(it.trim()) }
+                .lastOrNull { it.stringField("type") == "result" }
         if (obj == null) {
             logger.debug { "[ExternalAgent] Claude output was not JSON; returning raw stdout." }
             return ParsedSdkOutput(text = trimmed, usage = null, costUsd = null, sessionId = null)
@@ -754,7 +1367,23 @@ class ExternalAgentTools(
         const val CLAUDE_MODEL_PARAMETER = "external_agent_claude_model"
         const val CLAUDE_OAUTH_TOKEN_PARAMETER = "external_agent_claude_oauth_token"
         const val CLAUDE_CONFIG_DIR_PARAMETER = "external_agent_claude_config_dir"
+        const val CLAUDE_APPEND_SYSTEM_PROMPT_PARAMETER = "external_agent_claude_append_system_prompt"
+        const val CLAUDE_PROGRESS_INTERVAL_SECONDS_PARAMETER = "external_agent_claude_progress_interval_seconds"
         const val CLAUDE_CODE_OAUTH_PROVIDER = "claude_code_oauth"
+        const val CODEX_AUTH_MODE_PARAMETER = "external_agent_codex_auth_mode"
+        const val CODEX_MODEL_PARAMETER = "external_agent_codex_model"
+        const val CODEX_AUTH_JSON_PARAMETER = "external_agent_codex_auth_json"
+        const val CODEX_HOME_DIR_PARAMETER = "external_agent_codex_home_dir"
+        const val CODEX_SUBSCRIPTION_PROVIDER = "codex_subscription"
+
+        /** Container path the per-tenant CODEX_HOME is bind-mounted to in Docker mode. */
+        private const val CODEX_HOME_CONTAINER_PATH = "/codex-home"
+        private const val DEFAULT_CLAUDE_PROGRESS_INTERVAL_SECONDS = 20.0
+        private const val MIN_CLAUDE_PROGRESS_INTERVAL_SECONDS = 1.0
+        private const val MAX_CLAUDE_PROGRESS_INTERVAL_SECONDS = 60.0
+        const val DEFAULT_CLAUDE_CHINESE_SYSTEM_PROMPT =
+            "你必须始终使用简体中文回复用户，除非用户明确要求使用其他语言。代码、命令、日志、错误信息、文件路径、API 字段名、JSON key、" +
+                "英文专有名词可以保留原文；解释、结论、澄清、状态说明和交付内容必须使用中文。"
 
         private val CLAUDE_CODE_OAUTH_PROVIDER_ALIASES = listOf(
             "claude_code_oauth",
@@ -762,6 +1391,42 @@ class ExternalAgentTools(
             "claude_oauth",
             "claude_subscription"
         )
+
+        private val CODEX_SUBSCRIPTION_PROVIDER_ALIASES = listOf(
+            "codex_subscription",
+            "codex_oauth",
+            "codex_chatgpt",
+            "openai_subscription"
+        )
+
+        /** Monitoring event emitted when a Codex subscription credential is rejected (expired/revoked). */
+        const val CODEX_SUBSCRIPTION_EXPIRED_EVENT = "codex_subscription_expired"
+
+        /**
+         * Lowercased substrings that mark an auth failure from `codex exec` in
+         * subscription mode. Deliberately excludes the generic
+         * `invalid_request_error` (that also covers the model-not-supported 400,
+         * which is a config problem, not an expired credential).
+         */
+        private val CODEX_AUTH_FAILURE_MARKERS = listOf(
+            "401",
+            "unauthorized",
+            "invalid_grant",
+            "not logged in",
+            "codex login",
+            "authentication failed",
+            "authentication error",
+            "token expired",
+            "token has expired",
+            "session expired",
+            "re-authenticate",
+            "reauthenticate"
+        )
+
+        private fun isCodexAuthFailure(output: String): Boolean {
+            val lower = output.lowercase()
+            return CODEX_AUTH_FAILURE_MARKERS.any { it in lower }
+        }
 
         internal val permissiveJson = Json {
             ignoreUnknownKeys = true
@@ -799,6 +1464,11 @@ class ExternalAgentTools(
             Engine.CODEX -> "codex_sub_agent_failed"
         }
 
+        private fun Engine.progressEventType(): String = when (this) {
+            Engine.CLAUDE -> "claude_code_sub_agent_progress"
+            Engine.CODEX -> "codex_sub_agent_progress"
+        }
+
         private fun Engine.timeoutEventType(): String = when (this) {
             Engine.CLAUDE -> "claude_code_sub_agent_timeout"
             Engine.CODEX -> "codex_sub_agent_timeout"
@@ -832,7 +1502,7 @@ class ExternalAgentTools(
 @Serializable
 @LLMDescription("Context for spawning an external Claude Code or Codex sub-agent")
 data class ExternalAgentContext(
-    @property:LLMDescription("The prompt the external sub-agent should work on (any length; passed via stdin)")
+    @property:LLMDescription("The prompt the external sub-agent should work on (passed via argv for Claude, stdin for Codex)")
     val prompt: String,
     @property:LLMDescription("Human-readable name for the sub-agent (used in logs and monitoring events)")
     val name: String = "",
@@ -849,6 +1519,11 @@ data class ExternalAgentContext(
             "to /workspace. Defaults to the parent agent's workspace."
     )
     val workingDir: String? = null,
+    @property:LLMDescription(
+        "Optional workflow-level system prompt to append to the external agent session. Claude Code " +
+            "receives this via --append-system-prompt, followed by Braidrun's language constraints."
+    )
+    val systemPrompt: String = "",
     @property:LLMDescription("Maximum number of agent turns before the sub-agent is forcibly stopped")
     val maxTurns: Int = 32,
     @property:LLMDescription("Wall-clock timeout in seconds (clamped to [10, 3600])")

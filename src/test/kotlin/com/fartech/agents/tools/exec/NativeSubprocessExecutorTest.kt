@@ -130,6 +130,24 @@ class NativeSubprocessExecutorTest {
     }
 
     @Test
+    fun `stdout line callback receives lines before result is returned`() = runBlocking {
+        val lines = mutableListOf<String>()
+        val result = executor.execute(
+            ExecRequest(
+                command = listOf("/bin/sh", "-c", "printf 'one\\ntwo\\n'"),
+                workingDir = File("."),
+                timeoutSeconds = 10,
+                userId = "test-user",
+                stdoutLineCallback = { lines += it }
+            )
+        )
+
+        assertEquals(0, result.exitCode)
+        assertEquals("one\ntwo", result.stdout.trim())
+        assertEquals(listOf("one", "two"), lines)
+    }
+
+    @Test
     fun `durationMs is positive`() = runBlocking {
         val result = executor.execute(
             ExecRequest(

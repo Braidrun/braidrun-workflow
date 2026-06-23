@@ -5,11 +5,13 @@ import com.fartech.agents.tools.exec.SubprocessExecutor.ExecRequest
 import com.fartech.agents.tools.exec.SubprocessExecutor.ExecResult
 import com.fartech.agents.tools.exec.SubprocessToolContext
 import com.fartech.ftapp2.commonsKt.ConfigurationParameter
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonPrimitive
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 import java.io.File
+import java.nio.file.Files
 
 /**
  * Unit tests for [ExternalAgentTools]. The strategy is to inject a [FakeSubprocessExecutor]
@@ -30,14 +32,28 @@ class ExternalAgentToolsTest {
      */
     private class FakeSubprocessExecutor(
         private val result: ExecResult = ExecResult(0, "", "", 100),
-        private val throws: (() -> Throwable)? = null
+        private val throws: (() -> Throwable)? = null,
+        private val delayMs: Long = 0
     ) : SubprocessExecutor {
         var lastRequest: ExecRequest? = null
             private set
 
+        // Captured at execute-time (i.e. while the auth.json still exists, before the
+        // post-run cleanup deletes the per-run CODEX_HOME).
+        var capturedCodexAuthJson: String? = null
+            private set
+
         override suspend fun execute(request: ExecRequest): ExecResult {
             lastRequest = request
+            request.env["CODEX_HOME"]?.let { home ->
+                val authFile = File(home, "auth.json")
+                if (authFile.isFile) capturedCodexAuthJson = authFile.readText()
+            }
+            if (delayMs > 0) delay(delayMs)
             throws?.let { throw it() }
+            result.stdout.lineSequence()
+                .filter { it.isNotBlank() }
+                .forEach { request.stdoutLineCallback?.invoke(it) }
             return result
         }
     }
@@ -51,14 +67,16 @@ class ExternalAgentToolsTest {
         executor: SubprocessExecutor,
         parameters: List<ConfigurationParameter> = parametersWithKey("anthropic", "sk-test-anthropic") +
             parametersWithKey("openai", "sk-test-openai"),
-        events: MutableList<CapturedEvent> = mutableListOf()
+        events: MutableList<CapturedEvent> = mutableListOf(),
+        trustExecutorSandbox: Boolean = false
     ): Pair<ExternalAgentTools, MutableList<CapturedEvent>> {
         val tools = ExternalAgentTools(
             executor = executor,
             parameters = parameters,
             userId = "test-user",
             context = SubprocessToolContext(workspaceDir = File(".")),
-            onMonitorEvent = { type, summary, detail -> events += CapturedEvent(type, summary, detail) }
+            onMonitorEvent = { type, summary, detail -> events += CapturedEvent(type, summary, detail) },
+            trustExecutorSandbox = trustExecutorSandbox
         )
         return tools to events
     }
@@ -129,6 +147,53 @@ class ExternalAgentToolsTest {
         assertEquals("Plain text answer", out)
     }
 
+    @Test
+    fun `claude sub-agent emits progress while subprocess is running`() = runBlocking {
+        val executor = FakeSubprocessExecutor(
+            result = ExecResult(0, """{"result":"ok"}""", "", 1_250),
+            delayMs = 1_250
+        )
+        val params = parametersWithKey("anthropic", "sk-test") + listOf(
+            ConfigurationParameter(
+                ExternalAgentTools.CLAUDE_PROGRESS_INTERVAL_SECONDS_PARAMETER,
+                JsonPrimitive("1")
+            )
+        )
+        val (tools, events) = buildTools(executor, params)
+
+        tools.runClaudeCodeSubAgent(ExternalAgentContext(prompt = "x", name = "claude-slow"))
+
+        val progress = events.firstOrNull { it.type == "claude_code_sub_agent_progress" }
+        assertNotNull(progress, "expected a progress event while Claude subprocess was still running")
+        assertTrue(progress!!.summary.contains("正在思考"))
+        assertTrue(progress.detail!!.contains("phase=running"))
+        assertTrue(progress.detail.contains("authMode=api_key"))
+    }
+
+    @Test
+    fun `claude sub-agent emits stream json events and returns final result`() = runBlocking {
+        val streamJson = """
+            {"type":"system","model":"sonnet","session_id":"abc123","cwd":"/workspace"}
+            {"type":"assistant","message":{"content":[{"type":"text","text":"正在分析关键词"},{"type":"tool_use","id":"toolu_1","name":"Read","input":{"file_path":"keywords.csv"}}]}}
+            {"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"file contents"}]}}
+            {"type":"assistant","message":{"content":[{"type":"text","text":"正在分析关键词，已经找到问题"}]}}
+            {"type":"result","subtype":"success","result":"最终答案","session_id":"abc123","cost_usd":0.001,"usage":{"input_tokens":10,"output_tokens":20}}
+        """.trimIndent()
+        val executor = FakeSubprocessExecutor(ExecResult(0, streamJson, "", 500))
+        val (tools, events) = buildTools(executor)
+
+        val out = tools.runClaudeCodeSubAgent(ExternalAgentContext(prompt = "x", name = "claude-stream"))
+
+        assertEquals("最终答案", out)
+        assertTrue(events.any { it.type == "claude_code_stream_system" })
+        assertTrue(events.any { it.type == "claude_code_stream_text_delta" && it.summary.contains("正在分析关键词") })
+        assertTrue(events.any { it.type == "claude_code_stream_tool_call" && it.summary.contains("Read") })
+        assertTrue(events.any { it.type == "claude_code_stream_tool_result" && it.summary.contains("file contents") })
+        val completed = events.first { it.type == "claude_code_sub_agent_completed" }
+        assertTrue(completed.detail!!.contains("input_tokens=10"))
+        assertTrue(completed.detail.contains("output_tokens=20"))
+    }
+
     // ------------------------------------------------------------------------
     // Command construction
     // ------------------------------------------------------------------------
@@ -145,8 +210,15 @@ class ExternalAgentToolsTest {
         val req = executor.lastRequest!!
         assertEquals("claude", req.command.first())
         assertTrue(req.command.contains("-p"), "expected -p flag, got: ${req.command}")
-        assertEquals(listOf("--output-format", "json"),
+        assertTrue(req.command.contains("--append-system-prompt"), "expected Claude language system prompt, got: ${req.command}")
+        val appendSystemPrompt = req.command[req.command.indexOf("--append-system-prompt") + 1]
+        assertTrue("始终使用简体中文" in appendSystemPrompt, "expected Chinese response constraint, got: $appendSystemPrompt")
+        assertEquals(listOf("--output-format", "stream-json"),
             req.command.subList(req.command.indexOf("--output-format"), req.command.indexOf("--output-format") + 2))
+        // `-p --output-format=stream-json` requires --verbose or the CLI aborts.
+        assertTrue(req.command.contains("--verbose"), "stream-json print mode requires --verbose")
+        assertTrue(req.command.contains("--include-partial-messages"))
+        assertTrue(req.command.contains("--include-hook-events"))
         assertTrue(req.command.containsInOrder("--model", "claude-sonnet-4-5"))
         assertTrue(req.command.containsInOrder("--max-turns", "16"))
         // Prompt is the positional arg (last element), not stdin: the Docker
@@ -154,6 +226,37 @@ class ExternalAgentToolsTest {
         // stdin-reading `claude -p` would see EOF and abort.
         assertEquals("very long prompt", req.command.last())
         assertNull(req.stdin)
+    }
+
+    @Test
+    fun `claude command skips permissions when executor sandbox is trusted`() = runBlocking {
+        val executor = FakeSubprocessExecutor(ExecResult(0, """{"result":"ok"}""", "", 1))
+        val (tools, _) = buildTools(executor, trustExecutorSandbox = true)
+
+        tools.runClaudeCodeSubAgent(ExternalAgentContext(prompt = "x"))
+
+        assertTrue(executor.lastRequest!!.command.contains("--dangerously-skip-permissions"))
+    }
+
+    @Test
+    fun `claude system prompt includes workflow prompt, configured prompt, and chinese response rule`() = runBlocking {
+        val executor = FakeSubprocessExecutor(ExecResult(0, """{"result":"ok"}""", "", 1))
+        val params = parametersWithKey("anthropic", "sk-test") + listOf(
+            ConfigurationParameter("external_agent_claude_append_system_prompt", JsonPrimitive("额外运行约束"))
+        )
+        val (tools, _) = buildTools(executor, params)
+
+        tools.runClaudeCodeSubAgent(
+            ExternalAgentContext(
+                prompt = "x",
+                systemPrompt = "工作流系统提示"
+            )
+        )
+
+        val command = executor.lastRequest!!.command
+        val appendSystemPrompt = command[command.indexOf("--append-system-prompt") + 1]
+        assertTrue(appendSystemPrompt.indexOf("工作流系统提示") < appendSystemPrompt.indexOf("额外运行约束"))
+        assertTrue(appendSystemPrompt.indexOf("额外运行约束") < appendSystemPrompt.indexOf("始终使用简体中文"))
     }
 
     @Test
@@ -172,6 +275,42 @@ class ExternalAgentToolsTest {
         val req = executor.lastRequest!!
         assertTrue(req.command.containsInOrder("--allowedTools", "Read,Edit,Bash"))
         assertTrue(req.command.containsInOrder("--disallowedTools", "WebFetch"))
+        // Regression: claude's variadic --allowedTools/--disallowedTools must not swallow
+        // the positional prompt — a `--` terminator must sit immediately before it, and the
+        // prompt stays last. Without this claude aborts: "Input must be provided ...".
+        assertEquals("x", req.command.last())
+        assertEquals("--", req.command[req.command.size - 2])
+        assertTrue(
+            req.command.indexOf("--allowedTools") < req.command.indexOf("--"),
+            "the -- terminator must come after the tool flags"
+        )
+    }
+
+    @Test
+    fun `claude command allows output directory access`() = runBlocking {
+        val outputDir = Files.createTempDirectory("external-agent-output").toFile()
+        try {
+            val executor = FakeSubprocessExecutor(ExecResult(0, """{"result":"ok"}""", "", 1))
+            val tools = ExternalAgentTools(
+                executor = executor,
+                parameters = parametersWithKey("anthropic", "sk-test"),
+                userId = "u",
+                context = SubprocessToolContext(workspaceDir = File("."), outputDir = outputDir)
+            )
+
+            tools.runClaudeCodeSubAgent(ExternalAgentContext(prompt = "x"))
+
+            val command = executor.lastRequest!!.command
+            val env = executor.lastRequest!!.env
+            assertTrue(command.containsInOrder("--add-dir", outputDir.canonicalPath))
+            assertEquals(outputDir.absolutePath, env["BRAIDRUN_OUTPUT_DIR"])
+            assertTrue(
+                command.indexOf("--add-dir") < command.indexOf("--output-format"),
+                "--add-dir must be followed by another option so the prompt is not consumed as an allowed directory"
+            )
+        } finally {
+            outputDir.deleteRecursively()
+        }
     }
 
     @Test
@@ -200,10 +339,26 @@ class ExternalAgentToolsTest {
 
         tools.runCodexSubAgent(ExternalAgentContext(prompt = "x", model = "gpt-5-codex"))
 
-        val cmd = executor.lastRequest!!.command
+        val req = executor.lastRequest!!
+        val cmd = req.command
         assertEquals("codex", cmd[0])
         assertEquals("exec", cmd[1])
         assertTrue(cmd.containsInOrder("--model", "gpt-5-codex"))
+        // Prompt goes as a positional arg after a `--` terminator, NOT via stdin —
+        // the Docker executor keeps stdin open so a stdin-reading codex would hang.
+        assertEquals("x", cmd.last())
+        assertEquals("--", cmd[cmd.size - 2])
+        assertNull(req.stdin)
+    }
+
+    @Test
+    fun `codex command bypasses approvals when executor sandbox is trusted`() = runBlocking {
+        val executor = FakeSubprocessExecutor(ExecResult(0, """{"result":"ok"}""", "", 1))
+        val (tools, _) = buildTools(executor, trustExecutorSandbox = true)
+
+        tools.runCodexSubAgent(ExternalAgentContext(prompt = "x", model = "gpt-5-codex"))
+
+        assertTrue(executor.lastRequest!!.command.contains("--dangerously-bypass-approvals-and-sandbox"))
     }
 
     // ------------------------------------------------------------------------
@@ -457,6 +612,197 @@ class ExternalAgentToolsTest {
 
         tools.runClaudeCodeSubAgent(ExternalAgentContext(prompt = "x"))
         assertEquals(File(".").absoluteFile, executor.lastRequest!!.workingDir.absoluteFile)
+    }
+
+    // ------------------------------------------------------------------------
+    // Codex subscription mode (CODEX_HOME / auth.json)
+    // ------------------------------------------------------------------------
+
+    private val fakeCodexAuthJson =
+        """{"OPENAI_API_KEY":null,"auth_mode":"chatgpt","tokens":{"access_token":"a","refresh_token":"r","account_id":"acc"}}"""
+
+    @Test
+    fun `codex subscription materializes auth_json into CODEX_HOME and adds ignore-user-config`() = runBlocking {
+        val codexHome = Files.createTempDirectory("codex-home-test").toFile()
+        try {
+            val executor = FakeSubprocessExecutor(ExecResult(0, """{"result":"ok"}""", "", 1))
+            val params = listOf(
+                // An API key present in subscription mode must be ignored, not leaked.
+                ConfigurationParameter("openai_api_key", JsonPrimitive("sk-should-be-ignored")),
+                ConfigurationParameter(ExternalAgentTools.CODEX_AUTH_MODE_PARAMETER, JsonPrimitive("subscription")),
+                ConfigurationParameter(ExternalAgentTools.CODEX_AUTH_JSON_PARAMETER, JsonPrimitive(fakeCodexAuthJson)),
+                ConfigurationParameter(ExternalAgentTools.CODEX_MODEL_PARAMETER, JsonPrimitive("gpt-5.5")),
+                ConfigurationParameter(ExternalAgentTools.CODEX_HOME_DIR_PARAMETER, JsonPrimitive(codexHome.absolutePath))
+            )
+            val (tools, _) = buildTools(executor, params)
+
+            tools.runCodexSubAgent(ExternalAgentContext(prompt = "x", name = "codex-sub"))
+
+            val req = executor.lastRequest!!
+            assertEquals("codex", req.command[0])
+            assertEquals("exec", req.command[1])
+            assertTrue(req.command.contains("--skip-git-repo-check"))
+            assertTrue(req.command.contains("--ignore-user-config"))
+            assertTrue(req.command.containsInOrder("--model", "gpt-5.5"))
+
+            // CODEX_HOME points at our dir (native mode) and held the tenant auth.json
+            // verbatim while the subprocess ran (captured at execute-time).
+            assertEquals(codexHome.absolutePath, req.env["CODEX_HOME"])
+            assertEquals(fakeCodexAuthJson, executor.capturedCodexAuthJson)
+
+            // Subscription mode must NOT leak an OPENAI_API_KEY into the child env.
+            assertFalse(req.env.containsKey("OPENAI_API_KEY"))
+
+            // The per-run auth.json (a live token) must be cleaned up after the run.
+            assertFalse(File(codexHome, "auth.json").exists(), "auth.json should be removed after the run")
+        } finally {
+            codexHome.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `codex subscription default CODEX_HOME is isolated per step invocation`() = runBlocking {
+        val parent = File(
+            File(File(System.getProperty("java.io.tmpdir"), "braidrun-codex"), "test-user"),
+            "exec-1"
+        )
+        try {
+            val params = listOf(
+                ConfigurationParameter(ExternalAgentTools.CODEX_AUTH_MODE_PARAMETER, JsonPrimitive("subscription")),
+                ConfigurationParameter(ExternalAgentTools.CODEX_AUTH_JSON_PARAMETER, JsonPrimitive(fakeCodexAuthJson)),
+                ConfigurationParameter(ExternalAgentTools.CODEX_MODEL_PARAMETER, JsonPrimitive("gpt-5.5"))
+            )
+            val firstExecutor = FakeSubprocessExecutor(ExecResult(0, """{"result":"ok"}""", "", 1))
+            val secondExecutor = FakeSubprocessExecutor(ExecResult(0, """{"result":"ok"}""", "", 1))
+
+            val first = ExternalAgentTools(
+                executor = firstExecutor,
+                parameters = params,
+                userId = "test-user",
+                context = SubprocessToolContext(workspaceDir = File("."), executionId = "exec-1", stepName = "step:iterate:0")
+            )
+            val second = ExternalAgentTools(
+                executor = secondExecutor,
+                parameters = params,
+                userId = "test-user",
+                context = SubprocessToolContext(workspaceDir = File("."), executionId = "exec-1", stepName = "step:iterate:1")
+            )
+
+            first.runCodexSubAgent(ExternalAgentContext(prompt = "x", name = "codex-sub"))
+            second.runCodexSubAgent(ExternalAgentContext(prompt = "x", name = "codex-sub"))
+
+            val firstHome = firstExecutor.lastRequest!!.env["CODEX_HOME"]!!
+            val secondHome = secondExecutor.lastRequest!!.env["CODEX_HOME"]!!
+
+            assertNotEquals(firstHome, secondHome)
+            assertTrue(firstHome.endsWith("exec-1/step_iterate_0"), "unexpected first CODEX_HOME: $firstHome")
+            assertTrue(secondHome.endsWith("exec-1/step_iterate_1"), "unexpected second CODEX_HOME: $secondHome")
+            assertEquals(fakeCodexAuthJson, firstExecutor.capturedCodexAuthJson)
+            assertEquals(fakeCodexAuthJson, secondExecutor.capturedCodexAuthJson)
+            assertFalse(File(firstHome).exists(), "first invocation CODEX_HOME should be removed after the run")
+            assertFalse(File(secondHome).exists(), "second invocation CODEX_HOME should be removed after the run")
+        } finally {
+            parent.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `codex subscription without an explicit model is rejected`() {
+        val executor = FakeSubprocessExecutor(ExecResult(0, "", "", 1))
+        val params = listOf(
+            ConfigurationParameter(ExternalAgentTools.CODEX_AUTH_MODE_PARAMETER, JsonPrimitive("subscription")),
+            ConfigurationParameter(ExternalAgentTools.CODEX_AUTH_JSON_PARAMETER, JsonPrimitive(fakeCodexAuthJson))
+        )
+        val (tools, _) = buildTools(executor, params)
+
+        val ex = assertThrows(IllegalArgumentException::class.java) {
+            runBlocking { tools.runCodexSubAgent(ExternalAgentContext(prompt = "x")) }
+        }
+        assertTrue(ex.message!!.contains(ExternalAgentTools.CODEX_MODEL_PARAMETER))
+        assertNull(executor.lastRequest, "subprocess must not spawn without an explicit model")
+    }
+
+    @Test
+    fun `codex subscription without a credential throws a clear error`() {
+        val executor = FakeSubprocessExecutor(ExecResult(0, "", "", 1))
+        val params = listOf(
+            ConfigurationParameter(ExternalAgentTools.CODEX_AUTH_MODE_PARAMETER, JsonPrimitive("subscription")),
+            ConfigurationParameter(ExternalAgentTools.CODEX_MODEL_PARAMETER, JsonPrimitive("gpt-5.5"))
+        )
+        val (tools, events) = buildTools(executor, params)
+
+        val ex = assertThrows(IllegalStateException::class.java) {
+            runBlocking { tools.runCodexSubAgent(ExternalAgentContext(prompt = "x", name = "codex-noauth")) }
+        }
+        assertTrue(ex.message!!.contains(ExternalAgentTools.CODEX_SUBSCRIPTION_PROVIDER))
+        assertTrue(events.any { it.type == "codex_sub_agent_failed" })
+    }
+
+    @Test
+    fun `codex subscription rejects a non-json credential (eg an api key pasted by mistake)`() {
+        val executor = FakeSubprocessExecutor(ExecResult(0, "", "", 1))
+        val params = listOf(
+            ConfigurationParameter(ExternalAgentTools.CODEX_AUTH_MODE_PARAMETER, JsonPrimitive("subscription")),
+            ConfigurationParameter(ExternalAgentTools.CODEX_MODEL_PARAMETER, JsonPrimitive("gpt-5.5")),
+            ConfigurationParameter(ExternalAgentTools.CODEX_AUTH_JSON_PARAMETER, JsonPrimitive("sk-this-is-an-api-key-not-authjson"))
+        )
+        val (tools, _) = buildTools(executor, params)
+
+        val ex = assertThrows(IllegalArgumentException::class.java) {
+            runBlocking { tools.runCodexSubAgent(ExternalAgentContext(prompt = "x")) }
+        }
+        assertTrue(ex.message!!.contains("auth.json"))
+    }
+
+    @Test
+    fun `codex api_key mode is unaffected by the subscription changes`() = runBlocking {
+        val executor = FakeSubprocessExecutor(ExecResult(0, """{"result":"ok"}""", "", 1))
+        val (tools, _) = buildTools(executor) // default params include openai_api_key, no auth_mode
+
+        tools.runCodexSubAgent(ExternalAgentContext(prompt = "x", model = "gpt-5-codex"))
+
+        val req = executor.lastRequest!!
+        assertEquals("sk-test-openai", req.env["OPENAI_API_KEY"])
+        assertFalse(req.env.containsKey("CODEX_HOME"))
+        assertFalse(req.command.contains("--ignore-user-config"))
+        // --skip-git-repo-check is now added unconditionally (safe for non-repo workspaces).
+        assertTrue(req.command.contains("--skip-git-repo-check"))
+    }
+
+    @Test
+    fun `codex subscription auth failure surfaces an expired-credential alert`() {
+        val codexHome = Files.createTempDirectory("codex-home-expired").toFile()
+        try {
+            val executor = FakeSubprocessExecutor(
+                ExecResult(
+                    exitCode = 1,
+                    stdout = "",
+                    stderr = """ERROR: {"error":{"status":401,"message":"Unauthorized"}}""",
+                    durationMs = 50
+                )
+            )
+            val params = listOf(
+                ConfigurationParameter(ExternalAgentTools.CODEX_AUTH_MODE_PARAMETER, JsonPrimitive("subscription")),
+                ConfigurationParameter(ExternalAgentTools.CODEX_AUTH_JSON_PARAMETER, JsonPrimitive(fakeCodexAuthJson)),
+                ConfigurationParameter(ExternalAgentTools.CODEX_MODEL_PARAMETER, JsonPrimitive("gpt-5.5")),
+                ConfigurationParameter(ExternalAgentTools.CODEX_HOME_DIR_PARAMETER, JsonPrimitive(codexHome.absolutePath))
+            )
+            val (tools, events) = buildTools(executor, params)
+
+            val ex = assertThrows(ExternalAgentTools.ExternalAgentExecutionException::class.java) {
+                runBlocking { tools.runCodexSubAgent(ExternalAgentContext(prompt = "x", name = "codex-expired")) }
+            }
+            assertTrue(
+                ex.message!!.contains("expired") || ex.message!!.contains("revoked"),
+                "expected an expired/revoked credential hint, got: ${ex.message}"
+            )
+            assertTrue(
+                events.any { it.type == ExternalAgentTools.CODEX_SUBSCRIPTION_EXPIRED_EVENT },
+                "expected a codex_subscription_expired alert event"
+            )
+        } finally {
+            codexHome.deleteRecursively()
+        }
     }
 }
 

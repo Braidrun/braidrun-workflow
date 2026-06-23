@@ -107,11 +107,19 @@ data class DirectoryIsolationConfig(
     ): String {
         return pattern
             .replace("{base_dir}", baseDir)
-            .replace("{user_id}", userId.ifEmpty { "default" })
-            .replace("{execution_id}", executionId)
-            .replace("{step_name}", stepName.ifEmpty { "default" })
-            .replace("{agent_name}", agentName.ifEmpty { "default" })
-            .replace("{workflow_name}", workflowName.ifEmpty { "default" })
+            .replace("{user_id}", pathSegment(userId))
+            .replace("{execution_id}", pathSegment(executionId))
+            .replace("{step_name}", pathSegment(stepName))
+            .replace("{agent_name}", pathSegment(agentName))
+            .replace("{workflow_name}", pathSegment(workflowName))
+    }
+
+    private fun pathSegment(value: String): String {
+        val sanitized = value
+            .ifBlank { "default" }
+            .replace(Regex("[^A-Za-z0-9._-]+"), "_")
+            .trim('_', '.', '-')
+        return sanitized.ifBlank { "default" }
     }
 
     /**
@@ -599,6 +607,10 @@ data class AgentDefinition(
     @SerialName("working_dir")
     val workingDir: String? = null,
 
+    /** Agent 工作目录别名（web 侧和历史模板使用 workspace_dir） */
+    @SerialName("workspace_dir")
+    val workspaceDir: String? = null,
+
     /** Hooks 总开关 */
     @SerialName("hooks_enabled")
     val hooksEnabled: Boolean? = null,
@@ -716,6 +728,7 @@ data class AgentDefinition(
                 skillsConfig != null ||
                 mcpServers != null ||
                 workingDir != null ||
+                workspaceDir != null ||
                 hooksEnabled != null ||
                 agentName != null
     }
@@ -899,7 +912,7 @@ data class AgentDefinition(
                 }
             )
         }
-        workingDir?.let { params["working_dir"] = JsonPrimitive(it) }
+        (workingDir ?: workspaceDir)?.let { params["working_dir"] = JsonPrimitive(it) }
         hooksEnabled?.let { params["hooks_enabled"] = JsonPrimitive(it) }
         agentName?.let { params["agent_name"] = JsonPrimitive(it) }
         historyCompression?.let {
@@ -2488,6 +2501,25 @@ data class StepMetrics(
      */
     fun addEventBounded(event: AgentEvent, maxEvents: Int) {
         synchronized(events) {
+            if (events.size >= maxEvents) {
+                val dropIdx = events.indexOfFirst { it.category != "agent" && it.subCategory != "token" }
+                if (dropIdx >= 0) events.removeAt(dropIdx) else events.removeAt(0)
+            }
+            events.add(event)
+        }
+    }
+
+    fun replaceOrAddEventBounded(
+        event: AgentEvent,
+        maxEvents: Int,
+        replacePredicate: (AgentEvent) -> Boolean
+    ) {
+        synchronized(events) {
+            val existingIndex = events.indexOfFirst(replacePredicate)
+            if (existingIndex >= 0) {
+                events[existingIndex] = event
+                return
+            }
             if (events.size >= maxEvents) {
                 val dropIdx = events.indexOfFirst { it.category != "agent" && it.subCategory != "token" }
                 if (dropIdx >= 0) events.removeAt(dropIdx) else events.removeAt(0)

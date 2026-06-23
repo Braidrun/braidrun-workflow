@@ -87,6 +87,11 @@ class ModelRegistryTest {
             assertProviderCoverage("ollama", OLLAMA_MODELS)
         }
 
+        @Test
+        fun `YAML covers all ZAI_MODELS keys`() {
+            assertProviderCoverage("zai", ZAI_MODELS)
+        }
+
         private fun assertProviderCoverage(providerKey: String, hardcodedModels: Map<String, ai.koog.prompt.llm.LLModel>) {
             val yamlModels = ModelRegistry.getProviderModels(providerKey)
             assertNotNull(yamlModels, "ModelRegistry should have models for provider '$providerKey'")
@@ -184,6 +189,11 @@ class ModelRegistryTest {
             assertFieldsMatch("ollama", OLLAMA_MODELS)
         }
 
+        @Test
+        fun `all ZAI_MODELS fields match exactly`() {
+            assertFieldsMatch("zai", ZAI_MODELS)
+        }
+
         private fun assertFieldsMatch(providerKey: String, hardcodedModels: Map<String, ai.koog.prompt.llm.LLModel>) {
             val yamlModels = ModelRegistry.getProviderModels(providerKey)!!
             val mismatches = mutableListOf<String>()
@@ -231,10 +241,13 @@ class ModelRegistryTest {
             assertNotNull(ModelRegistry.getProviderModels("anthropic"))
             assertNotNull(ModelRegistry.getProviderModels("deepseek"))
             assertNotNull(ModelRegistry.getProviderModels("ollama"))
+            assertNotNull(ModelRegistry.getProviderModels("zai"))
 
             // Aliases
             assertNotNull(ModelRegistry.getProviderModels("open_router"), "open_router alias should resolve")
             assertNotNull(ModelRegistry.getProviderModels("open_ai"), "open_ai alias should resolve")
+            assertNotNull(ModelRegistry.getProviderModels("z_ai"), "z_ai alias should resolve")
+            assertNotNull(ModelRegistry.getProviderModels("z-ai"), "z-ai alias should resolve")
             assertNotNull(ModelRegistry.getProviderModels("x-ai"), "x-ai alias should resolve")
             assertNotNull(ModelRegistry.getProviderModels("dashscope"), "dashscope alias should resolve")
             assertNotNull(ModelRegistry.getProviderModels("moonshot"), "moonshot alias should resolve")
@@ -272,14 +285,14 @@ class ModelRegistryTest {
                 OPEN_ROUTER_MODELS, OPENAI_MODELS, GOOGLE_MODELS, ANTHROPIC_MODELS,
                 DEEPSEEK_MODELS, XAI_MODELS, QWEN_MODELS, QWEN_DIRECT_MODELS,
                 KIMI_MODELS, MINIMAX_MODELS, META_MODELS, MISTRAL_MODELS,
-                PERPLEXITY_MODELS, OLLAMA_MODELS
+                PERPLEXITY_MODELS, OLLAMA_MODELS, ZAI_MODELS
             ).sumOf { it.size }
 
             val yamlTotal = listOf(
                 "openrouter", "openai", "google", "anthropic",
                 "deepseek", "xai", "qwen", "qwen_direct",
                 "kimi", "minimax", "meta", "mistral",
-                "perplexity", "ollama"
+                "perplexity", "ollama", "zai"
             ).sumOf { ModelRegistry.getProviderModels(it)?.size ?: 0 }
 
             assertEquals(hardcodedTotal, yamlTotal) {
@@ -320,6 +333,8 @@ class ModelRegistryTest {
             val all = ModelRegistry.getAllProviderModels()
             assertTrue(all.containsKey("openrouter"))
             assertTrue(all.containsKey("open_router"))  // alias
+            assertTrue(all.containsKey("zai"))
+            assertTrue(all.containsKey("z_ai"))          // alias
             assertTrue(all.containsKey("amazon"))        // routed
         }
     }

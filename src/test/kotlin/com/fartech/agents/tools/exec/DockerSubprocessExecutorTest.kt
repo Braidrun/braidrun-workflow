@@ -6,6 +6,8 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.condition.EnabledIf
 import java.lang.reflect.Proxy
 import com.github.dockerjava.api.DockerClient
+import com.github.dockerjava.api.model.Frame
+import com.github.dockerjava.api.model.StreamType
 
 /**
  * Unit tests for [DockerSubprocessExecutor] static utilities.
@@ -13,8 +15,8 @@ import com.github.dockerjava.api.DockerClient
  * Container-level integration tests (echo, timeout, OOM, network policy) require
  * a running Docker daemon and pre-built images — they are gated behind
  * [dockerAvailable], which is opt-in: they run only when RUN_DOCKER_TESTS=true
- * (with Docker reachable). The standard hermetic CI does not set that flag, so
- * these are skipped there; set it locally to exercise the container path.
+ * (set in CI), and are silently skipped on dev machines and on generic runners
+ * where the Docker environment is not hermetic.
  */
 class DockerSubprocessExecutorTest {
 
@@ -113,6 +115,22 @@ class DockerSubprocessExecutorTest {
             ),
             env
         )
+    }
+
+    @Test
+    fun `stdout line callback preserves utf8 split across docker frames`() {
+        val lines = mutableListOf<String>()
+        val callback = DockerSubprocessExecutor.LogCaptureCallback { lines += it }
+        val text = """{"type":"assistant","text":"正在分析"}""" + "\n"
+        val bytes = text.toByteArray(Charsets.UTF_8)
+        val split = text.indexOf("正").let { text.take(it).toByteArray(Charsets.UTF_8).size + 1 }
+
+        callback.onNext(Frame(StreamType.STDOUT, bytes.copyOfRange(0, split)))
+        callback.onNext(Frame(StreamType.STDOUT, bytes.copyOfRange(split, bytes.size)))
+        val captured = callback.text()
+
+        assertEquals(listOf("""{"type":"assistant","text":"正在分析"}"""), lines)
+        assertEquals(text, captured)
     }
 
     // ─── Integration tests (Docker daemon required) ───
