@@ -73,7 +73,7 @@ class SafeFileToolsTest {
     @Test
     fun `createFromParameters blocks reads outside workflow sandbox`() {
         val workingDir = createTempDirectory("safe-tools-working").toFile().also { tempDirs.add(it.toPath()) }
-        val outsideFile = File(System.getProperty("user.dir"), "braidrun-agent/build.gradle.kts")
+        val outsideFile = File(System.getProperty("user.dir"), "braidrun-workflow/build.gradle.kts")
         val tool = SafeFileTools.createFromParameters(
             parameters = listOf(
                 ConfigurationParameter("working_dir", JsonPrimitive(workingDir.absolutePath))

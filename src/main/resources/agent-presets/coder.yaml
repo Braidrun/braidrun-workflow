@@ -1,6 +1,6 @@
 id: coder
 display_name: "Code Agent"
-description: "专门用于代码分析、生成和重构的Agent。配备文件系统、Shell、Git、代码执行和Web搜索工具。"
+description: "Code agent preset for analysis, generation, refactoring, testing, shell access, Git, and web research."
 category: coding
 icon: "💻"
 builtin: true

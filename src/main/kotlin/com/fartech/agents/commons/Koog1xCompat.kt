@@ -4,7 +4,7 @@ package com.fartech.agents.commons
  * Koog 1.0.0 compatibility shims.
  *
  * These declarations stand in for symbols Koog 0.8.0 exposed but 1.0.0
- * removed entirely. They keep the braidrun-agent strategy layer compiling
+ * removed entirely. They keep the braidrun-workflow strategy layer compiling
  * without rewriting every call site. Each shim notes its 0.x origin and
  * the 1.0.0 replacement (when one exists).
  *

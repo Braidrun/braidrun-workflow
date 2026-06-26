@@ -9,11 +9,6 @@ import com.fartech.ftapp2.commonsKt.parameter
 import kotlinx.serialization.Serializable
 import java.io.File
 
-/**
- * 工作流工具集
- *
- * 提供工作流的定义、执行、管理功能
- */
 @LLMDescription("Toolset for defining and executing complex multi-agent workflows")
 class WorkflowTools(
     private val httpAccess: HttpAccess,
@@ -34,13 +29,10 @@ class WorkflowTools(
         inputs: String = ""
     ): String {
         return try {
-            // 解析工作流
             val workflow = WorkflowParser.parseFile(workflowPath)
 
-            // 解析输入变量
             val inputMap = parseKeyValueString(inputs)
 
-            // 执行工作流
             val result = executor.execute(workflow, inputMap)
 
             if (result.success) {

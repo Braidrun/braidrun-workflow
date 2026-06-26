@@ -101,14 +101,13 @@ private val logger = KotlinLogging.logger {}
  *     `CODEX_HOME` (and bind-mounts that dir in Docker), then runs
  *     `codex exec --ignore-user-config` so the CLI resolves auth from there.
  *     Codex subscription mode **requires** an explicit model via
- *     `external_agent_codex_model` (e.g. `gpt-5.5`) or the tool-call `model` field —
- *     a ChatGPT account only accepts its provisioned models. The auth.json token is
+ *     `external_agent_codex_model` or the tool-call `model` field. Use a model
+ *     identifier that is enabled for the authenticated account. The auth.json token is
  *     not rewritten while valid, so there is no write-back; if it ever expires the
  *     credential must be refreshed (re-`codex login`).
  *
- * Set `external_agent_claude_model` to choose the default Claude Code model
- * (`sonnet`, `opus`, `haiku`, or a full model id); a tool-call `model` field
- * can still override it for one invocation.
+ * Set `external_agent_claude_model` to choose the default Claude Code model or alias.
+ * A tool-call `model` field can still override it for one invocation.
  *
  * ⚠️ Using a subscription through a multi-tenant platform is outside the vendors'
  * official terms (which sanction the official client for the account owner, or the

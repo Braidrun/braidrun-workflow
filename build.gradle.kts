@@ -2,6 +2,7 @@ plugins {
     kotlin("jvm")
     kotlin("plugin.serialization")
     `java-library`
+    application
     `maven-publish`
 }
 
@@ -12,6 +13,62 @@ repositories {
     gradlePluginPortal()
     maven { url = uri("https://jitpack.io") }
     maven { url = uri("https://maven.aliyun.com/repository/public") }
+}
+
+application {
+    mainClass.set("com.fartech.agents.cli.BraidrunWorkflowCliKt")
+}
+
+distributions {
+    main {
+        contents {
+            val cliSlf4jNop = (dependencies.create("org.slf4j:slf4j-nop:2.0.17") as org.gradle.api.artifacts.ExternalModuleDependency).apply {
+                exclude(mapOf("group" to "org.slf4j", "module" to "slf4j-api"))
+            }
+            from(configurations.detachedConfiguration(cliSlf4jNop)) {
+                into("lib")
+            }
+        }
+    }
+}
+
+tasks.named<org.gradle.jvm.application.tasks.CreateStartScripts>("startScripts") {
+    doLast {
+        unixScript.writeText(
+            """
+            #!/bin/sh
+            set -e
+            SCRIPT_DIR=${'$'}(dirname "${'$'}0")
+            APP_HOME=${'$'}(cd "${'$'}SCRIPT_DIR/.." && pwd -P)
+            if [ -n "${'$'}{JAVA_HOME:-}" ]; then
+              JAVA_EXE="${'$'}JAVA_HOME/bin/java"
+            else
+              JAVA_EXE="java"
+            fi
+            exec "${'$'}JAVA_EXE" -cp "${'$'}APP_HOME/lib/*" com.fartech.agents.cli.BraidrunWorkflowCliKt "${'$'}@"
+            """.trimIndent() + "\n"
+        )
+        unixScript.setExecutable(true)
+        runCatching {
+            ProcessBuilder("xattr", "-c", unixScript.absolutePath)
+                .inheritIO()
+                .start()
+                .waitFor()
+        }
+        windowsScript.writeText(
+            """
+            @echo off
+            set APP_HOME=%~dp0..
+            if defined JAVA_HOME (
+              set JAVA_EXE=%JAVA_HOME%\bin\java.exe
+            ) else (
+              set JAVA_EXE=java.exe
+            )
+            "%JAVA_EXE%" -cp "%APP_HOME%\lib\*" com.fartech.agents.cli.BraidrunWorkflowCliKt %*
+            exit /b %ERRORLEVEL%
+            """.trimIndent().replace("\n", "\r\n") + "\r\n"
+        )
+    }
 }
 
 // Inherited from the braidrun root build when this lived there as a module:
@@ -64,7 +121,7 @@ dependencies {
     // YAML parsing for workflow definitions
     implementation("com.charleskorn.kaml:kaml:0.71.0")
 
-    // Koog agents (assume available) - 让它管理自己的 Ktor 依赖
+    // Koog agents, using the Ktor versions resolved by Koog itself.
     implementation("ai.koog:koog-agents:${koogVersion}")
     // agents-ext (BETA stream) — homes built-in tools that 0.8.0 shipped under
     // agents-core: ExitTool, ReadFileTool, ListDirectoryTool, EditFileTool,

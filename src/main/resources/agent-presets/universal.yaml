@@ -1,6 +1,6 @@
 id: universal
 display_name: "Universal Agent"
-description: "通用AI代理，适用于大多数任务。支持工具调用、子Agent委派、技能管理、知识记忆和数据转换。"
+description: "General-purpose agent preset for tool use, sub-agent delegation, skills, knowledge memory, and data transforms."
 category: general
 icon: "🤖"
 builtin: true

@@ -19,7 +19,7 @@ private val logger = KotlinLogging.logger {}
  * - `WebWorkflowResolver`(由 braidrun-web 提供) — Web 场景,从 `WorkflowService` 与
  *   `workflowVersions` 集合加载,并做契约版本兼容性检查
  *
- * 这个抽象层的目的是让 `braidrun-agent` 对存储层保持无感:Web / DB 的细节都在 Web 侧实现。
+ * 这个抽象层的目的是让 `braidrun-workflow` 对存储层保持无感:Web / DB 的细节都在 Web 侧实现。
  */
 interface WorkflowResolver {
     /**

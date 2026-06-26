@@ -1,0 +1,12 @@
+name: research-summary
+version: 1.0.0
+description: Simple LLM-backed workflow using the researcher preset.
+agents:
+  researcher:
+    preset: researcher
+    overrides:
+      max_iterations: 32
+workflow:
+  - step: summarize
+    agent: researcher
+    input: "Explain what Braidrun Workflow is and list three practical use cases."

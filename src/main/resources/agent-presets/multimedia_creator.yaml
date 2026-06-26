@@ -1,6 +1,6 @@
 id: multimedia_creator
 display_name: "Multimedia Creator Agent"
-description: "多媒体内容创作Agent。擅长AI图片生成、音频生成、图片处理和多媒体内容制作。"
+description: "Multimedia creation agent preset for image generation, audio generation, image processing, and media workflows."
 category: creative
 icon: "🎨"
 builtin: true

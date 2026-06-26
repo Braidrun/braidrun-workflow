@@ -169,7 +169,7 @@ private fun openAgentDocumentStore(parameters: List<ConfigurationParameter>): Do
     // 里仍然写着 sql / file，会被静默映射到 mongodb（携带其它参数继续工作）。这是有意的——
     // 让升级体验是"配置过时但 app 不崩"。校验严格性留给 [WorkflowWebApplication] 的启动断言。
     val storageType = parameters.parameter("persistence_storage_type", "mongodb").trim().lowercase()
-    val namespace = parameters.parameter("persistence_namespace", "braidrun-agent")
+    val namespace = parameters.parameter("persistence_namespace", "braidrun-workflow")
     val profile = when (storageType) {
         "memory" -> StorageProfile(
             backend = StorageBackend.MEMORY,

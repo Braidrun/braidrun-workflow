@@ -209,14 +209,14 @@ If you need to reduce overhead further, you can edit `activator.sh` to output le
 - Error detector reads `CLAUDE_TOOL_OUTPUT` environment variable
 - All scripts are opt-in (you must configure them explicitly)
 
-## braidrun-agent Setup
+## braidrun-workflow Setup
 
-braidrun-agent hooks are configured automatically — the `SkillManager` discovers this skill's `hooks/braidrun-agent/`
+braidrun-workflow hooks are configured automatically — the `SkillManager` discovers this skill's `hooks/braidrun-workflow/`
 directory and loads `HOOK.md` + `handler.py` at startup.
 
 ### Events Handled
 
-This skill registers for **10 braidrun-agent events**:
+This skill registers for **10 braidrun-workflow events**:
 
 | Event                       | Behaviour                                                       |
 |-----------------------------|-----------------------------------------------------------------|
@@ -245,12 +245,12 @@ operator console. At `session:end` and `agent:completed`, it reminds the agent t
 ### Verification
 
 1. Place the skill in your skills directory (e.g. `~/.braidrun/skills-cache/self-improving-agent-3.0.1/`)
-2. Start a braidrun-agent session
+2. Start a braidrun-workflow session
 3. Verify the bootstrap message: `🧠 Self-improvement hook active on <agent-name>`
 4. Trigger a tool failure (e.g. use a non-existent tool) and check `.learnings/ERRORS.md` for auto-logged entry
 5. Check session start messages for pending learnings count
 
-### Disabling for braidrun-agent
+### Disabling for braidrun-workflow
 
 Set `hooks.enabled: false` in your agent config, or remove the skill from the skills directory.
 

@@ -1,6 +1,6 @@
 id: researcher
 display_name: "Research Agent"
-description: "专注于信息搜索和研究分析的Agent。配备Web搜索、浏览器、数据转换和知识记忆工具。"
+description: "Research agent preset for search, browsing, source synthesis, data transformation, and knowledge memory."
 category: research
 icon: "🔍"
 builtin: true

@@ -1,6 +1,6 @@
 id: excel_workbook
 display_name: "Excel Workbook Agent"
-description: "专注表格建模与报表生成的Agent。擅长创建复杂的Excel工作簿、数据表、仪表盘和公式报表。"
+description: "Excel workbook agent preset for spreadsheet modeling, data tables, dashboards, and formula-based reports."
 category: document
 icon: "📗"
 builtin: true

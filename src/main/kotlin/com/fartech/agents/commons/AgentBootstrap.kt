@@ -695,8 +695,7 @@ fun AIAgentSubgraphBuilderBase<*, *>.streamCollectNode(
  * agent context, queryable from any strategy node via
  * `tokenizer().tokenCountFor(prompt)`. This gives us **client-side
  * pre-request token estimation** for budget gating — complementary to the
- * post-request provider-reported token counts we already surface via
- * [com.fartech.agents.agents.koogTokenUsageFromStreamFrame].
+ * post-request provider-reported token counts surfaced by the active LLM client.
  *
  * Defaults:
  *   - tokenizer = [SimpleRegexBasedTokenizer] — pure-JVM, no native deps,

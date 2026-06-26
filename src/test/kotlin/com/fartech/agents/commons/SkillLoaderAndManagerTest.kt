@@ -569,12 +569,12 @@ class SkillLoaderAndManagerTest {
 
         @Test
         fun `loadAllSkills whitelist mode auto-allows configured overrides of built-in names`(@TempDir tempDir: Path) {
-            val dir = tempDir.resolve("braidrun-agent-guide")
+            val dir = tempDir.resolve("braidrun-workflow-guide")
             Files.createDirectories(dir)
             Files.writeString(
                 dir.resolve("SKILL.md"), """
                 |---
-                |name: braidrun-agent-guide
+                |name: braidrun-workflow-guide
                 |description: Local override for builtin guide
                 |---
                 |Body
@@ -590,7 +590,7 @@ class SkillLoaderAndManagerTest {
             )
             val loader = SkillLoader(tempDir, config)
             val skills = loader.loadAllSkills()
-            val overriddenGuide = skills.firstOrNull { it.name == "braidrun-agent-guide" }
+            val overriddenGuide = skills.firstOrNull { it.name == "braidrun-workflow-guide" }
 
             assertNotNull(overriddenGuide)
             assertEquals("configured", overriddenGuide!!.scope)
@@ -713,7 +713,7 @@ class SkillLoaderAndManagerTest {
             // Should load at least the built-in guide skill
             assertTrue(builtinSkills.isNotEmpty(), "Expected at least one built-in skill")
             assertTrue(builtinSkills.any { it.scope == "builtin" })
-            assertTrue(builtinSkills.any { it.name == "braidrun-agent-guide" })
+            assertTrue(builtinSkills.any { it.name == "braidrun-workflow-guide" })
         }
 
         @Test
@@ -764,7 +764,7 @@ class SkillLoaderAndManagerTest {
             val builtinSkills = loader.loadBuiltinSkills()
 
             assertTrue(builtinSkills.isNotEmpty())
-            assertTrue(builtinSkills.any { it.name == "braidrun-agent-guide" })
+            assertTrue(builtinSkills.any { it.name == "braidrun-workflow-guide" })
         }
 
         @Test
@@ -776,8 +776,8 @@ class SkillLoaderAndManagerTest {
             val loader = SkillLoader(tempDir, config)
             val builtinSkills = loader.loadBuiltinSkills()
 
-            val agentGuide = builtinSkills.firstOrNull { it.name == "braidrun-agent-guide" }
-                ?: fail("braidrun-agent-guide should be present")
+            val agentGuide = builtinSkills.firstOrNull { it.name == "braidrun-workflow-guide" }
+                ?: fail("braidrun-workflow-guide should be present")
             assertTrue(agentGuide.attachments.isNotEmpty(), "Agent guide should expose bundled references")
             assertTrue(agentGuide.attachments.any { it.path == "workflow-template.yaml" })
             assertTrue(agentGuide.attachments.any { it.path == "workflow-capability-reference.md" })
@@ -794,10 +794,10 @@ class SkillLoaderAndManagerTest {
         private fun createSkillWithHook(
             tempDir: Path,
             name: String,
-            metadata: String = """{"braidrun-agent":{"events":["agent:bootstrap"]}}"""
+            metadata: String = """{"braidrun-workflow":{"events":["agent:bootstrap"]}}"""
         ): Path {
             val skillDir = tempDir.resolve(name)
-            Files.createDirectories(skillDir.resolve("hooks/braidrun-agent"))
+            Files.createDirectories(skillDir.resolve("hooks/braidrun-workflow"))
             Files.writeString(
                 skillDir.resolve("SKILL.md"), """
                 |---
@@ -808,7 +808,7 @@ class SkillLoaderAndManagerTest {
             """.trimMargin()
             )
             Files.writeString(
-                skillDir.resolve("hooks/braidrun-agent/HOOK.md"), """
+                skillDir.resolve("hooks/braidrun-workflow/HOOK.md"), """
                 |---
                 |name: ${name}-hook
                 |description: Hook for $name
@@ -848,7 +848,7 @@ class SkillLoaderAndManagerTest {
                 |---
                 |name: global-hook
                 |description: Should not load
-                |metadata: {"braidrun-agent":{"events":["agent:bootstrap"]}}
+                |metadata: {"braidrun-workflow":{"events":["agent:bootstrap"]}}
                 |---
                 |Body
             """.trimMargin()
@@ -889,7 +889,7 @@ class SkillLoaderAndManagerTest {
             createSkillWithHook(
                 tempDir = tempDir,
                 name = "hooked-skill",
-                metadata = """{"braidrun-agent":{"events":["agent:bootstrap"],"requires":{"config":["/tmp/{project}/settings.json"],"bins":["git"]}}}"""
+                metadata = """{"braidrun-workflow":{"events":["agent:bootstrap"],"requires":{"config":["/tmp/{project}/settings.json"],"bins":["git"]}}}"""
             )
 
             val config = SkillsConfiguration(

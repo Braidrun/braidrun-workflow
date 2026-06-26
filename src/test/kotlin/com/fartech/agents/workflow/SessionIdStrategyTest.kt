@@ -131,10 +131,10 @@ class SessionIdStrategyTest {
     fun `buildLegacyParameters includes unified storage fields`() {
         val agent = AgentDefinition(
             persistenceStorageType = "sql",
-            persistenceNamespace = "braidrun-agent",
+            persistenceNamespace = "braidrun-workflow",
             persistenceCollectionPrefix = "agent",
             sqlDialect = "sqlite",
-            sqlDatabasePath = ".braidrun-agent.sqlite",
+            sqlDatabasePath = ".braidrun-workflow.sqlite",
             sqlTableName = "dy_documents",
             mongoConnectionString = "mongodb://localhost:27017",
             mongoDbName = "braidrun",
@@ -145,10 +145,10 @@ class SessionIdStrategyTest {
         val params = agent.resolveParameters()
 
         assertEquals(JsonPrimitive("sql"), params["persistence_storage_type"])
-        assertEquals(JsonPrimitive("braidrun-agent"), params["persistence_namespace"])
+        assertEquals(JsonPrimitive("braidrun-workflow"), params["persistence_namespace"])
         assertEquals(JsonPrimitive("agent"), params["persistence_collection_prefix"])
         assertEquals(JsonPrimitive("sqlite"), params["sql_dialect"])
-        assertEquals(JsonPrimitive(".braidrun-agent.sqlite"), params["sql_database_path"])
+        assertEquals(JsonPrimitive(".braidrun-workflow.sqlite"), params["sql_database_path"])
         assertEquals(JsonPrimitive("dy_documents"), params["sql_table_name"])
         assertEquals(JsonPrimitive("mongodb://localhost:27017"), params["mongo_connection_string"])
         assertEquals(JsonPrimitive("braidrun"), params["mongo_db_name"])

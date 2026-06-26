@@ -1,6 +1,6 @@
 id: writer
 display_name: "Writing Agent"
-description: "专业写作和编辑Agent。擅长创建图文并茂的Office文档、PDF、文章和创意内容。"
+description: "Writing and editing agent preset for articles, documents, PDFs, and polished creative or business content."
 category: writing
 icon: "✍️"
 builtin: true

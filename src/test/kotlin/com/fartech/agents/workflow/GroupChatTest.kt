@@ -4,24 +4,10 @@ import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 
-/**
- * Group Chat 功能的单元测试
- */
 class GroupChatTest {
 
-    private fun resolveTemplatePath(fileName: String): String {
-        val candidates = listOf(
-            "workflows/templates/$fileName",
-            "braidrun-web/workflows/templates/$fileName",
-            "../braidrun-web/workflows/templates/$fileName",
-            "../../braidrun-web/workflows/templates/$fileName"
-        )
-
-        return candidates.firstOrNull { java.io.File(it).exists() }
-            ?: error("Template file '$fileName' not found in any candidate path: $candidates")
-    }
-
-    // ==================== GroupChatConfig 验证测试 ====================
+    private fun testWorkflowPath(fileName: String): String =
+        "src/test/resources/workflows/$fileName"
 
     @Test
     fun `GroupChatConfig requires at least 2 participants`() {
@@ -162,8 +148,6 @@ class GroupChatTest {
         assertNull(config.terminationKeyword)
     }
 
-    // ==================== GroupChatMessage 测试 ====================
-
     @Test
     fun `GroupChatMessage creation`() {
         val msg = GroupChatMessage(
@@ -176,8 +160,6 @@ class GroupChatTest {
         assertEquals(1, msg.round)
         assertTrue(msg.timestamp > 0)
     }
-
-    // ==================== WorkflowStep Group Chat 模式测试 ====================
 
     @Test
     fun `WorkflowStep group chat mode basic`() {
@@ -257,8 +239,6 @@ class GroupChatTest {
         assertNull(step.input)
         assertEquals("Discuss topic", step.groupChat!!.initialMessage)
     }
-
-    // ==================== WorkflowDefinition Group Chat 验证测试 ====================
 
     @Test
     fun `WorkflowDefinition validates group chat agent references`() {
@@ -346,11 +326,9 @@ class GroupChatTest {
         assertEquals("pm", workflow.workflow[1].groupChat!!.moderator)
     }
 
-    // ==================== YAML 模板文件解析测试 ====================
-
     @Test
-    fun `parse group-chat-code-review template from YAML file`() {
-        val workflow = WorkflowParser.parseFile(resolveTemplatePath("group-chat-code-review.yaml"))
+    fun `parse group chat workflow from YAML`() {
+        val workflow = WorkflowParser.parseFile(testWorkflowPath("group-chat-code-review.yaml"))
 
         assertEquals("group-chat-code-review", workflow.name)
         assertEquals(3, workflow.agents.size)
@@ -390,43 +368,7 @@ class GroupChatTest {
         assertEquals("reviewer", step3.agent)
         assertEquals(listOf("code_review_discussion"), step3.dependsOn)
 
-        println("✅ group-chat-code-review template validated successfully")
     }
-
-    @Test
-    fun `parse group-chat-brainstorm template from YAML file`() {
-        val workflow = WorkflowParser.parseFile(resolveTemplatePath("group-chat-brainstorm.yaml"))
-
-        assertEquals("group-chat-brainstorm", workflow.name)
-        assertEquals(3, workflow.agents.size)
-        assertTrue(workflow.agents.containsKey("pm"))
-        assertTrue(workflow.agents.containsKey("designer"))
-        assertTrue(workflow.agents.containsKey("engineer"))
-        assertEquals(3, workflow.workflow.size)
-
-        // Step 2: group chat brainstorm
-        val step2 = workflow.workflow[1]
-        assertEquals("team_brainstorm", step2.step)
-        assertTrue(step2.isGroupChat)
-
-        val gc = step2.groupChat!!
-        assertEquals(listOf("pm", "designer", "engineer"), gc.participants)
-        assertEquals("pm", gc.moderator)
-        assertEquals(8, gc.maxRounds)
-        assertEquals("CONSENSUS_REACHED", gc.terminationKeyword)
-        assertEquals("pm", gc.summaryAgent)
-        assertEquals(listOf("market_research"), step2.dependsOn)
-
-        // Step 3 depends on group chat output
-        val step3 = workflow.workflow[2]
-        assertEquals("write_prd", step3.step)
-        assertTrue(step3.input!!.contains("{{steps.team_brainstorm.output}}"))
-        assertEquals(listOf("team_brainstorm"), step3.dependsOn)
-
-        println("✅ group-chat-brainstorm template validated successfully")
-    }
-
-    // ==================== Serialization roundtrip 测试 ====================
 
     @Test
     fun `GroupChatConfig serialization roundtrip`() {
@@ -473,8 +415,8 @@ class GroupChatTest {
     @Test
     fun `termination signal ignores explanatory mention of keyword`() {
         val response = """
-            我们先听听 designer 和 engineer 的看法。
-            一旦形成共识，我会输出 CONSENSUS_REACHED 并总结结论。
+            Let's hear from the designer and engineer first.
+            Once we agree, I will output CONSENSUS_REACHED and summarize the decision.
         """.trimIndent()
 
         assertFalse(containsGroupChatTerminationSignal(response, "CONSENSUS_REACHED"))
@@ -483,7 +425,7 @@ class GroupChatTest {
     @Test
     fun `termination signal accepts explicit final line keyword`() {
         val response = """
-            大家已经达成一致，建议进入总结阶段。
+            Everyone agrees. We should move to the summary.
 
             CONSENSUS_REACHED
         """.trimIndent()
@@ -498,7 +440,7 @@ class GroupChatTest {
             moderator = "pm"
         )
         val history = listOf(
-            GroupChatMessage(speaker = "pm", content = "开场", round = 1)
+            GroupChatMessage(speaker = "pm", content = "Opening note", round = 1)
         )
 
         val readiness = assessGroupChatTerminationReadiness(config, "pm", history)
@@ -514,9 +456,9 @@ class GroupChatTest {
             moderator = "pm"
         )
         val history = listOf(
-            GroupChatMessage(speaker = "pm", content = "开场", round = 1),
-            GroupChatMessage(speaker = "designer", content = "设计建议", round = 1),
-            GroupChatMessage(speaker = "engineer", content = "技术建议", round = 1)
+            GroupChatMessage(speaker = "pm", content = "Opening note", round = 1),
+            GroupChatMessage(speaker = "designer", content = "Design recommendation", round = 1),
+            GroupChatMessage(speaker = "engineer", content = "Technical recommendation", round = 1)
         )
 
         val readiness = assessGroupChatTerminationReadiness(config, "engineer", history)
@@ -532,9 +474,9 @@ class GroupChatTest {
             moderator = "pm"
         )
         val history = listOf(
-            GroupChatMessage(speaker = "pm", content = "开场", round = 1),
-            GroupChatMessage(speaker = "designer", content = "设计建议", round = 1),
-            GroupChatMessage(speaker = "engineer", content = "技术建议", round = 1)
+            GroupChatMessage(speaker = "pm", content = "Opening note", round = 1),
+            GroupChatMessage(speaker = "designer", content = "Design recommendation", round = 1),
+            GroupChatMessage(speaker = "engineer", content = "Technical recommendation", round = 1)
         )
 
         val readiness = assessGroupChatTerminationReadiness(config, "pm", history)

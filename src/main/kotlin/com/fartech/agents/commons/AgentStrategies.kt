@@ -1253,7 +1253,7 @@ fun planSolveStrategy(
         // Koog 1.0.0 — `ToolRegistry.tools` widened to `List<ToolBase<*, *>>`;
         // `planGraph` / `toolCycleGraph` still expect `List<Tool<*, *>>`
         // (the metadata-less convenience subclass). Filter to Tool here since
-        // every @Tool-annotated method in braidrun-agent compiles to a Tool
+        // every @Tool-annotated method in braidrun-workflow compiles to a Tool
         // subclass; pure-ToolBase instances (AgentContextAwareTool, etc.)
         // would drop out, and we have none.
         val toolList = tools.tools.filterIsInstance<Tool<*, *>>()

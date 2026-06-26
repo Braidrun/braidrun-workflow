@@ -39,7 +39,7 @@ class AgentMcpUtilsTest {
     @Test
     fun `resolveMcpLaunch searches parent directories for relative command path`() {
         val repoRoot = tempDir.resolve("repo").apply { mkdirs() }
-        val launchDir = repoRoot.resolve("braidrun-agent").apply { mkdirs() }
+        val launchDir = repoRoot.resolve("braidrun-workflow").apply { mkdirs() }
         val script = repoRoot.resolve("braidrun-mcp/start-mcp.sh").apply {
             parentFile.mkdirs()
             writeText("#!/usr/bin/env bash\nexit 0\n")

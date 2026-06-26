@@ -1,6 +1,6 @@
 id: pdf_processor
 display_name: "PDF Processor Agent"
-description: "专门处理PDF文档的Agent。支持PDF解析、内容提取、转换、OCR文字识别和图片处理。"
+description: "PDF processing agent preset for parsing, extraction, conversion, OCR, and image-related document work."
 category: document
 icon: "📄"
 builtin: true

@@ -1,6 +1,6 @@
 id: data_analyst
 display_name: "Data Analyst Agent"
-description: "专注于数据分析和可视化的Agent。擅长处理CSV、数据库查询、代码执行、数据转换和生成图表报告。"
+description: "Data analysis agent preset for CSV processing, database queries, code execution, transformations, and reports."
 category: data
 icon: "📊"
 builtin: true

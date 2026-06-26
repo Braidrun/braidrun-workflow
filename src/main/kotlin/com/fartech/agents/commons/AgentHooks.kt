@@ -22,7 +22,7 @@ import kotlin.io.path.readText
 // ============================================================================
 
 /**
- * Represents a hook event type for braidrun-agent.
+ * Represents a hook event type for braidrun-workflow.
  * Combines the original OpenClaw-style lifecycle events with Koog framework agent events.
  *
  * Events are grouped into categories:
@@ -40,7 +40,7 @@ import kotlin.io.path.readText
  * - **Infrastructure**: gateway startup
  */
 enum class BraidrunHookEvent {
-    // --- Original braidrun-agent lifecycle events ---
+    // --- Original braidrun-workflow lifecycle events ---
 
     /** Fired during agent bootstrap before workspace files are injected. */
     AGENT_BOOTSTRAP,
@@ -241,7 +241,7 @@ enum class BraidrunHookEvent {
 // ============================================================================
 
 /**
- * Eligibility requirements for a braidrun-agent hook.
+ * Eligibility requirements for a braidrun-workflow hook.
  * If any requirement is not satisfied the hook is silently skipped.
  */
 data class BraidrunHookRequires(
@@ -258,7 +258,7 @@ data class BraidrunHookRequires(
 )
 
 /**
- * Represents a braidrun-agent hook loaded from hooks/braidrun-agent/HOOK.md.
+ * Represents a braidrun-workflow hook loaded from hooks/braidrun-workflow/HOOK.md.
  * The hook content is injected into the agent's system prompt during the specified events.
  */
 data class BraidrunAgentHook(
@@ -345,23 +345,23 @@ data class BraidrunHookScriptResult(
 // ============================================================================
 
 /**
- * Loads braidrun-agent hooks from skill directories and workspace directories.
+ * Loads braidrun-workflow hooks from skill directories and workspace directories.
  *
- * Looks for `hooks/braidrun-agent/HOOK.md` in each skill directory.
+ * Looks for `hooks/braidrun-workflow/HOOK.md` in each skill directory.
  * Returns null if the hook file does not exist.
  */
 class BraidrunHookLoader(private val config: SkillsConfiguration) {
 
     companion object {
-        private const val HOOK_DIR = "hooks/braidrun-agent"
+        private const val HOOK_DIR = "hooks/braidrun-workflow"
         private const val HOOK_FILENAME = "HOOK.md"
         private const val YAML_DELIMITER = "---"
-        private const val NS_BRAIDRUN = "braidrun-agent"
+        private const val NS_BRAIDRUN = "braidrun-workflow"
     }
 
     /**
-     * Loads a braidrun-agent hook from the given skill directory, if present.
-     * Looks for `hooks/braidrun-agent/HOOK.md`. Returns null if not found.
+     * Loads a braidrun-workflow hook from the given skill directory, if present.
+     * Looks for `hooks/braidrun-workflow/HOOK.md`. Returns null if not found.
      */
     fun loadHookFromSkillDir(skillDir: Path, skillName: String): BraidrunAgentHook? {
         val hookFile = skillDir.resolve(HOOK_DIR).resolve(HOOK_FILENAME)
@@ -372,7 +372,7 @@ class BraidrunHookLoader(private val config: SkillsConfiguration) {
     }
 
     /**
-     * Loads a braidrun-agent hook from a direct file path.
+     * Loads a braidrun-workflow hook from a direct file path.
      * Used for workspace-level hooks that don't follow the skill directory structure.
      */
     fun loadHookFromFile(hookFile: Path, skillName: String, isWorkspaceHook: Boolean = false): BraidrunAgentHook? {
@@ -499,7 +499,7 @@ class BraidrunHookLoader(private val config: SkillsConfiguration) {
 // ============================================================================
 
 /**
- * Executes braidrun-agent hook handler scripts (.py, .js, .kts).
+ * Executes braidrun-workflow hook handler scripts (.py, .js, .kts).
  *
  * Protocol:
  *   - A [BraidrunHookContext] is serialised to JSON and written to the script's **stdin**.
@@ -919,7 +919,7 @@ class BraidrunHookExecutor(private val config: SkillsConfiguration = SkillsConfi
 
 /**
  * Creates a Koog [GraphAIAgent.FeatureContext] installer that wires **all** Koog framework
- * events to the braidrun-agent hook dispatching system via [SkillManager.dispatchHooks].
+ * events to the braidrun-workflow hook dispatching system via [SkillManager.dispatchHooks].
  *
  * This replaces the original [defaultInstallFeatures] and ensures every Koog lifecycle event
  * is forwarded to any registered hook handler scripts.

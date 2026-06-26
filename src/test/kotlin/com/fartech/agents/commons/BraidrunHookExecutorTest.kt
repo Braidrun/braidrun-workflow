@@ -71,12 +71,12 @@ class BraidrunHookExecutorTest {
     @Test
     fun `extractJsonStringArray decodes surrogate pair emoji in array items`() {
         // Reproduces the exact scenario from the execution log:
-        // [Hooks] 💬 ud83eudde0 Self-improvement hook active on braidrun-agent
-        // The hook script outputs: {"messages":["\uD83E\uDDE0 Self-improvement hook active on braidrun-agent"]}
-        val json = """{"messages":["\uD83E\uDDE0 Self-improvement hook active on braidrun-agent"]}"""
+        // [Hooks] 💬 ud83eudde0 Self-improvement hook active on braidrun-workflow
+        // The hook script outputs: {"messages":["\uD83E\uDDE0 Self-improvement hook active on braidrun-workflow"]}
+        val json = """{"messages":["\uD83E\uDDE0 Self-improvement hook active on braidrun-workflow"]}"""
         val result = executor.extractJsonStringArray(json, "messages")
         assertEquals(1, result.size)
-        assertEquals("🧠 Self-improvement hook active on braidrun-agent", result[0])
+        assertEquals("🧠 Self-improvement hook active on braidrun-workflow", result[0])
     }
 
     @Test
@@ -105,10 +105,10 @@ class BraidrunHookExecutorTest {
     @Test
     fun `parseScriptResult decodes emoji in messages field`() {
         val stdout =
-            """{"injectContent":null,"virtualFiles":[],"messages":["\uD83E\uDDE0 Self-improvement hook active on braidrun-agent"]}"""
+            """{"injectContent":null,"virtualFiles":[],"messages":["\uD83E\uDDE0 Self-improvement hook active on braidrun-workflow"]}"""
         val result = executor.parseScriptResult(stdout)
         assertEquals(1, result.messages.size)
-        assertEquals("🧠 Self-improvement hook active on braidrun-agent", result.messages[0])
+        assertEquals("🧠 Self-improvement hook active on braidrun-workflow", result.messages[0])
     }
 
     @Test

@@ -1,0 +1,14 @@
+name: example-workflow
+version: 1.0.0
+description: Replace this with a short current-purpose description.
+
+agents:
+  worker:
+    preset: universal
+    overrides:
+      max_iterations: 32
+
+workflow:
+  - step: run
+    agent: worker
+    input: "Describe the task clearly here."

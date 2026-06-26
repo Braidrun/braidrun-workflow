@@ -1,6 +1,6 @@
 id: universal_reasoning
 display_name: "Universal Reasoning Agent"
-description: "带推理能力的通用Agent，在执行每个动作前显示思考过程。配备知识记忆、数据转换等工具，适合需要深度分析的复杂任务。"
+description: "General-purpose reasoning preset for complex analysis, visible reasoning steps, knowledge memory, and transforms."
 category: general
 icon: "🧠"
 builtin: true

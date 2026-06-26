@@ -1,0 +1,27 @@
+name: group-chat-code-review
+version: 1.0.0
+agents:
+  coder:
+    preset: coder
+  reviewer:
+    preset: coder
+  tester:
+    preset: coder
+workflow:
+  - step: write_code
+    agent: coder
+    input: "Implement a small utility function."
+  - step: code_review_discussion
+    depends_on: [write_code]
+    group_chat:
+      participants: [coder, reviewer, tester]
+      moderator: reviewer
+      max_rounds: 6
+      speaker_selection: round_robin
+      termination_keyword: APPROVED
+      initial_message: "Review {{steps.write_code.output}}"
+      summary_agent: reviewer
+  - step: final_report
+    agent: reviewer
+    depends_on: [code_review_discussion]
+    input: "Summarize {{steps.code_review_discussion.output}}"

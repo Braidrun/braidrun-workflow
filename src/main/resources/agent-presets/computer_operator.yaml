@@ -1,6 +1,6 @@
 id: computer_operator
 display_name: "Computer Operator Agent"
-description: "专注于电脑操作和自动化任务的Agent。配备浏览器自动化、Shell命令、文件系统、数据库和图像处理工具，擅长执行桌面自动化和系统管理任务。"
+description: "Automation agent preset for browser control, shell commands, file operations, databases, and image processing."
 category: automation
 icon: "🖥️"
 builtin: true

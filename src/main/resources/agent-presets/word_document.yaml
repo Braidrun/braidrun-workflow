@@ -1,6 +1,6 @@
 id: word_document
 display_name: "Word Document Agent"
-description: "专注文档写作与排版的Agent。擅长创建专业的Word文档、报告、方案、手册和图文混排文稿。"
+description: "Word document agent preset for professional documents, reports, proposals, manuals, and formatted layouts."
 category: document
 icon: "📄"
 builtin: true

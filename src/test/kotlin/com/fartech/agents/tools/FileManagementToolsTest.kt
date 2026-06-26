@@ -58,7 +58,7 @@ class FileManagementToolsTest {
     @Test
     fun `readFileRange blocks reads outside allowed directories`(@TempDir tempDir: Path) {
         val workingDir = tempDir.resolve("workspace").toFile().apply { mkdirs() }
-        val outsideFile = File(System.getProperty("user.dir"), "braidrun-agent/build.gradle.kts")
+        val outsideFile = File(System.getProperty("user.dir"), "braidrun-workflow/build.gradle.kts")
         val tools = FileManagementTools.createFromParameters(
             listOf(
                 ConfigurationParameter("working_dir", JsonPrimitive(workingDir.absolutePath))

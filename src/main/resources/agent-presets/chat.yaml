@@ -1,6 +1,6 @@
 id: chat
 display_name: "Chat Agent"
-description: "对话式Agent，专注于多轮对话交互。支持上下文记忆和会话历史管理。"
+description: "Conversational agent preset for multi-turn assistance, context retention, and session-oriented work."
 category: chat
 icon: "💬"
 builtin: true

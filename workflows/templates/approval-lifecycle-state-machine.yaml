@@ -1,136 +1,26 @@
----
 name: approval-lifecycle-state-machine
 version: 1.0.0
+description: Generic approval workflow with a human review gate.
 tags:
-- state_machine
-- group_chat
-- automation
-- approval
-category: automation
-description: |
-  审批生命周期状态机工作流。用状态机节点驱动”起草 → 质检 → 返工 → 通过”的完整审批生命周期，
-  自动管理状态流转和条件分支。模板展示了 control state、group_chat state 和 code state
-  在 state_machine 内的组合方式，适用于需要多轮审批和质量把关的企业文档审批场景。
-timeout:
-  total: 1800s
-  per_step: 600s
-variables:
-  proposal_topic: 新版本发布公告
-  approval_mode: rework
-  output_dir: "./output"
-variable_tags:
-  approval_mode: '业务参数'
-  output_dir: '输出'
-  proposal_topic: '业务参数'
+  - approval
+  - governance
 agents:
-  drafter:
-    preset: writer
-    overrides:
-      tool_set: [exit, file_system]
-      max_iterations: 4096
-      session_id_strategy: per_execution
-  reviewer:
+  operator:
     preset: universal
-    overrides:
-      system_prompt: "You review drafts and focus on clarity, risk, and readiness."
-      tool_set: [exit, file_system]
-      max_iterations: 4096
-      session_id_strategy: per_execution
 workflow:
-- step: approval_cycle
-  state_machine:
-    initial_state: intake
-    final_states:
-    - approved
-    max_transitions: 12
-    states:
-      intake:
-        name: intake
-        transitions:
-        - event: enter
-          target: draft
-      draft:
-        name: draft
-        step:
-          agent: drafter
-          input: |
-            请起草一版关于“{{var:proposal_topic}}”的公告文案。
-            同时把结果保存到 {{var:output_dir}}/approval_draft.md。
-        transitions:
-        - event: complete
-          target: qa_check
-      qa_check:
-        name: qa_check
-        step:
-          code:
-            language: bash
-            script: |
-              echo "approval=${WF_VAR_APPROVAL_MODE}"
-          extract:
-          - pattern: approval=(\w+)
-            variable: approval_result
-        transitions:
-        - event: complete
-          target: approved
-          condition: approval_result == approved
-        - event: complete
-          target: rework
-          condition: approval_result == rework
-      rework:
-        name: rework
-        step:
-          group_chat:
-            participants:
-            - drafter
-            - reviewer
-            moderator: reviewer
-            max_rounds: 3
-            speaker_selection: round_robin
-            termination_keyword: CONSENSUS_REACHED
-            initial_message: |
-              请围绕“{{var:proposal_topic}}”的公告文案进行返工讨论。
-              当前审批结果：{{var:approval_result}}
-            summary_agent: reviewer
-        transitions:
-        - event: complete
-          target: approved
-      approved:
-        name: approved
-- step: publish_summary
-  agent: reviewer
-  input: |
-    总结该审批状态机的执行过程，并保存到 {{var:output_dir}}/approval_summary.md：
-    最终状态：{{var:approval_cycle_final_state}}
-    质检输出：{{var:approval_cycle_qa_check_output}}
-    最终结果：{{var:approval_cycle_last_output}}
-    历史：{{var:approval_cycle_history}}
-  depends_on:
-  - approval_cycle
-directory_isolation:
-  enabled: true
-  base_dir: ".workflow-runs"
-  working_dir_pattern: "{base_dir}/{execution_id}/{step_name}/workspace"
-  output_dir_pattern: "{base_dir}/{execution_id}/output"
-  persistence_dir_pattern: "{base_dir}/{execution_id}/.snapshots"
-  shared_cache_dir: ".prompt_cache"
-  shared_history_dir: ".agent_history"
-  shared_skills_dir: "./skills"
-  cleanup_on_completion: false
-  cleanup_after_hours: 72
-concurrency:
-  enabled: false
-  max_concurrency: 0
-global_agent:
-  enabled: true
-  agent:
-    preset: universal
-    overrides:
-      system_prompt: |-
-        你是工作流模板助手，负责帮助用户理解、调试和演示当前工作流。
-        生成或修改 YAML 时必须使用 braidrun-agent 的 snake_case 语法，并优先保持模板可直接运行。
-      tool_set:
-      - workflow
-      - file_system
-      - exit
-      max_iterations: 2048
-      session_id_strategy: per_execution
+  - step: prepare_change
+    agent: operator
+    input: "Prepare a concise change proposal with risks and rollback notes."
+  - step: approval_gate
+    agent: operator
+    depends_on: [prepare_change]
+    input: "Wait for approval before continuing. Proposal: {{steps.prepare_change.output}}"
+    manual_approval:
+      enabled: true
+      approvers: [admin]
+      timeout: 3600
+      approval_message: "Approve this workflow change before execution continues."
+  - step: execution_plan
+    agent: operator
+    depends_on: [approval_gate]
+    input: "Create the execution plan after approval."

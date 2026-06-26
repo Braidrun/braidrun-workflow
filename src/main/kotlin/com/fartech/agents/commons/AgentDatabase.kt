@@ -152,7 +152,7 @@ suspend inline fun <reified T : Any, reified R> withKMongo(
 
 suspend inline fun <reified T : Any, reified R> withKMongo(
     parameters: List<ConfigurationParameter>,
-    dbName: String = parameters.parameter("mongo_db_name", "braidrun-agent"),
+    dbName: String = parameters.parameter("mongo_db_name", "braidrun-workflow"),
     // Fallback to qualifiedName when simpleName is null (anonymous/local class) to avoid NPE.
     // Final fallback of "collection" is defensive — unnamed reified classes are rare in practice.
     collectionName: String = parameters.parameter(

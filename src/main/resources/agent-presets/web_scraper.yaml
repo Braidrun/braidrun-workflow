@@ -1,6 +1,6 @@
 id: web_scraper
 display_name: "Web Scraper Agent"
-description: "专注于网页爬虫和数据采集的Agent。配备浏览器自动化、Web请求、数据转换、文件系统和OCR工具，擅长从网页中提取结构化数据。"
+description: "Web scraping agent preset for browser automation, HTTP retrieval, OCR, file output, and structured extraction."
 category: data
 icon: "🕷️"
 builtin: true

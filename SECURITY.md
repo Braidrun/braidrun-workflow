@@ -14,7 +14,7 @@ informed of the fix progress.
 This library can execute workflow-defined shell commands and code steps,
 access databases, browsers and the local filesystem **by design**. Operating
 it safely requires configuring the guardrails described in
-[docs/SECURITY_HARDENING.md](docs/SECURITY_HARDENING.md), including:
+[docs/SECURITY.md](docs/SECURITY.md), including:
 
 - code-step sandboxing (Docker-per-step execution)
 - environment-variable allowlists for native subprocesses

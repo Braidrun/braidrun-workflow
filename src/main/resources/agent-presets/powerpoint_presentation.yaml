@@ -1,6 +1,6 @@
 id: powerpoint_presentation
 display_name: "PowerPoint Presentation Agent"
-description: "专注演示文稿创作的Agent。擅长创建图文并茂的PowerPoint演示文稿、培训课件和汇报材料。"
+description: "Presentation agent preset for PowerPoint decks, training material, and visual briefing documents."
 category: document
 icon: "📽️"
 builtin: true

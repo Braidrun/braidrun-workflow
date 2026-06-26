@@ -485,7 +485,7 @@ class PowerPointAdvancedTools : ToolSet {
                         val scale = height!!.toDouble() / pgsize.height
                         (pgsize.width * scale).toInt() to height
                     }
-                    val marker = ToolPathSecurity.validateOutputPath(File(outputDir, ".braidrun-agent-dir-check").path)
+                    val marker = ToolPathSecurity.validateOutputPath(File(outputDir, ".braidrun-workflow-dir-check").path)
                     val dir = marker.parentFile
                     exportedDirectory = dir
                     show.slides.forEachIndexed { idx, slide ->

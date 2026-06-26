@@ -314,8 +314,8 @@ class AgentSkillsTest {
             val config = SkillsConfiguration(skillWhitelistMode = true)
             assertTrue(
                 config.isSkillEnabled(
-                    "braidrun-agent-guide",
-                    autoWhitelistedSkillNames = setOf("braidrun-agent-guide")
+                    "braidrun-workflow-guide",
+                    autoWhitelistedSkillNames = setOf("braidrun-workflow-guide")
                 )
             )
             assertFalse(config.isSkillEnabled("not-allowed"))

@@ -1,6 +1,6 @@
 id: communication
 display_name: "Communication Agent"
-description: "通信和消息Agent。擅长发送邮件、即时消息（Telegram/钉钉/企微/飞书/Slack等），支持多平台消息管理。"
+description: "Communication agent preset for email, instant messaging, and multi-platform message workflows."
 category: communication
 icon: "📨"
 builtin: true

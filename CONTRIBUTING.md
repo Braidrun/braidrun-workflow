@@ -40,8 +40,7 @@ Notes on the test suite:
    `src/test/kotlin/com/fartech/agents/workflow/`; follow the existing
    patterns there.
 4. Run `./gradlew build` locally before opening the PR.
-5. Update `CHANGELOG.md` (the `[Unreleased]` section) for user-visible
-   changes.
+5. Update README or docs when behavior, commands, or configuration changes.
 
 ## Code style
 
@@ -49,8 +48,8 @@ Notes on the test suite:
   enforced via `.editorconfig`.
 - Public API surface should have KDoc; internal helpers only need comments
   where the code cannot speak for itself.
-- Workflow YAML examples and templates live under `workflows/templates/`;
-  validate them via the parser tests, e.g.
+- Workflow YAML examples live under `examples/workflows/`; validate them via
+  the parser tests, e.g.
   `./gradlew test --tests "com.fartech.agents.workflow.WorkflowTemplateValidationTest"`.
 
 ## Commit messages

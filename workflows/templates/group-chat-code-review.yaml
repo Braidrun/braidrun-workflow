@@ -1,136 +1,31 @@
----
 name: group-chat-code-review
-version: 3.0.0
+version: 1.0.0
+description: Multi-agent discussion workflow for reviewing a proposed code change.
 tags:
-- 代码审查
-- 团队协作
-- 软件工程
-- 多角色协作
-- group_chat
-category: utility
-description: |
-  多角色协作代码审查工作流，Coder 编写代码后由 Coder/Reviewer/Tester 三方 round-robin 讨论代码正确性、边界条件、性能优化和可读性，最终输出包含审查结论、主要发现和行动项的审查报告。
-  特性：group_chat 多角色协作代码审查
-variables:
-  task_description: 实现一个高效的 LRU Cache 数据结构
-  output_dir: "./output/group-chat-code-review"
-  demo_mode: 'true'
-variable_tags:
-  demo_mode: '运行模式'
-  output_dir: '输出'
-  task_description: '业务参数'
+  - coding
+  - group-chat
 agents:
   coder:
     preset: coder
-    overrides:
-      system_prompt: |-
-        共同要求：
-        - 该模板以“可直接运行演示”为第一目标。
-        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
-        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
-      session_id_strategy: per_execution
   reviewer:
-    preset: universal
-    overrides:
-      system_prompt: |-
-        你是一名资深代码审查专家，擅长发现代码质量问题、设计缺陷和性能隐患。
-
-        共同要求：
-        - 该模板以“可直接运行演示”为第一目标。
-        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
-        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
-      session_id_strategy: per_execution
+    preset: coder
   tester:
-    preset: universal
-    overrides:
-      system_prompt: |-
-        你是一名资深测试工程师，擅长发现边界条件和潜在 bug。
-
-        共同要求：
-        - 该模板以“可直接运行演示”为第一目标。
-        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
-        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
-      session_id_strategy: auto
+    preset: coder
 workflow:
-- step: write_code
-  agent: coder
-  input: |-
-    {{task_description}}
-
-    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/write_code.md。
-- step: code_review_discussion
-  group_chat:
-    participants:
-    - coder
-    - reviewer
-    - tester
-    moderator: reviewer
-    max_rounds: 6
-    speaker_selection: round_robin
-    termination_keyword: APPROVED
-    initial_message: |-
-      请审查以下代码并讨论其质量、潜在问题和改进建议：
-
-      {{steps.write_code.output}}
-
-      讨论要点：
-      1. 代码正确性
-      2. 边界条件处理
-      3. 性能优化
-      4. 代码可读性
-
-      讨论结束时请给出一段可复用的结论摘要，便于后续步骤直接保存为 demo 交付物。
-    summary_agent: reviewer
-  depends_on:
-  - write_code
-- step: final_report
-  agent: reviewer
-  input: |-
-    基于代码审查讨论的结论，撰写一份最终审查报告：
-
-    {{steps.code_review_discussion.output}}
-
-    报告应包含：
-    1. 审查结论（通过/需修改/拒绝）
-    2. 主要发现
-    3. 改进建议
-    4. 行动项
-
-    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/final_report.md。
-  depends_on:
-  - code_review_discussion
-error_handling:
-  max_retries: 2
-  retry_delay: 3s
-  continue_on_error: false
-timeout:
-  total: 1800s
-  per_step: 300s
-directory_isolation:
-  enabled: true
-  base_dir: ".workflow-runs"
-  working_dir_pattern: "{base_dir}/{execution_id}/{step_name}/workspace"
-  output_dir_pattern: "{base_dir}/{execution_id}/output"
-  persistence_dir_pattern: "{base_dir}/{execution_id}/.snapshots"
-  shared_cache_dir: ".prompt_cache"
-  shared_history_dir: ".agent_history"
-  shared_skills_dir: "./skills"
-  cleanup_on_completion: false
-  cleanup_after_hours: 72
-concurrency:
-  enabled: true
-  max_concurrency: 4
-global_agent:
-  enabled: true
-  agent:
-    preset: universal
-    overrides:
-      system_prompt: |-
-        你是工作流模板助手，负责帮助用户理解、调试和演示当前工作流。
-        生成或修改 YAML 时必须使用 braidrun-agent 的 snake_case 语法，并优先保持模板可直接运行。
-      tool_set:
-      - workflow
-      - file_system
-      - exit
-      max_iterations: 2048
-      session_id_strategy: per_execution
+  - step: collect_context
+    agent: coder
+    input: "Describe the proposed change and the files most likely to be affected."
+  - step: review_discussion
+    depends_on: [collect_context]
+    group_chat:
+      participants: [coder, reviewer, tester]
+      moderator: reviewer
+      max_rounds: 6
+      speaker_selection: round_robin
+      termination_keyword: APPROVED
+      initial_message: "Review this change context: {{steps.collect_context.output}}"
+      summary_agent: reviewer
+  - step: final_review_report
+    agent: reviewer
+    depends_on: [review_discussion]
+    input: "Write the final review report from: {{steps.review_discussion.output}}"

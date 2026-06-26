@@ -266,7 +266,7 @@ data class SkillsConfiguration(
      */
     val materializeRuntimeSkills: Boolean = true,
     /**
-     * Optional workspace directory. When set, hooks/braidrun-agent/ inside this directory
+     * Optional workspace directory. When set, hooks/braidrun-workflow/ inside this directory
      * will be scanned for workspace-level hooks with the highest priority.
      */
     val workspaceDir: String? = null,
@@ -313,7 +313,7 @@ data class SkillsConfiguration(
     // ------------------------------------------------------------------
 
     /**
-     * Global switch for the braidrun-agent hooks subsystem.
+     * Global switch for the braidrun-workflow hooks subsystem.
      * When false, all hooks are skipped entirely (no loading, no execution).
      */
     val hooksEnabled: Boolean = true,
@@ -340,7 +340,7 @@ data class SkillsConfiguration(
     val allowedScriptTypes: List<String> = listOf("py", "js", "ts", "kts"),
 
     /**
-     * Override the default user-global hooks directory (~/.braidrun/hooks/braidrun-agent/).
+     * Override the default user-global hooks directory (~/.braidrun/hooks/braidrun-workflow/).
      * When null the default path is used.  Absolute path expected.
      */
     val userGlobalHooksDir: String? = null
@@ -1284,7 +1284,7 @@ class SkillLoader(
     }
 
     /**
-     * Discovers and loads all braidrun-agent hooks from all skill directories.
+     * Discovers and loads all braidrun-workflow hooks from all skill directories.
      *
      * Mirrors the multi-directory scanning logic of [loadAllSkills] so that hooks
      * bundled inside skills discovered via additionalSkillPaths, standard cross-client
@@ -1408,7 +1408,7 @@ class SkillLoader(
             }
         }
 
-        // 4. User-global hooks (~/.braidrun/hooks/braidrun-agent/, medium-high priority)
+        // 4. User-global hooks (~/.braidrun/hooks/braidrun-workflow/, medium-high priority)
         loadUserGlobalHooks(hookLoader).forEach { hook ->
             hooksMap[hook.name] = hook
             logProgress(AnsiColor.GREEN, "Hooks", "✓ Loaded user-global hook: ${hook.name} [user-global]")
@@ -1425,7 +1425,7 @@ class SkillLoader(
 
     /**
      * Loads hooks from the user-global directory.
-     * Default path: ~/.braidrun/hooks/braidrun-agent/. Can be overridden via
+     * Default path: ~/.braidrun/hooks/braidrun-workflow/. Can be overridden via
      * [SkillsConfiguration.userGlobalHooksDir].
      * Priority: higher than skill-bundled hooks, lower than workspace hooks.
      */
@@ -1435,7 +1435,7 @@ class SkillLoader(
                 Paths.get(config.userGlobalHooksDir)
             } else {
                 val userHome = System.getProperty("user.home") ?: return emptyList()
-                Paths.get(userHome).resolve(".braidrun/hooks/braidrun-agent")
+                Paths.get(userHome).resolve(".braidrun/hooks/braidrun-workflow")
             }
         } catch (e: Exception) {
             return emptyList()
@@ -1467,14 +1467,14 @@ class SkillLoader(
     }
 
     /**
-     * Loads hooks from <workspaceDir>/hooks/braidrun-agent/.
+     * Loads hooks from <workspaceDir>/hooks/braidrun-workflow/.
      * Supports a single HOOK.md directly in that directory, or multiple subdirectories
      * each containing their own HOOK.md.
      */
     private fun loadWorkspaceHooks(hookLoader: BraidrunHookLoader): List<BraidrunAgentHook> {
         val workspaceDirStr = config.workspaceDir ?: return emptyList()
         val wsHooksDir = try {
-            Paths.get(workspaceDirStr).resolve("hooks/braidrun-agent")
+            Paths.get(workspaceDirStr).resolve("hooks/braidrun-workflow")
         } catch (e: Exception) {
             return emptyList()
         }

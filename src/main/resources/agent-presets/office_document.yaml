@@ -1,6 +1,6 @@
 id: office_document
 display_name: "Office Document Agent"
-description: "专业Office文档处理Agent。擅长创建和编辑图文并茂的Word、Excel、PowerPoint文档，支持丰富的字体、样式和排版。"
+description: "Office document agent preset for Word, Excel, PowerPoint, formatted documents, and mixed media layouts."
 category: document
 icon: "📝"
 builtin: true

@@ -1,0 +1,10 @@
+name: hello-code
+version: 1.0.0
+description: Minimal code-only workflow for validating the CLI and executor.
+agents: {}
+workflow:
+  - step: hello
+    code:
+      language: bash
+      script: |
+        echo "Hello from Braidrun Workflow"

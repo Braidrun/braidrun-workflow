@@ -1,0 +1,20 @@
+name: codex-delegation
+version: 1.0.0
+description: Parent coding agent with access to the external Claude/Codex agent tool group.
+agents:
+  coder:
+    preset: coder
+    overrides:
+      tool_set:
+        - exit
+        - file_system
+        - shell
+        - git
+        - code_execution
+        - web
+        - external_agent
+      max_iterations: 48
+workflow:
+  - step: inspect
+    agent: coder
+    input: "Inspect the repository and, if useful, delegate a focused coding subtask to Codex or Claude Code."

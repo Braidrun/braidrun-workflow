@@ -40,7 +40,7 @@ import java.io.PrintStream
 import java.nio.charset.StandardCharsets
 import java.util.UUID
 
-private const val AGENT_MCP_SERVER_NAME = "braidrun-agent"
+private const val AGENT_MCP_SERVER_NAME = "braidrun-workflow"
 private const val AGENT_MCP_SERVER_VERSION = "1.0.0-SNAPSHOT"
 
 private val mcpLogger = KotlinLogging.logger("com.fartech.agents.mcp.AgentMcpServer")
@@ -206,37 +206,37 @@ data class AgentMcpToolGroupDefinition(
 private val koogJsonSerializer = KotlinxSerializer()
 
 private val agentMcpToolGroups = listOf(
-    AgentMcpToolGroupDefinition("sub_agent", "子 Agent 委派与协作工具"),
-    AgentMcpToolGroupDefinition("file_system", "基础文件读写、目录遍历与编辑工具"),
-    AgentMcpToolGroupDefinition("shell", "Shell 命令执行工具"),
-    AgentMcpToolGroupDefinition("web", "网页抓取、搜索与 HTTP 工具"),
-    AgentMcpToolGroupDefinition("browser", "基于 Playwright 的浏览器自动化工具"),
+    AgentMcpToolGroupDefinition("sub_agent", "Sub-agent delegation and collaboration tools"),
+    AgentMcpToolGroupDefinition("file_system", "File reading, writing, listing, and editing tools"),
+    AgentMcpToolGroupDefinition("shell", "Shell command execution tools"),
+    AgentMcpToolGroupDefinition("web", "Web fetching, search, and HTTP tools"),
+    AgentMcpToolGroupDefinition("browser", "Playwright-based browser automation tools"),
     // Document tool groups (Phase 6 consolidation — each group maps to a single
     // canonical backend ToolSet family; Advanced/Enhanced tier classes merged or
     // kept @Deprecated under the same group name).
-    AgentMcpToolGroupDefinition("pdf", "PDF 工具 (读/编辑/合并/页面操作/表单/加密/标注) — 已合并 PDFAdvancedTools"),
-    AgentMcpToolGroupDefinition("iwork", "Apple iWork 工具 (Pages/Numbers/Keynote) — 已整并 Apple*Tools 子类"),
-    AgentMcpToolGroupDefinition("office", "Office 文档全套 (Word + Excel + PowerPoint + CSV),一次装载所有相关工具"),
-    AgentMcpToolGroupDefinition("word", "Word 文档工具 (含基础/高级/增强层)"),
-    AgentMcpToolGroupDefinition("excel", "Excel 工作簿工具 (含基础/高级/增强层)"),
-    AgentMcpToolGroupDefinition("powerpoint", "PowerPoint 演示文稿工具 (含基础/高级/增强层)"),
-    AgentMcpToolGroupDefinition("csv", "CSV 工具 (读写/过滤/选列/合并/XLSX 互转)"),
-    AgentMcpToolGroupDefinition("multimedia", "多媒体生成工具"),
-    AgentMcpToolGroupDefinition("apple_app_info", "Apple App Store 信息查询工具"),
-    AgentMcpToolGroupDefinition("skill_tools", "技能检索、安装与管理工具"),
-    AgentMcpToolGroupDefinition("im", "即时通讯集成工具"),
-    AgentMcpToolGroupDefinition("workflow", "工作流执行与管理工具"),
-    AgentMcpToolGroupDefinition("file_management", "文件复制、移动、压缩、搜索等管理工具"),
-    AgentMcpToolGroupDefinition("code_execution", "代码执行工具"),
-    AgentMcpToolGroupDefinition("database", "SQLite/JDBC 数据库工具"),
-    AgentMcpToolGroupDefinition("image_processing", "图片处理工具"),
-    AgentMcpToolGroupDefinition("email", "邮件收发工具"),
-    AgentMcpToolGroupDefinition("knowledge_memory", "本地知识记忆工具"),
-    AgentMcpToolGroupDefinition("rag_tools", "RAG 文档索引与检索工具"),
-    AgentMcpToolGroupDefinition("data_transform", "数据格式转换工具"),
-    AgentMcpToolGroupDefinition("calendar", "日期、时区与日历工具"),
-    AgentMcpToolGroupDefinition("git", "Git 版本控制工具"),
-    AgentMcpToolGroupDefinition("ocr", "OCR 文字识别工具")
+    AgentMcpToolGroupDefinition("pdf", "PDF parsing, editing, merging, forms, encryption, annotations, and OCR-adjacent tools"),
+    AgentMcpToolGroupDefinition("iwork", "Apple iWork document tools for Pages, Numbers, and Keynote"),
+    AgentMcpToolGroupDefinition("office", "Combined Office document tools for Word, Excel, PowerPoint, and CSV"),
+    AgentMcpToolGroupDefinition("word", "Word document creation and editing tools"),
+    AgentMcpToolGroupDefinition("excel", "Excel workbook creation, editing, and analysis tools"),
+    AgentMcpToolGroupDefinition("powerpoint", "PowerPoint presentation creation and editing tools"),
+    AgentMcpToolGroupDefinition("csv", "CSV reading, writing, filtering, joining, and XLSX conversion tools"),
+    AgentMcpToolGroupDefinition("multimedia", "Multimedia generation tools"),
+    AgentMcpToolGroupDefinition("apple_app_info", "Apple App Store metadata lookup tools"),
+    AgentMcpToolGroupDefinition("skill_tools", "Skill discovery, installation, and management tools"),
+    AgentMcpToolGroupDefinition("im", "Instant messaging integration tools"),
+    AgentMcpToolGroupDefinition("workflow", "Workflow execution and management tools"),
+    AgentMcpToolGroupDefinition("file_management", "File copying, moving, compression, and search tools"),
+    AgentMcpToolGroupDefinition("code_execution", "Code execution tools"),
+    AgentMcpToolGroupDefinition("database", "SQLite and JDBC database tools"),
+    AgentMcpToolGroupDefinition("image_processing", "Image processing tools"),
+    AgentMcpToolGroupDefinition("email", "Email sending and receiving tools"),
+    AgentMcpToolGroupDefinition("knowledge_memory", "Local knowledge memory tools"),
+    AgentMcpToolGroupDefinition("rag_tools", "RAG indexing and retrieval tools"),
+    AgentMcpToolGroupDefinition("data_transform", "Data format transformation tools"),
+    AgentMcpToolGroupDefinition("calendar", "Date, time zone, and calendar tools"),
+    AgentMcpToolGroupDefinition("git", "Git version control tools"),
+    AgentMcpToolGroupDefinition("ocr", "OCR text recognition tools")
 )
 
 private val agentMcpToolGroupMap = agentMcpToolGroups.associateBy { it.name }
@@ -289,8 +289,8 @@ suspend fun startAgentMcpServer(
         tools = selectedGroups
     )
 
-    System.err.println("[braidrun-agent:mcp] Starting stdio MCP server with tool groups: ${selectedGroups.joinToString(", ")}")
-    System.err.println("[braidrun-agent:mcp] Registered ${toolRegistry.tools.size} tools")
+    System.err.println("[braidrun-workflow:mcp] Starting stdio MCP server with tool groups: ${selectedGroups.joinToString(", ")}")
+    System.err.println("[braidrun-workflow:mcp] Registered ${toolRegistry.tools.size} tools")
 
     val server = Server(
         Implementation(name = AGENT_MCP_SERVER_NAME, version = AGENT_MCP_SERVER_VERSION),

@@ -1,6 +1,6 @@
 id: lightweight
 display_name: "Lightweight Agent"
-description: "轻量级Agent，最小工具集，适合简单任务和快速响应场景。低资源消耗。"
+description: "Minimal agent preset for simple tasks, quick responses, and lower-resource execution."
 category: general
 icon: "⚡"
 builtin: true

@@ -112,13 +112,13 @@ See `references/openclaw-integration.md` for complete details.
 
 ---
 
-## braidrun-agent Setup
+## braidrun-workflow Setup
 
-braidrun-agent is a Kotlin-based AI agent framework that supports skill loading and hook injection via `SkillManager`.
+braidrun-workflow is a Kotlin-based AI agent framework that supports skill loading and hook injection via `SkillManager`.
 
 ### Installation
 
-Place the skill in your braidrun-agent skills directory (configured via `skills_config.skillsPath`, default:
+Place the skill in your braidrun-workflow skills directory (configured via `skills_config.skillsPath`, default:
 `~/.braidrun/skills-cache`):
 
 ```bash
@@ -136,14 +136,14 @@ skills_config:
 
 ### How the Hook Works
 
-The hook at `hooks/braidrun-agent/HOOK.md` fires on **10 events** to provide comprehensive self-improvement
+The hook at `hooks/braidrun-workflow/HOOK.md` fires on **10 events** to provide comprehensive self-improvement
 capabilities — no extra configuration is needed beyond having the skill loaded.
 
 At bootstrap, the hook injects a self-improvement reminder as a virtual file. During the session, it automatically
 captures tool failures, node/subgraph errors, LLM streaming failures, and agent errors to `.learnings/ERRORS.md`. At
 session boundaries it reviews pending learnings and reminds the agent to capture new ones.
 
-braidrun-agent's `SkillManager` scans each skill's `hooks/braidrun-agent/` directory at startup. It first looks for an
+braidrun-workflow's `SkillManager` scans each skill's `hooks/braidrun-workflow/` directory at startup. It first looks for an
 executable handler script (`handler.py`, `handler.js`, or `handler.kts`), then falls back to the static `HOOK.md` body.
 
 #### Handler Script (Code Execution — Recommended)
@@ -151,7 +151,7 @@ executable handler script (`handler.py`, `handler.js`, or `handler.kts`), then f
 This skill ships a `handler.py` alongside `HOOK.md`. When Python 3 is available the script is executed at event time:
 
 ```
-hooks/braidrun-agent/
+hooks/braidrun-workflow/
 ├── HOOK.md        ← metadata (name, events, requires …)
 └── handler.py     ← executed at runtime; output takes precedence over HOOK.md body
 ```
@@ -228,7 +228,7 @@ When **no handler script** is present (or Python/Node is not installed), `SkillM
 `HOOK.md` body. This skill's HOOK.md declares:
 
 ```json
-{"braidrun-agent":{"events":["agent:bootstrap"],"virtualFilePath":"SELF_IMPROVEMENT_REMINDER.md"}}
+{"braidrun-workflow":{"events":["agent:bootstrap"],"virtualFilePath":"SELF_IMPROVEMENT_REMINDER.md"}}
 ```
 
 Because `virtualFilePath` is set, the content is injected as a **virtual bootstrap file**. At session start the agent
@@ -260,7 +260,7 @@ This mirrors OpenClaw's `bootstrapFiles.push({path, content, virtual:true})` beh
 Hooks support an optional `requires` object and an `always` flag in their metadata to control eligibility:
 
 ```json
-{"braidrun-agent":{"events":["agent:bootstrap"],"virtualFilePath":"REMINDER.md","requires":{"bins":["git"],"os":["darwin","linux"],"env":["MY_VAR"],"config":["/path/to/config.yaml"]}}}
+{"braidrun-workflow":{"events":["agent:bootstrap"],"virtualFilePath":"REMINDER.md","requires":{"bins":["git"],"os":["darwin","linux"],"env":["MY_VAR"],"config":["/path/to/config.yaml"]}}}
 ```
 
 | Field     | Meaning                                                                     |
@@ -277,23 +277,23 @@ Set `always: true` in the YAML frontmatter to bypass all eligibility checks:
 ---
 name: my-hook
 always: true
-metadata: {"braidrun-agent":{"events":["agent:bootstrap"]}}
+metadata: {"braidrun-workflow":{"events":["agent:bootstrap"]}}
 ---
 ```
 
 ### Workspace-Level Hooks
 
-braidrun-agent loads hooks from three directories in priority order (lowest → highest):
+braidrun-workflow loads hooks from three directories in priority order (lowest → highest):
 
 | Tier          | Directory                                     | Priority |
 |---------------|-----------------------------------------------|----------|
-| Skill-bundled | `<skills-cache>/<skill>/hooks/braidrun-agent/` | Lowest   |
-| User-global   | `~/.braidrun/hooks/braidrun-agent/`             | Medium   |
-| Workspace     | `<workspaceDir>/hooks/braidrun-agent/`         | Highest  |
+| Skill-bundled | `<skills-cache>/<skill>/hooks/braidrun-workflow/` | Lowest   |
+| User-global   | `~/.braidrun/hooks/braidrun-workflow/`             | Medium   |
+| Workspace     | `<workspaceDir>/hooks/braidrun-workflow/`         | Highest  |
 
 A later tier overrides a skill-bundled hook with the same `name`.
 
-**User-global hooks** at `~/.braidrun/hooks/braidrun-agent/` apply to every agent on your machine — useful for personal
+**User-global hooks** at `~/.braidrun/hooks/braidrun-workflow/` apply to every agent on your machine — useful for personal
 reminders or cross-project tools.
 
 **Workspace hooks** are project-local. Configure the workspace directory via:
@@ -864,15 +864,15 @@ Ask in chat: "Should I log this as a learning?"
 
 **Detection**: Manual review at session end
 
-### braidrun-agent
+### braidrun-workflow
 
 **Activation**: Hook injection via `SkillManager` at agent bootstrap  
-**Setup**: See "braidrun-agent Setup" section above  
+**Setup**: See "braidrun-workflow Setup" section above  
 **Detection**: Automatic — `SkillManager` discovers hooks from three tiers (skill-bundled → user-global → workspace),
 executes `handler.py` if Python 3 is available, and injects the virtual bootstrap file `SELF_IMPROVEMENT_REMINDER.md`
 into every session
 
-**All available braidrun-agent events** (37 total):
+**All available braidrun-workflow events** (37 total):
 
 | Category                  | Events                                                                                                      |
 |---------------------------|-------------------------------------------------------------------------------------------------------------|

@@ -1,127 +1,37 @@
 # Getting Started
 
-This guide takes you from zero to executing your first workflow with
-braidrun-workflow.
+Start with the CLI if you want to run workflows from a terminal. Start with the library API if you are embedding the runtime in a Kotlin application.
 
-## 1. Add the library to your project
-
-The library is not yet published to a public Maven repository. Until then,
-install it locally:
+## Run a Code-Only Workflow
 
 ```bash
-git clone <repo-url>
-cd braidrun-workflow
-./gradlew publishToMavenLocal
+./gradlew installDist
+./build/install/braidrun-workflow/bin/braidrun-workflow run examples/workflows/hello-code.yaml
 ```
 
-Then in your project's `build.gradle.kts`:
+This workflow does not call an LLM. It is useful for confirming the parser, executor, and code-step runtime.
 
-```kotlin
-repositories {
-    mavenLocal()
-    mavenCentral()
-}
+## Run an Agent Workflow
 
-dependencies {
-    implementation("com.fartech.braidrun:braidrun-workflow:1.0.0-SNAPSHOT")
-}
+Set an API key for the provider used by your preset configuration. The built-in presets default to OpenRouter-style configuration unless you override the model settings.
+
+```bash
+export OPENROUTER_API_KEY=...
+./build/install/braidrun-workflow/bin/braidrun-workflow run examples/workflows/research-summary.yaml
 ```
 
-Requirements: JDK 21, Kotlin 2.x.
+## Validate Before Running
 
-## 2. Write a workflow
-
-Workflows are declarative YAML documents. The simplest possible workflow uses
-a single code step and needs no LLM provider at all:
-
-```yaml
----
-name: hello-workflow
-version: 1.0.0
-description: Minimal single-step workflow
-variables:
-  who: "world"
-workflow:
-  - step: greet
-    code:
-      language: bash
-      script: |
-        echo "Hello, {{var:who}}!"
+```bash
+./build/install/braidrun-workflow/bin/braidrun-workflow validate examples/workflows/research-summary.yaml
+./build/install/braidrun-workflow/bin/braidrun-workflow dry-run examples/workflows/research-summary.yaml
 ```
 
-Save it as `hello.yaml`. See [WORKFLOW_GUIDE.md](WORKFLOW_GUIDE.md) for the
-full YAML reference: agent steps, parallel execution, conditions, iteration,
-repeat-until, sub-workflows, state machines and error handling.
+`validate` parses and checks the workflow. `dry-run` prints the agent and step plan without calling models or tools.
 
-## 3. Execute it from Kotlin
+## Next Steps
 
-```kotlin
-import com.fartech.agents.workflow.WorkflowExecutor
-import com.fartech.agents.workflow.WorkflowParser
-import com.fartech.ftapp2.commonsKt.HttpAccess
-import kotlinx.coroutines.runBlocking
-
-fun main() = runBlocking {
-    val workflow = WorkflowParser.parseFile("hello.yaml")
-
-    val executor = WorkflowExecutor(
-        httpAccess = HttpAccess(),
-        baseParameters = emptyList(),
-        enableMonitoring = false,
-    )
-
-    val result = executor.execute(workflow, externalExecutionId = "demo-1")
-
-    println("success = ${result.success}")
-    result.stepResults.forEach { (step, stepResult) ->
-        println("$step -> ${stepResult.output}")
-    }
-}
-```
-
-`WorkflowParser` validates the document and returns a typed
-`WorkflowDefinition`; `WorkflowExecutor.execute` is a suspend function that
-runs the steps and returns a `WorkflowExecutionResult` with per-step results,
-skipped steps and error details.
-
-## 4. Use LLM agent steps
-
-Steps can delegate to agents built from presets (see
-`src/main/resources/agent-presets/`):
-
-```yaml
-agents:
-  helper:
-    preset: universal
-    overrides:
-      tool_set: [exit, file_system, shell]
-workflow:
-  - step: summarize
-    agent: helper
-    input: |
-      Summarize the file ./input/report.txt into ./output/summary.md,
-      then call exit.
-```
-
-Agent steps need an LLM provider. Credentials are picked up from environment
-variables, e.g.:
-
-| Provider | Variable |
-|----------|----------|
-| OpenRouter | `OPENROUTER_API_KEY` |
-| OpenAI | `OPENAI_API_KEY` |
-| Anthropic | `ANTHROPIC_API_KEY` |
-| Google Gemini | `GOOGLE_API_KEY` / `GOOGLE_GENAI_API_KEY` |
-| DeepSeek | `DEEPSEEK_API_KEY` |
-| Mistral | `MISTRAL_API_KEY` |
-| Qwen (DashScope) | `DASHSCOPE_API_KEY` |
-
-## 5. Where to go next
-
-- [WORKFLOW_GUIDE.md](WORKFLOW_GUIDE.md) — complete workflow YAML reference
-- [TUTORIAL.md](TUTORIAL.md) — step-by-step walkthroughs
-- [ARCHITECTURE.md](ARCHITECTURE.md) — how the library is structured
-- [MCP_SERVER_GUIDE.md](MCP_SERVER_GUIDE.md) — exposing tool groups over MCP
-- [SECURITY_HARDENING.md](SECURITY_HARDENING.md) — sandboxing and guardrails
-  you should configure before running untrusted workflows
-- `workflows/templates/` — 140+ runnable example and test workflows
+- Use [CLI](CLI.md) for command reference.
+- Use [Workflow YAML](WORKFLOW_GUIDE.md) for schema examples.
+- Use [Library Usage](LIBRARY_USAGE.md) to embed the executor.
+- Use [Docker Runtime](DOCKER.md) before running untrusted code or shell tools.

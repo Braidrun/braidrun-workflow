@@ -71,7 +71,7 @@ object PDFTools : ToolSet {
         ToolPathSecurity.validateOutputPath(outputPath)
 
     private fun safeOutputDirectory(outputDirectory: String): File {
-        val marker = ToolPathSecurity.validateOutputPath(File(outputDirectory, ".braidrun-agent-dir-check").path)
+        val marker = ToolPathSecurity.validateOutputPath(File(outputDirectory, ".braidrun-workflow-dir-check").path)
         return marker.parentFile
     }
 

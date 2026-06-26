@@ -1,6 +1,6 @@
 id: devops
 display_name: "DevOps Agent"
-description: "DevOps和系统管理Agent。擅长Shell脚本、Git版本控制、代码执行、数据库管理和系统运维任务。"
+description: "DevOps agent preset for shell scripting, Git, code execution, database operations, and system tasks."
 category: coding
 icon: "🔧"
 builtin: true

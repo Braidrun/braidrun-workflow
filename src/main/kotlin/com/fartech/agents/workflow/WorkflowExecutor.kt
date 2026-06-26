@@ -3304,15 +3304,15 @@ class WorkflowExecutor(
                         normalized == "skills" -> skillsRoot
                         normalized.startsWith("skills/") ->
                             File(canonicalSkillsDir, normalized.removePrefix("skills/")).absolutePath
-                        normalized == "braidrun-agent/skills" -> skillsRoot
-                        normalized.startsWith("braidrun-agent/skills/") ->
-                            File(canonicalSkillsDir, normalized.removePrefix("braidrun-agent/skills/")).absolutePath
+                        normalized == "braidrun-workflow/skills" -> skillsRoot
+                        normalized.startsWith("braidrun-workflow/skills/") ->
+                            File(canonicalSkillsDir, normalized.removePrefix("braidrun-workflow/skills/")).absolutePath
                         normalized == "braidrun-web/skills" -> skillsRoot
                         normalized.startsWith("braidrun-web/skills/") ->
                             File(canonicalSkillsDir, normalized.removePrefix("braidrun-web/skills/")).absolutePath
-                        normalized == "braidrun-agent/skills" -> skillsRoot
-                        normalized.startsWith("braidrun-agent/skills/") ->
-                            File(canonicalSkillsDir, normalized.removePrefix("braidrun-agent/skills/")).absolutePath
+                        normalized == "braidrun-workflow/skills" -> skillsRoot
+                        normalized.startsWith("braidrun-workflow/skills/") ->
+                            File(canonicalSkillsDir, normalized.removePrefix("braidrun-workflow/skills/")).absolutePath
                         normalized == "braidrun-web/skills" -> skillsRoot
                         normalized.startsWith("braidrun-web/skills/") ->
                             File(canonicalSkillsDir, normalized.removePrefix("braidrun-web/skills/")).absolutePath
@@ -7062,7 +7062,7 @@ IMPORTANT: You MUST respond with ONLY the category name (one of: ${config.catego
                         // Koog 1.0.0 widened ToolRegistry.tools to List<ToolBase<*, *>>; our
                         // structureToolGraph still expects List<Tool<*, *>> (the
                         // no-metadata convenience subclass). Every @Tool-annotated
-                        // function in braidrun-agent compiles to a Tool subclass, so
+                        // function in braidrun-workflow compiles to a Tool subclass, so
                         // filterIsInstance preserves the full set — only pure ToolBase
                         // implementations (AgentContextAwareTool, custom metadata-aware
                         // tools) would drop out, and we have none.
