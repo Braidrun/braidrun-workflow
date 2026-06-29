@@ -1,0 +1,140 @@
+---
+name: test-workflow-error-handling
+version: 1.0.0
+tags:
+- 测试
+- 错误处理
+- error_handling
+- retry
+description: 错误处理与重试测试 - 测试失败恢复、重试机制和错误传播
+variables:
+  output_dir: "./output"
+  demo_mode: 'true'
+agents:
+  worker:
+    preset: universal
+    overrides:
+      system_prompt: |-
+        You are a precise assistant. Follow instructions exactly. Call exit when done.
+
+        共同要求：
+        - 该模板以“可直接运行演示”为第一目标。
+        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
+        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+      tool_set:
+      - exit
+      - skill_tools
+      - file_system
+      - shell
+      max_iterations: 100
+      session_id_strategy: auto
+  fallback_worker:
+    preset: universal
+    overrides:
+      system_prompt: |-
+        You are a fallback assistant. Handle errors gracefully. Call exit when done.
+
+        共同要求：
+        - 该模板以“可直接运行演示”为第一目标。
+        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
+        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+      tool_set:
+      - exit
+      - skill_tools
+      - file_system
+      max_iterations: 100
+      session_id_strategy: auto
+workflow:
+- step: setup
+  agent: worker
+  priority: 10
+  input: |-
+    Create the directory {{var:output_dir}}/error_test if it doesn't exist.
+    Create a file {{var:output_dir}}/error_test/setup.txt with content "Setup completed".
+    Then call exit.
+
+    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/setup.md。
+- step: risky_operation
+  agent: worker
+  depends_on:
+  - setup
+  retry:
+    max_attempts: 3
+    backoff: exponential
+    initial_delay: 1000
+    max_delay: 5000
+  input: |-
+    Try to read the file {{var:output_dir}}/error_test/setup.txt.
+    If successful, create {{var:output_dir}}/error_test/risky_result.txt with content "Risky operation succeeded".
+    Then call exit.
+
+    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/risky_operation.md。
+  on_success:
+  - next: success_handler
+  on_failure:
+  - next: error_handler
+    message: Risky operation failed after retries
+- step: success_handler
+  agent: worker
+  depends_on:
+  - risky_operation
+  input: |-
+    Create a file {{var:output_dir}}/error_test/success.txt with content "Success path executed".
+    Then call exit.
+
+    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/success_handler.md。
+- step: error_handler
+  agent: fallback_worker
+  depends_on:
+  - risky_operation
+  input: |-
+    Create a file {{var:output_dir}}/error_test/error_handled.txt with content "Error was handled gracefully".
+    Then call exit.
+
+    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/error_handler.md。
+- step: cleanup
+  agent: worker
+  depends_on:
+  - success_handler
+  - error_handler
+  input: |-
+    List all files in {{var:output_dir}}/error_test/ directory.
+    Create a file {{var:output_dir}}/error_test/report.txt with a summary of which files exist.
+    Then call exit.
+
+    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/cleanup.md。
+error_handling:
+  max_retries: 2
+  retry_delay: 3s
+  continue_on_error: true
+timeout:
+  total: 600s
+  per_step: 180s
+directory_isolation:
+  enabled: true
+  base_dir: ".workflow-runs"
+  working_dir_pattern: "{base_dir}/{execution_id}/{step_name}/workspace"
+  output_dir_pattern: "{base_dir}/{execution_id}/output"
+  persistence_dir_pattern: "{base_dir}/{execution_id}/.snapshots"
+  shared_cache_dir: ".prompt_cache"
+  shared_history_dir: ".agent_history"
+  shared_skills_dir: "./skills"
+  cleanup_on_completion: false
+  cleanup_after_hours: 72
+concurrency:
+  enabled: true
+  max_concurrency: 4
+global_agent:
+  enabled: true
+  agent:
+    preset: universal
+    overrides:
+      system_prompt: |-
+        你是工作流模板助手，负责帮助用户理解、调试和演示当前工作流。
+        生成或修改 YAML 时必须使用 braidrun-agent 的 snake_case 语法，并优先保持模板可直接运行。
+      tool_set:
+      - workflow
+      - file_system
+      - exit
+      max_iterations: 2048
+      session_id_strategy: per_execution

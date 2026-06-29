@@ -1,0 +1,59 @@
+---
+name: test-image-metadata-extractor
+version: 1.0.0
+description: Test image-metadata-extractor — generate a small JPEG and verify width/height.
+tags:
+  - code
+  - extract
+  - sub_workflow
+
+agents: {}
+workflow:
+  - step: setup
+    code:
+      language: python
+      timeout: 60
+      script: |
+        import subprocess, sys, tempfile
+        from pathlib import Path
+        try:
+          from PIL import Image
+        except ImportError:
+          subprocess.run([sys.executable, "-m", "pip", "install", "--quiet", "Pillow"], check=True)
+          from PIL import Image
+        p = Path(tempfile.mkdtemp()) / "demo.jpg"
+        img = Image.new("RGB", (320, 240), color="red")
+        img.save(p, "JPEG")
+        print(f"img_path={p}")
+    extract:
+      - {pattern: 'img_path=(.+)', variable: img_path}
+    priority: 20
+  - step: extract
+    sub_workflow:
+      name: utility-module-image-metadata-extractor
+      inputs: {image_path: "{{var:img_path}}"}
+      outputs:
+        w: width
+        h: height
+        fmt: format
+        status: exif_status
+    depends_on: [setup]
+    priority: 10
+  - step: assert
+    code:
+      language: python
+      timeout: 15
+      script: |
+        import os, sys
+        problems = []
+        if os.environ.get("WF_VAR_STATUS") != "ok": problems.append("status")
+        if os.environ.get("WF_VAR_W") != "320": problems.append(f"w={os.environ.get('WF_VAR_W')}")
+        if os.environ.get("WF_VAR_H") != "240": problems.append(f"h={os.environ.get('WF_VAR_H')}")
+        if os.environ.get("WF_VAR_FMT") != "JPEG": problems.append(f"fmt={os.environ.get('WF_VAR_FMT')}")
+        if problems:
+          print("TEST_STATUS=fail"); [print(f"  - {p}") for p in problems]; sys.exit(1)
+        print("TEST_STATUS=pass")
+    extract:
+      - {pattern: 'TEST_STATUS=(\w+)', variable: test_status}
+    depends_on: [extract]
+    priority: 5

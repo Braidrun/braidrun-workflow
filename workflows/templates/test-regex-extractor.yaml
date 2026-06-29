@@ -1,0 +1,105 @@
+---
+name: test-regex-extractor
+version: 1.0.0
+description: |
+  Test harness for utility-module-regex-extractor.
+
+  Feeds a mixed text blob through the built-in email + url + ipv4 extractors
+  plus a custom price-pattern; asserts each extractor returns the expected
+  number of matches.
+
+tags:
+  - code
+  - extract
+  - sub_workflow
+
+variables:
+  sample_text: |
+    Contact us at support@example.com or sales@foo.io for inquiries.
+    Visit https://example.com/docs or http://foo.bar/a-b?x=1#frag for more.
+    Our API servers are 10.0.0.5 and 192.168.1.100 (staging: 172.16.0.42).
+    Pricing: $9.99 and $1299.00 per seat per month.
+    Bad IPs like 999.999.999.999 must NOT match ipv4.
+  price_patterns: |
+    {"price": {"regex": "\\$(\\d+(?:\\.\\d+)?)", "all": true}}
+
+agents: {}
+
+workflow:
+  - step: run_extract
+    sub_workflow:
+      name: utility-module-regex-extractor
+      inputs:
+        input_text: "{{var:sample_text}}"
+        patterns_json: "{{var:price_patterns}}"
+        builtin_patterns: "email,url,ipv4"
+        first_only: "false"
+        dedupe_matches: "true"
+      outputs:
+        extracted_json: extracted_json
+        total_matches: total_matches
+        pattern_count: pattern_count
+        extract_status: extract_status
+    priority: 10
+
+  - step: assert
+    code:
+      language: python
+      timeout: 15
+      script: |
+        import json
+        import os
+        import sys
+
+        status = os.environ.get("WF_VAR_EXTRACT_STATUS", "").strip()
+        total_raw = os.environ.get("WF_VAR_TOTAL_MATCHES", "").strip()
+        patcount_raw = os.environ.get("WF_VAR_PATTERN_COUNT", "").strip()
+        extracted_raw = os.environ.get("WF_VAR_EXTRACTED_JSON", "").strip()
+
+        problems = []
+        if status != "ok":
+            problems.append(f"status != ok (got '{status}')")
+
+        try:
+            parsed = json.loads(extracted_raw)
+        except json.JSONDecodeError as e:
+            problems.append(f"extracted_json not valid JSON: {e}")
+            parsed = None
+
+        if parsed is not None:
+            # Expect exactly these four named groups.
+            expected_keys = {"email", "url", "ipv4", "price"}
+            actual_keys = set(parsed.keys())
+            if actual_keys != expected_keys:
+                problems.append(f"pattern keys mismatch; expected {expected_keys}, got {actual_keys}")
+
+            emails = parsed.get("email", [])
+            if sorted(emails) != ["sales@foo.io", "support@example.com"]:
+                problems.append(f"emails wrong: {emails}")
+
+            urls = parsed.get("url", [])
+            if len(urls) != 2:
+                problems.append(f"expected 2 urls, got {len(urls)}: {urls}")
+
+            ipv4s = parsed.get("ipv4", [])
+            if sorted(ipv4s) != ["10.0.0.5", "172.16.0.42", "192.168.1.100"]:
+                problems.append(f"ipv4 wrong (should have 3, excluding 999.999.999.999): {ipv4s}")
+
+            prices = parsed.get("price", [])
+            # Regex has a capture group, so the extractor should return the numeric portion.
+            if sorted(prices) != ["1299.00", "9.99"]:
+                problems.append(f"price wrong: {prices}")
+
+        if problems:
+            print("TEST_STATUS=fail")
+            for p in problems:
+                print(f"  - {p}")
+            sys.exit(1)
+        else:
+            print("TEST_STATUS=pass")
+    extract:
+      - pattern: 'TEST_STATUS=(\w+)'
+        variable: test_status
+    depends_on:
+      - run_extract
+    priority: 5

@@ -1,0 +1,47 @@
+---
+name: test-data-pivot
+version: 1.0.0
+description: Test data-pivot groupby region + sum sales + count rows.
+tags:
+  - code
+  - extract
+  - sub_workflow
+
+agents: {}
+workflow:
+  - step: run
+    sub_workflow:
+      name: utility-module-data-pivot
+      inputs:
+        input_json: '[{"region":"US","sales":100},{"region":"US","sales":50},{"region":"CN","sales":80},{"region":"CN","sales":20},{"region":"EU","sales":60}]'
+        group_by: region
+        aggregations_json: '[{"field":"sales","op":"sum","as":"total"},{"op":"count","as":"n"}]'
+        sort_by: -total
+      outputs:
+        result: result_json
+        cnt: group_count
+        status: pivot_status
+    priority: 10
+  - step: assert
+    code:
+      language: python
+      timeout: 15
+      script: |
+        import json, os, sys
+        data = json.loads(os.environ.get("WF_VAR_RESULT", "[]"))
+        problems = []
+        if len(data) != 3: problems.append(f"groups expected 3, got {len(data)}")
+        by_region = {d["region"]: d for d in data}
+        if by_region["US"]["total"] != 150: problems.append(f"US total={by_region['US']['total']}")
+        if by_region["CN"]["total"] != 100: problems.append(f"CN total={by_region['CN']['total']}")
+        if by_region["EU"]["n"] != 1: problems.append(f"EU n={by_region['EU']['n']}")
+        # sort_by -total: US (150) should come first
+        if data[0]["region"] != "US": problems.append(f"first sorted should be US, got {data[0]['region']}")
+        if problems:
+          print("TEST_STATUS=fail")
+          [print(f"  - {p}") for p in problems]; sys.exit(1)
+        print("TEST_STATUS=pass")
+    extract:
+      - {pattern: 'TEST_STATUS=(\w+)', variable: test_status}
+    depends_on: [run]
+    priority: 5

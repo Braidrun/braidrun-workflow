@@ -1,0 +1,39 @@
+---
+name: test-seo-meta-generator
+version: 1.0.0
+description: Test utility-module-seo-meta-generator (LLM, needs OPENROUTER_API_KEY).
+tags:
+  - code
+  - extract
+  - sub_workflow
+
+agents: {}
+workflow:
+  - step: run
+    sub_workflow:
+      name: utility-module-seo-meta-generator
+      inputs:
+        "content": "Braidrun is an AI agent platform for subscription management and Apple Search Ads optimization, built on Kotlin and Vue."
+        target_keyword: "AI agent platform"
+      outputs:
+        t: title
+        desc: description
+        status: seo_status
+    priority: 10
+  - step: assert
+    code:
+      language: python
+      timeout: 15
+      script: |
+        import os, sys
+        problems = []
+        status = os.environ.get("WF_VAR_STATUS", "")
+        if status != "ok": problems.append(f"status={status}")
+        if problems:
+            print("TEST_STATUS=fail")
+            [print(f"  - {p}") for p in problems]; sys.exit(1)
+        print("TEST_STATUS=pass")
+    extract:
+      - {pattern: 'TEST_STATUS=(\w+)', variable: test_status}
+    depends_on: [run]
+    priority: 5

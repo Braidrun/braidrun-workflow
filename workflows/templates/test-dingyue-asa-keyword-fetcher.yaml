@@ -1,0 +1,110 @@
+---
+name: test-dingyue-asa-keyword-fetcher
+version: 1.0.0
+description: Test ASA keyword fetcher — discover → campaigns → adgroups → keywords chain.
+tags:
+  - code
+  - condition
+  - error_handling
+  - extract
+  - sub_workflow
+
+variables:
+  test_username: ""
+  test_password: ""
+
+error_handling:
+  continue_on_error: true
+agents: {}
+workflow:
+  - step: discover
+    sub_workflow:
+      name: dingyue-module-asa-app-discover
+      inputs: {username: "{{var:test_username}}", password: "{{var:test_password}}", dingyue_platform: "flashapps", limit: "5"}
+      outputs: {apps: apps_json}
+    priority: 40
+  - step: pick_app
+    code:
+      language: python
+      timeout: 5
+      script: |
+        import json, os
+        apps = json.loads(os.environ.get("WF_VAR_APPS", "[]"))
+        if not apps: raise RuntimeError("no ASA apps")
+        print(f"asa_app_id={apps[0]['app_id']}")
+    extract: [{pattern: 'asa_app_id=(.+)', variable: asa_app_id}]
+    depends_on: [discover]
+    priority: 35
+  - step: campaigns
+    sub_workflow:
+      name: dingyue-module-asa-campaign-fetcher
+      inputs: {username: "{{var:test_username}}", password: "{{var:test_password}}", dingyue_platform: "flashapps", app_id: "{{var:asa_app_id}}"}
+      outputs: {camps: campaigns_json}
+    depends_on: [pick_app]
+    priority: 30
+  - step: pick_camp
+    code:
+      language: python
+      timeout: 5
+      script: |
+        import json, os
+        camps = json.loads(os.environ.get("WF_VAR_CAMPS", "[]"))
+        if not camps: raise RuntimeError("no campaigns")
+        print(f"camp_id={camps[0]['id']}")
+    extract: [{pattern: 'camp_id=(.+)', variable: camp_id}]
+    depends_on: [campaigns]
+    priority: 25
+  - step: adgroups
+    sub_workflow:
+      name: dingyue-module-asa-adgroup-fetcher
+      inputs: {username: "{{var:test_username}}", password: "{{var:test_password}}", dingyue_platform: "flashapps", app_id: "{{var:asa_app_id}}", campaign_id: "{{var:camp_id}}"}
+      outputs: {ag_json: adgroups_json}
+    depends_on: [pick_camp]
+    priority: 20
+  - step: pick_ag
+    code:
+      language: python
+      timeout: 5
+      script: |
+        import json, os
+        ags = json.loads(os.environ.get("WF_VAR_AG_JSON", "[]"))
+        if not ags:
+          print("no_ag=true"); print("ag_id=")
+        else:
+          print(f"ag_id={ags[0]['id']}"); print("no_ag=false")
+    extract:
+      - {pattern: 'ag_id=(.*)', variable: ag_id}
+      - {pattern: 'no_ag=(\w+)', variable: no_ag}
+    depends_on: [adgroups]
+    priority: 15
+  - step: fetch_keywords
+    sub_workflow:
+      name: dingyue-module-asa-keyword-fetcher
+      inputs: {username: "{{var:test_username}}", password: "{{var:test_password}}", dingyue_platform: "flashapps", app_id: "{{var:asa_app_id}}", campaign_id: "{{var:camp_id}}", ad_group_id: "{{var:ag_id}}"}
+      outputs:
+        kw_status: fetch_status
+        kw_cnt: keyword_count
+    condition: "no_ag == false"
+    depends_on: [pick_ag]
+    on_failure:
+      - next: assert
+    priority: 10
+  - step: assert
+    code:
+      language: python
+      timeout: 15
+      script: |
+        import os, sys
+        no_ag = os.environ.get("WF_VAR_NO_AG", "").strip().lower()
+        if no_ag == "true":
+          print("TEST_STATUS=pass (no adgroups available — verified chain up to adgroup level)")
+          sys.exit(0)
+        status = os.environ.get("WF_VAR_KW_STATUS", "")
+        cnt = os.environ.get("WF_VAR_KW_CNT", "")
+        if status != "ok":
+          print(f"TEST_STATUS=fail\n  - kw status={status}"); sys.exit(1)
+        if not cnt.isdigit():
+          print(f"TEST_STATUS=fail\n  - cnt not numeric: {cnt}"); sys.exit(1)
+        print(f"TEST_STATUS=pass (keywords={cnt})")
+    extract: [{pattern: 'TEST_STATUS=(\w+)', variable: test_status}]
+    priority: 5

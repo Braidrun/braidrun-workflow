@@ -1,0 +1,90 @@
+---
+name: test-webhook-health-check
+version: 1.0.0
+description: |
+  Test harness for utility-module-webhook-health-check.
+
+  Probes 3 targets:
+  - httpbin.org/status/200 → healthy
+  - httpbin.org/status/500 → down
+  - httpbin.org/status/503 → down
+
+  Expects overall_state=down, healthy_count=1, down_count=2.
+
+tags:
+  - code
+  - extract
+  - sub_workflow
+
+variables:
+  targets: |
+    [
+      {"name":"ok_endpoint","url":"https://httpbin.org/status/200","method":"GET","expect_status":200},
+      {"name":"bad_endpoint_500","url":"https://httpbin.org/status/500","method":"GET","expect_status":200},
+      {"name":"bad_endpoint_503","url":"https://httpbin.org/status/503","method":"GET","expect_status":200}
+    ]
+
+agents: {}
+
+workflow:
+  - step: run_health
+    sub_workflow:
+      name: utility-module-webhook-health-check
+      inputs:
+        targets_json: "{{var:targets}}"
+        timeout_seconds: "10"
+        max_concurrency: "3"
+      outputs:
+        hc_overall: overall_state
+        hc_healthy: healthy_count
+        hc_degraded: degraded_count
+        hc_down: down_count
+        hc_report_path: report_path
+        hc_summary: summary_message
+    priority: 10
+
+  - step: assert
+    code:
+      language: python
+      timeout: 15
+      script: |
+        import json
+        import os
+        import sys
+        from pathlib import Path
+
+        problems = []
+
+        overall = os.environ.get("WF_VAR_HC_OVERALL", "").strip()
+        healthy = os.environ.get("WF_VAR_HC_HEALTHY", "").strip()
+        down = os.environ.get("WF_VAR_HC_DOWN", "").strip()
+        report_path = os.environ.get("WF_VAR_HC_REPORT_PATH", "").strip()
+
+        # With 2/3 targets in down state, overall should be 'down' (or at least not healthy).
+        if overall not in {"down", "degraded"}:
+            problems.append(f"overall_state expected down/degraded, got '{overall}'")
+        if healthy != "1":
+            problems.append(f"healthy_count expected 1, got {healthy}")
+        if down != "2":
+            problems.append(f"down_count expected 2, got {down}")
+
+        if report_path and Path(report_path).exists():
+            report = json.loads(Path(report_path).read_text(encoding="utf-8"))
+            # Report should reflect per-target breakdown.
+            targets = report.get("targets") or report.get("results") or []
+            if not isinstance(targets, list) or len(targets) != 3:
+                problems.append(f"report should have 3 target results, got {type(targets).__name__} len={len(targets) if isinstance(targets, list) else 'n/a'}")
+
+        if problems:
+            print("TEST_STATUS=fail")
+            for p in problems:
+                print(f"  - {p}")
+            sys.exit(1)
+        else:
+            print("TEST_STATUS=pass")
+    extract:
+      - pattern: 'TEST_STATUS=(\w+)'
+        variable: test_status
+    depends_on:
+      - run_health
+    priority: 5

@@ -1,0 +1,68 @@
+---
+name: test-discord-webhook
+version: 1.0.0
+description: |
+  Negative-path test for utility-module-discord-webhook.
+
+  We don't have a real Discord webhook URL, so we verify the module's
+  *validation guard* — when given a URL that doesn't look like a Discord
+  webhook, the module must raise (not silently succeed).
+
+  Uses on_failure routing so the sub_workflow failure is "recovered"
+  and the assert step still runs.
+
+tags:
+  - code
+  - error_handling
+  - extract
+  - sub_workflow
+
+error_handling:
+  continue_on_error: true
+
+agents: {}
+
+workflow:
+  - step: bad_url
+    sub_workflow:
+      name: utility-module-discord-webhook
+      inputs:
+        webhook_url: "https://not-discord.example.com/webhook/123"
+        content: "this should never be sent"
+      outputs:
+        bad_send_status: send_status
+        bad_status_code: status_code
+    on_failure:
+      - next: assert
+    priority: 10
+
+  - step: assert
+    code:
+      language: python
+      timeout: 15
+      script: |
+        import os
+        import sys
+
+        # If module validated URL properly, it raised before printing send_status,
+        # so the parent variable stays at the default empty string.
+        send_status = os.environ.get("WF_VAR_BAD_SEND_STATUS", "").strip()
+        status_code = os.environ.get("WF_VAR_BAD_STATUS_CODE", "").strip()
+
+        problems = []
+        if send_status != "":
+            problems.append(f"send_status should be empty (module rejected URL), got '{send_status}'")
+        if status_code not in ("", "0"):
+            problems.append(f"status_code should be empty/0 (no HTTP call made), got '{status_code}'")
+
+        if problems:
+            print("TEST_STATUS=fail")
+            for p in problems:
+                print(f"  - {p}")
+            sys.exit(1)
+        else:
+            print("TEST_STATUS=pass (module correctly rejected non-Discord URL)")
+    extract:
+      - pattern: 'TEST_STATUS=(\w+)'
+        variable: test_status
+    priority: 5

@@ -1,0 +1,50 @@
+---
+name: test-dingyue-daily-profit-overview
+version: 1.0.0
+description: Test daily-profit overview via time-window resolver.
+tags:
+  - code
+  - extract
+  - sub_workflow
+
+variables:
+  test_username: ""
+  test_password: ""
+
+agents: {}
+workflow:
+  - step: window
+    sub_workflow:
+      name: dingyue-module-time-window-resolver
+      inputs: {lookback_days: "7", report_timezone: "Asia/Shanghai"}
+      outputs: {start_ms: start_ms, end_ms: end_ms}
+    priority: 20
+  - step: fetch
+    sub_workflow:
+      name: dingyue-module-daily-profit-overview
+      inputs: {username: "{{var:test_username}}", password: "{{var:test_password}}", dingyue_platform: "flashapps", start_ms: "{{var:start_ms}}", end_ms: "{{var:end_ms}}"}
+      outputs:
+        status: fetch_status
+        rev: total_revenue
+        spend: total_ad_spend
+        profit: total_profit
+    depends_on: [window]
+    priority: 10
+  - step: assert
+    code:
+      language: python
+      timeout: 15
+      script: |
+        import os, sys
+        problems = []
+        if os.environ.get("WF_VAR_STATUS") != "ok": problems.append(f"status={os.environ.get('WF_VAR_STATUS')}")
+        # revenue/spend/profit may be 0; we just verify parseable numbers
+        for v in ("REV", "SPEND", "PROFIT"):
+          try: float(os.environ.get(f"WF_VAR_{v}", "0"))
+          except ValueError: problems.append(f"{v} not numeric")
+        if problems:
+          print("TEST_STATUS=fail"); [print(f"  - {p}") for p in problems]; sys.exit(1)
+        print(f"TEST_STATUS=pass (rev={os.environ.get('WF_VAR_REV')}, spend={os.environ.get('WF_VAR_SPEND')}, profit={os.environ.get('WF_VAR_PROFIT')})")
+    extract: [{pattern: 'TEST_STATUS=(\w+)', variable: test_status}]
+    depends_on: [fetch]
+    priority: 5

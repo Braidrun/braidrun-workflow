@@ -1,0 +1,48 @@
+---
+name: test-data-merger
+version: 1.0.0
+description: Test data-merger LEFT JOIN users + orders on id = user_id.
+tags:
+  - code
+  - extract
+  - sub_workflow
+
+agents: {}
+workflow:
+  - step: run
+    sub_workflow:
+      name: utility-module-data-merger
+      inputs:
+        left_json: '[{"id":1,"name":"alice"},{"id":2,"name":"bob"},{"id":3,"name":"carol"}]'
+        right_json: '[{"user_id":1,"amount":100},{"user_id":1,"amount":50},{"user_id":3,"amount":80}]'
+        left_key: id
+        right_key: user_id
+        join_type: left
+      outputs:
+        merged: merged_json
+        cnt: merged_count
+        status: merge_status
+    priority: 10
+  - step: assert
+    code:
+      language: python
+      timeout: 15
+      script: |
+        import json, os, sys
+        raw = os.environ.get("WF_VAR_MERGED", "")
+        cnt = os.environ.get("WF_VAR_CNT", "0")
+        problems = []
+        rows = json.loads(raw)
+        # alice has 2 orders, bob 0 (LEFT preserves), carol 1 → 4 rows
+        if len(rows) != 4: problems.append(f"rows expected 4, got {len(rows)}")
+        names = [r.get("name") for r in rows]
+        if sorted(names) != ["alice","alice","bob","carol"]:
+          problems.append(f"names {names}")
+        if problems:
+          print("TEST_STATUS=fail")
+          [print(f"  - {p}") for p in problems]; sys.exit(1)
+        print("TEST_STATUS=pass")
+    extract:
+      - {pattern: 'TEST_STATUS=(\w+)', variable: test_status}
+    depends_on: [run]
+    priority: 5

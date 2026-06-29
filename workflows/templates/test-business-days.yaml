@@ -1,0 +1,54 @@
+---
+name: test-business-days
+version: 1.0.0
+description: Test business-days between 2026-04-20 (Mon) and 2026-04-27 (Mon). Add 5 business days from Fri.
+tags:
+  - code
+  - extract
+  - sub_workflow
+
+agents: {}
+workflow:
+  - step: between
+    sub_workflow:
+      name: utility-module-business-days
+      inputs:
+        operation: between
+        start_date: "2026-04-20"
+        end_date: "2026-04-27"
+        weekend_days: "saturday,sunday"
+      outputs:
+        b_days: business_days
+        b_status: business_days_status
+    priority: 10
+  - step: add
+    sub_workflow:
+      name: utility-module-business-days
+      inputs:
+        operation: add
+        start_date: "2026-04-24"
+        add_days: "5"
+      outputs:
+        a_result: result_date
+        a_status: business_days_status
+    priority: 9
+  - step: assert
+    code:
+      language: python
+      timeout: 15
+      script: |
+        import os, sys
+        problems = []
+        # Mon 20 → Mon 27: days 21,22,23,24,27 = 5 business days (21,22,23,24 = Tue-Fri; 25,26 weekend; 27=Mon)
+        b_days = os.environ.get("WF_VAR_B_DAYS", "")
+        if b_days != "5": problems.append(f"between expected 5, got {b_days}")
+        # Fri 24 + 5 business days = Fri May 1 (skip Sat 25, Sun 26; then Mon27,Tue28,Wed29,Thu30,Fri May1)
+        result = os.environ.get("WF_VAR_A_RESULT", "")
+        if result != "2026-05-01": problems.append(f"add expected 2026-05-01, got {result}")
+        if problems:
+          print("TEST_STATUS=fail"); [print(f"  - {p}") for p in problems]; sys.exit(1)
+        print("TEST_STATUS=pass")
+    extract:
+      - {pattern: 'TEST_STATUS=(\w+)', variable: test_status}
+    depends_on: [between, add]
+    priority: 5

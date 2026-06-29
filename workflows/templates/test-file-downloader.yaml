@@ -1,0 +1,104 @@
+---
+name: test-file-downloader
+version: 1.0.0
+description: |
+  Test harness for utility-module-file-downloader.
+
+  Downloads a known-size blob from httpbin.org and verifies:
+  - file_size matches expectation
+  - sha256 is computed and 64 hex chars
+  - local file actually exists with the declared bytes
+
+tags:
+  - code
+  - extract
+  - sub_workflow
+
+agents: {}
+
+workflow:
+  - step: setup_path
+    code:
+      language: python
+      timeout: 5
+      script: |
+        import tempfile
+        from pathlib import Path
+        out = Path(tempfile.mkdtemp(prefix="dl_test_")) / "payload.bin"
+        print(f"out_path={out}")
+    extract:
+      - pattern: 'out_path=(.+)'
+        variable: out_path
+    priority: 20
+
+  - step: download
+    sub_workflow:
+      name: utility-module-file-downloader
+      inputs:
+        # httpbin.org/bytes/N returns N deterministic (seeded) random bytes
+        url: "https://httpbin.org/bytes/1024?seed=42"
+        output_path: "{{var:out_path}}"
+        timeout_seconds: "15"
+        max_size_mb: "1"
+      outputs:
+        dl_local_path: local_path
+        dl_size: file_size_bytes
+        dl_sha256: sha256
+        dl_status: download_status
+        dl_content_type: content_type
+    depends_on:
+      - setup_path
+    priority: 10
+
+  - step: assert
+    code:
+      language: python
+      timeout: 15
+      script: |
+        import os
+        import sys
+        from pathlib import Path
+
+        problems = []
+
+        local_path = os.environ.get("WF_VAR_DL_LOCAL_PATH", "").strip()
+        size_raw = os.environ.get("WF_VAR_DL_SIZE", "").strip()
+        sha256 = os.environ.get("WF_VAR_DL_SHA256", "").strip()
+        status = os.environ.get("WF_VAR_DL_STATUS", "").strip()
+
+        # Module uses "downloaded" on fresh download.
+        if status not in {"downloaded", "checksum_verified"}:
+            problems.append(f"download_status expected downloaded/checksum_verified, got '{status}'")
+
+        try:
+            size = int(size_raw)
+        except ValueError:
+            size = -1
+            problems.append(f"file_size_bytes not int: '{size_raw}'")
+        if size != 1024:
+            problems.append(f"file_size expected 1024 bytes, got {size}")
+
+        # sha256 hex is 64 chars
+        if len(sha256) != 64 or not all(c in "0123456789abcdef" for c in sha256.lower()):
+            problems.append(f"sha256 looks wrong (should be 64 hex chars): '{sha256}'")
+
+        if local_path and not Path(local_path).exists():
+            problems.append(f"local_path missing on disk: {local_path}")
+        elif local_path:
+            actual = Path(local_path).stat().st_size
+            if actual != 1024:
+                problems.append(f"on-disk file size != 1024, got {actual}")
+
+        if problems:
+            print("TEST_STATUS=fail")
+            for p in problems:
+                print(f"  - {p}")
+            sys.exit(1)
+        else:
+            print("TEST_STATUS=pass")
+    extract:
+      - pattern: 'TEST_STATUS=(\w+)'
+        variable: test_status
+    depends_on:
+      - download
+    priority: 5

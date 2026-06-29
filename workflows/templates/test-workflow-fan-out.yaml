@@ -1,0 +1,127 @@
+---
+name: test-workflow-fan-out
+version: 1.0.0
+tags:
+- 测试
+- 扇出模式
+description: 扇出/扇入模式测试 - 一个初始步骤扇出到多个并行分支，最终汇聚到一个汇总步骤
+variables:
+  output_dir: "./output"
+  demo_mode: 'true'
+agents:
+  coordinator:
+    preset: universal
+    overrides:
+      system_prompt: |-
+        You are a coordinator agent. Manage tasks precisely and call exit when done.
+
+        共同要求：
+        - 该模板以“可直接运行演示”为第一目标。
+        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
+        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+      tool_set:
+      - exit
+      - file_system
+      - skill_tools
+      max_iterations: 8196
+      session_id_strategy: auto
+workflow:
+- step: prepare
+  agent: coordinator
+  priority: 10
+  input: |-
+    Create directory {{output_dir}} if it doesn't exist.
+    Create a file {{output_dir}}/task_manifest.json with this content:
+    {"task": "market_analysis", "branches": ["competitor", "customer", "technology"], "status": "started"}
+    Call exit when done.
+
+    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/prepare.md。
+- step: branch_competitor
+  agent: coordinator
+  depends_on:
+  - prepare
+  priority: 8
+  input: |-
+    You are analyzing competitors.
+    Create {{output_dir}}/competitor_report.txt with a brief competitor analysis (50-80 words).
+    Include at least 3 competitor strengths.
+    Call exit when done.
+
+    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/branch_competitor.md。
+- step: branch_customer
+  agent: coordinator
+  depends_on:
+  - prepare
+  priority: 8
+  input: |-
+    You are analyzing customer needs.
+    Create {{output_dir}}/customer_report.txt with a brief customer analysis (50-80 words).
+    Include at least 3 customer pain points.
+    Call exit when done.
+
+    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/branch_customer.md。
+- step: branch_technology
+  agent: coordinator
+  depends_on:
+  - prepare
+  priority: 8
+  input: |-
+    You are analyzing technology trends.
+    Create {{output_dir}}/technology_report.txt with a brief technology analysis (50-80 words).
+    Include at least 3 emerging technologies.
+    Call exit when done.
+
+    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/branch_technology.md。
+- step: aggregate
+  agent: coordinator
+  depends_on:
+  - branch_competitor
+  - branch_customer
+  - branch_technology
+  priority: 5
+  input: |-
+    Read all reports from {{output_dir}}:
+    - competitor_report.txt
+    - customer_report.txt
+    - technology_report.txt
+
+    Create {{output_dir}}/combined_analysis.txt that synthesizes all three reports
+    into a unified market analysis summary (100-150 words).
+    Call exit when done.
+
+    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/aggregate.md。
+error_handling:
+  max_retries: 2
+  retry_delay: 3s
+  continue_on_error: false
+timeout:
+  total: 900s
+  per_step: 180s
+directory_isolation:
+  enabled: true
+  base_dir: ".workflow-runs"
+  working_dir_pattern: "{base_dir}/{execution_id}/{step_name}/workspace"
+  output_dir_pattern: "{base_dir}/{execution_id}/output"
+  persistence_dir_pattern: "{base_dir}/{execution_id}/.snapshots"
+  shared_cache_dir: ".prompt_cache"
+  shared_history_dir: ".agent_history"
+  shared_skills_dir: "./skills"
+  cleanup_on_completion: false
+  cleanup_after_hours: 72
+concurrency:
+  enabled: true
+  max_concurrency: 4
+global_agent:
+  enabled: true
+  agent:
+    preset: universal
+    overrides:
+      system_prompt: |-
+        你是工作流模板助手，负责帮助用户理解、调试和演示当前工作流。
+        生成或修改 YAML 时必须使用 braidrun-agent 的 snake_case 语法，并优先保持模板可直接运行。
+      tool_set:
+      - workflow
+      - file_system
+      - exit
+      max_iterations: 2048
+      session_id_strategy: per_execution

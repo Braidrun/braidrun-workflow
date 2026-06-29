@@ -1,0 +1,173 @@
+---
+name: test-workflow-extract
+version: 1.0.0
+tags:
+- 测试
+- 输出提取
+- 确定性计算
+- extract
+- code
+description: |
+  通用结构化输出提取功能测试 - 测试 Extract 在各种步骤类型上的使用
+  覆盖：pattern（正则提取）、json_path（JSON 路径提取）、variable、
+  多规则提取、与 code/agent 步骤配合
+variables:
+  dataset: sales_q4_2025
+  output_dir: "./output"
+  demo_mode: 'true'
+agents:
+  analyst:
+    preset: universal
+    overrides:
+      system_prompt: |-
+        You are a data analyst. Always output structured data in the requested format.
+        Include metrics like score=N, count=N in your output. Call exit when done.
+
+        共同要求：
+        - 该模板以“可直接运行演示”为第一目标。
+        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
+        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+      tool_set:
+      - exit
+      - skill_tools
+      - file_system
+      max_iterations: 8196
+      session_id_strategy: auto
+  summarizer:
+    preset: universal
+    overrides:
+      system_prompt: |-
+        You are a report summarizer. Create concise summaries. Call exit when done.
+
+        共同要求：
+        - 该模板以“可直接运行演示”为第一目标。
+        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
+        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+      tool_set:
+      - exit
+      - skill_tools
+      - file_system
+      max_iterations: 8196
+      session_id_strategy: auto
+workflow:
+- step: analyze_data
+  agent: analyst
+  input: |-
+    分析数据集"{{var:dataset}}"。输出必须包含以下格式的指标：
+    total_records=数量
+    quality_score=评分(1-10)
+    anomaly_count=异常数量
+    status=completed
+
+    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/analyze_data.md。
+  extract:
+  - pattern: total_records=(\d+)
+    variable: total_records
+  - pattern: quality_score=(\d+)
+    variable: quality_score
+  - pattern: anomaly_count=(\d+)
+    variable: anomaly_count
+  - pattern: status=(\w+)
+    variable: analysis_status
+- step: compute_metrics
+  code:
+    language: python
+    script: |
+      import os
+      import json
+
+      records = int(os.environ.get('WF_VAR_TOTAL_RECORDS', '100'))
+      anomalies = int(os.environ.get('WF_VAR_ANOMALY_COUNT', '5'))
+
+      result = {
+        "metrics": {
+          "completeness": round((records - anomalies) / max(records, 1) * 100, 2),
+          "health": "good" if anomalies < records * 0.1 else "poor"
+        },
+        "summary": {
+          "processed": records,
+          "clean": records - anomalies
+        }
+      }
+      print(json.dumps(result))
+    timeout: 10
+  extract:
+  - json_path: "$.metrics.completeness"
+    variable: completeness_pct
+  - json_path: "$.metrics.health"
+    variable: data_health
+  - json_path: "$.summary.clean"
+    variable: clean_records
+  depends_on:
+  - analyze_data
+- step: validate_results
+  code:
+    language: bash
+    script: |
+      echo "Validation Report"
+      echo "================="
+      echo "Dataset: ${WF_VAR_DATASET}"
+      echo "Completeness: ${WF_VAR_COMPLETENESS_PCT}%"
+      echo "Health: ${WF_VAR_DATA_HEALTH}"
+      echo "Clean Records: ${WF_VAR_CLEAN_RECORDS}"
+      echo "validation_passed=true"
+      echo "report_version=1.0"
+    timeout: 10
+  extract:
+  - pattern: validation_passed=(\w+)
+    variable: is_validated
+  - pattern: report_version=([\d.]+)
+    variable: report_version
+  depends_on:
+  - compute_metrics
+- step: final_report
+  agent: summarizer
+  input: |
+    生成数据分析最终报告，保存到 {{var:output_dir}}/analysis_report.txt：
+    数据集：{{var:dataset}}
+    总记录数：{{var:total_records}}
+    质量评分：{{var:quality_score}}
+    异常数量：{{var:anomaly_count}}
+    分析状态：{{var:analysis_status}}
+    完整度：{{var:completeness_pct}}%
+    数据健康：{{var:data_health}}
+    清洗记录数：{{var:clean_records}}
+    验证通过：{{var:is_validated}}
+    报告版本：{{var:report_version}}
+  depends_on:
+  - validate_results
+error_handling:
+  max_retries: 2
+  retry_delay: 3s
+  continue_on_error: false
+timeout:
+  total: 600s
+  per_step: 60s
+directory_isolation:
+  enabled: true
+  base_dir: ".workflow-runs"
+  working_dir_pattern: "{base_dir}/{execution_id}/{step_name}/workspace"
+  output_dir_pattern: "{base_dir}/{execution_id}/output"
+  persistence_dir_pattern: "{base_dir}/{execution_id}/.snapshots"
+  shared_cache_dir: ".prompt_cache"
+  shared_history_dir: ".agent_history"
+  shared_skills_dir: "./skills"
+  cleanup_on_completion: false
+  cleanup_after_hours: 72
+concurrency:
+  enabled: true
+  max_concurrency: 4
+global_agent:
+  enabled: true
+  agent:
+    preset: universal
+    overrides:
+      system_prompt: |-
+        你是工作流模板助手，负责帮助用户理解、调试和演示当前工作流。
+        生成或修改 YAML 时必须使用 braidrun-agent 的 snake_case 语法，并优先保持模板可直接运行。
+      tool_set:
+      - workflow
+      - file_system
+      - exit
+      max_iterations: 2048
+      session_id_strategy: per_execution

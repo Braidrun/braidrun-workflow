@@ -1,0 +1,126 @@
+---
+name: test-workflow-coding
+version: 1.0.0
+tags:
+- 测试
+- 编码任务
+description: 编程工作流测试 - 使用 coder 预设生成代码并进行代码审查
+variables:
+  output_dir: "./output"
+  language: Python
+  demo_mode: 'true'
+agents:
+  developer:
+    preset: coder
+    overrides:
+      system_prompt: |-
+        You are a software developer. Write clean, well-documented code. Call exit when done.
+
+        共同要求：
+        - 该模板以“可直接运行演示”为第一目标。
+        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
+        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+      tool_set:
+      - exit
+      - file_system
+      - shell
+      - skill_tools
+      max_iterations: 8196
+      session_id_strategy: auto
+  code_reviewer:
+    preset: coder
+    overrides:
+      system_prompt: |-
+        You are a code reviewer. Review code for quality, bugs, and best practices. Call exit when done.
+
+        共同要求：
+        - 该模板以“可直接运行演示”为第一目标。
+        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
+        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+      tool_set:
+      - exit
+      - file_system
+      - skill_tools
+      max_iterations: 8196
+      session_id_strategy: auto
+workflow:
+- step: write_code
+  agent: developer
+  priority: 10
+  input: |-
+    Create directory {{output_dir}} if it doesn't exist.
+    Write a {{language}} script {{output_dir}}/calculator.py that implements a simple calculator class with:
+    1. add(a, b) - addition
+    2. subtract(a, b) - subtraction
+    3. multiply(a, b) - multiplication
+    4. divide(a, b) - division (handle division by zero)
+    5. A main block that demonstrates each operation
+    Call exit when done.
+
+    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/write_code.md。
+- step: write_tests
+  agent: developer
+  depends_on:
+  - write_code
+  priority: 8
+  input: |-
+    Read the calculator code from {{output_dir}}/calculator.py.
+    Write unit tests in {{output_dir}}/test_calculator.py using pytest.
+    Cover all methods including edge cases (e.g., division by zero).
+    Call exit when done.
+
+    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/write_tests.md。
+- step: review_code
+  agent: code_reviewer
+  depends_on:
+  - write_code
+  - write_tests
+  priority: 5
+  input: |-
+    Review the following files:
+    - {{output_dir}}/calculator.py
+    - {{output_dir}}/test_calculator.py
+
+    Write a code review report to {{output_dir}}/code_review.txt covering:
+    1. Code quality and readability
+    2. Test coverage assessment
+    3. Potential bugs or issues
+    4. Suggestions for improvement
+    Call exit when done.
+
+    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/review_code.md。
+error_handling:
+  max_retries: 2
+  retry_delay: 3s
+  continue_on_error: false
+timeout:
+  total: 900s
+  per_step: 300s
+directory_isolation:
+  enabled: true
+  base_dir: ".workflow-runs"
+  working_dir_pattern: "{base_dir}/{execution_id}/{step_name}/workspace"
+  output_dir_pattern: "{base_dir}/{execution_id}/output"
+  persistence_dir_pattern: "{base_dir}/{execution_id}/.snapshots"
+  shared_cache_dir: ".prompt_cache"
+  shared_history_dir: ".agent_history"
+  shared_skills_dir: "./skills"
+  cleanup_on_completion: false
+  cleanup_after_hours: 72
+concurrency:
+  enabled: true
+  max_concurrency: 4
+global_agent:
+  enabled: true
+  agent:
+    preset: universal
+    overrides:
+      system_prompt: |-
+        你是工作流模板助手，负责帮助用户理解、调试和演示当前工作流。
+        生成或修改 YAML 时必须使用 braidrun-agent 的 snake_case 语法，并优先保持模板可直接运行。
+      tool_set:
+      - workflow
+      - file_system
+      - exit
+      max_iterations: 2048
+      session_id_strategy: per_execution

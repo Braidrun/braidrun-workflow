@@ -1,0 +1,43 @@
+---
+name: test-dingyue-asa-app-discover
+version: 1.0.0
+description: Test ASA app discover — account has 91 apps, many with ASA config.
+tags:
+  - code
+  - extract
+  - sub_workflow
+
+variables:
+  test_username: ""
+  test_password: ""
+
+agents: {}
+workflow:
+  - step: run
+    sub_workflow:
+      name: dingyue-module-asa-app-discover
+      inputs: {username: "{{var:test_username}}", password: "{{var:test_password}}", dingyue_platform: "flashapps", limit: "10"}
+      outputs:
+        status: fetch_status
+        total: total_apps
+        cfg: configured_apps
+        accounts: ad_accounts_csv
+    priority: 10
+  - step: assert
+    code:
+      language: python
+      timeout: 15
+      script: |
+        import os, sys
+        problems = []
+        if os.environ.get("WF_VAR_STATUS") != "ok": problems.append("status")
+        total = int(os.environ.get("WF_VAR_TOTAL", "0") or "0")
+        cfg = int(os.environ.get("WF_VAR_CFG", "0") or "0")
+        if total < 1: problems.append(f"total too small: {total}")
+        if cfg < 1: problems.append(f"configured too small: {cfg}")
+        if problems:
+          print("TEST_STATUS=fail"); [print(f"  - {p}") for p in problems]; sys.exit(1)
+        print(f"TEST_STATUS=pass (total={total}, configured={cfg}, accounts: {os.environ.get('WF_VAR_ACCOUNTS','')[:60]})")
+    extract: [{pattern: 'TEST_STATUS=(\w+)', variable: test_status}]
+    depends_on: [run]
+    priority: 5

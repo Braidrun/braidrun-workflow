@@ -1,0 +1,99 @@
+---
+name: test-workflow-session-sharing
+version: 1.0.0
+tags:
+- 测试
+- 会话共享
+description: 会话共享测试 - 使用 per_execution 策略让同一 agent 的多个步骤共享上下文
+variables:
+  output_dir: "./output"
+  demo_mode: 'true'
+agents:
+  assistant:
+    preset: universal
+    overrides:
+      system_prompt: |-
+        You are a helpful assistant with memory. You remember context from previous interactions in this session.
+
+        共同要求：
+        - 该模板以“可直接运行演示”为第一目标。
+        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
+        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+      tool_set:
+      - exit
+      - file_system
+      - skill_tools
+      max_iterations: 8196
+      session_id_strategy: per_execution
+workflow:
+- step: introduce_topic
+  agent: assistant
+  priority: 10
+  input: |-
+    Create directory {{output_dir}} if it doesn't exist.
+    We are going to discuss "sustainable energy solutions".
+    Write an introduction paragraph (50-80 words) about this topic.
+    Save it to {{output_dir}}/introduction.txt.
+    Call exit when done.
+
+    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/introduce_topic.md。
+- step: expand_topic
+  agent: assistant
+  depends_on:
+  - introduce_topic
+  priority: 8
+  input: |-
+    Based on our previous discussion about sustainable energy,
+    read {{output_dir}}/introduction.txt and expand on it.
+    Add two more paragraphs covering solar and wind energy (80-120 words total).
+    Save the expanded content to {{output_dir}}/expanded.txt.
+    Call exit when done.
+
+    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/expand_topic.md。
+- step: conclude_topic
+  agent: assistant
+  depends_on:
+  - expand_topic
+  priority: 5
+  input: |-
+    Read {{output_dir}}/expanded.txt.
+    Write a conclusion paragraph (50-80 words) summarizing all the points discussed.
+    Save the complete article (introduction + expansion + conclusion) to {{output_dir}}/full_article.txt.
+    Call exit when done.
+
+    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/conclude_topic.md。
+error_handling:
+  max_retries: 2
+  retry_delay: 3s
+  continue_on_error: false
+timeout:
+  total: 600s
+  per_step: 200s
+directory_isolation:
+  enabled: true
+  base_dir: ".workflow-runs"
+  working_dir_pattern: "{base_dir}/{execution_id}/{step_name}/workspace"
+  output_dir_pattern: "{base_dir}/{execution_id}/output"
+  persistence_dir_pattern: "{base_dir}/{execution_id}/.snapshots"
+  shared_cache_dir: ".prompt_cache"
+  shared_history_dir: ".agent_history"
+  shared_skills_dir: "./skills"
+  cleanup_on_completion: false
+  cleanup_after_hours: 72
+concurrency:
+  enabled: true
+  max_concurrency: 4
+global_agent:
+  enabled: true
+  agent:
+    preset: universal
+    overrides:
+      system_prompt: |-
+        你是工作流模板助手，负责帮助用户理解、调试和演示当前工作流。
+        生成或修改 YAML 时必须使用 braidrun-agent 的 snake_case 语法，并优先保持模板可直接运行。
+      tool_set:
+      - workflow
+      - file_system
+      - exit
+      max_iterations: 2048
+      session_id_strategy: per_execution

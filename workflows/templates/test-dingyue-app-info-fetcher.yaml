@@ -1,0 +1,55 @@
+---
+name: test-dingyue-app-info-fetcher
+version: 1.0.0
+description: Test dingyue-module-app-info-fetcher with configured test credentials — chain app-list → app-info.
+tags:
+  - code
+  - extract
+  - sub_workflow
+
+variables:
+  test_username: ""
+  test_password: ""
+
+agents: {}
+workflow:
+  - step: list_apps
+    sub_workflow:
+      name: dingyue-module-app-list-fetcher
+      inputs: {username: "{{var:test_username}}", password: "{{var:test_password}}", dingyue_platform: "flashapps", max_apps: "3"}
+      outputs:
+        ids: app_ids_csv
+    priority: 20
+  - step: fetch_info
+    sub_workflow:
+      name: dingyue-module-app-info-fetcher
+      inputs: {username: "{{var:test_username}}", password: "{{var:test_password}}", dingyue_platform: "flashapps", app_ids_csv: "{{var:ids}}"}
+      outputs:
+        status: fetch_status
+        cnt: app_count
+        path: apps_path
+    depends_on: [list_apps]
+    priority: 10
+  - step: assert
+    code:
+      language: python
+      timeout: 15
+      script: |
+        import json, os, sys
+        from pathlib import Path
+        problems = []
+        status = os.environ.get("WF_VAR_STATUS", "")
+        cnt = int(os.environ.get("WF_VAR_CNT", "0") or "0")
+        path = os.environ.get("WF_VAR_PATH", "")
+        if status != "ok": problems.append(f"status={status}")
+        if cnt < 1: problems.append(f"cnt={cnt}")
+        if path and Path(path).exists():
+          data = json.loads(Path(path).read_text())
+          if not isinstance(data, list) or len(data) < 1:
+            problems.append(f"apps array wrong: {len(data) if isinstance(data, list) else type(data).__name__}")
+        if problems:
+          print("TEST_STATUS=fail"); [print(f"  - {p}") for p in problems]; sys.exit(1)
+        print(f"TEST_STATUS=pass ({cnt} apps)")
+    extract: [{pattern: 'TEST_STATUS=(\w+)', variable: test_status}]
+    depends_on: [fetch_info]
+    priority: 5

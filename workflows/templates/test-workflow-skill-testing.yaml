@@ -1,0 +1,901 @@
+---
+name: test-workflow-skill-testing
+version: 1.0.0
+tags:
+  - 测试
+  - skill
+  - skill_tools
+  - skills_config
+  - code
+  - extract
+  - validation
+  - condition
+description: |
+  通用 Skill 测试工作流模板 - 指定一个 skill，加载它完成一项任务，再通过确定性校验和语义评审给出测试结论
+  覆盖：skills_config 白名单加载、skill_tools 激活、agent + code 混合步骤、
+  code_preamble、正则提取、JSON 提取，以及最终测试结果汇总
+variables:
+  skill_name: dingyue-web
+  skills_dir: "./braidrun-agent/skills"
+  workspace_dir: "."
+  artifacts_dir: "./output/test-workflow-skill-testing"
+  report_basename: skill-test-report.md
+  validation_basename: skill-test-validation.json
+  verdict_basename: skill-test-verdict.md
+  summary_basename: skill-test-summary.md
+  test_request: |
+    读取目标 skill 的 SKILL.md、必要的附件和可执行入口，完成一次可复现的 smoke test。
+    如果该 skill 依赖外部账号、API 凭证或远端系统访问，请退化为 documentation-only 或 dry-run 级别验证，
+    但仍要给出明确证据，而不是停在索要外部依赖。
+  success_criteria: |
+    1. 必须明确说明已经加载并使用了指定 skill。
+    2. 必须产出结构化测试报告。
+    3. 必须给出执行证据、限制说明和最终 PASS/FAIL 结论。
+  expected_markers: |
+    ## Skill Identity
+    ## Test Actions
+    ## Evidence
+    ## Verdict
+  demo_mode: 'true'
+variable_types:
+  test_request: file_or_text
+  success_criteria: file_or_text
+code_preamble:
+  python:
+    inline: |
+      import json
+      import os
+      from pathlib import Path
+
+      def get_var(name, default=""):
+          return os.environ.get(f"WF_VAR_{name.upper()}", default)
+
+      def as_abs_path(raw_value, fallback="."):
+          raw = (raw_value or fallback).strip() or fallback
+          path = Path(raw).expanduser()
+          if not path.is_absolute():
+              path = (Path.cwd() / path).resolve()
+          return path
+
+      def split_nonempty_lines(raw_value):
+          return [line.strip() for line in (raw_value or "").splitlines() if line.strip()]
+
+      def load_text(path_value):
+          try:
+              path = Path(path_value)
+              if path.exists() and path.is_file():
+                  return path.read_text(encoding="utf-8")
+          except Exception:
+              return ""
+          return ""
+
+      def maybe_load_file_content(raw_value):
+          raw = (raw_value or "").strip()
+          if not raw:
+              return ""
+          try:
+              path = Path(raw).expanduser()
+              if not path.is_absolute():
+                  path = (Path.cwd() / path).resolve()
+              if path.exists() and path.is_file():
+                  return path.read_text(encoding="utf-8")
+          except Exception:
+              pass
+          return raw
+    description: Skill 测试模板的 Python 辅助函数
+agents:
+  skill_runner:
+    preset: universal
+    overrides:
+      system_prompt: |-
+        你是 Skill 测试执行器，负责对指定 skill 做一次可复现的测试。
+
+        你的工作顺序必须是：
+        1. 只测试用户指定的 skill：{{var:skill_name}}。
+        2. 优先通过 skill_tools 激活并读取该 skill；不要切换去测试其他 skill。
+        3. 如果 `{{var:test_request}}` 或 `{{var:success_criteria}}` 看起来是文件路径，请先读取文件内容再执行。
+        4. 尽量真的执行一次 smoke test；如果受外部账号、API key、远端系统或权限限制，必须退化为 dry-run 或 documentation-only 验证，不得停在索要外部依赖。
+        5. 必须使用 file_system 工具在 `{{var:report_file_path}}` 写入 Markdown 报告；如果文件已存在就覆盖。
+        6. 写完后必须再读取一次该文件，确认内容已经成功落盘。
+        7. 报告必须包含以下 4 个一级标题：
+           ## Skill Identity
+           ## Test Actions
+           ## Evidence
+           ## Verdict
+        8. 报告中必须明确写出：
+           - 你实际加载或查看了哪些 skill 资源
+           - 你执行了什么测试动作
+           - 属于 executed / dry_run / documentation_only 哪一种
+           - 最终为什么判定 PASS 或 FAIL
+        9. 最终回复末尾最好原样输出这些结构化行：
+           skill_loaded=YES|NO
+           task_completed=YES|NO
+           smoke_test_mode=executed|dry_run|documentation_only
+           report_file={{var:report_file_path}}
+           final_status=PASS|FAIL
+
+        强约束：
+        - 如果 `{{var:skill_dir_path}}` 对应目录存在，请优先围绕该目录内资源完成测试。
+        - 允许使用 file_system 和 shell 做本地验证，但不要脱离 skill 目标去泛化输出。
+        - 最终必须调用 exit。
+      tool_set:
+      - exit
+      - file_system
+      - shell
+      - skill_tools
+      max_iterations: 8196
+      session_id_strategy: per_execution
+      working_dir: "{{var:workspace_dir_abs}}"
+      skills_config:
+        skillsPath: "{{var:skills_dir}}"
+        enabled: true
+        autoDiscovery: true
+        skillWhitelistMode: true
+        enabledSkills:
+        - "{{var:skill_name}}"
+        builtinSkillsEnabled: false
+        hooksEnabled: false
+        scanStandardPaths: false
+        workspaceDir: "{{var:workspace_dir_abs}}"
+
+  skill_verifier:
+    preset: universal
+    overrides:
+      system_prompt: |-
+        你是 Skill 测试评审员。
+
+        你需要结合测试请求、成功标准、执行器输出、测试报告和确定性验证结果，
+        判断这次 skill 测试是否真正覆盖了 skill 的核心能力，而不是只有泛泛总结。
+
+        工作要求：
+        - 如果 `{{var:test_request}}` 或 `{{var:success_criteria}}` 是文件路径，先读取文件内容。
+        - 如果 `{{var:report_file_path}}` 存在，优先阅读该报告文件作为主要证据。
+        - 结论要简洁、可审计，并指出最关键的通过/失败原因。
+        - 你需要把评审结果保存到 `{{var:artifacts_dir}}/{{var:verdict_basename}}`。
+
+        最终回复末尾必须原样输出：
+        semantic_status=PASS|FAIL
+        confidence_score=1-10
+
+        最后调用 exit。
+      tool_set:
+      - exit
+      - file_system
+      max_iterations: 4096
+      session_id_strategy: per_execution
+error_handling:
+  max_retries: 2
+  retry_delay: 3s
+  continue_on_error: false
+timeout:
+  total: 1800s
+  per_step: 300s
+directory_isolation:
+  enabled: false
+  base_dir: ".workflow-runs"
+  working_dir_pattern: "{base_dir}/{execution_id}/{step_name}/workspace"
+  output_dir_pattern: "{base_dir}/{execution_id}/output"
+  persistence_dir_pattern: "{base_dir}/{execution_id}/.snapshots"
+  shared_cache_dir: ".prompt_cache"
+  shared_history_dir: ".agent_history"
+  shared_skills_dir: "./skills"
+  cleanup_on_completion: false
+  cleanup_after_hours: 72
+concurrency:
+  enabled: false
+  max_concurrency: 0
+global_agent:
+  enabled: true
+  agent:
+    preset: universal
+    overrides:
+      system_prompt: |-
+        你是工作流模板助手，负责帮助用户理解、调试和演示当前工作流。
+        生成或修改 YAML 时必须使用 braidrun-agent 的 snake_case 语法，并优先保持模板可直接运行。
+      tool_set:
+      - workflow
+      - file_system
+      - exit
+      max_iterations: 2048
+      session_id_strategy: per_execution
+workflow:
+- step: prepare_test_context
+  code:
+    language: python
+    timeout: 60
+    script: |
+      skill_name = get_var("skill_name").strip()
+      skills_dir = as_abs_path(get_var("skills_dir", "./braidrun-agent/skills"))
+      workspace_dir = as_abs_path(get_var("workspace_dir", "."))
+      artifacts_dir = as_abs_path(get_var("artifacts_dir", "./output/test-workflow-skill-testing"))
+      report_basename = get_var("report_basename", "skill-test-report.md").strip() or "skill-test-report.md"
+      validation_basename = get_var("validation_basename", "skill-test-validation.json").strip() or "skill-test-validation.json"
+      verdict_basename = get_var("verdict_basename", "skill-test-verdict.md").strip() or "skill-test-verdict.md"
+      summary_basename = get_var("summary_basename", "skill-test-summary.md").strip() or "skill-test-summary.md"
+      artifacts_dir.mkdir(parents=True, exist_ok=True)
+
+      report_file = (artifacts_dir / report_basename).resolve()
+      validation_file = (artifacts_dir / validation_basename).resolve()
+      verdict_file = (artifacts_dir / verdict_basename).resolve()
+      summary_file = (artifacts_dir / summary_basename).resolve()
+      for stale_file in [report_file, validation_file, verdict_file, summary_file]:
+          if stale_file.exists():
+              stale_file.unlink()
+      request_preview = maybe_load_file_content(get_var("test_request", ""))
+      criteria_preview = maybe_load_file_content(get_var("success_criteria", ""))
+
+      skill_dir = (skills_dir / skill_name).resolve() if skill_name else skills_dir.resolve()
+      skill_md = skill_dir / "SKILL.md"
+      skill_present = skill_name != "" and skill_md.exists()
+      context_status = "ready" if skill_present else "missing_skill"
+
+      input_snapshot = {
+          "skill_name": skill_name,
+          "skills_dir": str(skills_dir),
+          "skill_dir": str(skill_dir),
+          "workspace_dir": str(workspace_dir),
+          "artifacts_dir": str(artifacts_dir),
+          "report_file": str(report_file),
+          "validation_file": str(validation_file),
+          "verdict_file": str(verdict_file),
+          "summary_file": str(summary_file),
+          "expected_markers": split_nonempty_lines(get_var("expected_markers", "")),
+          "request_preview": request_preview[:400],
+          "criteria_preview": criteria_preview[:400],
+          "context_status": context_status,
+      }
+      (artifacts_dir / "skill-test-input.json").write_text(
+          json.dumps(input_snapshot, ensure_ascii=False, indent=2),
+          encoding="utf-8",
+      )
+
+      if not skill_present:
+          placeholder = "\n".join([
+              "# Skill Test Result",
+              "",
+              "## Skill Identity",
+              "",
+              f"- requested_skill: `{skill_name or '(empty)'}`",
+              f"- expected_skill_dir: `{skill_dir}`",
+              "",
+              "## Test Actions",
+              "",
+              "- 无法开始执行，因为没有在指定目录下找到目标 skill 的 `SKILL.md`。",
+              "",
+              "## Evidence",
+              "",
+              f"- checked_path: `{skill_md}`",
+              f"- skills_dir: `{skills_dir}`",
+              "",
+              "## Verdict",
+              "",
+              "- FAIL: skill 不存在或路径不正确，测试被短路为预检查失败。",
+              "",
+          ]) + "\n"
+          report_file.write_text(placeholder, encoding="utf-8")
+
+      print(json.dumps({
+          "context_status": context_status,
+          "skill_present": "YES" if skill_present else "NO",
+          "skill_dir_path": str(skill_dir),
+          "skills_dir_abs": str(skills_dir),
+          "workspace_dir_abs": str(workspace_dir),
+          "artifacts_dir_abs": str(artifacts_dir),
+          "report_file_path": str(report_file),
+          "validation_file_path": str(validation_file),
+          "verdict_file_path": str(verdict_file),
+          "summary_file_path": str(summary_file),
+          "expected_markers_count": len(split_nonempty_lines(get_var("expected_markers", ""))),
+      }, ensure_ascii=False))
+  extract:
+  - json_path: "$.context_status"
+    variable: context_status
+  - json_path: "$.skill_present"
+    variable: skill_present
+  - json_path: "$.skill_dir_path"
+    variable: skill_dir_path
+  - json_path: "$.workspace_dir_abs"
+    variable: workspace_dir_abs
+  - json_path: "$.artifacts_dir_abs"
+    variable: artifacts_dir_abs
+  - json_path: "$.report_file_path"
+    variable: report_file_path
+
+- step: execute_skill_test
+  agent: skill_runner
+  condition: skill_present == 'YES'
+  depends_on:
+  - prepare_test_context
+  input: |-
+    请测试 skill `{{var:skill_name}}`。
+
+    技能目录：{{var:skill_dir_path}}
+    工作目录：{{var:workspace_dir_abs}}
+    报告文件：{{var:report_file_path}}
+
+    测试请求：
+    {{var:test_request}}
+
+    成功标准：
+    {{var:success_criteria}}
+
+    期望在报告中出现的标题标记：
+    {{var:expected_markers}}
+  extract:
+  - pattern: skill_loaded=(YES|NO)
+    variable: skill_loaded
+  - pattern: task_completed=(YES|NO)
+    variable: runner_status
+
+- step: ensure_test_report
+  code:
+    language: python
+    timeout: 300
+    script: |
+      import datetime as dt
+      import re
+      import shlex
+      import subprocess
+
+      skill_name = get_var("skill_name").strip()
+      skill_dir = as_abs_path(get_var("skill_dir_path", ""), get_var("skills_dir", "./braidrun-agent/skills"))
+      artifacts_dir = as_abs_path(get_var("artifacts_dir", "./output/test-workflow-skill-testing"))
+      report_file = as_abs_path(get_var("report_file_path", ""), artifacts_dir)
+      expected_markers = split_nonempty_lines(get_var("expected_markers", ""))
+      skill_md = skill_dir / "SKILL.md"
+      skill_text = load_text(skill_md)
+      scripts_dir = skill_dir / "scripts"
+      config_path = skill_dir / ".state" / "config.json"
+
+      def load_json(path):
+          try:
+              if Path(path).exists():
+                  return json.loads(Path(path).read_text(encoding="utf-8"))
+          except Exception:
+              return {}
+          return {}
+
+      config = load_json(config_path)
+      safe_config_keys = sorted(config.keys()) if isinstance(config, dict) else []
+      secret_values = []
+      if isinstance(config, dict):
+          for key in ("password", "privateKey"):
+              value = config.get(key)
+              if isinstance(value, str) and value.strip():
+                  secret_values.append(value.strip())
+
+      def sanitize(text):
+          cleaned = str(text or "")
+          for secret in secret_values:
+              if secret and len(secret) >= 4:
+                  cleaned = cleaned.replace(secret, "[REDACTED]")
+          cleaned = re.sub(r"Bearer\s+[A-Za-z0-9._~+/=-]+", "Bearer [REDACTED]", cleaned)
+          cleaned = re.sub(r'("password"\s*:\s*")[^"]*(")', r"\1[REDACTED]\2", cleaned, flags=re.IGNORECASE)
+          cleaned = re.sub(r"(--password\s+)(\S+)", r"\1[REDACTED]", cleaned)
+          return cleaned
+
+      def shorten(text, limit=900):
+          cleaned = sanitize(text).strip()
+          if len(cleaned) > limit:
+              return cleaned[:limit].rstrip() + "\n...<truncated>"
+          return cleaned
+
+      def mask_command(parts):
+          return " ".join(shlex.quote(sanitize(part)) for part in parts)
+
+      def has_markers(text):
+          return bool(text) and all(marker in text for marker in expected_markers)
+
+      def detect_mode(text):
+          match = re.search(r"\b(executed|dry_run|documentation_only)\b", text or "")
+          return match.group(1) if match else "unknown"
+
+      def run_probe(name, command, category, mode_hint, timeout_seconds=120):
+          try:
+              result = subprocess.run(
+                  command,
+                  cwd=str(skill_dir),
+                  capture_output=True,
+                  text=True,
+                  timeout=timeout_seconds,
+              )
+              return {
+                  "name": name,
+                  "category": category,
+                  "mode_hint": mode_hint,
+                  "command": mask_command(command),
+                  "ok": result.returncode == 0,
+                  "exit_code": result.returncode,
+                  "stdout": shorten(result.stdout),
+                  "stderr": shorten(result.stderr, 600),
+              }
+          except Exception as exc:
+              return {
+                  "name": name,
+                  "category": category,
+                  "mode_hint": mode_hint,
+                  "command": mask_command(command),
+                  "ok": False,
+                  "exit_code": -1,
+                  "stdout": "",
+                  "stderr": shorten(str(exc), 400),
+              }
+
+      existing_report = load_text(report_file)
+      sanitized_existing_report = sanitize(existing_report)
+
+      if sanitized_existing_report and sanitized_existing_report != existing_report:
+          report_file.write_text(sanitized_existing_report, encoding="utf-8")
+          existing_report = sanitized_existing_report
+
+      if has_markers(existing_report):
+          payload = {
+              "report_ready": "YES",
+              "report_source": "agent_report",
+              "report_mode": detect_mode(existing_report),
+              "report_file": str(report_file),
+          }
+          print(json.dumps(payload, ensure_ascii=False))
+      else:
+          script_files = []
+          if scripts_dir.exists():
+              script_files = [
+                  str(path.relative_to(skill_dir))
+                  for path in sorted(scripts_dir.rglob("*"))
+                  if path.is_file()
+              ]
+
+          local_links = []
+          for raw_target in re.findall(r"\[[^\]]+\]\(([^)]+)\)", skill_text):
+              target = raw_target.strip()
+              if not target or target.startswith("#") or "://" in target or target.startswith("mailto:"):
+                  continue
+              local_target = target.split("#", 1)[0].strip()
+              if not local_target:
+                  continue
+              resolved = Path(local_target).expanduser()
+              if not resolved.is_absolute():
+                  resolved = (skill_dir / local_target).resolve()
+              local_links.append((local_target, resolved.exists()))
+          missing_links = sorted({path for path, exists in local_links if not exists})
+
+          primary_specs = []
+          secondary_specs = []
+
+          smoke_ts = scripts_dir / "smoke.ts"
+          smoke_py = scripts_dir / "smoke.py"
+          selftest_ts = scripts_dir / "selftest.ts"
+          cli_ts = scripts_dir / "cli.ts"
+          cli_py = scripts_dir / "cli.py"
+          env_check_sh = scripts_dir / "env_check.sh"
+          make_sh = scripts_dir / "make.sh"
+
+          if selftest_ts.exists():
+              primary_specs.append(("selftest", ["npx", "tsx", "./scripts/selftest.ts"], "executed", 180))
+
+          if skill_name == "dingyue-web" and smoke_ts.exists():
+              platform = str(config.get("platform", "")).strip()
+              username = str(config.get("username", "")).strip()
+              password = str(config.get("password", "")).strip()
+              if platform and username and password:
+                  primary_specs.append((
+                      "smoke",
+                      [
+                          "npx",
+                          "tsx",
+                          "./scripts/smoke.ts",
+                          "--platform",
+                          platform,
+                          "--username",
+                          username,
+                          "--password",
+                          password,
+                      ],
+                      "executed",
+                      300,
+                  ))
+
+          if skill_name == "dingyue-asa" and smoke_ts.exists():
+              platform = str(config.get("platform", "")).strip()
+              username = str(config.get("username", "")).strip()
+              password = str(config.get("password", "")).strip()
+              org_id = str(config.get("defaultOrgId", "")).strip()
+              if platform and username and password and org_id:
+                  primary_specs.append((
+                      "smoke",
+                      [
+                          "npx",
+                          "tsx",
+                          "./scripts/smoke.ts",
+                          "--platform",
+                          platform,
+                          "--username",
+                          username,
+                          "--password",
+                          password,
+                          "--org-id",
+                          org_id,
+                      ],
+                      "executed",
+                      300,
+                  ))
+
+          if skill_name == "dingyue-appleconnect" and smoke_py.exists():
+              primary_specs.append(("smoke", ["python3", "./scripts/smoke.py"], "executed", 180))
+
+          if env_check_sh.exists():
+              primary_specs.append(("env_check", ["bash", "./scripts/env_check.sh"], "dry_run", 120))
+
+          if make_sh.exists():
+              primary_specs.append(("make_check", ["bash", "./scripts/make.sh", "check"], "dry_run", 180))
+
+          if cli_ts.exists():
+              secondary_specs.append(("cli_help", ["npx", "tsx", "./scripts/cli.ts", "help"], "dry_run", 120))
+          elif cli_py.exists():
+              secondary_specs.append(("cli_help", ["python3", "./scripts/cli.py", "--help"], "dry_run", 120))
+
+          if scripts_dir.exists() and any(path.suffix == ".py" for path in scripts_dir.rglob("*.py")):
+              secondary_specs.append(("python_compileall", ["python3", "-m", "compileall", "scripts"], "dry_run", 120))
+
+          shell_files = sorted(path for path in scripts_dir.glob("*.sh")) if scripts_dir.exists() else []
+          if shell_files and not env_check_sh.exists() and not make_sh.exists():
+              secondary_specs.append((
+                  "bash_syntax",
+                  ["bash", "-n", str(shell_files[0].relative_to(skill_dir))],
+                  "dry_run",
+                  60,
+              ))
+
+          probe_results = []
+          for name, command, mode_hint, timeout_seconds in primary_specs:
+              probe_results.append(run_probe(name, command, "primary", mode_hint, timeout_seconds))
+
+          if not primary_specs or not any(item["ok"] for item in probe_results if item["category"] == "primary"):
+              for name, command, mode_hint, timeout_seconds in secondary_specs[:2]:
+                  probe_results.append(run_probe(name, command, "secondary", mode_hint, timeout_seconds))
+
+          primary_failures = [item for item in probe_results if item["category"] == "primary" and not item["ok"]]
+          primary_successes = [item for item in probe_results if item["category"] == "primary" and item["ok"]]
+          secondary_failures = [item for item in probe_results if item["category"] == "secondary" and not item["ok"]]
+          secondary_successes = [item for item in probe_results if item["category"] == "secondary" and item["ok"]]
+
+          if primary_successes:
+              report_mode = "executed" if any(item["mode_hint"] == "executed" for item in primary_successes) else "dry_run"
+          elif probe_results:
+              report_mode = "dry_run"
+          else:
+              report_mode = "documentation_only"
+
+          if not skill_text.strip():
+              final_status = "FAIL"
+              verdict_reason = "SKILL.md is missing or empty"
+          elif primary_failures:
+              final_status = "FAIL"
+              verdict_reason = "primary probe failed: " + ", ".join(item["name"] for item in primary_failures)
+          elif primary_successes:
+              final_status = "PASS"
+              verdict_reason = "primary probe(s) passed: " + ", ".join(item["name"] for item in primary_successes)
+          elif secondary_successes and not secondary_failures:
+              final_status = "PASS"
+              verdict_reason = "secondary probe(s) passed: " + ", ".join(item["name"] for item in secondary_successes)
+          elif secondary_failures:
+              final_status = "FAIL"
+              verdict_reason = "secondary probe failed: " + ", ".join(item["name"] for item in secondary_failures)
+          elif missing_links:
+              final_status = "FAIL"
+              verdict_reason = "missing local references: " + ", ".join(missing_links[:3])
+          else:
+              final_status = "PASS"
+              verdict_reason = "documentation-only validation completed"
+
+          timestamp = dt.datetime.now().astimezone().strftime("%Y-%m-%d %H:%M %Z")
+          lines = [
+              f"# Skill Test Report: {skill_name}",
+              "",
+              f"**Test Date:** {timestamp}",
+              f"**Skill Path:** `{skill_dir}`",
+              f"**Test Mode:** `{report_mode}`",
+              "",
+              "---",
+              "",
+              "## Skill Identity",
+              "",
+              f"- Skill Name: `{skill_name}`",
+              f"- Skill Directory: `{skill_dir}`",
+              f"- SKILL.md present: `{'YES' if skill_md.exists() else 'NO'}`",
+              f"- SKILL.md lines: `{len(skill_text.splitlines())}`",
+              f"- Script files discovered: `{len(script_files)}`",
+              f"- Config keys discovered: `{', '.join(safe_config_keys) if safe_config_keys else '(none)'}`",
+          ]
+
+          if script_files:
+              lines.append(f"- Script sample: `{', '.join(script_files[:6])}`")
+          if local_links:
+              lines.append(f"- Local references checked: `{len(local_links)}`")
+          if missing_links:
+              lines.append(f"- Missing local references: `{', '.join(missing_links[:5])}`")
+
+          lines.extend([
+              "",
+              "## Test Actions",
+              "",
+              "- Agent activation step was allowed to inspect the skill through `skill_tools`.",
+          ])
+
+          if probe_results:
+              for item in probe_results:
+                  status = "PASS" if item["ok"] else "FAIL"
+                  lines.append(
+                      f"- `{status}` {item['name']}: `{item['command']}` (exit_code={item['exit_code']}, category={item['category']})"
+                  )
+          else:
+              lines.append("- No safe executable probe was discovered; downgraded to documentation-only validation.")
+
+          lines.extend([
+              "",
+              "## Evidence",
+              "",
+              f"- Final reasoning: {verdict_reason}",
+              f"- Sensitive values from local config were redacted before persisting the report.",
+          ])
+
+          if probe_results:
+              for item in probe_results:
+                  lines.extend([
+                      "",
+                      f"### Probe: {item['name']}",
+                      "",
+                      f"- command: `{item['command']}`",
+                      f"- exit_code: `{item['exit_code']}`",
+                      f"- status: `{'PASS' if item['ok'] else 'FAIL'}`",
+                  ])
+                  if item["stdout"]:
+                      lines.extend([
+                          "",
+                          "```text",
+                          item["stdout"],
+                          "```",
+                      ])
+                  if item["stderr"]:
+                      lines.extend([
+                          "",
+                          "```text",
+                          item["stderr"],
+                          "```",
+                      ])
+          else:
+              lines.extend([
+                  "",
+                  f"- Documentation-only evidence collected from `{skill_md}`.",
+              ])
+
+          lines.extend([
+              "",
+              "## Verdict",
+              "",
+              f"- Final Status: `{final_status}`",
+              f"- Reason: {verdict_reason}",
+              "",
+              "```text",
+              f"skill_loaded={'YES' if skill_md.exists() else 'NO'}",
+              "task_completed=YES",
+              f"smoke_test_mode={report_mode}",
+              f"report_file={report_file}",
+              f"final_status={final_status}",
+              "```",
+              "",
+          ])
+
+          report_text = sanitize("\n".join(lines))
+          report_file.write_text(report_text, encoding="utf-8")
+
+          payload = {
+              "report_ready": "YES" if report_file.exists() else "NO",
+              "report_source": "fallback_generated",
+              "report_mode": report_mode,
+              "report_file": str(report_file),
+          }
+          print(json.dumps(payload, ensure_ascii=False))
+  depends_on:
+  - prepare_test_context
+  - execute_skill_test
+  extract:
+  - json_path: "$.report_ready"
+    variable: report_ready
+  - json_path: "$.report_source"
+    variable: report_source
+  - json_path: "$.report_mode"
+    variable: report_mode
+
+- step: deterministic_validation
+  code:
+    language: python
+    timeout: 90
+    script: |
+      import re
+
+      skill_name = get_var("skill_name").strip()
+      context_status = get_var("context_status", "").strip()
+      report_file_path = get_var("report_file_path", "").strip()
+      report_file = as_abs_path(report_file_path, get_var("artifacts_dir", "./output/test-workflow-skill-testing"))
+      report_exists = report_file.exists()
+      report_text = load_text(report_file)
+      expected_markers = split_nonempty_lines(get_var("expected_markers", ""))
+      markers_total = len(expected_markers)
+      markers_matched = sum(1 for marker in expected_markers if marker in report_text)
+      markers_ok = markers_total == 0 or markers_matched == markers_total
+
+      skill_name_seen = skill_name != "" and skill_name in report_text
+      mode_match = re.search(r"\b(executed|dry_run|documentation_only)\b", report_text)
+      smoke_test_mode = mode_match.group(1) if mode_match else "unknown"
+      verdict_present = "PASS" in report_text or "FAIL" in report_text
+      runner_signals_ok = "YES" if report_exists and markers_ok and skill_name_seen else "NO"
+
+      if context_status != "ready":
+          deterministic_status = "FAIL"
+          reason = f"prepare_test_context returned {context_status}"
+      elif not report_exists:
+          deterministic_status = "FAIL"
+          reason = f"report file missing: {report_file}"
+      elif not markers_ok:
+          deterministic_status = "FAIL"
+          reason = "required markers are missing from the report"
+      elif not skill_name_seen:
+          deterministic_status = "FAIL"
+          reason = "report does not mention the requested skill name"
+      elif not verdict_present:
+          deterministic_status = "FAIL"
+          reason = "report does not contain a visible PASS/FAIL verdict"
+      else:
+          deterministic_status = "PASS"
+          reason = "deterministic checks passed"
+
+      artifacts_dir = as_abs_path(get_var("artifacts_dir", "./output/test-workflow-skill-testing"))
+      validation_file = (artifacts_dir / (get_var("validation_basename", "skill-test-validation.json").strip() or "skill-test-validation.json")).resolve()
+      payload = {
+          "deterministic_status": deterministic_status,
+          "report_exists": "YES" if report_exists else "NO",
+          "markers_total": markers_total,
+          "markers_matched": markers_matched,
+          "runner_signals_ok": runner_signals_ok,
+          "skill_name_seen": "YES" if skill_name_seen else "NO",
+          "smoke_test_mode": smoke_test_mode,
+          "reason": reason,
+          "report_file": str(report_file),
+          "validation_file": str(validation_file),
+      }
+      validation_file.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+      print(json.dumps(payload, ensure_ascii=False))
+  depends_on:
+  - ensure_test_report
+  extract:
+  - json_path: "$.deterministic_status"
+    variable: deterministic_status
+  - json_path: "$.report_exists"
+    variable: report_exists
+  - json_path: "$.markers_total"
+    variable: markers_total
+  - json_path: "$.markers_matched"
+    variable: markers_matched
+  - json_path: "$.runner_signals_ok"
+    variable: runner_signals_ok
+  - json_path: "$.smoke_test_mode"
+    variable: smoke_test_mode
+
+- step: semantic_review
+  code:
+    language: python
+    timeout: 60
+    script: |
+      report_file = as_abs_path(get_var("report_file_path", ""), get_var("artifacts_dir", "./output/test-workflow-skill-testing"))
+      artifacts_dir = as_abs_path(get_var("artifacts_dir", "./output/test-workflow-skill-testing"))
+      verdict_file = (artifacts_dir / (get_var("verdict_basename", "skill-test-verdict.md").strip() or "skill-test-verdict.md")).resolve()
+      validation_file = as_abs_path(get_var("validation_file_path", ""), get_var("artifacts_dir", "./output/test-workflow-skill-testing"))
+      report_text = load_text(report_file)
+
+      validation_payload = {}
+      try:
+          if validation_file.exists():
+              validation_payload = json.loads(validation_file.read_text(encoding="utf-8"))
+      except Exception:
+          validation_payload = {}
+
+      deterministic_status = str(validation_payload.get("deterministic_status", get_var("deterministic_status", "FAIL"))).strip() or "FAIL"
+      smoke_test_mode = str(validation_payload.get("smoke_test_mode", get_var("smoke_test_mode", "unknown"))).strip() or "unknown"
+      report_exists = str(validation_payload.get("report_exists", get_var("report_exists", "NO"))).strip() or "NO"
+      evidence_markers = [
+          "### Probe:",
+          "Smoke Test Summary",
+          "All 18 Smoke Steps Passed",
+          "Final Status:",
+          "documentation-only validation",
+      ]
+      evidence_hits = sum(1 for marker in evidence_markers if marker in report_text)
+
+      if deterministic_status == "PASS":
+          semantic_status = "PASS"
+          if smoke_test_mode == "executed":
+              confidence_score = "9"
+              semantic_reason = "deterministic checks passed and the report contains executed evidence"
+          elif smoke_test_mode == "dry_run":
+              confidence_score = "7"
+              semantic_reason = "deterministic checks passed with dry-run evidence"
+          else:
+              confidence_score = "6"
+              semantic_reason = "deterministic checks passed with documentation-only evidence"
+      else:
+          semantic_status = "FAIL"
+          confidence_score = "3" if report_exists == "YES" else "1"
+          semantic_reason = str(validation_payload.get("reason", "deterministic validation failed"))
+
+      verdict_lines = [
+          "# Skill Test Verdict",
+          "",
+          f"- requested_skill: `{get_var('skill_name', '')}`",
+          f"- report_file: `{report_file}`",
+          f"- deterministic_status: `{deterministic_status}`",
+          f"- semantic_status: `{semantic_status}`",
+          f"- confidence_score: `{confidence_score}`",
+          f"- smoke_test_mode: `{smoke_test_mode}`",
+          f"- evidence_hits: `{evidence_hits}`",
+          f"- reason: {semantic_reason}",
+          "",
+          "```text",
+          f"semantic_status={semantic_status}",
+          f"confidence_score={confidence_score}",
+          "```",
+          "",
+      ]
+      verdict_text = "\n".join(verdict_lines)
+      verdict_file.write_text(verdict_text, encoding="utf-8")
+      print(verdict_text)
+  depends_on:
+  - deterministic_validation
+  extract:
+  - pattern: semantic_status=(PASS|FAIL)
+    variable: semantic_status
+  - pattern: confidence_score=(\d+)
+    variable: confidence_score
+
+- step: finalize_test_result
+  code:
+    language: python
+    timeout: 60
+    script: |
+      artifacts_dir = as_abs_path(get_var("artifacts_dir", "./output/test-workflow-skill-testing"))
+      summary_file = (artifacts_dir / (get_var("summary_basename", "skill-test-summary.md").strip() or "skill-test-summary.md")).resolve()
+
+      deterministic_status = get_var("deterministic_status", "FAIL").strip() or "FAIL"
+      semantic_status = get_var("semantic_status", "FAIL").strip() or "FAIL"
+      confidence_score = get_var("confidence_score", "").strip() or "0"
+      smoke_test_mode = get_var("smoke_test_mode", "unknown").strip() or "unknown"
+      final_result = "PASS" if deterministic_status == "PASS" and semantic_status == "PASS" else "FAIL"
+
+      lines = [
+          "# Skill Test Summary",
+          "",
+          f"- requested_skill: `{get_var('skill_name', '')}`",
+          f"- context_status: `{get_var('context_status', '')}`",
+          f"- deterministic_status: `{deterministic_status}`",
+          f"- semantic_status: `{semantic_status}`",
+          f"- confidence_score: `{confidence_score}`",
+          f"- smoke_test_mode: `{smoke_test_mode}`",
+          f"- report_file: `{get_var('report_file_path', '')}`",
+          f"- final_result: `{final_result}`",
+          "",
+          "## Deterministic Validation",
+          "",
+          f"- report_exists: `{get_var('report_exists', '')}`",
+          f"- markers_matched: `{get_var('markers_matched', '')}` / `{get_var('markers_total', '')}`",
+          f"- runner_signals_ok: `{get_var('runner_signals_ok', '')}`",
+          "",
+      ]
+
+      summary_text = "\n".join(lines) + "\n"
+      summary_file.write_text(summary_text, encoding="utf-8")
+
+      print(summary_text)
+      print(f"final_result={final_result}")
+      print(f"summary_file={summary_file}")
+  depends_on:
+  - semantic_review

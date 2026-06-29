@@ -1,0 +1,104 @@
+---
+name: test-app-list-fetcher
+version: 1.0.0
+description: |
+  Test harness for dingyue-module-app-list-fetcher — positive path with real
+  configured test credentials, plus negative path (missing creds).
+
+tags:
+  - code
+  - error_handling
+  - extract
+  - sub_workflow
+
+variables:
+  test_username: ""
+  test_password: ""
+
+error_handling:
+  continue_on_error: true
+
+agents: {}
+
+workflow:
+  - step: real_fetch
+    sub_workflow:
+      name: dingyue-module-app-list-fetcher
+      inputs:
+        username: "{{var:test_username}}"
+        password: "{{var:test_password}}"
+        dingyue_platform: "flashapps"
+        max_apps: "5"
+      outputs:
+        real_status: fetch_status
+        real_count: app_count
+        real_csv: app_ids_csv
+        real_manifest: manifest_path
+    priority: 20
+
+  - step: missing_creds
+    sub_workflow:
+      name: dingyue-module-app-list-fetcher
+      inputs:
+        username: ""
+        password: ""
+        dingyue_platform: "flashapps"
+        max_apps: "5"
+      outputs:
+        mc_status: fetch_status
+        mc_count: app_count
+    on_failure:
+      - next: assert
+    priority: 15
+
+  - step: assert
+    code:
+      language: python
+      timeout: 15
+      script: |
+        import json, os, sys
+        from pathlib import Path
+
+        problems = []
+
+        # Real fetch should return ok + nonzero app count
+        rs = os.environ.get("WF_VAR_REAL_STATUS", "").strip()
+        rc = os.environ.get("WF_VAR_REAL_COUNT", "0").strip()
+        csv = os.environ.get("WF_VAR_REAL_CSV", "").strip()
+        manifest = os.environ.get("WF_VAR_REAL_MANIFEST", "").strip()
+
+        if rs != "ok":
+            problems.append(f"real fetch_status expected 'ok', got '{rs}'")
+        try:
+            count = int(rc)
+        except ValueError:
+            count = -1
+            problems.append(f"app_count not int: {rc}")
+        if count < 1:
+            problems.append(f"app_count should be >= 1, got {count}")
+        if count != 0 and not csv:
+            problems.append("app_ids_csv empty despite count > 0")
+
+        if manifest:
+            if not Path(manifest).exists():
+                problems.append(f"manifest_path missing: {manifest}")
+            else:
+                data = json.loads(Path(manifest).read_text(encoding="utf-8"))
+                apps = data.get("apps") or data.get("app_list") or data.get("entries") or data
+                if not apps:
+                    problems.append("manifest has no apps")
+
+        # Missing creds — module raises before any network call
+        mc = os.environ.get("WF_VAR_MC_STATUS", "").strip()
+        if mc != "":
+            problems.append(f"missing_creds should have raised (status empty), got '{mc}'")
+
+        if problems:
+            print("TEST_STATUS=fail")
+            for p in problems: print(f"  - {p}")
+            sys.exit(1)
+        print(f"TEST_STATUS=pass (fetched {count} apps, first ids: {csv[:100]})")
+    extract:
+      - {pattern: 'TEST_STATUS=(\w+)', variable: test_status}
+    depends_on: [real_fetch]
+    priority: 5

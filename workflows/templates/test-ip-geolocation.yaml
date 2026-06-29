@@ -1,0 +1,39 @@
+---
+name: test-ip-geolocation
+version: 1.0.0
+description: Test ip-geolocation on Cloudflare 1.1.1.1.
+tags:
+  - code
+  - extract
+  - sub_workflow
+
+agents: {}
+workflow:
+  - step: run
+    sub_workflow:
+      name: utility-module-ip-geolocation
+      inputs: {ip_address: "1.1.1.1"}
+      outputs:
+        cc: country_code
+        isp: isp
+        status: geo_status
+    priority: 10
+  - step: assert
+    code:
+      language: python
+      timeout: 15
+      script: |
+        import os, sys
+        problems = []
+        if os.environ.get("WF_VAR_STATUS") != "ok": problems.append("status")
+        if not os.environ.get("WF_VAR_CC"): problems.append("country_code empty")
+        isp = os.environ.get("WF_VAR_ISP", "").lower()
+        if "cloudflare" not in isp and "apnic" not in isp:
+          problems.append(f"1.1.1.1 isp should mention cloudflare or apnic: {isp}")
+        if problems:
+          print("TEST_STATUS=fail"); [print(f"  - {p}") for p in problems]; sys.exit(1)
+        print("TEST_STATUS=pass")
+    extract:
+      - {pattern: 'TEST_STATUS=(\w+)', variable: test_status}
+    depends_on: [run]
+    priority: 5

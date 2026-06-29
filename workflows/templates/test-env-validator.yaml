@@ -1,0 +1,95 @@
+---
+name: test-env-validator
+version: 1.0.0
+description: |
+  Test harness for utility-module-env-validator.
+
+  First asserts that missing required variables produce failed status, then
+  asserts that valid vars + regex pass cleanly.
+
+tags:
+  - code
+  - extract
+  - sub_workflow
+
+agents: {}
+
+workflow:
+  - step: expect_failure
+    sub_workflow:
+      name: utility-module-env-validator
+      inputs:
+        required_vars: "__PROBABLY_UNSET_TEST_VAR_12345__"
+        validation_rules_json: "{}"
+        raise_on_failure: "false"
+      outputs:
+        fail_status: validation_status
+        fail_failures_json: failures_json
+    priority: 10
+
+  - step: expect_success
+    sub_workflow:
+      name: utility-module-env-validator
+      inputs:
+        required_vars: ""
+        extra_values_json: '{"API_KEY":"abcdefghijklmnopqrstuvwxyz012345","EMAIL":"alice@example.com"}'
+        validation_rules_json: |
+          {
+            "API_KEY": {"min_length": 32},
+            "EMAIL": {"regex": "^[\\w.-]+@[\\w.-]+$"}
+          }
+      outputs:
+        ok_status: validation_status
+        ok_failures_json: failures_json
+    priority: 9
+
+  - step: assert
+    code:
+      language: python
+      timeout: 15
+      script: |
+        import json
+        import os
+        import sys
+
+        fail_status = os.environ.get("WF_VAR_FAIL_STATUS", "").strip()
+        fail_failures_json = os.environ.get("WF_VAR_FAIL_FAILURES_JSON", "").strip()
+        ok_status = os.environ.get("WF_VAR_OK_STATUS", "").strip()
+        ok_failures_json = os.environ.get("WF_VAR_OK_FAILURES_JSON", "").strip()
+
+        problems = []
+
+        # 1. Missing-required case should report "failed" with >= 1 failures
+        if fail_status != "failed":
+            problems.append(f"expect_failure status should be 'failed', got '{fail_status}'")
+        try:
+            fails = json.loads(fail_failures_json or "[]")
+            if not isinstance(fails, list) or len(fails) == 0:
+                problems.append(f"expect_failure failures_json should be non-empty list, got: {fails}")
+        except json.JSONDecodeError as e:
+            problems.append(f"expect_failure failures_json invalid: {e}")
+
+        # 2. Valid extras case should be "ok" with empty failures list
+        if ok_status != "ok":
+            problems.append(f"expect_success status should be 'ok', got '{ok_status}'")
+        try:
+            oks = json.loads(ok_failures_json or "[]")
+            if oks:
+                problems.append(f"expect_success failures_json should be [], got: {oks}")
+        except json.JSONDecodeError as e:
+            problems.append(f"expect_success failures_json invalid: {e}")
+
+        if problems:
+            print("TEST_STATUS=fail")
+            for p in problems:
+                print(f"  - {p}")
+            sys.exit(1)
+        else:
+            print("TEST_STATUS=pass")
+    extract:
+      - pattern: 'TEST_STATUS=(\w+)'
+        variable: test_status
+    depends_on:
+      - expect_failure
+      - expect_success
+    priority: 5

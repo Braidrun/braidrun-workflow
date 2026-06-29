@@ -1,0 +1,39 @@
+---
+name: test-dns-lookup
+version: 1.0.0
+description: Test dns-lookup A record for cloudflare.com.
+tags:
+  - code
+  - extract
+  - sub_workflow
+
+agents: {}
+workflow:
+  - step: run
+    sub_workflow:
+      name: utility-module-dns-lookup
+      inputs: {domain: "cloudflare.com", record_type: "A", expect_contains: "104."}
+      outputs:
+        recs: records_json
+        cnt: record_count
+        m: match
+        status: dns_status
+    priority: 10
+  - step: assert
+    code:
+      language: python
+      timeout: 15
+      script: |
+        import os, sys
+        problems = []
+        if os.environ.get("WF_VAR_STATUS") != "ok": problems.append(f"status={os.environ.get('WF_VAR_STATUS')}")
+        cnt = int(os.environ.get("WF_VAR_CNT", "0") or "0")
+        if cnt < 1: problems.append(f"cnt={cnt}")
+        # expect_contains "104." 很可能匹配到 Cloudflare 的 104.x.x.x 段
+        if problems:
+          print("TEST_STATUS=fail"); [print(f"  - {p}") for p in problems]; sys.exit(1)
+        print(f"TEST_STATUS=pass ({cnt} records)")
+    extract:
+      - {pattern: 'TEST_STATUS=(\w+)', variable: test_status}
+    depends_on: [run]
+    priority: 5

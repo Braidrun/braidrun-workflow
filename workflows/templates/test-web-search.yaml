@@ -1,0 +1,48 @@
+---
+name: test-web-search
+version: 1.0.0
+description: Test web-search via DuckDuckGo (no API key).
+tags:
+  - code
+  - extract
+  - sub_workflow
+
+agents: {}
+workflow:
+  - step: search
+    sub_workflow:
+      name: utility-module-web-search
+      inputs:
+        query: "python programming language"
+        provider: duckduckgo
+        max_results: "5"
+      outputs:
+        results: results_json
+        count: result_count
+        status: search_status
+    priority: 10
+  - step: assert
+    code:
+      language: python
+      timeout: 15
+      script: |
+        import json, os, sys
+        raw = os.environ.get("WF_VAR_RESULTS", "[]")
+        cnt = int(os.environ.get("WF_VAR_COUNT", "0") or "0")
+        status = os.environ.get("WF_VAR_STATUS", "")
+        problems = []
+        if status != "ok": problems.append(f"status={status}")
+        # 允许 0~5 条（DDG 偶尔限流只返回少量），但要能解析
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError as e:
+            problems.append(f"json decode: {e}")
+            data = []
+        if cnt > 0 and not data: problems.append(f"count={cnt} but results empty")
+        if problems:
+          print("TEST_STATUS=fail"); [print(f"  - {p}") for p in problems]; sys.exit(1)
+        print(f"TEST_STATUS=pass (got {cnt} results)")
+    extract:
+      - {pattern: 'TEST_STATUS=(\w+)', variable: test_status}
+    depends_on: [search]
+    priority: 5

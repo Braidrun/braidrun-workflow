@@ -1,0 +1,99 @@
+---
+name: test-data-deduplicator
+version: 1.0.0
+description: |
+  Test harness for utility-module-data-deduplicator.
+
+  Feeds a small JSON array with duplicate emails and verifies the first-wins
+  strategy keeps 3 unique records.
+
+tags:
+  - code
+  - extract
+  - sub_workflow
+
+variables:
+  fixture: |
+    [
+      {"id": 1, "email": "alice@example.com", "name": "Alice"},
+      {"id": 2, "email": "bob@example.com",   "name": "Bob"},
+      {"id": 3, "email": "alice@example.com", "name": "Alice (duplicate)"},
+      {"id": 4, "email": "carol@example.com", "name": "Carol"},
+      {"id": 5, "email": "bob@example.com",   "name": "Bob (second)"}
+    ]
+
+agents: {}
+
+workflow:
+  - step: dedupe
+    sub_workflow:
+      name: utility-module-data-deduplicator
+      inputs:
+        input_json: "{{var:fixture}}"
+        dedupe_keys: "email"
+        strategy: first
+        output_format: json
+      outputs:
+        dedupe_output_file: output_file
+        dedupe_input_count: input_count
+        dedupe_output_count: output_count
+        dedupe_duplicate_count: duplicate_count
+        dedupe_status: dedupe_status
+    priority: 10
+
+  - step: assert
+    code:
+      language: python
+      timeout: 15
+      script: |
+        import json
+        import os
+        import sys
+        from pathlib import Path
+
+        status = os.environ.get("WF_VAR_DEDUPE_STATUS", "").strip()
+        in_count_raw = os.environ.get("WF_VAR_DEDUPE_INPUT_COUNT", "").strip()
+        out_count_raw = os.environ.get("WF_VAR_DEDUPE_OUTPUT_COUNT", "").strip()
+        dup_count_raw = os.environ.get("WF_VAR_DEDUPE_DUPLICATE_COUNT", "").strip()
+        out_file = os.environ.get("WF_VAR_DEDUPE_OUTPUT_FILE", "").strip()
+
+        problems = []
+        if status != "ok":
+            problems.append(f"status != ok (got '{status}')")
+        if int(in_count_raw or "0") != 5:
+            problems.append(f"input_count expected 5, got {in_count_raw}")
+        if int(out_count_raw or "0") != 3:
+            problems.append(f"output_count expected 3 (after dedupe), got {out_count_raw}")
+        if int(dup_count_raw or "0") != 2:
+            problems.append(f"duplicate_count expected 2, got {dup_count_raw}")
+
+        if out_file and Path(out_file).exists():
+            deduped = json.loads(Path(out_file).read_text(encoding="utf-8"))
+            if not isinstance(deduped, list):
+                problems.append(f"output file should contain a JSON array, got {type(deduped).__name__}")
+            else:
+                emails = sorted(x["email"] for x in deduped)
+                if emails != ["alice@example.com", "bob@example.com", "carol@example.com"]:
+                    problems.append(f"emails after dedupe wrong: {emails}")
+                # First-wins: alice => id=1 (not id=3), bob => id=2 (not id=5)
+                by_email = {x["email"]: x["id"] for x in deduped}
+                if by_email.get("alice@example.com") != 1:
+                    problems.append(f"first-wins broken for alice: id={by_email.get('alice@example.com')}")
+                if by_email.get("bob@example.com") != 2:
+                    problems.append(f"first-wins broken for bob: id={by_email.get('bob@example.com')}")
+        else:
+            problems.append(f"output_file missing or unreadable: {out_file}")
+
+        if problems:
+            print("TEST_STATUS=fail")
+            for p in problems:
+                print(f"  - {p}")
+            sys.exit(1)
+        else:
+            print("TEST_STATUS=pass")
+    extract:
+      - pattern: 'TEST_STATUS=(\w+)'
+        variable: test_status
+    depends_on:
+      - dedupe
+    priority: 5

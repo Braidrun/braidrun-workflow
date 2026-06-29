@@ -1,0 +1,111 @@
+---
+name: test-hash-signer
+version: 1.0.0
+description: |
+  Test harness for utility-module-hash-signer.
+
+  - Plain SHA-256 of a known string
+  - HMAC-SHA256 with a secret key
+  - expected_digest verification path (both success and base64 encoding)
+
+tags:
+  - code
+  - extract
+  - sub_workflow
+
+variables:
+  payload: "hello world"
+  expected_sha256: "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9"
+  secret: "super-secret"
+
+agents: {}
+
+workflow:
+  - step: hash_sha256
+    sub_workflow:
+      name: utility-module-hash-signer
+      inputs:
+        algorithm: sha256
+        input_text: "{{var:payload}}"
+        encoding: hex
+        expected_digest: "{{var:expected_sha256}}"
+      outputs:
+        sha256_digest: digest
+        sha256_verified: verified
+        sha256_algo: algorithm_used
+        sha256_status: hash_status
+    priority: 10
+
+  - step: hmac_sha256_b64
+    sub_workflow:
+      name: utility-module-hash-signer
+      inputs:
+        algorithm: sha256
+        input_text: "{{var:payload}}"
+        secret_key: "{{var:secret}}"
+        encoding: base64
+      outputs:
+        hmac_digest: digest
+        hmac_algo: algorithm_used
+        hmac_status: hash_status
+    priority: 9
+
+  - step: assert
+    code:
+      language: python
+      timeout: 15
+      script: |
+        import base64
+        import hashlib
+        import hmac
+        import os
+        import sys
+
+        problems = []
+
+        sha256_status = os.environ.get("WF_VAR_SHA256_STATUS", "").strip()
+        sha256_digest = os.environ.get("WF_VAR_SHA256_DIGEST", "").strip()
+        sha256_verified = os.environ.get("WF_VAR_SHA256_VERIFIED", "").strip().lower()
+        sha256_algo = os.environ.get("WF_VAR_SHA256_ALGO", "").strip()
+
+        expected = os.environ.get("WF_VAR_EXPECTED_SHA256", "").strip()
+        if sha256_status != "ok":
+            problems.append(f"sha256 status != ok (got '{sha256_status}')")
+        if sha256_digest != expected:
+            problems.append(f"sha256 digest mismatch: got={sha256_digest}, expected={expected}")
+        if sha256_verified != "true":
+            problems.append(f"sha256 verified should be true, got '{sha256_verified}'")
+        if sha256_algo.lower() not in ("sha256", "hmac-sha256"):
+            problems.append(f"sha256 algo wrong: {sha256_algo}")
+
+        # Recompute HMAC-SHA256(payload, secret) and base64-encode it, then compare.
+        hmac_status = os.environ.get("WF_VAR_HMAC_STATUS", "").strip()
+        hmac_digest = os.environ.get("WF_VAR_HMAC_DIGEST", "").strip()
+        hmac_algo = os.environ.get("WF_VAR_HMAC_ALGO", "").strip()
+
+        payload = os.environ.get("WF_VAR_PAYLOAD", "").encode("utf-8")
+        secret = os.environ.get("WF_VAR_SECRET", "").encode("utf-8")
+        expected_hmac = base64.b64encode(hmac.new(secret, payload, hashlib.sha256).digest()).decode("ascii")
+
+        if hmac_status != "ok":
+            problems.append(f"hmac status != ok (got '{hmac_status}')")
+        if hmac_digest != expected_hmac:
+            problems.append(f"hmac digest mismatch: got={hmac_digest}, expected={expected_hmac}")
+        # HMAC mode should self-identify as hmac-<alg> or similar.
+        if "hmac" not in hmac_algo.lower():
+            problems.append(f"hmac algo should contain 'hmac', got: {hmac_algo}")
+
+        if problems:
+            print("TEST_STATUS=fail")
+            for p in problems:
+                print(f"  - {p}")
+            sys.exit(1)
+        else:
+            print("TEST_STATUS=pass")
+    extract:
+      - pattern: 'TEST_STATUS=(\w+)'
+        variable: test_status
+    depends_on:
+      - hash_sha256
+      - hmac_sha256_b64
+    priority: 5

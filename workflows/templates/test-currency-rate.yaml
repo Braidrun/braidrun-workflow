@@ -1,0 +1,41 @@
+---
+name: test-currency-rate
+version: 1.0.0
+description: Test currency-rate USD→EUR conversion via open-er-api.
+tags:
+  - code
+  - extract
+  - sub_workflow
+
+agents: {}
+workflow:
+  - step: run
+    sub_workflow:
+      name: utility-module-currency-rate
+      inputs: {from_currency: "USD", to_currency: "EUR", amount: "100"}
+      outputs:
+        conv: converted_amount
+        rate: rate
+        base: base
+        status: currency_status
+    priority: 10
+  - step: assert
+    code:
+      language: python
+      timeout: 15
+      script: |
+        import os, sys
+        problems = []
+        if os.environ.get("WF_VAR_STATUS") != "ok": problems.append("status")
+        if os.environ.get("WF_VAR_BASE") != "USD": problems.append(f"base={os.environ.get('WF_VAR_BASE')}")
+        rate = float(os.environ.get("WF_VAR_RATE", "0") or "0")
+        if rate < 0.5 or rate > 1.5: problems.append(f"USD/EUR rate unreasonable: {rate}")
+        conv = float(os.environ.get("WF_VAR_CONV", "0") or "0")
+        if abs(conv - rate * 100) > 0.5: problems.append(f"100 USD conv {conv} != 100*rate")
+        if problems:
+          print("TEST_STATUS=fail"); [print(f"  - {p}") for p in problems]; sys.exit(1)
+        print(f"TEST_STATUS=pass (1 USD = {rate} EUR)")
+    extract:
+      - {pattern: 'TEST_STATUS=(\w+)', variable: test_status}
+    depends_on: [run]
+    priority: 5

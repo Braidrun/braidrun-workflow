@@ -1,0 +1,95 @@
+---
+name: test-date-range-generator
+version: 1.0.0
+description: |
+  Test harness for utility-module-date-range-generator.
+
+  Generates 7 daily dates in UTC between two known dates, asserts count and
+  bounds.
+
+tags:
+  - code
+  - extract
+  - sub_workflow
+
+agents: {}
+
+workflow:
+  - step: gen_daily
+    sub_workflow:
+      name: utility-module-date-range-generator
+      inputs:
+        start_date: "2025-01-05"
+        end_date: "2025-01-11"
+        granularity: daily
+        timezone: "UTC"
+        include_end: "true"
+        format: "%Y-%m-%d"
+      outputs:
+        daily_dates_json: dates_json
+        daily_count: count
+        daily_resolved_start: resolved_start
+        daily_resolved_end: resolved_end
+    priority: 10
+
+  - step: assert
+    code:
+      language: python
+      timeout: 15
+      script: |
+        import json
+        import os
+        import sys
+
+        count_raw = os.environ.get("WF_VAR_DAILY_COUNT", "").strip()
+        dates_json = os.environ.get("WF_VAR_DAILY_DATES_JSON", "").strip()
+        resolved_start = os.environ.get("WF_VAR_DAILY_RESOLVED_START", "").strip()
+        resolved_end = os.environ.get("WF_VAR_DAILY_RESOLVED_END", "").strip()
+
+        problems = []
+
+        if resolved_start != "2025-01-05":
+            problems.append(f"resolved_start expected 2025-01-05, got '{resolved_start}'")
+        if resolved_end != "2025-01-11":
+            problems.append(f"resolved_end expected 2025-01-11, got '{resolved_end}'")
+
+        try:
+            count = int(count_raw)
+        except ValueError:
+            count = -1
+            problems.append(f"count not int: '{count_raw}'")
+        if count != 7:
+            problems.append(f"expected 7 days (2025-01-05..11), got {count}")
+
+        try:
+            parsed = json.loads(dates_json)
+        except json.JSONDecodeError as e:
+            problems.append(f"dates_json not valid JSON: {e}")
+            parsed = None
+
+        if isinstance(parsed, list):
+            if len(parsed) != 7:
+                problems.append(f"dates array length != 7, got {len(parsed)}")
+            # Accept two shapes: list of strings OR list of {date: ...} dicts
+            first = parsed[0] if parsed else None
+            date_str = first if isinstance(first, str) else (first or {}).get("date") or (first or {}).get("start")
+            last = parsed[-1] if parsed else None
+            last_date = last if isinstance(last, str) else (last or {}).get("date") or (last or {}).get("start")
+            if date_str != "2025-01-05":
+                problems.append(f"first date should be 2025-01-05, got: {first}")
+            if last_date != "2025-01-11":
+                problems.append(f"last date should be 2025-01-11, got: {last}")
+
+        if problems:
+            print("TEST_STATUS=fail")
+            for p in problems:
+                print(f"  - {p}")
+            sys.exit(1)
+        else:
+            print("TEST_STATUS=pass")
+    extract:
+      - pattern: 'TEST_STATUS=(\w+)'
+        variable: test_status
+    depends_on:
+      - gen_daily
+    priority: 5
