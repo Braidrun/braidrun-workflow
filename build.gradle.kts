@@ -22,7 +22,7 @@ application {
 distributions {
     main {
         contents {
-            val cliSlf4jNop = (dependencies.create("org.slf4j:slf4j-nop:2.0.17") as org.gradle.api.artifacts.ExternalModuleDependency).apply {
+            val cliSlf4jNop = (dependencies.create("org.slf4j:slf4j-nop:2.0.17") as ExternalModuleDependency).apply {
                 exclude(mapOf("group" to "org.slf4j", "module" to "slf4j-api"))
             }
             from(configurations.detachedConfiguration(cliSlf4jNop)) {
