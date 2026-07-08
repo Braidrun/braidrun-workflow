@@ -24,6 +24,43 @@ jobs:
       - name: Build and test
         run: ./gradlew clean build --console=plain --stacktrace --info
 
+      - name: Surface test failures
+        if: failure()
+        run: |
+          python3 - <<'PY'
+          import glob
+          import html
+          import xml.etree.ElementTree as ET
+
+          found = False
+          for path in sorted(glob.glob("build/test-results/test/TEST-*.xml")):
+              try:
+                  root = ET.parse(path).getroot()
+              except ET.ParseError as exc:
+                  print(f"::warning file={path}::Could not parse test result XML: {exc}")
+                  continue
+
+              for case in root.findall("testcase"):
+                  failure = case.find("failure")
+                  if failure is None:
+                      failure = case.find("error")
+                  if failure is None:
+                      continue
+
+                  found = True
+                  classname = case.get("classname", "")
+                  name = case.get("name", "")
+                  message = failure.get("message") or (failure.text or "")
+                  message = " ".join(message.split())
+                  if len(message) > 800:
+                      message = message[:797] + "..."
+                  escaped = html.escape(f"{classname}#{name}: {message}", quote=False)
+                  print(f"::error file={path},title=Failing test::{escaped}")
+
+          if not found:
+              print("::warning::No failing JUnit XML entries found under build/test-results/test")
+          PY
+
       - name: Upload test reports
         if: failure()
         uses: actions/upload-artifact@v4
