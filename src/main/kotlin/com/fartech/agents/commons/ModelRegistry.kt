@@ -251,7 +251,8 @@ object ModelRegistry {
             "openrouter.yaml", "openai.yaml", "google.yaml", "anthropic.yaml",
             "deepseek.yaml", "xai.yaml", "qwen.yaml", "qwen-direct.yaml",
             "kimi.yaml", "minimax.yaml", "meta.yaml", "mistral.yaml",
-            "perplexity.yaml", "ollama.yaml", "lmstudio.yaml", "zai.yaml"
+            "perplexity.yaml", "ollama.yaml", "lmstudio.yaml", "zai.yaml",
+            "nvidia.yaml"
         )
         for (fileName in knownFiles) {
             val url = classLoader.getResource("models/$fileName") ?: continue
@@ -361,11 +362,12 @@ object ModelRegistry {
             // XAI, Qwen, Kimi, MiniMax, Meta, Mistral, Perplexity 等都通过 OpenRouter 或 OpenAI-compatible
             "xai", "x-ai" -> LLMProvider.OpenRouter
             "qwen" -> LLMProvider.OpenRouter
-            "qwen_direct", "qwen-direct", "dashscope" -> LLMProvider.OpenAI
-            "kimi", "moonshot" -> LLMProvider.OpenAI
-            "minimax" -> LLMProvider.OpenAI
-            "lmstudio", "lm-studio", "lm_studio" -> LLMProvider.OpenAI
-            "zai", "z_ai", "z-ai", "zhipuai", "zhipu_ai" -> LLMProvider.OpenAI
+            "qwen_direct", "qwen-direct", "dashscope" -> QWEN_DIRECT_LLM_PROVIDER
+            "kimi", "moonshot" -> KIMI_LLM_PROVIDER
+            "minimax" -> LLMProvider.MiniMax
+            "lmstudio", "lm-studio", "lm_studio" -> LMSTUDIO_LLM_PROVIDER
+            "zai", "z.ai", "z_ai", "z-ai", "zhipuai", "zhipu_ai" -> ZAI_LLM_PROVIDER
+            "nvidia", "nvidia_nim", "nvidia-nim", "nim", "nvidia_build", "nvidia-build" -> NVIDIA_LLM_PROVIDER
             "meta", "meta-llama" -> LLMProvider.OpenRouter
             "mistral", "mistralai" -> LLMProvider.OpenRouter
             "perplexity" -> LLMProvider.OpenRouter

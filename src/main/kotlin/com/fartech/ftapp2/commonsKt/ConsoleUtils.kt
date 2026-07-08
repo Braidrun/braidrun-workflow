@@ -30,7 +30,11 @@ object AnsiColor {
     const val INVISIBLE = "\u001b[8m"
 }
 
+private fun quietConsole(): Boolean =
+    System.getProperty("braidrun.quietConsole").equals("true", ignoreCase = true)
+
 fun printlnColor(color: String, vararg args: Any?) {
+    if (quietConsole()) return
     AnsiConsole.systemInstall()
     val ansi = Ansi.ansi().a(color)
     args.forEach { ansi.a(it?.toString() ?: "null").a(' ') }
@@ -39,6 +43,7 @@ fun printlnColor(color: String, vararg args: Any?) {
 }
 
 fun printlnPlain(vararg args: Any?) {
+    if (quietConsole()) return
     args.forEach {
         print(it?.toString() ?: "null")
         print(' ')

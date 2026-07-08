@@ -239,6 +239,7 @@ val MISTRAL_MODELS: Map<String, LLModel> get() = ModelRegistry.getProviderModels
 val PERPLEXITY_MODELS: Map<String, LLModel> get() = ModelRegistry.getProviderModels("perplexity") ?: emptyMap()
 val OLLAMA_MODELS: Map<String, LLModel> get() = ModelRegistry.getProviderModels("ollama") ?: emptyMap()
 val ZAI_MODELS: Map<String, LLModel> get() = ModelRegistry.getProviderModels("zai") ?: emptyMap()
+val NVIDIA_MODELS: Map<String, LLModel> get() = ModelRegistry.getProviderModels("nvidia") ?: emptyMap()
 
 val DEFAULT_LLM_MODEL: LLModel get() = OPEN_ROUTER_MODELS["grok-4.20"]
     ?: error("Default model grok-4.20 not found — check openrouter.yaml")
@@ -269,11 +270,12 @@ private fun mapProviderToLLMProvider(providerKey: String): LLMProvider = when (p
     "deepseek" -> LLMProvider.DeepSeek
     "xai", "x-ai" -> LLMProvider.OpenRouter
     "qwen" -> LLMProvider.OpenRouter                       // Qwen via OpenRouter
-    "qwen_direct", "dashscope" -> LLMProvider.OpenAI       // Qwen via DashScope (OpenAI-compatible)
-    "kimi", "moonshot" -> LLMProvider.OpenAI               // Kimi/Moonshot (OpenAI-compatible)
-    "minimax" -> LLMProvider.OpenAI                        // MiniMax (OpenAI-compatible)
-    "lmstudio", "lm-studio", "lm_studio" -> LLMProvider.OpenAI  // LM Studio (OpenAI-compatible)
-    "zai", "z_ai", "z-ai", "zhipuai", "zhipu_ai" -> LLMProvider.OpenAI // Z.ai official (OpenAI-compatible)
+    "qwen_direct", "dashscope" -> QWEN_DIRECT_LLM_PROVIDER       // Qwen via DashScope (OpenAI-compatible)
+    "kimi", "moonshot" -> KIMI_LLM_PROVIDER                       // Kimi/Moonshot (OpenAI-compatible)
+    "minimax" -> LLMProvider.MiniMax                              // MiniMax (OpenAI-compatible)
+    "lmstudio", "lm-studio", "lm_studio" -> LMSTUDIO_LLM_PROVIDER // LM Studio (OpenAI-compatible)
+    "zai", "z.ai", "z_ai", "z-ai", "zhipuai", "zhipu_ai" -> ZAI_LLM_PROVIDER // Z.ai official (OpenAI-compatible)
+    "nvidia", "nvidia_nim", "nvidia-nim", "nim", "nvidia_build", "nvidia-build" -> NVIDIA_LLM_PROVIDER // NVIDIA-hosted NIM APIs
     "meta", "meta-llama" -> LLMProvider.OpenRouter
     "mistral", "mistralai" -> LLMProvider.OpenRouter
     "perplexity" -> LLMProvider.OpenRouter
@@ -284,7 +286,7 @@ private fun mapProviderToLLMProvider(providerKey: String): LLMProvider = when (p
     "rekaai", "reka", "tencent", "microsoft",
     "nousresearch", "alibaba", "meituan", "morph",
     "prime-intellect", "essentialai", "bytedance",
-    "moonshotai", "nvidia" -> LLMProvider.OpenRouter       // All routed via OpenRouter
+    "moonshotai" -> LLMProvider.OpenRouter                 // All routed via OpenRouter
     "ollama", "local", "olla" -> LLMProvider.Ollama
     else -> LLMProvider.OpenRouter
 }
@@ -414,12 +416,13 @@ private fun createCustomModel(modelConfig: LLModelConfig): LLModel {
             "rekaai", "reka", "tencent", "microsoft",
             "nousresearch", "alibaba", "meituan", "morph",
             "prime-intellect", "essentialai", "bytedance",
-            "moonshotai", "nvidia"
+            "moonshotai"
         ) || provider == LLMProvider.OpenAI && providerKey !in setOf(
             "openai", "open_ai",
             "kimi", "moonshot", "minimax", "qwen_direct", "dashscope",
             "lmstudio", "lm-studio", "lm_studio",
-            "zai", "z_ai", "z-ai", "zhipuai", "zhipu_ai"
+            "zai", "z.ai", "z_ai", "z-ai", "zhipuai", "zhipu_ai",
+            "nvidia", "nvidia_nim", "nvidia-nim", "nim", "nvidia_build", "nvidia-build"
         )
     ) {
         printlnColor(
@@ -510,7 +513,9 @@ private fun envVarNamesForProvider(provider: String): List<String> = when (provi
     "kimi", "moonshot" -> listOf("KIMI_API_KEY", "MOONSHOT_API_KEY") // Kimi / Moonshot
     "minimax" -> listOf("MINIMAX_API_KEY") // MiniMax
     "lmstudio", "lm-studio", "lm_studio" -> listOf("LMSTUDIO_API_KEY") // LM Studio (usually no key needed)
-    "zai", "z_ai", "z-ai", "zhipuai", "zhipu_ai" -> listOf("ZAI_API_KEY", "Z_AI_API_KEY", "ZHIPUAI_API_KEY")
+    "zai", "z.ai", "z_ai", "z-ai", "zhipuai", "zhipu_ai" -> listOf("ZAI_API_KEY", "Z_AI_API_KEY", "ZHIPUAI_API_KEY")
+    "nvidia", "nvidia_nim", "nvidia-nim", "nim", "nvidia_build", "nvidia-build" ->
+        listOf("NVIDIA_API_KEY", "NVIDIA_NIM_API_KEY", "NGC_API_KEY")
     "meta", "meta-llama" -> listOf("OPENROUTER_API_KEY") // Meta uses OpenRouter
     "mistral", "mistralai" -> listOf("MISTRAL_API_KEY", "OPENROUTER_API_KEY") // Mistral uses OpenRouter
     "perplexity" -> listOf("PERPLEXITY_API_KEY", "OPENROUTER_API_KEY") // Perplexity uses OpenRouter
@@ -536,7 +541,9 @@ private fun providerKeyAliases(provider: String): List<String> = when (provider.
     "kimi", "moonshot" -> listOf("kimi", "moonshot")
     "minimax" -> listOf("minimax")
     "lmstudio", "lm-studio", "lm_studio" -> listOf("lmstudio", "lm-studio", "lm_studio")
-    "zai", "z_ai", "z-ai", "zhipuai", "zhipu_ai" -> listOf("zai", "z_ai", "z-ai", "zhipuai", "zhipu_ai")
+    "zai", "z.ai", "z_ai", "z-ai", "zhipuai", "zhipu_ai" -> listOf("zai", "z.ai", "z_ai", "z-ai", "zhipuai", "zhipu_ai")
+    "nvidia", "nvidia_nim", "nvidia-nim", "nim", "nvidia_build", "nvidia-build" ->
+        listOf("nvidia", "nvidia_nim", "nvidia-nim", "nim", "nvidia_build", "nvidia-build")
     "meta", "meta-llama" -> listOf("meta", "meta-llama", "openrouter", "open_router")
     "mistral", "mistralai" -> listOf("mistral", "mistralai", "openrouter", "open_router")
     "perplexity" -> listOf("perplexity", "openrouter", "open_router")
@@ -710,7 +717,13 @@ fun createLLMClient(
             )
         }
 
-        LLMProvider.OpenAI -> {
+        LLMProvider.OpenAI,
+        QWEN_DIRECT_LLM_PROVIDER,
+        KIMI_LLM_PROVIDER,
+        LLMProvider.MiniMax,
+        LMSTUDIO_LLM_PROVIDER,
+        ZAI_LLM_PROVIDER,
+        NVIDIA_LLM_PROVIDER -> {
             // Determine provider-specific defaults for OpenAI-compatible APIs
             val configProvider = modelConfig.provider.lowercase()
             val defaultBaseUrl = when (configProvider) {
@@ -718,7 +731,8 @@ fun createLLMClient(
                 "minimax" -> "https://api.minimax.chat/v1"
                 "qwen_direct", "dashscope" -> "https://dashscope.aliyuncs.com/compatible-mode/v1"
                 "lmstudio", "lm-studio", "lm_studio" -> "http://localhost:1234/v1"
-                "zai", "z_ai", "z-ai", "zhipuai", "zhipu_ai" -> "https://api.z.ai/api/paas/v4"
+                "zai", "z.ai", "z_ai", "z-ai", "zhipuai", "zhipu_ai" -> "https://api.z.ai/api/coding/paas/v4"
+                "nvidia", "nvidia_nim", "nvidia-nim", "nim", "nvidia_build", "nvidia-build" -> "https://integrate.api.nvidia.com/v1"
                 else -> "https://api.openai.com/v1"
             }
             val providerKey = when (configProvider) {
@@ -726,13 +740,19 @@ fun createLLMClient(
                 "minimax" -> "minimax"
                 "qwen_direct", "dashscope" -> "qwen_direct"
                 "lmstudio", "lm-studio", "lm_studio" -> "lmstudio"
-                "zai", "z_ai", "z-ai", "zhipuai", "zhipu_ai" -> "zai"
+                "zai", "z.ai", "z_ai", "z-ai", "zhipuai", "zhipu_ai" -> "zai"
+                "nvidia", "nvidia_nim", "nvidia-nim", "nim", "nvidia_build", "nvidia-build" -> "nvidia"
                 else -> "openai"
             }
             val baseUrl = modelConfig.baseUrl ?: defaultBaseUrl
-            LLMProvider.OpenAI to OpenAILLMClient(
-                apiKey = resolveConfiguredApiKey(parameters, providerKey, keys)
-                    .also { if (it == null) warnMissingApiKey(providerKey) } ?: "",
+            val apiKey = if (providerKey == "lmstudio") {
+                resolveConfiguredApiKey(parameters, providerKey, keys)
+                    .also { if (it == null) warnMissingApiKey(providerKey) } ?: ""
+            } else {
+                resolveConfiguredApiKeyOrThrow(parameters, providerKey, keys)
+            }
+            model.provider to OpenAILLMClient(
+                apiKey = apiKey,
                 settings = OpenAIClientSettings(
                     baseUrl = baseUrl,
                     // Every default/configured base URL above carries `/v1`, so the
@@ -835,7 +855,7 @@ fun createLLMClient(
 
         else -> {
             val baseUrl = modelConfig.baseUrl ?: "https://api.openai.com/v1"
-            LLMProvider.OpenAI to OpenAILLMClient(
+            model.provider to OpenAILLMClient(
                 apiKey = resolveConfiguredApiKey(parameters, modelConfig.provider, keys).also {
                     if (it == null) warnMissingApiKey(
                         modelConfig.provider

@@ -112,24 +112,14 @@ private val PYTHON_SPILLED_ENV_BRIDGE = """
     def _braidrun_environ_contains(self, key):
         return _braidrun_original_contains(self, key) or _braidrun_raw_get(f"{key}__FILE") is not None
 
-    def _braidrun_virtual_spilled_keys():
-        original_keys = set(_braidrun_original_iter(os.environ))
-        for file_key in list(original_keys):
-            if not file_key.endswith("__FILE"):
-                continue
-            key = file_key[:-6]
-            if key and key not in original_keys and _braidrun_read_spilled_env(key) is not None:
-                yield key
-
-    def _braidrun_environ_iter(self):
-        yield from _braidrun_original_iter(self)
-        yield from _braidrun_virtual_spilled_keys()
-
-    def _braidrun_environ_len(self):
-        return _braidrun_original_len(self) + sum(1 for _ in _braidrun_virtual_spilled_keys())
-
     def _braidrun_environ_copy():
-        return dict(os.environ)
+        # Keep copied/enumerated env skinny so subprocess.run(env=os.environ.copy())
+        # does not rehydrate spilled values and hit ARG_MAX. Direct lookups through
+        # os.getenv/os.environ[...] still resolve spilled values by key.
+        return {
+            key: _braidrun_original_getitem(os.environ, key)
+            for key in _braidrun_original_iter(os.environ)
+        }
 
     def _braidrun_load_chained_sitecustomize():
         import importlib.util
@@ -155,8 +145,6 @@ private val PYTHON_SPILLED_ENV_BRIDGE = """
     os.environ.copy = _braidrun_environ_copy
     type(os.environ).__getitem__ = _braidrun_environ_getitem
     type(os.environ).__contains__ = _braidrun_environ_contains
-    type(os.environ).__iter__ = _braidrun_environ_iter
-    type(os.environ).__len__ = _braidrun_environ_len
     _braidrun_load_chained_sitecustomize()
 """.trimIndent()
 private val NODE_SPILLED_ENV_BRIDGE = """
@@ -193,23 +181,10 @@ private val NODE_SPILLED_ENV_BRIDGE = """
         return prop in target || hasSpilledEnv(prop);
       },
       getOwnPropertyDescriptor(target, prop) {
-        if (Reflect.has(target, prop)) return Reflect.getOwnPropertyDescriptor(target, prop);
-        if (typeof prop === 'string' && hasSpilledEnv(prop)) {
-          return {
-            enumerable: true,
-            configurable: true,
-            writable: true,
-            value: readSpilledEnv(prop)
-          };
-        }
-        return undefined;
+        return Reflect.getOwnPropertyDescriptor(target, prop);
       },
       ownKeys(target) {
-        const keys = new Set(Reflect.ownKeys(target));
-        for (const key of Object.keys(target)) {
-          if (key.endsWith('__FILE')) keys.add(key.slice(0, -6));
-        }
-        return Array.from(keys);
+        return Reflect.ownKeys(target);
       }
     });
 """.trimIndent()
@@ -752,6 +727,9 @@ class WorkflowExecutor(
      * - 通常 CLI 场景由 [FileSystemWorkflowResolver] 注入,Web 场景由 WebWorkflowResolver 注入
      */
     private val workflowResolver: WorkflowResolver? = null,
+    private val workflowId: String? = null,
+    private val workflowOutputPublisher: WorkflowOutputPublisher? = null,
+    private val workflowOutputResolver: WorkflowOutputResolver? = null,
     /**
      * Code step 执行器。当非 null 时,`executeCodeStep` 通过此 executor 运行脚本
      * (在 Docker 或 Native 沙箱中);当 null 时回退到直接 ProcessBuilder 执行,
@@ -2053,57 +2031,80 @@ class WorkflowExecutor(
             val endTime = System.currentTimeMillis()
             val duration = endTime - startTime
 
-            val stepResult = StepExecutionResult(
-                stepName = step.step,
-                agentName = step.displayAgentName,
-                success = result.success,
-                startTime = startTime,
-                endTime = endTime,
-                duration = duration,
-                output = result.output,
-                error = result.error
-            )
-
-            context.stepResults[step.step] = stepResult
-            if (result.output != null) {
-                context.setStepOutput(step.step, result.output)
-                // 自动索引步骤输出到共享知识库
-                autoIndexStepOutput(workflow, context, step.step, result.output)
-                // 通用结构化输出提取
-                processExtract(step, result.output, context)
-            }
-
-            // Snapshot `context.variables` AFTER processExtract so the persisted
-            // step result acts as a savepoint for "restart from step N". Without
-            // this, variables set via `setVariable(...)` rather than via output-
-            // text `extract:` (sub_workflow `outputs:`, manual_approval
-            // `reviewable_actions`, classifier `output_variable`, etc.) are lost
-            // on restart and downstream steps that reference them break.
-            val resultWithSnapshot = stepResult.copy(
-                producedVariables = context.snapshotVariablesForPersistence()
-            )
-            context.stepResults[step.step] = resultWithSnapshot
-
-            logger.info { "[Workflow:${workflow.name}] Step '${step.step}' completed in ${duration / 1000.0}s" }
-
-            // 完成步骤监控
-            if (monitoringEnabled) {
-                WorkflowMonitor.completeStep(
-                    context.executionId,
-                    step.step,
-                    success = result.success,
-                    output = result.output
+            if (result.skipped) {
+                markStepSkipped(
+                    workflow = workflow,
+                    context = context,
+                    executionId = context.executionId,
+                    stepName = step.step,
+                    reason = result.error ?: "workflow_output_read missing outputs"
                 )
+                StepExecutionResult(
+                    stepName = step.step,
+                    agentName = step.displayAgentName,
+                    success = true,
+                    startTime = startTime,
+                    endTime = endTime,
+                    duration = duration,
+                    output = result.output,
+                    producedVariables = context.snapshotVariablesForPersistence()
+                )
+            } else {
+                val stepResult = StepExecutionResult(
+                    stepName = step.step,
+                    agentName = step.displayAgentName,
+                    success = result.success,
+                    startTime = startTime,
+                    endTime = endTime,
+                    duration = duration,
+                    output = result.output,
+                    error = result.error
+                )
+
+                context.stepResults[step.step] = stepResult
+                if (result.output != null) {
+                    context.setStepOutput(step.step, result.output)
+                    // 自动索引步骤输出到共享知识库
+                    autoIndexStepOutput(workflow, context, step.step, result.output)
+                    // 通用结构化输出提取
+                    processExtract(step, result.output, context)
+                }
+                if (result.success && step.publishOutputs.isNotEmpty()) {
+                    publishStepOutputs(step, workflow, context)
+                }
+
+                // Snapshot `context.variables` AFTER processExtract so the persisted
+                // step result acts as a savepoint for "restart from step N". Without
+                // this, variables set via `setVariable(...)` rather than via output-
+                // text `extract:` (sub_workflow `outputs:`, manual_approval
+                // `reviewable_actions`, classifier `output_variable`, etc.) are lost
+                // on restart and downstream steps that reference them break.
+                val resultWithSnapshot = stepResult.copy(
+                    producedVariables = context.snapshotVariablesForPersistence()
+                )
+                context.stepResults[step.step] = resultWithSnapshot
+
+                logger.info { "[Workflow:${workflow.name}] Step '${step.step}' completed in ${duration / 1000.0}s" }
+
+                // 完成步骤监控
+                if (monitoringEnabled) {
+                    WorkflowMonitor.completeStep(
+                        context.executionId,
+                        step.step,
+                        success = result.success,
+                        output = result.output
+                    )
+                }
+
+                awaitDebugCheckpoint(
+                    point = WorkflowDebugPoint.AFTER_STEP,
+                    stepName = step.step,
+                    context = context,
+                    label = step.displayAgentName
+                )
+
+                resultWithSnapshot
             }
-
-            awaitDebugCheckpoint(
-                point = WorkflowDebugPoint.AFTER_STEP,
-                stepName = step.step,
-                context = context,
-                label = step.displayAgentName
-            )
-
-            resultWithSnapshot
 
         } catch (e: TimeoutCancellationException) {
             val endTime = System.currentTimeMillis()
@@ -2193,6 +2194,7 @@ class WorkflowExecutor(
         dirIsolation: DirectoryIsolationConfig
     ): StepResult {
         return when {
+            step.isWorkflowOutputRead -> executeWorkflowOutputReadStep(step, workflow, context)
             step.isSubWorkflow -> executeSubWorkflowStep(step, workflow, context, dirIsolation)
             step.isStateMachine -> executeStateMachineStep(step, workflow, context, dirIsolation)
             step.isCode -> executeCodeStep(step, workflow, context, dirIsolation)
@@ -3601,6 +3603,168 @@ IMPORTANT: You MUST respond with ONLY the category name (one of: ${config.catego
                 logger.error(e) { "[Extract] Step '${step.step}': failed to extract variable '${config.variable}': ${e.message}" }
             }
         }
+    }
+
+    private suspend fun publishStepOutputs(
+        step: WorkflowStep,
+        workflow: WorkflowDefinition,
+        context: WorkflowExecutionContext
+    ) {
+        val publisher = workflowOutputPublisher
+            ?: throw WorkflowExecutionException(
+                "Step '${step.step}' declares publish_outputs, but no workflow output publisher is configured"
+            )
+        for (spec in step.publishOutputs) {
+            val value = resolveTemplate(spec.source, context)
+            publisher.publish(
+                PublishedWorkflowOutputPayload(
+                    name = spec.name,
+                    type = spec.type,
+                    value = value,
+                    description = spec.description,
+                    contractVersion = spec.contractVersion,
+                    visibility = spec.visibility,
+                    sourceExpression = spec.source,
+                    workflowId = workflowId,
+                    workflowName = workflow.name,
+                    workflowVersion = workflow.version,
+                    executionId = context.executionId,
+                    stepName = step.step,
+                    workflowStatusAtPublish = "RUNNING"
+                )
+            )
+            if (enableMonitoring) {
+                WorkflowMonitor.addEvent(
+                    context.executionId,
+                    step.step,
+                    AgentEvent(
+                        type = "workflow_output_published",
+                        category = "workflow_output",
+                        summary = "Published workflow output '${spec.name}'",
+                        detail = "type=${spec.type}, contract_version=${spec.contractVersion}, length=${value.length}"
+                    )
+                )
+            }
+        }
+    }
+
+    private suspend fun executeWorkflowOutputReadStep(
+        step: WorkflowStep,
+        workflow: WorkflowDefinition,
+        context: WorkflowExecutionContext
+    ): StepResult {
+        val config = step.workflowOutputRead
+            ?: throw WorkflowExecutionException("Step '${step.step}' is missing workflow_output_read config")
+        val resolver = workflowOutputResolver
+            ?: throw WorkflowExecutionException(
+                "Step '${step.step}' uses workflow_output_read, but no workflow output resolver is configured"
+            )
+
+        val selector = when (config.selector.mode) {
+            WorkflowOutputSelectorMode.INPUT_VARIABLE -> {
+                val variableName = config.selector.executionIdVariable
+                    ?.takeIf { it.isNotBlank() }
+                    ?: throw WorkflowExecutionException(
+                        "Step '${step.step}': workflow_output_read selector mode=input_variable requires execution_id_variable"
+                    )
+                val executionIdValue = context.variables[variableName]?.toString()?.trim().orEmpty()
+                if (executionIdValue.isBlank()) {
+                    throw WorkflowExecutionException(
+                        "Step '${step.step}': workflow_output_read execution id variable '$variableName' is empty"
+                    )
+                }
+                config.selector.copy(
+                    mode = WorkflowOutputSelectorMode.EXECUTION_ID,
+                    executionId = executionIdValue
+                )
+            }
+            WorkflowOutputSelectorMode.EXECUTION_ID -> {
+                if (config.selector.executionId.isNullOrBlank()) {
+                    throw WorkflowExecutionException(
+                        "Step '${step.step}': workflow_output_read selector mode=execution_id requires execution_id"
+                    )
+                }
+                config.selector
+            }
+            WorkflowOutputSelectorMode.LATEST_SUCCESSFUL -> config.selector
+        }
+
+        val readResult = resolver.read(
+            WorkflowOutputReadRequest(
+                sourceWorkflowId = config.workflowId,
+                selector = selector,
+                outputNames = config.outputs.keys,
+                targetWorkflowName = workflow.name,
+                targetExecutionId = context.executionId,
+                targetStepName = step.step,
+                missingPolicy = config.missingPolicy,
+                requireWorkflowStatus = config.requireWorkflowStatus,
+                allowPartialExecution = config.allowPartialExecution
+            )
+        )
+
+        val values = readResult.outputs.toMutableMap()
+        val missing = config.outputs.keys.filter { it !in values }
+        if (missing.isNotEmpty()) {
+            when (config.missingPolicy) {
+                WorkflowOutputMissingPolicy.FAIL -> throw WorkflowExecutionException(
+                    "Step '${step.step}': missing published outputs from workflow '${config.workflowId}' " +
+                        "execution '${readResult.sourceExecutionId}': ${missing.joinToString(", ")}"
+                )
+                WorkflowOutputMissingPolicy.SKIP_STEP -> {
+                    val payload = """{"source_execution_id":"${escapeJsonValue(readResult.sourceExecutionId)}","missing_outputs":[${missing.joinToString(",") { "\"${escapeJsonValue(it)}\"" }}]}"""
+                    return StepResult(
+                        success = true,
+                        output = payload,
+                        error = "missing published outputs: ${missing.joinToString(", ")}",
+                        skipped = true
+                    )
+                }
+                WorkflowOutputMissingPolicy.USE_DEFAULT -> {
+                    for (name in missing) {
+                        val defaultValue = config.defaults[name]
+                            ?: throw WorkflowExecutionException(
+                                "Step '${step.step}': missing output '$name' has no default"
+                            )
+                        values[name] = defaultValue
+                    }
+                }
+            }
+        }
+
+        val mapped = linkedMapOf<String, String>()
+        for ((outputName, variableName) in config.outputs) {
+            val value = values[outputName] ?: continue
+            context.setVariable(variableName, value)
+            mapped[variableName] = value
+        }
+        context.setVariable("${step.step}_source_execution_id", readResult.sourceExecutionId)
+
+        if (enableMonitoring) {
+            WorkflowMonitor.addEvent(
+                context.executionId,
+                step.step,
+                AgentEvent(
+                    type = "workflow_output_read",
+                    category = "workflow_output",
+                    summary = "Read ${mapped.size} workflow output(s)",
+                    detail = "source_workflow=${readResult.sourceWorkflowId}, source_execution=${readResult.sourceExecutionId}, outputs=${config.outputs.keys.joinToString(",")}"
+                )
+            )
+        }
+
+        val outputPayload = buildString {
+            append("{")
+            append("\"source_workflow_id\":\"").append(escapeJsonValue(readResult.sourceWorkflowId)).append("\",")
+            append("\"source_execution_id\":\"").append(escapeJsonValue(readResult.sourceExecutionId)).append("\",")
+            append("\"outputs\":{")
+            mapped.entries.forEachIndexed { index, (key, value) ->
+                if (index > 0) append(",")
+                append('"').append(escapeJsonValue(key)).append("\":\"").append(escapeJsonValue(value)).append('"')
+            }
+            append("}}")
+        }
+        return StepResult(success = true, output = outputPayload)
     }
 
     /**
@@ -6656,13 +6820,14 @@ IMPORTANT: You MUST respond with ONLY the category name (one of: ${config.catego
         val eventCallback: MonitoringEventCallback? =
             if (enableMonitoring) {
                 { type, summary, detail ->
+                    val normalized = normalizeExternalAgentEvent(type, "claude_code_agent")
                     WorkflowMonitor.addEvent(
                         context.executionId,
                         stepName,
                         AgentEvent(
-                            type = type,
-                            category = "agent",
-                            subCategory = "claude_code_agent",
+                            type = normalized.type,
+                            category = normalized.category,
+                            subCategory = normalized.subCategory,
                             summary = summary,
                             detail = detail,
                             inputTokens = parseLongFromEventDetail(detail, "input_tokens")?.toInt(),
@@ -6736,13 +6901,14 @@ IMPORTANT: You MUST respond with ONLY the category name (one of: ${config.catego
         val eventCallback: MonitoringEventCallback? =
             if (enableMonitoring) {
                 { type, summary, detail ->
+                    val normalized = normalizeExternalAgentEvent(type, "codex_agent")
                     WorkflowMonitor.addEvent(
                         context.executionId,
                         stepName,
                         AgentEvent(
-                            type = type,
-                            category = "agent",
-                            subCategory = "codex_agent",
+                            type = normalized.type,
+                            category = normalized.category,
+                            subCategory = normalized.subCategory,
                             summary = summary,
                             detail = detail,
                             inputTokens = parseLongFromEventDetail(detail, "input_tokens")?.toInt(),
@@ -6782,6 +6948,60 @@ IMPORTANT: You MUST respond with ONLY the category name (one of: ${config.catego
                 model = ""
             )
         )
+    }
+
+    private data class NormalizedExternalAgentEvent(
+        val type: String,
+        val category: String,
+        val subCategory: String?
+    )
+
+    private fun normalizeExternalAgentEvent(
+        type: String,
+        engineSubCategory: String
+    ): NormalizedExternalAgentEvent {
+        return when (type) {
+            "claude_code_stream_reasoning_summary",
+            "codex_stream_reasoning_summary" ->
+                NormalizedExternalAgentEvent(
+                    type = "reasoning_message",
+                    category = "llm",
+                    subCategory = "reasoning"
+                )
+
+            "claude_code_stream_text_delta",
+            "codex_stream_text_delta",
+            "claude_code_stream_result",
+            "codex_stream_result" ->
+                NormalizedExternalAgentEvent(
+                    type = "llm_stream_delta",
+                    category = "llm",
+                    subCategory = engineSubCategory
+                )
+
+            "claude_code_stream_tool_call",
+            "codex_stream_tool_call" ->
+                NormalizedExternalAgentEvent(
+                    type = "tool_call_starting",
+                    category = "tool",
+                    subCategory = engineSubCategory
+                )
+
+            "claude_code_stream_tool_result",
+            "codex_stream_tool_result" ->
+                NormalizedExternalAgentEvent(
+                    type = "tool_call_completed",
+                    category = "tool",
+                    subCategory = engineSubCategory
+                )
+
+            else ->
+                NormalizedExternalAgentEvent(
+                    type = type,
+                    category = "agent",
+                    subCategory = engineSubCategory
+                )
+        }
     }
 
     private fun AgentDefinition.isClaudeCodeAgent(): Boolean {
@@ -8899,7 +9119,8 @@ interface ApprovalHandler {
 private data class StepResult(
     val success: Boolean,
     val output: String? = null,
-    val error: String? = null
+    val error: String? = null,
+    val skipped: Boolean = false
 )
 
 private data class StateExecutionResult(

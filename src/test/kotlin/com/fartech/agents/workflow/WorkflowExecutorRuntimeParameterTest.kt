@@ -225,7 +225,7 @@ class WorkflowExecutorRuntimeParameterTest {
             )
         )
 
-        val params = WorkflowExecutor::class.java.getDeclaredMethod(
+        val rawParams = WorkflowExecutor::class.java.getDeclaredMethod(
             "resolveRuntimeParametersForDirectAgent",
             AgentDefinition::class.java,
             String::class.java,
@@ -249,7 +249,12 @@ class WorkflowExecutorRuntimeParameterTest {
                 isolation,
                 "agent-1",
                 "demo-workflow"
-            ) as MutableMap<String, JsonElement>
+            )
+        val params = (rawParams as? Map<*, *>)?.map { (key, value) ->
+            require(key is String) { "Expected string parameter key" }
+            require(value is JsonElement) { "Expected JsonElement value for $key" }
+            key to value
+        }?.toMap() ?: error("Expected runtime parameters map")
 
         assertEquals("/output", (params["output_dir"] as JsonPrimitive).content)
         assertEquals("/output", (params["output_dir_abs"] as JsonPrimitive).content)

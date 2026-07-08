@@ -5,6 +5,7 @@
 - meta.yaml
 - minimax.yaml
 - mistral.yaml
+- nvidia.yaml
 - ollama.yaml
 - openai.yaml
 - openrouter.yaml

@@ -66,7 +66,7 @@ object AgentPresetRegistry {
         "researcher.yaml",
         "writer.yaml",
         "data_analyst.yaml",
-        "asa.yaml",
+        "marketing.yaml",
         "pdf_processor.yaml",
         "lightweight.yaml",
         "chat.yaml",

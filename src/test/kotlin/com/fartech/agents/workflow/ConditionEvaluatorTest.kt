@@ -169,7 +169,7 @@ class ConditionEvaluatorTest {
     }
 
     @Test
-    fun `evaluateWorkflowCondition does not split || inside double-quoted literals`() {
+    fun `evaluateWorkflowCondition does not split OR operator inside double-quoted literals`() {
         val context = WorkflowExecutionContext("wf", "exec-1").apply {
             setVariable("expr", "x || y")
         }

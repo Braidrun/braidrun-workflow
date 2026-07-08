@@ -92,6 +92,11 @@ class ModelRegistryTest {
             assertProviderCoverage("zai", ZAI_MODELS)
         }
 
+        @Test
+        fun `YAML covers all NVIDIA_MODELS keys`() {
+            assertProviderCoverage("nvidia", NVIDIA_MODELS)
+        }
+
         private fun assertProviderCoverage(providerKey: String, hardcodedModels: Map<String, ai.koog.prompt.llm.LLModel>) {
             val yamlModels = ModelRegistry.getProviderModels(providerKey)
             assertNotNull(yamlModels, "ModelRegistry should have models for provider '$providerKey'")
@@ -194,6 +199,11 @@ class ModelRegistryTest {
             assertFieldsMatch("zai", ZAI_MODELS)
         }
 
+        @Test
+        fun `all NVIDIA_MODELS fields match exactly`() {
+            assertFieldsMatch("nvidia", NVIDIA_MODELS)
+        }
+
         private fun assertFieldsMatch(providerKey: String, hardcodedModels: Map<String, ai.koog.prompt.llm.LLModel>) {
             val yamlModels = ModelRegistry.getProviderModels(providerKey)!!
             val mismatches = mutableListOf<String>()
@@ -242,10 +252,12 @@ class ModelRegistryTest {
             assertNotNull(ModelRegistry.getProviderModels("deepseek"))
             assertNotNull(ModelRegistry.getProviderModels("ollama"))
             assertNotNull(ModelRegistry.getProviderModels("zai"))
+            assertNotNull(ModelRegistry.getProviderModels("nvidia"))
 
             // Aliases
             assertNotNull(ModelRegistry.getProviderModels("open_router"), "open_router alias should resolve")
             assertNotNull(ModelRegistry.getProviderModels("open_ai"), "open_ai alias should resolve")
+            assertNotNull(ModelRegistry.getProviderModels("z.ai"), "z.ai alias should resolve")
             assertNotNull(ModelRegistry.getProviderModels("z_ai"), "z_ai alias should resolve")
             assertNotNull(ModelRegistry.getProviderModels("z-ai"), "z-ai alias should resolve")
             assertNotNull(ModelRegistry.getProviderModels("x-ai"), "x-ai alias should resolve")
@@ -255,13 +267,15 @@ class ModelRegistryTest {
             assertNotNull(ModelRegistry.getProviderModels("mistralai"), "mistralai alias should resolve")
             assertNotNull(ModelRegistry.getProviderModels("local"), "local alias should resolve")
             assertNotNull(ModelRegistry.getProviderModels("olla"), "olla alias should resolve")
+            assertNotNull(ModelRegistry.getProviderModels("nvidia_nim"), "nvidia_nim alias should resolve")
+            assertNotNull(ModelRegistry.getProviderModels("nvidia-build"), "nvidia-build alias should resolve")
         }
 
         @Test
         fun `openrouter-routed providers resolve to openrouter models`() {
             val routedProviders = listOf(
                 "amazon", "cohere", "zhipu", "baidu", "tencent", "microsoft",
-                "nvidia", "alibaba", "bytedance"
+                "alibaba", "bytedance"
             )
             val openrouterModels = ModelRegistry.getProviderModels("openrouter")
             for (provider in routedProviders) {
@@ -285,14 +299,14 @@ class ModelRegistryTest {
                 OPEN_ROUTER_MODELS, OPENAI_MODELS, GOOGLE_MODELS, ANTHROPIC_MODELS,
                 DEEPSEEK_MODELS, XAI_MODELS, QWEN_MODELS, QWEN_DIRECT_MODELS,
                 KIMI_MODELS, MINIMAX_MODELS, META_MODELS, MISTRAL_MODELS,
-                PERPLEXITY_MODELS, OLLAMA_MODELS, ZAI_MODELS
+                PERPLEXITY_MODELS, OLLAMA_MODELS, ZAI_MODELS, NVIDIA_MODELS
             ).sumOf { it.size }
 
             val yamlTotal = listOf(
                 "openrouter", "openai", "google", "anthropic",
                 "deepseek", "xai", "qwen", "qwen_direct",
                 "kimi", "minimax", "meta", "mistral",
-                "perplexity", "ollama", "zai"
+                "perplexity", "ollama", "zai", "nvidia"
             ).sumOf { ModelRegistry.getProviderModels(it)?.size ?: 0 }
 
             assertEquals(hardcodedTotal, yamlTotal) {
@@ -335,6 +349,8 @@ class ModelRegistryTest {
             assertTrue(all.containsKey("open_router"))  // alias
             assertTrue(all.containsKey("zai"))
             assertTrue(all.containsKey("z_ai"))          // alias
+            assertTrue(all.containsKey("nvidia"))
+            assertTrue(all.containsKey("nvidia_nim"))    // alias
             assertTrue(all.containsKey("amazon"))        // routed
         }
     }

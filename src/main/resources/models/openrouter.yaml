@@ -31,7 +31,6 @@ openrouter_routed:
 - essentialai
 - bytedance
 - moonshotai
-- nvidia
 - inclusionai
 - allenai
 models:
@@ -377,6 +376,10 @@ models:
     id: "google/lyria-3-clip-preview"
     capabilities: standard
     context_length: 1048576
+  "claude-fable-5":
+    id: "anthropic/claude-fable-5"
+    capabilities: multimodal
+    context_length: 1000000
   "claude-opus-4.7":
     id: "anthropic/claude-opus-4.7"
     capabilities: multimodal
@@ -993,6 +996,11 @@ models:
     id: "z-ai/glm-5.1"
     capabilities: standard
     context_length: 202752
+  "glm-5.2":
+    id: "z-ai/glm-5.2"
+    capabilities: standard
+    context_length: 1000000
+    max_output_tokens: 128000
   "glm-5v-turbo":
     id: "z-ai/glm-5v-turbo"
     capabilities: multimodal

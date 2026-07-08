@@ -33,7 +33,8 @@ class ExternalAgentToolsTest {
     private class FakeSubprocessExecutor(
         private val result: ExecResult = ExecResult(0, "", "", 100),
         private val throws: (() -> Throwable)? = null,
-        private val delayMs: Long = 0
+        private val delayMs: Long = 0,
+        private val resultForRequest: ((ExecRequest) -> ExecResult)? = null
     ) : SubprocessExecutor {
         var lastRequest: ExecRequest? = null
             private set
@@ -51,10 +52,11 @@ class ExternalAgentToolsTest {
             }
             if (delayMs > 0) delay(delayMs)
             throws?.let { throw it() }
-            result.stdout.lineSequence()
+            val effectiveResult = resultForRequest?.invoke(request) ?: result
+            effectiveResult.stdout.lineSequence()
                 .filter { it.isNotBlank() }
                 .forEach { request.stdoutLineCallback?.invoke(it) }
-            return result
+            return effectiveResult
         }
     }
 
@@ -194,6 +196,136 @@ class ExternalAgentToolsTest {
         assertTrue(completed.detail.contains("output_tokens=20"))
     }
 
+    @Test
+    fun `runConversation returns detailed claude result and streams clean text deltas`() = runBlocking {
+        val streamJson = """
+            {"type":"system","model":"sonnet","session_id":"abc123","cwd":"/workspace"}
+            {"type":"assistant","message":{"content":[{"type":"text","text":"正在分析"}]}}
+            {"type":"assistant","message":{"content":[{"type":"text","text":"正在分析完成"}]}}
+            {"type":"result","subtype":"success","result":"最终答案","session_id":"abc123","cost_usd":0.001,"usage":{"input_tokens":10,"output_tokens":20}}
+        """.trimIndent()
+        val executor = FakeSubprocessExecutor(ExecResult(0, streamJson, "", 500))
+        val deltas = mutableListOf<String>()
+        val tools = ExternalAgentTools(
+            executor = executor,
+            parameters = parametersWithKey("anthropic", "sk-test"),
+            userId = "test-user",
+            context = SubprocessToolContext(workspaceDir = File("."))
+        )
+
+        val result = tools.runConversation(
+            ExternalAgentTools.Engine.CLAUDE,
+            ExternalAgentContext(prompt = "x", name = "claude-stream")
+        ) { delta -> deltas += delta }
+
+        assertEquals("最终答案", result.text)
+        assertEquals("abc123", result.sessionId)
+        assertEquals(10, result.inputTokens)
+        assertEquals(20, result.outputTokens)
+        assertEquals(0.001, result.costUsd)
+        assertEquals(listOf("正在分析", "完成"), deltas)
+    }
+
+    @Test
+    fun `runConversation streams claude partial-message tokens without duplicating the final message`() = runBlocking {
+        // With --include-partial-messages the CLI streams token-level
+        // `stream_event`/`content_block_delta` frames, THEN a complete `assistant`
+        // message with the same text. The emitter must forward the tokens live and
+        // NOT re-emit the whole answer when the complete message lands.
+        val streamJson = """
+            {"type":"system","model":"opus","session_id":"s1","cwd":"/workspace"}
+            {"type":"stream_event","event":{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}}
+            {"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"你"}}}
+            {"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"好呀"}}}
+            {"type":"stream_event","event":{"type":"content_block_stop","index":0}}
+            {"type":"assistant","message":{"content":[{"type":"text","text":"你好呀"}]}}
+            {"type":"result","subtype":"success","result":"你好呀","session_id":"s1","usage":{"input_tokens":5,"output_tokens":2}}
+        """.trimIndent()
+        val executor = FakeSubprocessExecutor(ExecResult(0, streamJson, "", 500))
+        val deltas = mutableListOf<String>()
+        val tools = ExternalAgentTools(
+            executor = executor,
+            parameters = parametersWithKey("anthropic", "sk-test"),
+            userId = "test-user",
+            context = SubprocessToolContext(workspaceDir = File("."))
+        )
+
+        val result = tools.runConversation(
+            ExternalAgentTools.Engine.CLAUDE,
+            ExternalAgentContext(prompt = "x", name = "claude-partial")
+        ) { delta -> deltas += delta }
+
+        assertEquals("你好呀", result.text)
+        // Streamed token-by-token, and the trailing complete message added nothing.
+        assertEquals(listOf("你", "好呀"), deltas)
+    }
+
+    @Test
+    fun `runConversation streams codex cumulative agent messages as deltas`() = runBlocking {
+        val streamJson = """
+            {"type":"thread.started","thread_id":"thread-1"}
+            {"type":"item.updated","item":{"type":"agent_message","text":"hello"}}
+            {"type":"item.completed","item":{"type":"agent_message","text":"hello world"}}
+            {"type":"turn.completed","usage":{"input_tokens":7,"output_tokens":3,"cached_input_tokens":2}}
+        """.trimIndent()
+        val executor = FakeSubprocessExecutor(ExecResult(0, streamJson, "", 500))
+        val deltas = mutableListOf<String>()
+        val tools = ExternalAgentTools(
+            executor = executor,
+            parameters = parametersWithKey("openai", "sk-test"),
+            userId = "test-user",
+            context = SubprocessToolContext(workspaceDir = File("."))
+        )
+
+        val result = tools.runConversation(
+            ExternalAgentTools.Engine.CODEX,
+            ExternalAgentContext(prompt = "x", name = "codex-stream", model = "gpt-5-codex")
+        ) { delta -> deltas += delta }
+
+        assertEquals("hello world", result.text)
+        assertEquals("thread-1", result.sessionId)
+        assertEquals(7, result.inputTokens)
+        assertEquals(3, result.outputTokens)
+        assertNull(result.costUsd)
+        assertEquals(listOf("hello", " world"), deltas)
+    }
+
+    @Test
+    fun `history replay prompt carries prior turn into the next external invocation`() = runBlocking {
+        val executor = FakeSubprocessExecutor(
+            resultForRequest = { request ->
+                val prompt = request.command.last()
+                val answer = if ("上一轮我说" in prompt && "42" in prompt) {
+                    "你让我记的数字是 42。"
+                } else if ("请记住数字 42" in prompt) {
+                    "OK"
+                } else {
+                    "我不知道。"
+                }
+                ExecResult(0, """{"type":"result","result":"$answer","session_id":"session-1"}""", "", 100)
+            }
+        )
+        val tools = ExternalAgentTools(
+            executor = executor,
+            parameters = parametersWithKey("anthropic", "sk-test"),
+            userId = "test-user",
+            context = SubprocessToolContext(workspaceDir = File("."))
+        )
+
+        val first = tools.runConversation(
+            ExternalAgentTools.Engine.CLAUDE,
+            ExternalAgentContext(prompt = "请记住数字 42，只回复 OK", name = "history-replay")
+        )
+        val secondPrompt = "[上一轮我说: 请记住数字 42，只回复 OK / 你回答: ${first.text}]\n现在回答：我让你记的数字是多少？"
+        val second = tools.runConversation(
+            ExternalAgentTools.Engine.CLAUDE,
+            ExternalAgentContext(prompt = secondPrompt, name = "history-replay")
+        )
+
+        assertEquals("OK", first.text)
+        assertTrue(second.text.contains("42"), "expected second answer to use replayed history, got: ${second.text}")
+    }
+
     // ------------------------------------------------------------------------
     // Command construction
     // ------------------------------------------------------------------------
@@ -229,6 +361,20 @@ class ExternalAgentToolsTest {
     }
 
     @Test
+    fun `claude command resumes an existing session when requested`() = runBlocking {
+        val executor = FakeSubprocessExecutor(ExecResult(0, """{"result":"ok"}""", "", 1))
+        val (tools, _) = buildTools(executor)
+
+        tools.runClaudeCodeSubAgent(
+            ExternalAgentContext(prompt = "continue", resumeSessionId = "claude-session-123")
+        )
+
+        val command = executor.lastRequest!!.command
+        assertTrue(command.containsInOrder("--resume", "claude-session-123"))
+        assertEquals("continue", command.last())
+    }
+
+    @Test
     fun `claude command skips permissions when executor sandbox is trusted`() = runBlocking {
         val executor = FakeSubprocessExecutor(ExecResult(0, """{"result":"ok"}""", "", 1))
         val (tools, _) = buildTools(executor, trustExecutorSandbox = true)
@@ -236,6 +382,58 @@ class ExternalAgentToolsTest {
         tools.runClaudeCodeSubAgent(ExternalAgentContext(prompt = "x"))
 
         assertTrue(executor.lastRequest!!.command.contains("--dangerously-skip-permissions"))
+    }
+
+    @Test
+    fun `claude mcp config is written inside docker mounted workspace`() = runBlocking {
+        val workspace = Files.createTempDirectory("claude-mcp-workspace").toFile()
+        var configPathSeenByClaude: String? = null
+        var configTextSeenByExecutor: String? = null
+        try {
+            val executor = FakeSubprocessExecutor(
+                resultForRequest = { request ->
+                    val configPath = request.command[request.command.indexOf("--mcp-config") + 1]
+                    configPathSeenByClaude = configPath
+                    assertTrue(configPath.startsWith("/workspace/.braidrun-claude-mcp-"), "got: $configPath")
+                    val hostConfig = File(workspace, configPath.removePrefix("/workspace/"))
+                    assertTrue(hostConfig.isFile, "expected host MCP config to exist at ${hostConfig.absolutePath}")
+                    assertTrue(hostConfig.canRead(), "expected MCP config to be readable by the container user")
+                    configTextSeenByExecutor = hostConfig.readText()
+                    ExecResult(0, """{"result":"ok"}""", "", 1)
+                }
+            )
+            val tools = ExternalAgentTools(
+                executor = executor,
+                parameters = parametersWithKey("anthropic", "sk-test-anthropic"),
+                userId = "test-user",
+                context = SubprocessToolContext(workspaceDir = workspace),
+                trustExecutorSandbox = true
+            )
+
+            tools.runClaudeCodeSubAgent(
+                ExternalAgentContext(
+                    prompt = "x",
+                    mcpServers = listOf(
+                        ExternalMcpServerConfig(
+                            name = "braidrun_authoring",
+                            command = "braidrun-authoring-mcp-bridge",
+                            env = mapOf(
+                                "WF_BACKEND_URL" to "http://127.0.0.1:8090",
+                                "BRAIDRUN_AUTHORING_TOKEN" to "token"
+                            ),
+                            allowedTools = listOf("mcp__braidrun_authoring__startDraft")
+                        )
+                    )
+                )
+            )
+
+            assertTrue(configPathSeenByClaude?.startsWith("/workspace/") == true)
+            assertTrue(configTextSeenByExecutor!!.contains(""""mcpServers""""))
+            assertTrue(configTextSeenByExecutor.contains(""""braidrun_authoring""""))
+            assertTrue(configTextSeenByExecutor.contains(""""BRAIDRUN_AUTHORING_TOKEN":"token""""))
+        } finally {
+            workspace.deleteRecursively()
+        }
     }
 
     @Test
@@ -349,6 +547,25 @@ class ExternalAgentToolsTest {
         assertEquals("x", cmd.last())
         assertEquals("--", cmd[cmd.size - 2])
         assertNull(req.stdin)
+    }
+
+    @Test
+    fun `codex command resumes an existing thread with the resume subcommand`() = runBlocking {
+        val executor = FakeSubprocessExecutor(ExecResult(0, """{"result":"ok"}""", "", 1))
+        val (tools, _) = buildTools(executor)
+
+        tools.runCodexSubAgent(
+            ExternalAgentContext(prompt = "continue", model = "gpt-5-codex", resumeSessionId = "thread-123")
+        )
+
+        val cmd = executor.lastRequest!!.command
+        assertEquals("codex", cmd[0])
+        assertEquals("exec", cmd[1])
+        assertEquals("resume", cmd[2])
+        assertEquals("thread-123", cmd[3])
+        assertTrue(cmd.containsInOrder("--model", "gpt-5-codex"))
+        assertEquals("continue", cmd.last())
+        assertEquals("--", cmd[cmd.size - 2])
     }
 
     @Test
@@ -653,10 +870,40 @@ class ExternalAgentToolsTest {
             // Subscription mode must NOT leak an OPENAI_API_KEY into the child env.
             assertFalse(req.env.containsKey("OPENAI_API_KEY"))
 
-            // The per-run auth.json (a live token) must be cleaned up after the run.
-            assertFalse(File(codexHome, "auth.json").exists(), "auth.json should be removed after the run")
+            // An operator-supplied CODEX_HOME is treated as a persistent session dir.
+            assertTrue(File(codexHome, "auth.json").exists(), "auth.json should remain in the configured CODEX_HOME")
         } finally {
             codexHome.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `codex subscription keeps default CODEX_HOME when subprocess context has a session id`() = runBlocking {
+        val parent = File(
+            File(File(System.getProperty("java.io.tmpdir"), "braidrun-codex"), "test-user"),
+            "chat-session-1"
+        )
+        try {
+            val executor = FakeSubprocessExecutor(ExecResult(0, """{"result":"ok"}""", "", 1))
+            val params = listOf(
+                ConfigurationParameter(ExternalAgentTools.CODEX_AUTH_MODE_PARAMETER, JsonPrimitive("subscription")),
+                ConfigurationParameter(ExternalAgentTools.CODEX_AUTH_JSON_PARAMETER, JsonPrimitive(fakeCodexAuthJson)),
+                ConfigurationParameter(ExternalAgentTools.CODEX_MODEL_PARAMETER, JsonPrimitive("gpt-5.5"))
+            )
+            val tools = ExternalAgentTools(
+                executor = executor,
+                parameters = params,
+                userId = "test-user",
+                context = SubprocessToolContext(workspaceDir = File("."), sessionId = "chat-session-1")
+            )
+
+            tools.runCodexSubAgent(ExternalAgentContext(prompt = "x", name = "codex-sub"))
+
+            val home = executor.lastRequest!!.env["CODEX_HOME"]!!
+            assertTrue(home.contains("chat-session-1"), "unexpected CODEX_HOME: $home")
+            assertTrue(File(home, "auth.json").exists(), "session CODEX_HOME should persist after the run")
+        } finally {
+            parent.deleteRecursively()
         }
     }
 
@@ -767,6 +1014,35 @@ class ExternalAgentToolsTest {
         assertFalse(req.command.contains("--ignore-user-config"))
         // --skip-git-repo-check is now added unconditionally (safe for non-repo workspaces).
         assertTrue(req.command.contains("--skip-git-repo-check"))
+    }
+
+    @Test
+    fun `claude subscription config dir is mounted in docker mode`() = runBlocking {
+        val configDir = Files.createTempDirectory("claude-config-test").toFile()
+        try {
+            val executor = FakeSubprocessExecutor(ExecResult(0, """{"result":"ok"}""", "", 1))
+            val params = listOf(
+                ConfigurationParameter(ExternalAgentTools.CLAUDE_AUTH_MODE_PARAMETER, JsonPrimitive("subscription")),
+                ConfigurationParameter(ExternalAgentTools.CLAUDE_OAUTH_TOKEN_PARAMETER, JsonPrimitive("oauth-token")),
+                ConfigurationParameter(ExternalAgentTools.CLAUDE_CONFIG_DIR_PARAMETER, JsonPrimitive(configDir.absolutePath))
+            )
+            val (tools, _) = buildTools(executor, params, trustExecutorSandbox = true)
+
+            tools.runClaudeCodeSubAgent(ExternalAgentContext(prompt = "x"))
+
+            val req = executor.lastRequest!!
+            assertEquals(configDir.absolutePath, req.env["CLAUDE_CONFIG_DIR"])
+            assertTrue(
+                req.mounts.any {
+                    it.hostPath.absolutePath == configDir.canonicalPath &&
+                        it.containerPath == configDir.absolutePath &&
+                        !it.readOnly
+                },
+                "expected Claude config dir to be bind-mounted, got: ${req.mounts}"
+            )
+        } finally {
+            configDir.deleteRecursively()
+        }
     }
 
     @Test

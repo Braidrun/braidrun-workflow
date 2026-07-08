@@ -3,12 +3,14 @@ package com.fartech.agents.workflow
 import com.fartech.agents.commons.CustomModelDefinition
 import com.fartech.agents.commons.HistoryCompressionConfig
 import com.fartech.agents.commons.SkillsConfiguration
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNames
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -364,6 +366,147 @@ data class WorkflowDefinition(
     }
 }
 
+@Serializable
+@OptIn(ExperimentalSerializationApi::class)
+data class WorkflowOutputVisibilityConfig(
+    @SerialName("scope")
+    val scope: WorkflowOutputVisibilityScope = WorkflowOutputVisibilityScope.PRIVATE,
+
+    @SerialName("allowed_workflows")
+    @JsonNames("allowedWorkflows")
+    val allowedWorkflows: List<String> = emptyList()
+)
+
+@Serializable
+enum class WorkflowOutputVisibilityScope {
+    @SerialName("private")
+    PRIVATE,
+
+    @SerialName("team")
+    TEAM,
+
+    @SerialName("workflow_allowlist")
+    WORKFLOW_ALLOWLIST
+}
+
+@Serializable
+@OptIn(ExperimentalSerializationApi::class)
+data class PublishOutputSpec(
+    @SerialName("name")
+    val name: String,
+
+    @SerialName("type")
+    val type: String = "text",
+
+    @SerialName("source")
+    val source: String,
+
+    @SerialName("description")
+    val description: String? = null,
+
+    @SerialName("contract_version")
+    @JsonNames("contractVersion")
+    val contractVersion: String = "1.0",
+
+    @SerialName("visibility")
+    val visibility: WorkflowOutputVisibilityConfig = WorkflowOutputVisibilityConfig()
+) {
+    init {
+        require(name.isNotBlank()) { "publish_outputs name cannot be blank" }
+        require(type in SUPPORTED_TYPES) {
+            "publish_outputs '$name' type must be one of: ${SUPPORTED_TYPES.joinToString(", ")}. Got: '$type'"
+        }
+        require(source.isNotBlank()) { "publish_outputs '$name' source cannot be blank" }
+    }
+
+    companion object {
+        val SUPPORTED_TYPES = setOf("text", "markdown", "json", "number", "boolean", "url", "file", "markdown_file", "json_file", "artifact_ref")
+    }
+}
+
+@Serializable
+@OptIn(ExperimentalSerializationApi::class)
+data class WorkflowOutputReadConfig(
+    @SerialName("workflow_id")
+    @JsonNames("workflowId")
+    val workflowId: String,
+
+    @SerialName("selector")
+    val selector: WorkflowOutputSelector = WorkflowOutputSelector(),
+
+    /**
+     * Published output name -> current workflow variable name.
+     */
+    @SerialName("outputs")
+    val outputs: Map<String, String> = emptyMap(),
+
+    @SerialName("missing_policy")
+    @JsonNames("missingPolicy")
+    val missingPolicy: WorkflowOutputMissingPolicy = WorkflowOutputMissingPolicy.FAIL,
+
+    @SerialName("defaults")
+    val defaults: Map<String, String> = emptyMap(),
+
+    @SerialName("require_workflow_status")
+    @JsonNames("requireWorkflowStatus")
+    val requireWorkflowStatus: String? = "COMPLETED",
+
+    @SerialName("allow_partial_execution")
+    @JsonNames("allowPartialExecution")
+    val allowPartialExecution: Boolean = false
+) {
+    init {
+        require(workflowId.isNotBlank()) { "workflow_output_read workflow_id cannot be blank" }
+        require(outputs.isNotEmpty()) { "workflow_output_read outputs cannot be empty" }
+        outputs.forEach { (outputName, variableName) ->
+            require(outputName.isNotBlank()) { "workflow_output_read output name cannot be blank" }
+            require(variableName.isNotBlank()) { "workflow_output_read target variable cannot be blank" }
+        }
+    }
+}
+
+@Serializable
+@OptIn(ExperimentalSerializationApi::class)
+data class WorkflowOutputSelector(
+    @SerialName("mode")
+    val mode: WorkflowOutputSelectorMode = WorkflowOutputSelectorMode.LATEST_SUCCESSFUL,
+
+    @SerialName("execution_id")
+    @JsonNames("executionId")
+    val executionId: String? = null,
+
+    @SerialName("execution_id_variable")
+    @JsonNames("executionIdVariable")
+    val executionIdVariable: String? = null,
+
+    @SerialName("step")
+    val step: String? = null
+)
+
+@Serializable
+enum class WorkflowOutputSelectorMode {
+    @SerialName("execution_id")
+    EXECUTION_ID,
+
+    @SerialName("latest_successful")
+    LATEST_SUCCESSFUL,
+
+    @SerialName("input_variable")
+    INPUT_VARIABLE
+}
+
+@Serializable
+enum class WorkflowOutputMissingPolicy {
+    @SerialName("fail")
+    FAIL,
+
+    @SerialName("skip_step")
+    SKIP_STEP,
+
+    @SerialName("use_default")
+    USE_DEFAULT
+}
+
 /**
  * Agent 定义（预设模式）
  *
@@ -430,6 +573,10 @@ data class AgentDefinition(
 
     @SerialName("name")
     val name: String? = null,
+
+    /** UI hint for model filtering. Supported values: text / video / image. */
+    @SerialName("media_type")
+    val mediaType: String? = null,
 
     @SerialName("system_prompt")
     val systemPrompt: String? = null,
@@ -810,6 +957,8 @@ data class AgentDefinition(
                     "deepseek" -> params["deepseek_api_key"] = JsonPrimitive(key)
                     "google" -> params["google_api_key"] = JsonPrimitive(key)
                     "ollama" -> params["ollama_api_key"] = JsonPrimitive(key)
+                    "zai", "z.ai", "z_ai", "z-ai", "zhipuai", "zhipu_ai" -> params["zai_api_key"] = JsonPrimitive(key)
+                    "nvidia", "nvidia_nim", "nvidia-nim", "nim", "nvidia_build", "nvidia-build" -> params["nvidia_api_key"] = JsonPrimitive(key)
                 }
             }
         }
@@ -1165,7 +1314,15 @@ data class WorkflowStep(
      * 把另一个已保存的 workflow 作为一个原子步骤引用,详见 [SubWorkflowConfig]。
      */
     @SerialName("sub_workflow")
-    val subWorkflow: SubWorkflowConfig? = null
+    val subWorkflow: SubWorkflowConfig? = null,
+
+    /** 当前步骤完成后对外发布的命名输出。默认空,不暴露任何内部产物。 */
+    @SerialName("publish_outputs")
+    val publishOutputs: List<PublishOutputSpec> = emptyList(),
+
+    /** 系统级步骤:从其他 workflow execution 的 published outputs 读取值。 */
+    @SerialName("workflow_output_read")
+    val workflowOutputRead: WorkflowOutputReadConfig? = null
 ) {
     /** 是否为 Group Chat 步骤 */
     val isGroupChat: Boolean get() = groupChat != null
@@ -1185,6 +1342,9 @@ data class WorkflowStep(
     /** 是否为子工作流步骤 */
     val isSubWorkflow: Boolean get() = subWorkflow != null
 
+    /** 是否为跨工作流输出读取步骤 */
+    val isWorkflowOutputRead: Boolean get() = workflowOutputRead != null
+
     /** 获取此步骤涉及的所有 agent 名称（用于验证） */
     val referencedAgents: List<String>
         get() = when {
@@ -1194,6 +1354,7 @@ data class WorkflowStep(
             isClassifier -> listOfNotNull(classifier?.agent)
             isStateMachine -> stateMachine?.referencedAgents.orEmpty()
             isSubWorkflow -> emptyList()  // 子 workflow 的 agents 由 child 自己管理,父不校验
+            isWorkflowOutputRead -> emptyList()
             else -> listOfNotNull(agent)
         }
 
@@ -1206,6 +1367,7 @@ data class WorkflowStep(
             isClassifier -> "classifier(${classifier?.agent ?: "?"})"
             isStateMachine -> "state_machine(${stateMachine?.states?.size ?: 0} states)"
             isSubWorkflow -> "sub_workflow(${subWorkflow?.identityLabel() ?: "?"})"
+            isWorkflowOutputRead -> "workflow_output_read(${workflowOutputRead?.workflowId ?: "?"})"
             else -> agent ?: "unknown"
         }
 
@@ -1219,10 +1381,11 @@ data class WorkflowStep(
             code != null,
             classifier != null,
             stateMachine != null,
-            subWorkflow != null
+            subWorkflow != null,
+            workflowOutputRead != null
         ).count { it }
         require(modeCount == 1) {
-            "Step '${step}': must specify exactly one of 'agent'+'input', 'group_chat', 'agent_based', 'code', 'classifier', 'state_machine', or 'sub_workflow'"
+            "Step '${step}': must specify exactly one of 'agent'+'input', 'group_chat', 'agent_based', 'code', 'classifier', 'state_machine', 'sub_workflow', or 'workflow_output_read'"
         }
         // 单 agent 模式需要 input
         if (agent != null && agent.isNotBlank()) {

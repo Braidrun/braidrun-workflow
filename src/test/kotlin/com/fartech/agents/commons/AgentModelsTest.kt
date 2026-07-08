@@ -350,11 +350,35 @@ class AgentModelsTest {
 
         @Test
         fun `resolves built-in ZAI model through OpenAI compatible provider`() {
-            val config = LLModelConfig(provider = "zai", model = "glm-5.1")
+            val config = LLModelConfig(provider = "zai", model = "glm-5.2")
             val model = determineLLMModel(config)
-            assertEquals(LLMProvider.OpenAI, model.provider)
-            assertEquals("glm-5.1", model.id)
+            assertEquals(ZAI_LLM_PROVIDER, model.provider)
+            assertEquals("glm-5.2", model.id)
+            assertEquals(1_000_000L, model.contextLength)
+            assertEquals(128_000L, model.maxOutputTokens)
             assertTrue(model.supports(LLMCapability.OpenAIEndpoint.Completions))
+        }
+
+        @Test
+        fun `resolves built-in NVIDIA Build GLM model through OpenAI compatible provider`() {
+            val config = LLModelConfig(provider = "nvidia", model = "glm-5.2")
+            val model = determineLLMModel(config)
+            assertEquals(NVIDIA_LLM_PROVIDER, model.provider)
+            assertEquals("z-ai/glm-5.2", model.id)
+            assertEquals(1_000_000L, model.contextLength)
+            assertEquals(16_384L, model.maxOutputTokens)
+            assertTrue(model.supports(LLMCapability.OpenAIEndpoint.Completions))
+        }
+
+        @Test
+        fun `OpenAI compatible providers keep distinct runtime identities`() {
+            assertEquals(LLMProvider.OpenAI, determineLLMModel(LLModelConfig(provider = "openai", model = "gpt-4o")).provider)
+            assertEquals(QWEN_DIRECT_LLM_PROVIDER, determineLLMModel(LLModelConfig(provider = "dashscope", model = "qwen-max")).provider)
+            assertEquals(KIMI_LLM_PROVIDER, determineLLMModel(LLModelConfig(provider = "kimi", model = "moonshot-v1-8k")).provider)
+            assertEquals(LLMProvider.MiniMax, determineLLMModel(LLModelConfig(provider = "minimax", model = "MiniMax-M2")).provider)
+            assertEquals(LMSTUDIO_LLM_PROVIDER, determineLLMModel(LLModelConfig(provider = "lmstudio", model = "local-model")).provider)
+            assertEquals(ZAI_LLM_PROVIDER, determineLLMModel(LLModelConfig(provider = "z.ai", model = "glm-5.1")).provider)
+            assertEquals(NVIDIA_LLM_PROVIDER, determineLLMModel(LLModelConfig(provider = "nvidia", model = "glm-5.2")).provider)
         }
 
         @Test
@@ -432,9 +456,15 @@ class AgentModelsTest {
             assertEquals(LLMProvider.DeepSeek, deepseekModel.provider)
 
             // Z.ai official OpenAI-compatible aliases
-            for (alias in listOf("zai", "z_ai", "z-ai", "zhipuai", "zhipu_ai")) {
+            for (alias in listOf("zai", "z.ai", "z_ai", "z-ai", "zhipuai", "zhipu_ai")) {
                 val model = determineLLMModel(LLModelConfig(provider = alias, model = "unknown-alias-test"))
-                assertEquals(LLMProvider.OpenAI, model.provider, "Failed for alias: $alias")
+                assertEquals(ZAI_LLM_PROVIDER, model.provider, "Failed for alias: $alias")
+            }
+
+            // NVIDIA Build / NIM OpenAI-compatible aliases
+            for (alias in listOf("nvidia", "nvidia_nim", "nvidia-nim", "nim", "nvidia_build", "nvidia-build")) {
+                val model = determineLLMModel(LLModelConfig(provider = alias, model = "unknown-alias-test"))
+                assertEquals(NVIDIA_LLM_PROVIDER, model.provider, "Failed for alias: $alias")
             }
 
             // Ollama aliases
@@ -538,11 +568,57 @@ class AgentModelsTest {
         fun `zai aliases resolve provider keys`() {
             val resolved = resolveConfiguredApiKey(
                 emptyList(),
-                "z-ai",
+                "z.ai",
                 mapOf("zai" to "sk-zai-from-map")
             )
 
             assertEquals("sk-zai-from-map", resolved)
+        }
+
+        @Test
+        fun `zai client creation keeps zai provider identity`() {
+            val (provider, _) = createLLMClient(
+                parameters = emptyList(),
+                httpClient = HttpAccess().client,
+                modelConfig = LLModelConfig(provider = "z.ai", model = "glm-5.1"),
+                keys = mapOf("zai" to "sk-zai-from-map")
+            )
+
+            assertEquals(ZAI_LLM_PROVIDER, provider)
+        }
+
+        @Test
+        fun `standalone nvidia api key is honored`() {
+            val parameters = listOf(
+                ConfigurationParameter("nvidia_api_key", JsonPrimitive("nvapi-direct"))
+            )
+
+            val resolved = resolveConfiguredApiKey(parameters, "nvidia", emptyMap())
+
+            assertEquals("nvapi-direct", resolved)
+        }
+
+        @Test
+        fun `nvidia aliases resolve provider keys`() {
+            val resolved = resolveConfiguredApiKey(
+                emptyList(),
+                "nvidia-nim",
+                mapOf("nvidia" to "nvapi-from-map")
+            )
+
+            assertEquals("nvapi-from-map", resolved)
+        }
+
+        @Test
+        fun `nvidia client creation keeps nvidia provider identity`() {
+            val (provider, _) = createLLMClient(
+                parameters = emptyList(),
+                httpClient = HttpAccess().client,
+                modelConfig = LLModelConfig(provider = "nvidia", model = "glm-5.2"),
+                keys = mapOf("nvidia" to "nvapi-from-map")
+            )
+
+            assertEquals(NVIDIA_LLM_PROVIDER, provider)
         }
 
         @Test
@@ -564,6 +640,16 @@ class AgentModelsTest {
             assertTrue(message.contains("Missing API key for provider 'zai'"))
             assertTrue(message.contains("ZAI_API_KEY"))
             assertTrue(message.contains("zai_api_key"))
+            assertTrue(message.contains("llm_provider_keys"))
+        }
+
+        @Test
+        fun `missing nvidia api key throws actionable error`() {
+            val message = buildMissingApiKeyMessage("nvidia")
+
+            assertTrue(message.contains("Missing API key for provider 'nvidia'"))
+            assertTrue(message.contains("NVIDIA_API_KEY"))
+            assertTrue(message.contains("nvidia_api_key"))
             assertTrue(message.contains("llm_provider_keys"))
         }
     }
@@ -822,6 +908,7 @@ class AgentModelsTest {
                 "https://api.moonshot.cn/v1",
                 "https://api.minimax.chat/v1",
                 "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                "https://api.z.ai/api/coding/paas/v4",
                 "http://localhost:1234/v1",
             )) {
                 assertEquals(

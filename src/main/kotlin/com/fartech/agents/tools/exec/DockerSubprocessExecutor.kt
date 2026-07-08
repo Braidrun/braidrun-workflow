@@ -79,6 +79,11 @@ class DockerSubprocessExecutor(
             // creating millions of small files.
             .withUlimits(DEFAULT_ULIMITS)
             .withNetworkMode(networkMode(request.networkPolicy))
+            // Let sandboxed subprocesses call services bound on the app host
+            // without routing through public load balancers. Used by the
+            // external-agent authoring MCP bridge to reach workflow-web on the
+            // same node while preserving the per-process authoring session.
+            .withExtraHosts("host.docker.internal:host-gateway")
             .withBinds(buildBinds(request))
 
         val createCmd = dockerClient.createContainerCmd(imageTag)

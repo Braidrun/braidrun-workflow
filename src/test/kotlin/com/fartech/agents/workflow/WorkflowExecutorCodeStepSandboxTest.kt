@@ -471,7 +471,7 @@ class WorkflowExecutorCodeStepSandboxTest {
         val result = executor.execute(workflow, externalExecutionId = "exec-legacy-node-large-env")
 
         assertTrue(result.success)
-        assertEquals("jjj:true:true:default", result.stepResults.getValue("read-node-env").output?.trim())
+        assertEquals("jjj:false:false:default", result.stepResults.getValue("read-node-env").output?.trim())
         assertFalse(File(workingDir, ".wf_env").exists())
     }
 
@@ -492,10 +492,20 @@ class WorkflowExecutorCodeStepSandboxTest {
                         workingDirectory = workingDir.absolutePath,
                         script = """
                             import os
+                            import subprocess
+                            import sys
                             value = os.getenv("WF_VAR_LARGE_PAYLOAD")
                             in_dict = "WF_VAR_LARGE_PAYLOAD" in dict(os.environ)
                             in_copy = "WF_VAR_LARGE_PAYLOAD" in os.environ.copy()
-                            print(value.splitlines()[0] + ":" + str(in_dict).lower() + ":" + str(in_copy).lower() + ":" + os.getenv("MISSING", "fallback"))
+                            child = subprocess.run(
+                                [sys.executable, "-c", "import os; print('WF_VAR_LARGE_PAYLOAD' in os.environ.copy())"],
+                                env=os.environ.copy(),
+                                capture_output=True,
+                                text=True,
+                                check=True,
+                            )
+                            child_copy = child.stdout.strip().lower()
+                            print(value.splitlines()[0] + ":" + str(in_dict).lower() + ":" + str(in_copy).lower() + ":" + child_copy + ":" + os.getenv("MISSING", "fallback"))
                         """.trimIndent()
                     )
                 )
@@ -510,7 +520,7 @@ class WorkflowExecutorCodeStepSandboxTest {
         val result = executor.execute(workflow, externalExecutionId = "exec-legacy-python-large-env")
 
         assertTrue(result.success)
-        assertEquals("line1'quoted:true:true:fallback", result.stepResults.getValue("read-python-env").output?.trim())
+        assertEquals("line1'quoted:false:false:false:fallback", result.stepResults.getValue("read-python-env").output?.trim())
         assertFalse(File(workingDir, ".wf_env").exists())
     }
 

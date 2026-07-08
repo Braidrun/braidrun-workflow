@@ -367,11 +367,19 @@ sourceSets {
 }
 tasks.test {
     useJUnitPlatform()
+    maxParallelForks = findProperty("test.maxParallelForks")
+        ?.toString()
+        ?.toIntOrNull()
+        ?.coerceAtLeast(1)
+        ?: minOf(2, Runtime.getRuntime().availableProcessors().coerceAtLeast(1))
+    systemProperty("braidrun.quietConsole", "true")
+    reports.html.required.set(false)
+    reports.junitXml.required.set(true)
     // Surface failing test names + stack traces on the console (CI logs only
     // show "N failed" otherwise — the details would be buried in the HTML
     // report artifact).
     testLogging {
-        events("failed", "skipped")
+        events("failed")
         exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
         showStackTraces = true
         showCauses = true
