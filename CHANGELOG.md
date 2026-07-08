@@ -5,11 +5,11 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.0.4]
+## [1.0.5]
 
 First public release that ships the command-line interface alongside the
 embeddable runtime library. Versions 1.0.0 through 1.0.3 were library-only
-pre-CLI snapshots.
+pre-CLI snapshots; 1.0.4 was not published.
 
 ### Added
 
@@ -43,4 +43,4 @@ The runtime library provides:
 - LLM provider integration via the Koog AI Agents framework, including
   Anthropic, OpenAI, DeepSeek, OpenRouter, Z.ai, and NVIDIA model registries.
 
-[1.0.4]: https://github.com/Braidrun/braidrun-workflow/releases/tag/1.0.4
+[1.0.5]: https://github.com/Braidrun/braidrun-workflow/releases/tag/1.0.5
