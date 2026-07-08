@@ -41,7 +41,7 @@ private class BraidrunWorkflowCli {
 
         return when (val command = args.first()) {
             "--version", "version" -> {
-                println("braidrun-workflow 1.0.0-SNAPSHOT")
+                println("braidrun-workflow $VERSION")
                 0
             }
 
@@ -413,6 +413,9 @@ private data class McpOptions(
 )
 
 private class CliException(message: String) : RuntimeException(message)
+
+private val VERSION: String =
+    BraidrunWorkflowCli::class.java.`package`?.implementationVersion ?: "1.0.4"
 
 private val HELP = """
     Braidrun Workflow CLI

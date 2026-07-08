@@ -23,7 +23,7 @@ workflow:
           from reportlab.pdfgen import canvas
         p = Path(tempfile.mkdtemp(prefix="pdf_test_")) / "demo.pdf"
         c = canvas.Canvas(str(p))
-        c.drawString(100, 750, "DINGYUE TEST PDF CONTENT")
+        c.drawString(100, 750, "BRAIDRUN TEST PDF CONTENT")
         c.drawString(100, 730, "Hello World line 2")
         c.save()
         print(f"pdf_path={p}")
@@ -50,7 +50,7 @@ workflow:
         problems = []
         if os.environ.get("WF_VAR_STATUS") != "ok": problems.append("status")
         if os.environ.get("WF_VAR_PAGES") != "1": problems.append(f"pages={os.environ.get('WF_VAR_PAGES')}")
-        if "DINGYUE TEST PDF CONTENT" not in full: problems.append(f"text missing: {full[:300]}")
+        if "BRAIDRUN TEST PDF CONTENT" not in full: problems.append(f"text missing: {full[:300]}")
         if problems:
           print("TEST_STATUS=fail"); [print(f"  - {p}") for p in problems]; sys.exit(1)
         print("TEST_STATUS=pass")

@@ -76,10 +76,44 @@ docker run --rm hello-world
 
 See [Docker Runtime](DOCKER.md) for runtime images, network setup, and troubleshooting.
 
-## Publish as a Local Library
+## Use as a Library
+
+### From JitPack (published releases)
+
+Released tags are available through [JitPack](https://jitpack.io/#Braidrun/braidrun-workflow). Add the repository and the coordinate to your build:
+
+```kotlin
+repositories {
+    mavenCentral()
+    maven("https://jitpack.io")
+}
+
+dependencies {
+    implementation("com.github.Braidrun:braidrun-workflow:1.0.4")
+}
+```
+
+Groovy DSL:
+
+```groovy
+repositories {
+    mavenCentral()
+    maven { url 'https://jitpack.io' }
+}
+
+dependencies {
+    implementation 'com.github.Braidrun:braidrun-workflow:1.0.4'
+}
+```
+
+### From a local Maven repository
+
+To build and consume the library without JitPack:
 
 ```bash
 ./gradlew publishToMavenLocal
 ```
 
-Then depend on the published Maven coordinate from your application and use the parser/executor APIs shown in [Library Usage](LIBRARY_USAGE.md).
+This publishes `com.fartech.braidrun:braidrun-workflow:1.0.4` to `~/.m2`. Add `mavenLocal()` to your repositories and depend on that coordinate.
+
+See [Library Usage](LIBRARY_USAGE.md) for the parser/executor APIs.

@@ -12,7 +12,7 @@ workflow:
   - step: run
     sub_workflow:
       name: utility-module-qr-code-generator
-      inputs: {text: "https://dingyue.io", scale: "6"}
+      inputs: {text: "https://example.com", scale: "6"}
       outputs:
         path: qr_path
         size: file_size_bytes

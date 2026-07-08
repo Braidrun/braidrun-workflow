@@ -331,6 +331,15 @@ group = "com.fartech.braidrun"
 version = "1.0.4"
 description = "braidrun-workflow"
 
+tasks.named<Jar>("jar") {
+    manifest {
+        attributes(
+            "Implementation-Title" to "braidrun-workflow",
+            "Implementation-Version" to project.version.toString()
+        )
+    }
+}
+
 java.sourceCompatibility = JavaVersion.VERSION_21
 
 java {

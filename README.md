@@ -42,6 +42,23 @@ Run with Docker-backed subprocess isolation:
   --subprocess-mode docker
 ```
 
+## Use as a Library
+
+Released tags are published through [JitPack](https://jitpack.io/#Braidrun/braidrun-workflow):
+
+```kotlin
+repositories {
+    mavenCentral()
+    maven("https://jitpack.io")
+}
+
+dependencies {
+    implementation("com.github.Braidrun:braidrun-workflow:1.0.4")
+}
+```
+
+The library exposes the same parser and executor the CLI uses. See [Library Usage](docs/LIBRARY_USAGE.md) for a complete example.
+
 ## Documentation
 
 - [Installation](docs/INSTALLATION.md)
@@ -53,6 +70,7 @@ Run with Docker-backed subprocess isolation:
 - [Claude Code and Codex Agents](docs/EXTERNAL_AGENTS.md)
 - [MCP](docs/MCP.md)
 - [Security](docs/SECURITY.md)
+- [Changelog](CHANGELOG.md)
 
 ## Build and Verify
 
