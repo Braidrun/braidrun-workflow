@@ -98,9 +98,9 @@ class NativeSubprocessExecutor : SubprocessExecutor {
             val completed = proc.waitFor(request.timeoutSeconds, TimeUnit.SECONDS)
 
             if (!completed) {
-                proc.destroyForcibly()
-                val stdout = runCatching { stdoutFuture.get(5, TimeUnit.SECONDS) }.getOrDefault("")
-                val stderr = runCatching { stderrFuture.get(5, TimeUnit.SECONDS) }.getOrDefault("")
+                destroyProcessTree(proc)
+                val stdout = runCatching { stdoutFuture.get(TIMEOUT_STREAM_DRAIN_SECONDS, TimeUnit.SECONDS) }.getOrDefault("")
+                val stderr = runCatching { stderrFuture.get(TIMEOUT_STREAM_DRAIN_SECONDS, TimeUnit.SECONDS) }.getOrDefault("")
                 logger.warn { "[NativeExec] Process timed out after ${request.timeoutSeconds}s: ${request.command}" }
                 ExecResult(
                     exitCode = -1,
@@ -241,7 +241,19 @@ class NativeSubprocessExecutor : SubprocessExecutor {
         return if (truncated) text + SubprocessExecutor.STREAM_TRUNCATION_MARKER else text
     }
 
+    private fun destroyProcessTree(process: Process) {
+        val handle = process.toHandle()
+        handle.descendants().forEach { child ->
+            runCatching { child.destroyForcibly() }
+        }
+        runCatching { process.destroyForcibly() }
+        runCatching { process.waitFor(TIMEOUT_PROCESS_DESTROY_SECONDS, TimeUnit.SECONDS) }
+    }
+
     companion object {
+        private const val TIMEOUT_PROCESS_DESTROY_SECONDS = 1L
+        private const val TIMEOUT_STREAM_DRAIN_SECONDS = 1L
+
         /**
          * Minimal set of environment variables copied from the parent into the child. Chosen
          * to keep common binaries functional (PATH for command lookup, HOME/TMPDIR for
