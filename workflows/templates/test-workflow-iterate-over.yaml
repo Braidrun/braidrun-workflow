@@ -2,19 +2,19 @@
 name: test-workflow-iterate-over
 version: 1.0.0
 tags:
-- 测试
-- 动态列表遍历
-- 批量处理
-- 并行处理
+- test
+- dynamic-list-iteration
+- batch-processing
+- parallel-processing
 - iterate_over
 - parallel
 description: |
-  动态列表遍历功能测试 - 测试 iterate_over 步骤的各种配置
-  覆盖：source（变量/步骤输出）、delimiter（换行/逗号/json_array）、
+  Dynamic list iteration feature test - tests various configurations of the iterate_over step
+  Covers: source (variable/step output), delimiter (newline/comma/json_array),
   item_variable、index_variable、max_items、parallel、
   max_parallel、results_variable
 variables:
-  task_list: 设计登录页面,实现用户注册,编写单元测试,部署到测试环境
+  task_list: Design the login page, implement user registration, write unit tests, deploy to the test environment
   output_dir: "./output"
   demo_mode: 'true'
 agents:
@@ -24,10 +24,10 @@ agents:
       system_prompt: |-
         You are a data generator. Produce structured lists. Call exit when done.
 
-        共同要求：
-        - 该模板以“可直接运行演示”为第一目标。
-        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
-        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+        Common requirements:
+        - The template's first goal is to run and demo directly.
+        - If real-time data, external accounts, API credentials, or target-system access are missing, continue using the current input, workflow context, and reasonable assumptions; do not stop to ask for external dependencies.
+        - Prefer self-contained, presentable, reusable demo output, and write it to workspace files when appropriate.
       tool_set:
       - exit
       - skill_tools
@@ -40,10 +40,10 @@ agents:
       system_prompt: |-
         You are a data processor. Process each item carefully. Call exit when done.
 
-        共同要求：
-        - 该模板以“可直接运行演示”为第一目标。
-        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
-        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+        Common requirements:
+        - The template's first goal is to run and demo directly.
+        - If real-time data, external accounts, API credentials, or target-system access are missing, continue using the current input, workflow context, and reasonable assumptions; do not stop to ask for external dependencies.
+        - Prefer self-contained, presentable, reusable demo output, and write it to workspace files when appropriate.
       tool_set:
       - exit
       - skill_tools
@@ -56,10 +56,10 @@ agents:
       system_prompt: |-
         You are a summarizer. Create concise summaries. Call exit when done.
 
-        共同要求：
-        - 该模板以“可直接运行演示”为第一目标。
-        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
-        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+        Common requirements:
+        - The template's first goal is to run and demo directly.
+        - If real-time data, external accounts, API credentials, or target-system access are missing, continue using the current input, workflow context, and reasonable assumptions; do not stop to ask for external dependencies.
+        - Prefer self-contained, presentable, reusable demo output, and write it to workspace files when appropriate.
       tool_set:
       - exit
       - skill_tools
@@ -70,10 +70,10 @@ workflow:
 - step: process_tasks_serial
   agent: processor
   input: |-
-    处理任务 #{{var:task_index}}: {{var:task_item}}
-    请输出该任务的执行方案（一段话即可）。
+    Handle task #{{var:task_index}}: {{var:task_item}}
+    Output an execution plan for this task (a single paragraph is fine).
 
-    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/process_tasks_serial.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/process_tasks_serial.md。
   iterate_over:
     source: "{{var:task_list}}"
     delimiter: ","
@@ -85,18 +85,18 @@ workflow:
 - step: generate_checklist
   agent: generator
   input: |-
-    基于以下任务处理结果，为每个任务生成一个质量检查项（每行一项）：
+    Based on the following task results, generate one quality-check item per task (one per line):
     {{var:serial_results}}
-    请每行输出一个检查项，格式：检查项名称
+    Output one check item per line, in the format: check-item name
 
-    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/generate_checklist.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/generate_checklist.md。
 - step: parallel_check
   agent: processor
   input: |-
-    执行质量检查项 #{{var:check_index}}: {{var:check_item}}
-    输出检查结果：通过或不通过，并说明原因。
+    Execute quality-check item #{{var:check_index}}: {{var:check_item}}
+    Output the check result: pass or fail, with the reason.
 
-    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/parallel_check.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/parallel_check.md。
   iterate_over:
     source: "{{steps.generate_checklist.output}}"
     delimiter: "\n"
@@ -111,9 +111,9 @@ workflow:
 - step: iteration_summary
   agent: summarizer
   input: |
-    汇总以下遍历执行结果，保存到 {{var:output_dir}}/iteration_report.txt：
-    串行任务处理结果：{{var:serial_results}}
-    并行检查结果：{{var:check_results}}
+    Summarize the following iteration results and save them to {{var:output_dir}}/iteration_report.txt:
+    Serial task results: {{var:serial_results}}
+    Parallel check results: {{var:check_results}}
   depends_on:
   - process_tasks_serial
   - parallel_check
@@ -144,8 +144,8 @@ global_agent:
     preset: universal
     overrides:
       system_prompt: |-
-        你是工作流模板助手，负责帮助用户理解、调试和演示当前工作流。
-        生成或修改 YAML 时必须使用 braidrun-agent 的 snake_case 语法，并优先保持模板可直接运行。
+        You are a workflow template assistant that helps users understand, debug, and demo the current workflow.
+        When generating or modifying YAML, use braidrun-workflow's snake_case syntax and keep the template runnable.
       tool_set:
       - workflow
       - file_system

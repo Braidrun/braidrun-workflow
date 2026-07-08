@@ -3,12 +3,12 @@ aliases:
 - lm-studio
 - lm_studio
 models:
-  # LM Studio 通过 OpenAI-compatible API 暴露本地模型。
-  # 用户通过 LM Studio UI 下载模型后，在此处按 model ID 注册。
-  # model ID 即 LM Studio 中显示的模型标识符。
+  # LM Studio exposes local models through an OpenAI-compatible API.
+  # After downloading a model in the LM Studio UI, register it here by its model ID.
+  # The model ID is the identifier shown in LM Studio.
   #
-  # 以下为常见的 LM Studio 本地模型预定义。
-  # 用户也可以在 ./models/lmstudio.yaml 中覆盖或新增自己下载的模型。
+  # The entries below predefine common LM Studio local models.
+  # You can also override or add your own downloaded models in ./models/lmstudio.yaml.
 
   # ===== Meta Llama =====
   "llama-3.3-70b":

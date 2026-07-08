@@ -29,7 +29,7 @@ workflow:
         if os.environ.get("WF_VAR_STATUS") != "ok": problems.append(f"status={os.environ.get('WF_VAR_STATUS')}")
         cnt = int(os.environ.get("WF_VAR_CNT", "0") or "0")
         if cnt < 1: problems.append(f"cnt={cnt}")
-        # expect_contains "104." 很可能匹配到 Cloudflare 的 104.x.x.x 段
+        # expect_contains "104." will most likely match Cloudflare's 104.x.x.x range
         if problems:
           print("TEST_STATUS=fail"); [print(f"  - {p}") for p in problems]; sys.exit(1)
         print(f"TEST_STATUS=pass ({cnt} records)")

@@ -19,12 +19,15 @@ tags:
 
 variables:
   source_text: |
-    Braidrun Workflow 是一个多层 AI agent 工作流运行时，专注于用 YAML 定义可复现的 agent 流程、
-    确定性 code 步骤和工具调用。它使用 Kotlin/JVM 构建，可作为 CLI 使用，也可作为库嵌入其他应用。
-    核心能力包括 agent 预设、并行执行、条件与状态机、子工作流、MCP 集成，以及通过 Claude Code 和
-    Codex 子进程委派外部编码 agent。运行时同时支持本地 native 子进程模式和基于 Docker 的隔离模式。
-    平台通过 Koog AI Agents 框架集成多种 LLM provider，包括 Anthropic、OpenAI、DeepSeek 和 OpenRouter，
-    并提供 tokenizer、tracing、long-term memory 和 cascading fallback 等特性。
+    Braidrun Workflow is a multi-layered AI agent workflow runtime focused on defining
+    reproducible agent flows, deterministic code steps, and tool calls in YAML. It is built
+    on Kotlin/JVM and can be used as a CLI or embedded as a library in other applications.
+    Core capabilities include agent presets, parallel execution, conditions and state machines,
+    sub-workflows, MCP integration, and delegating external coding agents through Claude Code
+    and Codex subprocesses. The runtime supports both a local native subprocess mode and a
+    Docker-based isolation mode. It integrates multiple LLM providers via the Koog AI Agents
+    framework, including Anthropic, OpenAI, DeepSeek, and OpenRouter, and offers features such
+    as tokenizer, tracing, long-term memory, and cascading fallback.
 
 agents: {}
 

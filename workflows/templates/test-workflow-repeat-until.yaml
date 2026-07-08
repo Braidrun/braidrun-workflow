@@ -2,17 +2,17 @@
 name: test-workflow-repeat-until
 version: 1.0.0
 tags:
-- 测试
-- 迭代精炼
-- 迭代优化
+- test
+- iterative-refinement
+- iterative-refinement
 - repeat_until
 - condition
 description: |
-  repeat_until 迭代精炼功能测试 - 测试条件循环执行
-  覆盖：condition、max_iterations、evaluate_agent、evaluate_prompt、
+  repeat_until iterative-refinement feature test - tests conditional loop execution
+  Covers: condition, max_iterations, evaluate_agent, evaluate_prompt,
   extract_pattern、extract_variable
 variables:
-  topic: 人工智能在教育领域的应用
+  topic: Applications of AI in education
   quality_threshold: '7'
   output_dir: "./output"
   quality_score: '0'
@@ -25,10 +25,10 @@ agents:
       system_prompt: |-
         You are a content writer. Write and improve content based on feedback. Always output quality_score=N where N is your self-assessment (1-10). Call exit when done.
 
-        共同要求：
-        - 该模板以“可直接运行演示”为第一目标。
-        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
-        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+        Common requirements:
+        - The template's first goal is to run and demo directly.
+        - If real-time data, external accounts, API credentials, or target-system access are missing, continue using the current input, workflow context, and reasonable assumptions; do not stop to ask for external dependencies.
+        - Prefer self-contained, presentable, reusable demo output, and write it to workspace files when appropriate.
       tool_set:
       - exit
       - skill_tools
@@ -41,10 +41,10 @@ agents:
       system_prompt: |-
         You are a quality reviewer. Evaluate content quality and output a score. Always output quality_score=N where N is your assessment (1-10). Call exit when done.
 
-        共同要求：
-        - 该模板以“可直接运行演示”为第一目标。
-        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
-        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+        Common requirements:
+        - The template's first goal is to run and demo directly.
+        - If real-time data, external accounts, API credentials, or target-system access are missing, continue using the current input, workflow context, and reasonable assumptions; do not stop to ask for external dependencies.
+        - Prefer self-contained, presentable, reusable demo output, and write it to workspace files when appropriate.
       tool_set:
       - exit
       - skill_tools
@@ -57,10 +57,10 @@ agents:
       system_prompt: |-
         You are an editor. Polish and finalize content. Call exit when done.
 
-        共同要求：
-        - 该模板以“可直接运行演示”为第一目标。
-        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
-        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+        Common requirements:
+        - The template's first goal is to run and demo directly.
+        - If real-time data, external accounts, API credentials, or target-system access are missing, continue using the current input, workflow context, and reasonable assumptions; do not stop to ask for external dependencies.
+        - Prefer self-contained, presentable, reusable demo output, and write it to workspace files when appropriate.
       tool_set:
       - exit
       - skill_tools
@@ -71,29 +71,29 @@ workflow:
 - step: draft_article
   agent: writer
   input: |-
-    撰写一篇关于"{{var:topic}}"的文章。
-    上一次的评分为 {{var:quality_score}}，请在之前的基础上改进。
-    输出格式要求：文章内容后附上 quality_score=N（N 为 1-10 的自评分数）。
+    Write an article about "{{var:topic}}".
+    The previous score was {{var:quality_score}}; please improve on it.
+    Output format: after the article content, append quality_score=N (N is a self-assessed score from 1-10).
 
-    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/draft_article.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/draft_article.md。
   repeat_until:
     condition: quality_score >= 7
     max_iterations: 3
     evaluate_agent: reviewer
     evaluate_prompt: |
-      请评估以下文章的质量，从内容深度、逻辑性、可读性三个维度评分。
-      输出格式：quality_score=N（N 为 1-10）。
-      文章内容：{{steps.draft_article.output}}
+      Assess the quality of the following article, scoring it on depth of content, logic, and readability.
+      Output format: quality_score=N (N is 1-10).
+      Article content: {{steps.draft_article.output}}
     extract_pattern: quality_score=(\d+)
     extract_variable: quality_score
 - step: refine_summary
   agent: writer
   input: |-
-    基于以下文章，撰写一个精炼的摘要（不超过 200 字）。
-    请在摘要末尾输出 summary_done=yes 当你认为摘要已经足够精炼。
-    文章：{{steps.draft_article.output}}
+    Based on the following article, write a concise summary (no more than 200 words).
+    Output summary_done=yes at the end of the summary when you consider it concise enough.
+    Article: {{steps.draft_article.output}}
 
-    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/refine_summary.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/refine_summary.md。
   repeat_until:
     condition: summary_done == 'yes'
     max_iterations: 2
@@ -104,10 +104,10 @@ workflow:
 - step: final_edit
   agent: editor
   input: |
-    请对以下文章和摘要进行最终编辑和润色，保存到 {{var:output_dir}}/final_article.txt：
-    文章质量评分：{{var:quality_score}}
-    文章：{{steps.draft_article.output}}
-    摘要：{{steps.refine_summary.output}}
+    Perform final editing and polishing of the following article and summary, and save it to {{var:output_dir}}/final_article.txt:
+    Article quality score: {{var:quality_score}}
+    Article: {{steps.draft_article.output}}
+    Summary: {{steps.refine_summary.output}}
   depends_on:
   - refine_summary
 error_handling:
@@ -137,8 +137,8 @@ global_agent:
     preset: universal
     overrides:
       system_prompt: |-
-        你是工作流模板助手，负责帮助用户理解、调试和演示当前工作流。
-        生成或修改 YAML 时必须使用 braidrun-agent 的 snake_case 语法，并优先保持模板可直接运行。
+        You are a workflow template assistant that helps users understand, debug, and demo the current workflow.
+        When generating or modifying YAML, use braidrun-workflow's snake_case syntax and keep the template runnable.
       tool_set:
       - workflow
       - file_system

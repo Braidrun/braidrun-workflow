@@ -2,9 +2,9 @@
 name: test-workflow-chain
 version: 1.0.0
 tags:
-- 测试
-- 基础链式
-description: 多步链式 workflow - 步骤间通过文件传递数据，测试依赖链和优先级
+- test
+- basic-chaining
+description: Multi-step chained workflow - steps pass data through files, testing the dependency chain and priorities
 variables:
   project_name: TestProject
   output_dir: "./output/test-workflow-chain"
@@ -16,10 +16,10 @@ agents:
       system_prompt: |-
         You are a precise assistant. Follow instructions exactly. Call exit when done.
 
-        共同要求：
-        - 该模板以“可直接运行演示”为第一目标。
-        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
-        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+        Common requirements:
+        - The template's first goal is to run and demo directly.
+        - If real-time data, external accounts, API credentials, or target-system access are missing, continue using the current input, workflow context, and reasonable assumptions; do not stop to ask for external dependencies.
+        - Prefer self-contained, presentable, reusable demo output, and write it to workspace files when appropriate.
       tool_set:
       - exit
       - skill_tools
@@ -37,7 +37,7 @@ workflow:
     {"project": "{{var:project_name}}", "steps_completed": []}
     Then call exit.
 
-    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/init.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/init.md。
 - step: step_a
   agent: worker
   depends_on:
@@ -49,7 +49,7 @@ workflow:
     Also create ./output/step_a.txt with content "Step A done".
     Then call exit.
 
-    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/step_a.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/step_a.md。
 - step: step_b
   agent: worker
   depends_on:
@@ -61,7 +61,7 @@ workflow:
     Also create ./output/step_b.txt with content "Step B done".
     Then call exit.
 
-    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/step_b.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/step_b.md。
 - step: finalize
   agent: worker
   depends_on:
@@ -75,7 +75,7 @@ workflow:
     - List of all files in the output directory
     Then call exit.
 
-    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/finalize.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/finalize.md。
 error_handling:
   max_retries: 2
   retry_delay: 3s
@@ -103,8 +103,8 @@ global_agent:
     preset: universal
     overrides:
       system_prompt: |-
-        你是工作流模板助手，负责帮助用户理解、调试和演示当前工作流。
-        生成或修改 YAML 时必须使用 braidrun-agent 的 snake_case 语法，并优先保持模板可直接运行。
+        You are a workflow template assistant that helps users understand, debug, and demo the current workflow.
+        When generating or modifying YAML, use braidrun-workflow's snake_case syntax and keep the template runnable.
       tool_set:
       - workflow
       - file_system

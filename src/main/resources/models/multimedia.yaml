@@ -1,7 +1,7 @@
-# 多媒体生成模型定义
-# 用于图像生成和音频生成，通过 OpenRouter API 路由。
-# 新增模型只需在此文件添加条目，无需改代码。
-# 用户也可在 ./models/multimedia.yaml 覆盖或扩展。
+# Multimedia generation model definitions.
+# Used for image and audio generation, routed through the OpenRouter API.
+# To add a model, append an entry to this file — no code changes required.
+# You can also override or extend these in ./models/multimedia.yaml.
 
 image_models:
   # ===== Google Gemini Image =====

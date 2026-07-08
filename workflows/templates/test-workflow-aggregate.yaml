@@ -2,19 +2,19 @@
 name: test-workflow-aggregate
 version: 1.0.0
 tags:
-- 测试
-- 变量聚合
-- 确定性计算
-- 多源聚合
+- test
+- variable-aggregation
+- deterministic-compute
+- multi-source-aggregation
 - extract
 - code
 - aggregate
 description: |
-  多路径变量聚合功能测试 - 测试 Aggregate 步骤的各种聚合策略
-  覆盖：sources（多数据源）、strategy（concat/json_array/numbered_list/
+  Multi-path variable aggregation feature test - tests the various aggregation strategies of the Aggregate step
+  Covers: sources (multiple sources), strategy (concat/json_array/numbered_list/
   pick_longest/pick_shortest）、separator、output_variable
 variables:
-  target_system: 电商平台购物车模块
+  target_system: E-commerce platform shopping-cart module
   output_dir: "./output"
   demo_mode: 'true'
 agents:
@@ -24,10 +24,10 @@ agents:
       system_prompt: |-
         You are a security reviewer. Focus on security aspects. Call exit when done.
 
-        共同要求：
-        - 该模板以“可直接运行演示”为第一目标。
-        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
-        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+        Common requirements:
+        - The template's first goal is to run and demo directly.
+        - If real-time data, external accounts, API credentials, or target-system access are missing, continue using the current input, workflow context, and reasonable assumptions; do not stop to ask for external dependencies.
+        - Prefer self-contained, presentable, reusable demo output, and write it to workspace files when appropriate.
       tool_set:
       - exit
       - skill_tools
@@ -40,10 +40,10 @@ agents:
       system_prompt: |-
         You are a performance reviewer. Focus on performance aspects. Call exit when done.
 
-        共同要求：
-        - 该模板以“可直接运行演示”为第一目标。
-        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
-        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+        Common requirements:
+        - The template's first goal is to run and demo directly.
+        - If real-time data, external accounts, API credentials, or target-system access are missing, continue using the current input, workflow context, and reasonable assumptions; do not stop to ask for external dependencies.
+        - Prefer self-contained, presentable, reusable demo output, and write it to workspace files when appropriate.
       tool_set:
       - exit
       - skill_tools
@@ -56,10 +56,10 @@ agents:
       system_prompt: |-
         You are a UX reviewer. Focus on user experience aspects. Call exit when done.
 
-        共同要求：
-        - 该模板以“可直接运行演示”为第一目标。
-        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
-        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+        Common requirements:
+        - The template's first goal is to run and demo directly.
+        - If real-time data, external accounts, API credentials, or target-system access are missing, continue using the current input, workflow context, and reasonable assumptions; do not stop to ask for external dependencies.
+        - Prefer self-contained, presentable, reusable demo output, and write it to workspace files when appropriate.
       tool_set:
       - exit
       - skill_tools
@@ -72,10 +72,10 @@ agents:
       system_prompt: |-
         You are a report summarizer. Create comprehensive summaries. Call exit when done.
 
-        共同要求：
-        - 该模板以“可直接运行演示”为第一目标。
-        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
-        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+        Common requirements:
+        - The template's first goal is to run and demo directly.
+        - If real-time data, external accounts, API credentials, or target-system access are missing, continue using the current input, workflow context, and reasonable assumptions; do not stop to ask for external dependencies.
+        - Prefer self-contained, presentable, reusable demo output, and write it to workspace files when appropriate.
       tool_set:
       - exit
       - skill_tools
@@ -86,35 +86,35 @@ workflow:
 - step: security_review
   agent: reviewer_a
   input: |-
-    对"{{var:target_system}}"进行安全审查。
-    重点关注：身份认证、数据加密、SQL注入、XSS防护。
-    输出审查报告。
+    Perform a security review of "{{var:target_system}}".
+    Focus on: authentication, data encryption, SQL injection, and XSS protection.
+    Output a review report.
 
-    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/security_review.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/security_review.md。
 - step: performance_review
   agent: reviewer_b
   input: |-
-    对"{{var:target_system}}"进行性能审查。
-    重点关注：响应时间、并发处理、缓存策略、数据库查询优化。
-    输出审查报告。
+    Perform a performance review of "{{var:target_system}}".
+    Focus on: response time, concurrency, caching strategy, and database query optimization.
+    Output a review report.
 
-    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/performance_review.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/performance_review.md。
 - step: ux_review
   agent: reviewer_c
   input: |-
-    对"{{var:target_system}}"进行用户体验审查。
-    重点关注：交互流程、界面设计、无障碍性、移动端适配。
-    输出审查报告。
+    Perform a user-experience review of "{{var:target_system}}".
+    Focus on: interaction flow, UI design, accessibility, and mobile responsiveness.
+    Output a review report.
 
-    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/ux_review.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/ux_review.md。
 - step: concat_aggregate
   agent: summarizer
   input: |-
-    以下是三方审查的聚合结果（拼接模式）：
+    Below is the aggregated result of the three reviews (concatenation mode):
     {{var:concat_reviews}}
-    请基于此生成综合评审摘要。
+    Based on this, generate a consolidated review summary.
 
-    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/concat_aggregate.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/concat_aggregate.md。
   aggregate:
     sources:
     - "{{steps.security_review.output}}"
@@ -124,7 +124,7 @@ workflow:
     separator: |2+
 
 
-      ===== 分隔线 =====
+      ===== separator =====
 
     output_variable: concat_reviews
   depends_on:
@@ -134,11 +134,11 @@ workflow:
 - step: numbered_aggregate
   agent: summarizer
   input: |-
-    以下是编号列表格式的审查结果：
+    Below are the review results in numbered-list format:
     {{var:numbered_reviews}}
-    请提取每项的关键发现。
+    Extract the key finding of each item.
 
-    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/numbered_aggregate.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/numbered_aggregate.md。
   aggregate:
     sources:
     - "{{steps.security_review.output}}"
@@ -157,7 +157,7 @@ workflow:
       import os
       import json
 
-      # 读取 json_array 聚合的结果
+      # read the json_array aggregated result
       json_reviews = os.environ.get('WF_VAR_JSON_REVIEWS', '[]')
       try:
           reviews = json.loads(json_reviews)
@@ -184,11 +184,11 @@ workflow:
 - step: longest_review
   agent: summarizer
   input: |-
-    以下是最详细的审查报告（最长的一份）：
+    Below is the most detailed review report (the longest one):
     {{var:longest_review_text}}
-    请对其进行精炼摘要。
+    Write a concise summary of it.
 
-    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/longest_review.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/longest_review.md。
   aggregate:
     sources:
     - "{{steps.security_review.output}}"
@@ -203,11 +203,11 @@ workflow:
 - step: final_report
   agent: summarizer
   input: |
-    综合所有聚合结果，生成最终报告并保存到 {{var:output_dir}}/aggregate_report.txt：
-    拼接结果摘要：{{steps.concat_aggregate.output}}
-    编号列表摘要：{{steps.numbered_aggregate.output}}
-    审查总数：{{var:review_count}}
-    最长报告摘要：{{steps.longest_review.output}}
+    Combine all aggregation results, generate the final report, and save it to {{var:output_dir}}/aggregate_report.txt:
+    Concatenated result summary: {{steps.concat_aggregate.output}}
+    Numbered-list summary: {{steps.numbered_aggregate.output}}
+    Total reviews: {{var:review_count}}
+    Longest-report summary: {{steps.longest_review.output}}
   depends_on:
   - concat_aggregate
   - numbered_aggregate
@@ -240,8 +240,8 @@ global_agent:
     preset: universal
     overrides:
       system_prompt: |-
-        你是工作流模板助手，负责帮助用户理解、调试和演示当前工作流。
-        生成或修改 YAML 时必须使用 braidrun-agent 的 snake_case 语法，并优先保持模板可直接运行。
+        You are a workflow template assistant that helps users understand, debug, and demo the current workflow.
+        When generating or modifying YAML, use braidrun-workflow's snake_case syntax and keep the template runnable.
       tool_set:
       - workflow
       - file_system

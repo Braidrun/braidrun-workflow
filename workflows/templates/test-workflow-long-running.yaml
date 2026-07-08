@@ -2,9 +2,9 @@
 name: test-workflow-long-running
 version: 1.0.0
 tags:
-- 测试
-- 长时运行
-description: 长时间运行与进度监控测试 - 测试 WebSocket 实时更新、进度追踪和取消功能
+- test
+- long-running
+description: Long-running and progress-monitoring test - tests WebSocket live updates, progress tracking, and cancellation
 variables:
   output_dir: "./output"
   total_items: '5'
@@ -16,10 +16,10 @@ agents:
       system_prompt: |-
         You are a precise assistant. Follow instructions exactly. Call exit when done.
 
-        共同要求：
-        - 该模板以“可直接运行演示”为第一目标。
-        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
-        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+        Common requirements:
+        - The template's first goal is to run and demo directly.
+        - If real-time data, external accounts, API credentials, or target-system access are missing, continue using the current input, workflow context, and reasonable assumptions; do not stop to ask for external dependencies.
+        - Prefer self-contained, presentable, reusable demo output, and write it to workspace files when appropriate.
       tool_set:
       - exit
       - skill_tools
@@ -37,7 +37,7 @@ workflow:
     {"total_items": {{var:total_items}}, "status": "started"}
     Then call exit.
 
-    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/prepare.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/prepare.md。
 - step: process_batch_1
   agent: worker
   depends_on:
@@ -47,7 +47,7 @@ workflow:
     "Batch 1: Processing items 1-2 of {{var:total_items}}"
     Then call exit.
 
-    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/process_batch_1.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/process_batch_1.md。
 - step: process_batch_2
   agent: worker
   depends_on:
@@ -57,7 +57,7 @@ workflow:
     "Batch 2: Processing items 3-4 of {{var:total_items}}"
     Then call exit.
 
-    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/process_batch_2.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/process_batch_2.md。
 - step: process_batch_3
   agent: worker
   depends_on:
@@ -67,7 +67,7 @@ workflow:
     "Batch 3: Processing item 5 of {{var:total_items}}"
     Then call exit.
 
-    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/process_batch_3.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/process_batch_3.md。
 - step: validate_results
   agent: worker
   depends_on:
@@ -78,7 +78,7 @@ workflow:
     Create {{var:output_dir}}/long_running/validation.txt with content "All batches validated".
     Then call exit.
 
-    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/validate_results.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/validate_results.md。
 - step: generate_report
   agent: worker
   depends_on:
@@ -90,7 +90,7 @@ workflow:
     Create {{var:output_dir}}/long_running/final_report.txt summarizing all processed batches.
     Then call exit.
 
-    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/generate_report.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/generate_report.md。
 error_handling:
   max_retries: 2
   retry_delay: 3s
@@ -118,8 +118,8 @@ global_agent:
     preset: universal
     overrides:
       system_prompt: |-
-        你是工作流模板助手，负责帮助用户理解、调试和演示当前工作流。
-        生成或修改 YAML 时必须使用 braidrun-agent 的 snake_case 语法，并优先保持模板可直接运行。
+        You are a workflow template assistant that helps users understand, debug, and demo the current workflow.
+        When generating or modifying YAML, use braidrun-workflow's snake_case syntax and keep the template runnable.
       tool_set:
       - workflow
       - file_system

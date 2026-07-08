@@ -2,9 +2,9 @@
 name: test-workflow-fan-out
 version: 1.0.0
 tags:
-- 测试
-- 扇出模式
-description: 扇出/扇入模式测试 - 一个初始步骤扇出到多个并行分支，最终汇聚到一个汇总步骤
+- test
+- fan-out
+description: Fan-out/fan-in test - one initial step fans out to several parallel branches that finally converge in a summary step
 variables:
   output_dir: "./output"
   demo_mode: 'true'
@@ -15,10 +15,10 @@ agents:
       system_prompt: |-
         You are a coordinator agent. Manage tasks precisely and call exit when done.
 
-        共同要求：
-        - 该模板以“可直接运行演示”为第一目标。
-        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
-        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+        Common requirements:
+        - The template's first goal is to run and demo directly.
+        - If real-time data, external accounts, API credentials, or target-system access are missing, continue using the current input, workflow context, and reasonable assumptions; do not stop to ask for external dependencies.
+        - Prefer self-contained, presentable, reusable demo output, and write it to workspace files when appropriate.
       tool_set:
       - exit
       - file_system
@@ -35,7 +35,7 @@ workflow:
     {"task": "market_analysis", "branches": ["competitor", "customer", "technology"], "status": "started"}
     Call exit when done.
 
-    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/prepare.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/prepare.md。
 - step: branch_competitor
   agent: coordinator
   depends_on:
@@ -47,7 +47,7 @@ workflow:
     Include at least 3 competitor strengths.
     Call exit when done.
 
-    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/branch_competitor.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/branch_competitor.md。
 - step: branch_customer
   agent: coordinator
   depends_on:
@@ -59,7 +59,7 @@ workflow:
     Include at least 3 customer pain points.
     Call exit when done.
 
-    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/branch_customer.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/branch_customer.md。
 - step: branch_technology
   agent: coordinator
   depends_on:
@@ -71,7 +71,7 @@ workflow:
     Include at least 3 emerging technologies.
     Call exit when done.
 
-    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/branch_technology.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/branch_technology.md。
 - step: aggregate
   agent: coordinator
   depends_on:
@@ -89,7 +89,7 @@ workflow:
     into a unified market analysis summary (100-150 words).
     Call exit when done.
 
-    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/aggregate.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/aggregate.md。
 error_handling:
   max_retries: 2
   retry_delay: 3s
@@ -117,8 +117,8 @@ global_agent:
     preset: universal
     overrides:
       system_prompt: |-
-        你是工作流模板助手，负责帮助用户理解、调试和演示当前工作流。
-        生成或修改 YAML 时必须使用 braidrun-agent 的 snake_case 语法，并优先保持模板可直接运行。
+        You are a workflow template assistant that helps users understand, debug, and demo the current workflow.
+        When generating or modifying YAML, use braidrun-workflow's snake_case syntax and keep the template runnable.
       tool_set:
       - workflow
       - file_system

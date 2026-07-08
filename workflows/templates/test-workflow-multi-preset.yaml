@@ -2,11 +2,11 @@
 name: test-workflow-multi-preset
 version: 1.0.0
 tags:
-- 测试
-- 多预设
-description: 多预设协作测试 - 使用不同类型的 agent 预设协同完成任务
+- test
+- multi-preset
+description: Multi-preset collaboration test - use different agent presets to complete a task together
 variables:
-  topic: 云计算技术发展趋势
+  topic: Trends in cloud computing technology
   output_dir: "./output"
   demo_mode: 'true'
 agents:
@@ -16,10 +16,10 @@ agents:
       system_prompt: |-
         You are a research agent. Gather information on the given topic and produce a research summary.
 
-        共同要求：
-        - 该模板以“可直接运行演示”为第一目标。
-        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
-        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+        Common requirements:
+        - The template's first goal is to run and demo directly.
+        - If real-time data, external accounts, API credentials, or target-system access are missing, continue using the current input, workflow context, and reasonable assumptions; do not stop to ask for external dependencies.
+        - Prefer self-contained, presentable, reusable demo output, and write it to workspace files when appropriate.
       tool_set:
       - exit
       - file_system
@@ -32,10 +32,10 @@ agents:
       system_prompt: |-
         You are a data analyst. Analyze the research data and extract key insights.
 
-        共同要求：
-        - 该模板以“可直接运行演示”为第一目标。
-        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
-        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+        Common requirements:
+        - The template's first goal is to run and demo directly.
+        - If real-time data, external accounts, API credentials, or target-system access are missing, continue using the current input, workflow context, and reasonable assumptions; do not stop to ask for external dependencies.
+        - Prefer self-contained, presentable, reusable demo output, and write it to workspace files when appropriate.
       tool_set:
       - exit
       - file_system
@@ -48,10 +48,10 @@ agents:
       system_prompt: |-
         You are a professional writer. Create well-structured reports based on research and analysis.
 
-        共同要求：
-        - 该模板以“可直接运行演示”为第一目标。
-        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
-        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+        Common requirements:
+        - The template's first goal is to run and demo directly.
+        - If real-time data, external accounts, API credentials, or target-system access are missing, continue using the current input, workflow context, and reasonable assumptions; do not stop to ask for external dependencies.
+        - Prefer self-contained, presentable, reusable demo output, and write it to workspace files when appropriate.
       tool_set:
       - exit
       - file_system
@@ -69,7 +69,7 @@ workflow:
     Create the output directory if it doesn't exist.
     Call exit when done.
 
-    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/research.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/research.md。
 - step: analyze
   agent: analyst
   depends_on:
@@ -81,7 +81,7 @@ workflow:
     Write your analysis to {{output_dir}}/analysis.txt.
     Call exit when done.
 
-    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/analyze.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/analyze.md。
 - step: report
   agent: writer
   depends_on:
@@ -93,7 +93,7 @@ workflow:
     Save the report to {{output_dir}}/final_report.txt.
     Call exit when done.
 
-    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/report.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/report.md。
 error_handling:
   max_retries: 2
   retry_delay: 3s
@@ -121,8 +121,8 @@ global_agent:
     preset: universal
     overrides:
       system_prompt: |-
-        你是工作流模板助手，负责帮助用户理解、调试和演示当前工作流。
-        生成或修改 YAML 时必须使用 braidrun-agent 的 snake_case 语法，并优先保持模板可直接运行。
+        You are a workflow template assistant that helps users understand, debug, and demo the current workflow.
+        When generating or modifying YAML, use braidrun-workflow's snake_case syntax and keep the template runnable.
       tool_set:
       - workflow
       - file_system

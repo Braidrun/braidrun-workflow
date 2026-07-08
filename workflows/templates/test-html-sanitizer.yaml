@@ -39,13 +39,13 @@ workflow:
         strip_text = os.environ.get("WF_VAR_STRIP_TEXT", "")
         wl_text = os.environ.get("WF_VAR_WL_TEXT", "")
         problems = []
-        if "<" in strip_text: problems.append(f"strip 仍含 tag: {strip_text[:300]}")
-        if "alert" in strip_text: problems.append("strip 没移除 script 内容")
-        if "Hello" not in strip_text or "world" not in strip_text: problems.append("strip 丢了文字")
-        # whitelist: script 应该没了，javascript: 被剥，但普通 https link 保留
-        if "<script>" in wl_text: problems.append(f"whitelist 漏掉 script: {wl_text[:300]}")
-        if "javascript:" in wl_text: problems.append(f"javascript: 未被剥: {wl_text[:300]}")
-        if 'href="https://ok.com"' not in wl_text: problems.append("安全链接被错误剥除")
+        if "<" in strip_text: problems.append(f"strip still contains a tag: {strip_text[:300]}")
+        if "alert" in strip_text: problems.append("strip did not remove script content")
+        if "Hello" not in strip_text or "world" not in strip_text: problems.append("strip lost text")
+        # whitelist: script should be gone, javascript: stripped, but a normal https link kept
+        if "<script>" in wl_text: problems.append(f"whitelist missed script: {wl_text[:300]}")
+        if "javascript:" in wl_text: problems.append(f"javascript: not stripped: {wl_text[:300]}")
+        if 'href="https://ok.com"' not in wl_text: problems.append("safe link was incorrectly stripped")
         if problems:
           print("TEST_STATUS=fail"); [print(f"  - {p}") for p in problems]; sys.exit(1)
         print("TEST_STATUS=pass")

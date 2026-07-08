@@ -2,16 +2,16 @@
 name: test-workflow-agent-based
 version: 1.0.0
 tags:
-- 测试
-- agent-based动态编排
-- 动态编排
+- test
+- agent-based-orchestration
+- dynamic-orchestration
 - agent_based
 description: |
-  Agent-based 动态编排功能测试 - 测试 Orchestrator Agent 动态委派任务
-  覆盖：orchestrator（preset + overrides）、participants、goal、
+  Agent-based orchestration feature test - tests the Orchestrator Agent dynamically delegating tasks
+  Covers: orchestrator (preset + overrides), participants, goal,
   max_steps、budget_tokens、timeout_seconds
 variables:
-  project_name: 用户认证模块
+  project_name: User Authentication Module
   output_dir: "./output"
   demo_mode: 'true'
 agents:
@@ -21,10 +21,10 @@ agents:
       system_prompt: |-
         You are a business analyst. Analyze requirements and identify key features. Call exit when done.
 
-        共同要求：
-        - 该模板以“可直接运行演示”为第一目标。
-        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
-        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+        Common requirements:
+        - The template's first goal is to run and demo directly.
+        - If real-time data, external accounts, API credentials, or target-system access are missing, continue using the current input, workflow context, and reasonable assumptions; do not stop to ask for external dependencies.
+        - Prefer self-contained, presentable, reusable demo output, and write it to workspace files when appropriate.
       tool_set:
       - exit
       - skill_tools
@@ -37,10 +37,10 @@ agents:
       system_prompt: |-
         You are a software developer. Write code and technical documentation. Call exit when done.
 
-        共同要求：
-        - 该模板以“可直接运行演示”为第一目标。
-        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
-        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+        Common requirements:
+        - The template's first goal is to run and demo directly.
+        - If real-time data, external accounts, API credentials, or target-system access are missing, continue using the current input, workflow context, and reasonable assumptions; do not stop to ask for external dependencies.
+        - Prefer self-contained, presentable, reusable demo output, and write it to workspace files when appropriate.
       tool_set:
       - exit
       - skill_tools
@@ -53,10 +53,10 @@ agents:
       system_prompt: |-
         You are a QA tester. Create test plans and identify edge cases. Call exit when done.
 
-        共同要求：
-        - 该模板以“可直接运行演示”为第一目标。
-        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
-        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+        Common requirements:
+        - The template's first goal is to run and demo directly.
+        - If real-time data, external accounts, API credentials, or target-system access are missing, continue using the current input, workflow context, and reasonable assumptions; do not stop to ask for external dependencies.
+        - Prefer self-contained, presentable, reusable demo output, and write it to workspace files when appropriate.
       tool_set:
       - exit
       - skill_tools
@@ -67,18 +67,18 @@ workflow:
 - step: gather_requirements
   agent: analyst
   input: |
-    收集并整理"{{var:project_name}}"的需求，列出核心功能点。
-    将需求文档保存到 {{var:output_dir}}/requirements.txt。
+    Gather and organize the requirements for "{{var:project_name}}" and list the core features.
+    Save the requirements document to {{var:output_dir}}/requirements.txt.
 - step: dynamic_implementation
   agent_based:
     orchestrator:
       preset: universal
       overrides:
         system_prompt: |
-          你是一个项目编排者。根据需求分析结果，动态分配开发和测试任务给团队成员。
-          你需要：1) 分配开发任务 2) 分配测试任务 3) 评估整体进度
-          请使用 delegateTask 和 delegateParallel 工具来分配任务。
-          完成后使用 complete 工具报告最终结果。
+          You are a project orchestrator. Based on the requirements analysis, dynamically assign development and testing tasks to team members.
+          You need to: 1) assign development tasks 2) assign testing tasks 3) assess overall progress
+          Use the delegateTask and delegateParallel tools to assign tasks.
+          When finished, use the complete tool to report the final result.
         tool_set:
         - exit
         - skill_tools
@@ -89,8 +89,8 @@ workflow:
     - developer
     - tester
     goal: |-
-      基于需求分析：{{steps.gather_requirements.output}}
-      完成"{{var:project_name}}"的开发和测试任务分配与执行。，并生成可直接展示的 demo 结论。
+      Based on the requirements analysis: {{steps.gather_requirements.output}}
+      Complete the assignment and execution of development and testing tasks for "{{var:project_name}}", and produce a directly presentable demo conclusion.
     max_steps: 10
     budget_tokens: 100000
     timeout_seconds: 300
@@ -101,22 +101,22 @@ workflow:
     orchestrator:
       preset: universal
       overrides:
-        system_prompt: 你是代码审查编排者。动态分配审查任务。完成后使用 complete 工具。
+        system_prompt: You are the code-review orchestrator. Dynamically assign review tasks. Use the complete tool when finished.
         session_id_strategy: per_execution
     participants:
     - analyst
     - developer
-    goal: 快速审查 {{steps.dynamic_implementation.output}} 的实现质量。，并生成可直接展示的 demo 结论。
+    goal: Quickly review the implementation quality of {{steps.dynamic_implementation.output}}, and produce a directly presentable demo conclusion.
     max_steps: 5
   depends_on:
   - dynamic_implementation
 - step: project_summary
   agent: analyst
   input: |
-    基于以下结果，生成项目总结报告并保存到 {{var:output_dir}}/project_summary.txt：
-    需求：{{steps.gather_requirements.output}}
-    实现：{{steps.dynamic_implementation.output}}
-    审查：{{steps.quick_review.output}}
+    Based on the following results, generate a project summary report and save it to {{var:output_dir}}/project_summary.txt:
+    Requirements: {{steps.gather_requirements.output}}
+    Implementation: {{steps.dynamic_implementation.output}}
+    Review: {{steps.quick_review.output}}
   depends_on:
   - quick_review
 error_handling:
@@ -146,8 +146,8 @@ global_agent:
     preset: universal
     overrides:
       system_prompt: |-
-        你是工作流模板助手，负责帮助用户理解、调试和演示当前工作流。
-        生成或修改 YAML 时必须使用 braidrun-agent 的 snake_case 语法，并优先保持模板可直接运行。
+        You are a workflow template assistant that helps users understand, debug, and demo the current workflow.
+        When generating or modifying YAML, use braidrun-workflow's snake_case syntax and keep the template runnable.
       tool_set:
       - workflow
       - file_system

@@ -32,7 +32,7 @@ workflow:
         status = os.environ.get("WF_VAR_STATUS", "")
         problems = []
         if status != "ok": problems.append(f"status={status}")
-        # 允许 0~5 条（DDG 偶尔限流只返回少量），但要能解析
+        # allow 0-5 results (DDG occasionally rate-limits and returns few), but they must parse
         try:
             data = json.loads(raw)
         except json.JSONDecodeError as e:

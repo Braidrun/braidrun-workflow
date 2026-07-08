@@ -2,9 +2,9 @@
 name: test-workflow-simple
 version: 1.0.0
 tags:
-- 测试
-- 简单工作流
-description: 测试工作流模板 - 使用预设模板 + 自定义 LLM 配置
+- test
+- simple-workflow
+description: Test workflow template - uses a preset template plus a custom LLM configuration
 variables:
   output_dir: "./output/test-workflow-simple"
   demo_mode: 'true'
@@ -12,14 +12,14 @@ agents:
   writer:
     preset: writer
     overrides:
-      name: 内容写作 Agent
+      name: Content Writer Agent
       system_prompt: |-
         You are a creative writer. Generate content based on the given topic.
 
-        共同要求：
-        - 该模板以“可直接运行演示”为第一目标。
-        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
-        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+        Common requirements:
+        - The template's first goal is to run and demo directly.
+        - If real-time data, external accounts, API credentials, or target-system access are missing, continue using the current input, workflow context, and reasonable assumptions; do not stop to ask for external dependencies.
+        - Prefer self-contained, presentable, reusable demo output, and write it to workspace files when appropriate.
       tool_set:
       - file_system
       - exit
@@ -39,14 +39,14 @@ agents:
   reviewer:
     preset: researcher
     overrides:
-      name: 内容审阅 Agent
+      name: Content Reviewer Agent
       system_prompt: |-
         You are a content reviewer. Analyze content quality, check grammar, and provide feedback.
 
-        共同要求：
-        - 该模板以“可直接运行演示”为第一目标。
-        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
-        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+        Common requirements:
+        - The template's first goal is to run and demo directly.
+        - If real-time data, external accounts, API credentials, or target-system access are missing, continue using the current input, workflow context, and reasonable assumptions; do not stop to ask for external dependencies.
+        - Prefer self-contained, presentable, reusable demo output, and write it to workspace files when appropriate.
       tool_set:
       - file_system
       - exit
@@ -66,14 +66,14 @@ agents:
   editor:
     preset: writer
     overrides:
-      name: 内容编辑 Agent
+      name: Content Editor Agent
       system_prompt: |-
         You are an editor. Improve content based on review feedback.
 
-        共同要求：
-        - 该模板以“可直接运行演示”为第一目标。
-        - 如果缺少实时数据、外部账号、API 凭证或目标系统访问权，必须基于当前输入、工作流上下文和合理假设继续完成，不得停在索取外部依赖。
-        - 优先产出自包含、可展示、可复用的 demo 版本结果，并在适合时落盘到工作区文件。
+        Common requirements:
+        - The template's first goal is to run and demo directly.
+        - If real-time data, external accounts, API credentials, or target-system access are missing, continue using the current input, workflow context, and reasonable assumptions; do not stop to ask for external dependencies.
+        - Prefer self-contained, presentable, reusable demo output, and write it to workspace files when appropriate.
       tool_set:
       - file_system
       - exit
@@ -102,7 +102,7 @@ workflow:
     2. Write clear, engaging content
     3. Call exit when done
 
-    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/generate_content.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/generate_content.md。
 - step: review_content
   agent: reviewer
   depends_on:
@@ -119,7 +119,7 @@ workflow:
     Save your review to ./output/review_feedback.txt
     Call exit when done
 
-    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/review_content.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/review_content.md。
 - step: revise_content
   agent: editor
   depends_on:
@@ -135,7 +135,7 @@ workflow:
 
     Call exit when complete
 
-    演示约束：如果缺少外部依赖，请直接产出可展示的 demo 版本结果；如适合，请同时保存到 {{var:output_dir}}/revise_content.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/revise_content.md。
 error_handling:
   max_retries: 2
   retry_delay: 3s
@@ -163,8 +163,8 @@ global_agent:
     preset: universal
     overrides:
       system_prompt: |-
-        你是工作流模板助手，负责帮助用户理解、调试和演示当前工作流。
-        生成或修改 YAML 时必须使用 braidrun-agent 的 snake_case 语法，并优先保持模板可直接运行。
+        You are a workflow template assistant that helps users understand, debug, and demo the current workflow.
+        When generating or modifying YAML, use braidrun-workflow's snake_case syntax and keep the template runnable.
       tool_set:
       - workflow
       - file_system
