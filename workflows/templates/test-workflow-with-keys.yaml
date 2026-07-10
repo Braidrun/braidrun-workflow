@@ -48,6 +48,30 @@ variables:
 agents:
   writer:
     preset: writer
+    description: "Handles content and report writing responsibilities in this test workflow."
+    translations:
+      en:
+        description: "Handles content and report writing responsibilities in this test workflow."
+      zh:
+        description: "负责此测试工作流中的内容和报告写作职责。"
+      zhHant:
+        description: "負責此測試工作流程中的內容與報告撰寫職責。"
+      ja:
+        description: "このテストワークフローでコンテンツとレポートの作成を担当します。"
+      ko:
+        description: "이 테스트 워크플로에서 콘텐츠 및 보고서 작성 역할을 담당합니다."
+      es:
+        description: "Se encarga de las responsabilidades de redacción de contenidos e informes en este flujo de trabajo de prueba."
+      fr:
+        description: "Prend en charge les responsabilités de rédaction de contenus et de rapports dans ce workflow de test."
+      de:
+        description: "Übernimmt in diesem Test-Workflow die Verantwortung für Erstellung von Inhalten und Berichten."
+      ar:
+        description: "يتولى مسؤوليات كتابة المحتوى والتقارير في سير عمل الاختبار هذا."
+      pt:
+        description: "Cuida das responsabilidades de redação de conteúdo e relatórios neste workflow de teste."
+      vi:
+        description: "Đảm nhiệm vai trò viết nội dung và báo cáo trong workflow kiểm thử này."
     overrides:
       system_prompt: |-
         You are a professional content-writing agent. Generate high-quality article content for the given topic.
@@ -60,6 +84,30 @@ agents:
       session_id_strategy: auto
   reviewer:
     preset: universal
+    description: "Handles quality review responsibilities in this test workflow."
+    translations:
+      en:
+        description: "Handles quality review responsibilities in this test workflow."
+      zh:
+        description: "负责此测试工作流中的质量审查职责。"
+      zhHant:
+        description: "負責此測試工作流程中的品質審查職責。"
+      ja:
+        description: "このテストワークフローで品質レビューを担当します。"
+      ko:
+        description: "이 테스트 워크플로에서 품질 검토 역할을 담당합니다."
+      es:
+        description: "Se encarga de las responsabilidades de revisión de calidad en este flujo de trabajo de prueba."
+      fr:
+        description: "Prend en charge les responsabilités de revue qualité dans ce workflow de test."
+      de:
+        description: "Übernimmt in diesem Test-Workflow die Verantwortung für Qualitätsprüfung."
+      ar:
+        description: "يتولى مسؤوليات مراجعة الجودة في سير عمل الاختبار هذا."
+      pt:
+        description: "Cuida das responsabilidades de revisão de qualidade neste workflow de teste."
+      vi:
+        description: "Đảm nhiệm vai trò đánh giá chất lượng trong workflow kiểm thử này."
     overrides:
       system_prompt: |-
         You are a content-reviewing agent. Analyze content quality, check grammar, and provide improvement suggestions.
@@ -72,6 +120,30 @@ agents:
       session_id_strategy: auto
   editor:
     preset: writer
+    description: "Handles content editing responsibilities in this test workflow."
+    translations:
+      en:
+        description: "Handles content editing responsibilities in this test workflow."
+      zh:
+        description: "负责此测试工作流中的内容编辑职责。"
+      zhHant:
+        description: "負責此測試工作流程中的內容編輯職責。"
+      ja:
+        description: "このテストワークフローでコンテンツ編集を担当します。"
+      ko:
+        description: "이 테스트 워크플로에서 콘텐츠 편집 역할을 담당합니다."
+      es:
+        description: "Se encarga de las responsabilidades de edición de contenidos en este flujo de trabajo de prueba."
+      fr:
+        description: "Prend en charge les responsabilités de révision de contenu dans ce workflow de test."
+      de:
+        description: "Übernimmt in diesem Test-Workflow die Verantwortung für Inhaltsbearbeitung."
+      ar:
+        description: "يتولى مسؤوليات تحرير المحتوى في سير عمل الاختبار هذا."
+      pt:
+        description: "Cuida das responsabilidades de edição de conteúdo neste workflow de teste."
+      vi:
+        description: "Đảm nhiệm vai trò biên tập nội dung trong workflow kiểm thử này."
     overrides:
       system_prompt: |-
         You are a content-editing agent. Improve the article based on the review feedback.

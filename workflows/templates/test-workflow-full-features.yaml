@@ -50,6 +50,30 @@ variables:
 agents:
   planner:
     preset: universal
+    description: "Handles project planning responsibilities in this test workflow."
+    translations:
+      en:
+        description: "Handles project planning responsibilities in this test workflow."
+      zh:
+        description: "负责此测试工作流中的项目规划职责。"
+      zhHant:
+        description: "負責此測試工作流程中的專案規劃職責。"
+      ja:
+        description: "このテストワークフローでプロジェクト計画を担当します。"
+      ko:
+        description: "이 테스트 워크플로에서 프로젝트 계획 역할을 담당합니다."
+      es:
+        description: "Se encarga de las responsabilidades de planificación de proyectos en este flujo de trabajo de prueba."
+      fr:
+        description: "Prend en charge les responsabilités de planification de projet dans ce workflow de test."
+      de:
+        description: "Übernimmt in diesem Test-Workflow die Verantwortung für Projektplanung."
+      ar:
+        description: "يتولى مسؤوليات تخطيط المشاريع في سير عمل الاختبار هذا."
+      pt:
+        description: "Cuida das responsabilidades de planejamento de projetos neste workflow de teste."
+      vi:
+        description: "Đảm nhiệm vai trò lập kế hoạch dự án trong workflow kiểm thử này."
     overrides:
       system_prompt: |-
         You are a project planner. Create structured plans. Call exit when done.
@@ -66,6 +90,30 @@ agents:
       session_id_strategy: auto
   executor:
     preset: universal
+    description: "Handles task execution responsibilities in this test workflow."
+    translations:
+      en:
+        description: "Handles task execution responsibilities in this test workflow."
+      zh:
+        description: "负责此测试工作流中的任务执行职责。"
+      zhHant:
+        description: "負責此測試工作流程中的任務執行職責。"
+      ja:
+        description: "このテストワークフローでタスク実行を担当します。"
+      ko:
+        description: "이 테스트 워크플로에서 작업 실행 역할을 담당합니다."
+      es:
+        description: "Se encarga de las responsabilidades de ejecución de tareas en este flujo de trabajo de prueba."
+      fr:
+        description: "Prend en charge les responsabilités de exécution des tâches dans ce workflow de test."
+      de:
+        description: "Übernimmt in diesem Test-Workflow die Verantwortung für Aufgabenausführung."
+      ar:
+        description: "يتولى مسؤوليات تنفيذ المهام في سير عمل الاختبار هذا."
+      pt:
+        description: "Cuida das responsabilidades de execução de tarefas neste workflow de teste."
+      vi:
+        description: "Đảm nhiệm vai trò thực thi tác vụ trong workflow kiểm thử này."
     overrides:
       system_prompt: |-
         You are a task executor. Execute tasks precisely. Call exit when done.
@@ -83,6 +131,30 @@ agents:
       session_id_strategy: auto
   reviewer:
     preset: universal
+    description: "Handles quality review responsibilities in this test workflow."
+    translations:
+      en:
+        description: "Handles quality review responsibilities in this test workflow."
+      zh:
+        description: "负责此测试工作流中的质量审查职责。"
+      zhHant:
+        description: "負責此測試工作流程中的品質審查職責。"
+      ja:
+        description: "このテストワークフローで品質レビューを担当します。"
+      ko:
+        description: "이 테스트 워크플로에서 품질 검토 역할을 담당합니다."
+      es:
+        description: "Se encarga de las responsabilidades de revisión de calidad en este flujo de trabajo de prueba."
+      fr:
+        description: "Prend en charge les responsabilités de revue qualité dans ce workflow de test."
+      de:
+        description: "Übernimmt in diesem Test-Workflow die Verantwortung für Qualitätsprüfung."
+      ar:
+        description: "يتولى مسؤوليات مراجعة الجودة في سير عمل الاختبار هذا."
+      pt:
+        description: "Cuida das responsabilidades de revisão de qualidade neste workflow de teste."
+      vi:
+        description: "Đảm nhiệm vai trò đánh giá chất lượng trong workflow kiểm thử này."
     overrides:
       system_prompt: |-
         You are a quality reviewer. Review outputs for correctness. Call exit when done.

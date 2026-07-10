@@ -56,9 +56,14 @@ class TemplateLocalizationTest {
             }
 
             workflow.agents.forEach { (agentId, agent) ->
-                val agentDescription = agent.description?.replace(Regex("\\s+"), " ")?.trim()
-                    ?.takeIf { it.isNotBlank() }
-                    ?: return@forEach
+                val agentDescription = agent.description?.replace(Regex("\\s+"), " ")?.trim().orEmpty()
+                if (file.name.startsWith("test-workflow-")) {
+                    assertTrue(
+                        agentDescription.isNotBlank(),
+                        "${file.name} agent $agentId must declare a display description"
+                    )
+                }
+                if (agentDescription.isBlank()) return@forEach
                 assertEquals(
                     supportedLocales,
                     agent.translations.keys,

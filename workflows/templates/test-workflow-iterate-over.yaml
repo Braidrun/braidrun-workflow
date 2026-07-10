@@ -54,6 +54,30 @@ variables:
 agents:
   generator:
     preset: universal
+    description: "Handles structured data generation responsibilities in this test workflow."
+    translations:
+      en:
+        description: "Handles structured data generation responsibilities in this test workflow."
+      zh:
+        description: "负责此测试工作流中的结构化数据生成职责。"
+      zhHant:
+        description: "負責此測試工作流程中的結構化資料生成職責。"
+      ja:
+        description: "このテストワークフローで構造化データ生成を担当します。"
+      ko:
+        description: "이 테스트 워크플로에서 구조화된 데이터 생성 역할을 담당합니다."
+      es:
+        description: "Se encarga de las responsabilidades de generación de datos estructurados en este flujo de trabajo de prueba."
+      fr:
+        description: "Prend en charge les responsabilités de génération de données structurées dans ce workflow de test."
+      de:
+        description: "Übernimmt in diesem Test-Workflow die Verantwortung für Erzeugung strukturierter Daten."
+      ar:
+        description: "يتولى مسؤوليات إنشاء البيانات المنظمة في سير عمل الاختبار هذا."
+      pt:
+        description: "Cuida das responsabilidades de geração de dados estruturados neste workflow de teste."
+      vi:
+        description: "Đảm nhiệm vai trò tạo dữ liệu có cấu trúc trong workflow kiểm thử này."
     overrides:
       system_prompt: |-
         You are a data generator. Produce structured lists. Call exit when done.
@@ -70,6 +94,30 @@ agents:
       session_id_strategy: auto
   processor:
     preset: universal
+    description: "Handles data processing responsibilities in this test workflow."
+    translations:
+      en:
+        description: "Handles data processing responsibilities in this test workflow."
+      zh:
+        description: "负责此测试工作流中的数据处理职责。"
+      zhHant:
+        description: "負責此測試工作流程中的資料處理職責。"
+      ja:
+        description: "このテストワークフローでデータ処理を担当します。"
+      ko:
+        description: "이 테스트 워크플로에서 데이터 처리 역할을 담당합니다."
+      es:
+        description: "Se encarga de las responsabilidades de procesamiento de datos en este flujo de trabajo de prueba."
+      fr:
+        description: "Prend en charge les responsabilités de traitement des données dans ce workflow de test."
+      de:
+        description: "Übernimmt in diesem Test-Workflow die Verantwortung für Datenverarbeitung."
+      ar:
+        description: "يتولى مسؤوليات معالجة البيانات في سير عمل الاختبار هذا."
+      pt:
+        description: "Cuida das responsabilidades de processamento de dados neste workflow de teste."
+      vi:
+        description: "Đảm nhiệm vai trò xử lý dữ liệu trong workflow kiểm thử này."
     overrides:
       system_prompt: |-
         You are a data processor. Process each item carefully. Call exit when done.
@@ -86,6 +134,30 @@ agents:
       session_id_strategy: auto
   summarizer:
     preset: universal
+    description: "Handles report summarization responsibilities in this test workflow."
+    translations:
+      en:
+        description: "Handles report summarization responsibilities in this test workflow."
+      zh:
+        description: "负责此测试工作流中的报告总结职责。"
+      zhHant:
+        description: "負責此測試工作流程中的報告摘要職責。"
+      ja:
+        description: "このテストワークフローでレポート要約を担当します。"
+      ko:
+        description: "이 테스트 워크플로에서 보고서 요약 역할을 담당합니다."
+      es:
+        description: "Se encarga de las responsabilidades de resumen de informes en este flujo de trabajo de prueba."
+      fr:
+        description: "Prend en charge les responsabilités de synthèse de rapports dans ce workflow de test."
+      de:
+        description: "Übernimmt in diesem Test-Workflow die Verantwortung für Berichtszusammenfassung."
+      ar:
+        description: "يتولى مسؤوليات تلخيص التقارير في سير عمل الاختبار هذا."
+      pt:
+        description: "Cuida das responsabilidades de resumo de relatórios neste workflow de teste."
+      vi:
+        description: "Đảm nhiệm vai trò tóm tắt báo cáo trong workflow kiểm thử này."
     overrides:
       system_prompt: |-
         You are a summarizer. Create concise summaries. Call exit when done.

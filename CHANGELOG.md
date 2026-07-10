@@ -5,6 +5,22 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.7]
+
+### Added
+
+- Complete localized agent descriptions for all 59 agents in the bundled test
+  workflow templates across the 11 supported display locales.
+- Regression coverage requiring every test-workflow agent to declare a canonical
+  English description and complete localized descriptions.
+
+### Fixed
+
+- Isolated Claude Code configuration directories by execution and step so
+  concurrent external-agent runs no longer overwrite each other's credentials.
+- Made Codex home-directory creation safe when concurrent runs initialize the
+  same execution directory.
+
 ## [1.0.6]
 
 ### Added
@@ -65,5 +81,6 @@ The runtime library provides:
 - LLM provider integration via the Koog AI Agents framework, including
   Anthropic, OpenAI, DeepSeek, OpenRouter, Z.ai, and NVIDIA model registries.
 
+[1.0.7]: https://github.com/Braidrun/braidrun-workflow/releases/tag/1.0.7
 [1.0.6]: https://github.com/Braidrun/braidrun-workflow/releases/tag/1.0.6
 [1.0.5]: https://github.com/Braidrun/braidrun-workflow/releases/tag/1.0.5

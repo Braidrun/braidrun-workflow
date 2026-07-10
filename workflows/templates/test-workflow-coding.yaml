@@ -46,6 +46,30 @@ variables:
 agents:
   developer:
     preset: coder
+    description: "Handles software development responsibilities in this test workflow."
+    translations:
+      en:
+        description: "Handles software development responsibilities in this test workflow."
+      zh:
+        description: "负责此测试工作流中的软件开发职责。"
+      zhHant:
+        description: "負責此測試工作流程中的軟體開發職責。"
+      ja:
+        description: "このテストワークフローでソフトウェア開発を担当します。"
+      ko:
+        description: "이 테스트 워크플로에서 소프트웨어 개발 역할을 담당합니다."
+      es:
+        description: "Se encarga de las responsabilidades de desarrollo de software en este flujo de trabajo de prueba."
+      fr:
+        description: "Prend en charge les responsabilités de développement logiciel dans ce workflow de test."
+      de:
+        description: "Übernimmt in diesem Test-Workflow die Verantwortung für Softwareentwicklung."
+      ar:
+        description: "يتولى مسؤوليات تطوير البرمجيات في سير عمل الاختبار هذا."
+      pt:
+        description: "Cuida das responsabilidades de desenvolvimento de software neste workflow de teste."
+      vi:
+        description: "Đảm nhiệm vai trò phát triển phần mềm trong workflow kiểm thử này."
     overrides:
       system_prompt: |-
         You are a software developer. Write clean, well-documented code. Call exit when done.
@@ -63,6 +87,30 @@ agents:
       session_id_strategy: auto
   code_reviewer:
     preset: coder
+    description: "Handles code review responsibilities in this test workflow."
+    translations:
+      en:
+        description: "Handles code review responsibilities in this test workflow."
+      zh:
+        description: "负责此测试工作流中的代码审查职责。"
+      zhHant:
+        description: "負責此測試工作流程中的程式碼審查職責。"
+      ja:
+        description: "このテストワークフローでコードレビューを担当します。"
+      ko:
+        description: "이 테스트 워크플로에서 코드 검토 역할을 담당합니다."
+      es:
+        description: "Se encarga de las responsabilidades de revisión de código en este flujo de trabajo de prueba."
+      fr:
+        description: "Prend en charge les responsabilités de revue de code dans ce workflow de test."
+      de:
+        description: "Übernimmt in diesem Test-Workflow die Verantwortung für Codeprüfung."
+      ar:
+        description: "يتولى مسؤوليات مراجعة الشفرة في سير عمل الاختبار هذا."
+      pt:
+        description: "Cuida das responsabilidades de revisão de código neste workflow de teste."
+      vi:
+        description: "Đảm nhiệm vai trò đánh giá mã nguồn trong workflow kiểm thử này."
     overrides:
       system_prompt: |-
         You are a code reviewer. Review code for quality, bugs, and best practices. Call exit when done.

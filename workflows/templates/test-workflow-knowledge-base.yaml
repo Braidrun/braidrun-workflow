@@ -52,6 +52,30 @@ variables:
 agents:
   researcher:
     preset: universal
+    description: "Handles research and information gathering responsibilities in this test workflow."
+    translations:
+      en:
+        description: "Handles research and information gathering responsibilities in this test workflow."
+      zh:
+        description: "负责此测试工作流中的研究和信息收集职责。"
+      zhHant:
+        description: "負責此測試工作流程中的研究與資訊蒐集職責。"
+      ja:
+        description: "このテストワークフローで調査と情報収集を担当します。"
+      ko:
+        description: "이 테스트 워크플로에서 조사 및 정보 수집 역할을 담당합니다."
+      es:
+        description: "Se encarga de las responsabilidades de investigación y recopilación de información en este flujo de trabajo de prueba."
+      fr:
+        description: "Prend en charge les responsabilités de recherche et collecte d’informations dans ce workflow de test."
+      de:
+        description: "Übernimmt in diesem Test-Workflow die Verantwortung für Recherche und Informationsbeschaffung."
+      ar:
+        description: "يتولى مسؤوليات البحث وجمع المعلومات في سير عمل الاختبار هذا."
+      pt:
+        description: "Cuida das responsabilidades de pesquisa e coleta de informações neste workflow de teste."
+      vi:
+        description: "Đảm nhiệm vai trò nghiên cứu và thu thập thông tin trong workflow kiểm thử này."
     overrides:
       system_prompt: |-
         You are a researcher. Use searchKnowledge tool to find relevant information
@@ -70,6 +94,30 @@ agents:
       session_id_strategy: auto
   analyst:
     preset: universal
+    description: "Handles analysis responsibilities in this test workflow."
+    translations:
+      en:
+        description: "Handles analysis responsibilities in this test workflow."
+      zh:
+        description: "负责此测试工作流中的分析职责。"
+      zhHant:
+        description: "負責此測試工作流程中的分析職責。"
+      ja:
+        description: "このテストワークフローで分析を担当します。"
+      ko:
+        description: "이 테스트 워크플로에서 분석 역할을 담당합니다."
+      es:
+        description: "Se encarga de las responsabilidades de análisis en este flujo de trabajo de prueba."
+      fr:
+        description: "Prend en charge les responsabilités de analyse dans ce workflow de test."
+      de:
+        description: "Übernimmt in diesem Test-Workflow die Verantwortung für Analyse."
+      ar:
+        description: "يتولى مسؤوليات التحليل في سير عمل الاختبار هذا."
+      pt:
+        description: "Cuida das responsabilidades de análise neste workflow de teste."
+      vi:
+        description: "Đảm nhiệm vai trò phân tích trong workflow kiểm thử này."
     overrides:
       system_prompt: |-
         You are a data analyst. Analyze data and produce reports with metrics.
@@ -88,6 +136,30 @@ agents:
       session_id_strategy: auto
   writer:
     preset: universal
+    description: "Handles content and report writing responsibilities in this test workflow."
+    translations:
+      en:
+        description: "Handles content and report writing responsibilities in this test workflow."
+      zh:
+        description: "负责此测试工作流中的内容和报告写作职责。"
+      zhHant:
+        description: "負責此測試工作流程中的內容與報告撰寫職責。"
+      ja:
+        description: "このテストワークフローでコンテンツとレポートの作成を担当します。"
+      ko:
+        description: "이 테스트 워크플로에서 콘텐츠 및 보고서 작성 역할을 담당합니다."
+      es:
+        description: "Se encarga de las responsabilidades de redacción de contenidos e informes en este flujo de trabajo de prueba."
+      fr:
+        description: "Prend en charge les responsabilités de rédaction de contenus et de rapports dans ce workflow de test."
+      de:
+        description: "Übernimmt in diesem Test-Workflow die Verantwortung für Erstellung von Inhalten und Berichten."
+      ar:
+        description: "يتولى مسؤوليات كتابة المحتوى والتقارير في سير عمل الاختبار هذا."
+      pt:
+        description: "Cuida das responsabilidades de redação de conteúdo e relatórios neste workflow de teste."
+      vi:
+        description: "Đảm nhiệm vai trò viết nội dung và báo cáo trong workflow kiểm thử này."
     overrides:
       system_prompt: |-
         You are a report writer. Create comprehensive reports. Call exit when done.

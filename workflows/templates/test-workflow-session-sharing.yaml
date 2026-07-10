@@ -45,6 +45,30 @@ variables:
 agents:
   assistant:
     preset: universal
+    description: "Handles context-aware assistance responsibilities in this test workflow."
+    translations:
+      en:
+        description: "Handles context-aware assistance responsibilities in this test workflow."
+      zh:
+        description: "负责此测试工作流中的上下文感知协助职责。"
+      zhHant:
+        description: "負責此測試工作流程中的情境感知協助職責。"
+      ja:
+        description: "このテストワークフローでコンテキストを考慮した支援を担当します。"
+      ko:
+        description: "이 테스트 워크플로에서 맥락 인식 지원 역할을 담당합니다."
+      es:
+        description: "Se encarga de las responsabilidades de asistencia consciente del contexto en este flujo de trabajo de prueba."
+      fr:
+        description: "Prend en charge les responsabilités de assistance contextuelle dans ce workflow de test."
+      de:
+        description: "Übernimmt in diesem Test-Workflow die Verantwortung für kontextbezogene Unterstützung."
+      ar:
+        description: "يتولى مسؤوليات المساعدة المدركة للسياق في سير عمل الاختبار هذا."
+      pt:
+        description: "Cuida das responsabilidades de assistência ciente do contexto neste workflow de teste."
+      vi:
+        description: "Đảm nhiệm vai trò hỗ trợ nhận biết ngữ cảnh trong workflow kiểm thử này."
     overrides:
       system_prompt: |-
         You are a helpful assistant with memory. You remember context from previous interactions in this session.

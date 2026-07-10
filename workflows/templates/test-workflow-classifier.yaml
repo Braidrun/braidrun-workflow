@@ -53,6 +53,30 @@ variables:
 agents:
   classifier_agent:
     preset: universal
+    description: "Handles input classification responsibilities in this test workflow."
+    translations:
+      en:
+        description: "Handles input classification responsibilities in this test workflow."
+      zh:
+        description: "负责此测试工作流中的输入分类职责。"
+      zhHant:
+        description: "負責此測試工作流程中的輸入分類職責。"
+      ja:
+        description: "このテストワークフローで入力分類を担当します。"
+      ko:
+        description: "이 테스트 워크플로에서 입력 분류 역할을 담당합니다."
+      es:
+        description: "Se encarga de las responsabilidades de clasificación de entradas en este flujo de trabajo de prueba."
+      fr:
+        description: "Prend en charge les responsabilités de classification des entrées dans ce workflow de test."
+      de:
+        description: "Übernimmt in diesem Test-Workflow die Verantwortung für Eingabeklassifizierung."
+      ar:
+        description: "يتولى مسؤوليات تصنيف المدخلات في سير عمل الاختبار هذا."
+      pt:
+        description: "Cuida das responsabilidades de classificação de entradas neste workflow de teste."
+      vi:
+        description: "Đảm nhiệm vai trò phân loại đầu vào trong workflow kiểm thử này."
     overrides:
       system_prompt: |-
         You are a classification expert. Classify inputs accurately into the provided categories. Call exit when done.
@@ -68,6 +92,30 @@ agents:
       session_id_strategy: auto
   tech_handler:
     preset: universal
+    description: "Handles technical support responsibilities in this test workflow."
+    translations:
+      en:
+        description: "Handles technical support responsibilities in this test workflow."
+      zh:
+        description: "负责此测试工作流中的技术支持职责。"
+      zhHant:
+        description: "負責此測試工作流程中的技術支援職責。"
+      ja:
+        description: "このテストワークフローでテクニカルサポートを担当します。"
+      ko:
+        description: "이 테스트 워크플로에서 기술 지원 역할을 담당합니다."
+      es:
+        description: "Se encarga de las responsabilidades de soporte técnico en este flujo de trabajo de prueba."
+      fr:
+        description: "Prend en charge les responsabilités de support technique dans ce workflow de test."
+      de:
+        description: "Übernimmt in diesem Test-Workflow die Verantwortung für technischen Support."
+      ar:
+        description: "يتولى مسؤوليات الدعم الفني في سير عمل الاختبار هذا."
+      pt:
+        description: "Cuida das responsabilidades de suporte técnico neste workflow de teste."
+      vi:
+        description: "Đảm nhiệm vai trò hỗ trợ kỹ thuật trong workflow kiểm thử này."
     overrides:
       system_prompt: |-
         You are a technical support specialist. Handle technical issues. Call exit when done.
@@ -84,6 +132,30 @@ agents:
       session_id_strategy: auto
   billing_handler:
     preset: universal
+    description: "Handles billing support responsibilities in this test workflow."
+    translations:
+      en:
+        description: "Handles billing support responsibilities in this test workflow."
+      zh:
+        description: "负责此测试工作流中的账单支持职责。"
+      zhHant:
+        description: "負責此測試工作流程中的帳單支援職責。"
+      ja:
+        description: "このテストワークフローで請求サポートを担当します。"
+      ko:
+        description: "이 테스트 워크플로에서 결제 지원 역할을 담당합니다."
+      es:
+        description: "Se encarga de las responsabilidades de soporte de facturación en este flujo de trabajo de prueba."
+      fr:
+        description: "Prend en charge les responsabilités de support de facturation dans ce workflow de test."
+      de:
+        description: "Übernimmt in diesem Test-Workflow die Verantwortung für Abrechnungssupport."
+      ar:
+        description: "يتولى مسؤوليات دعم الفوترة في سير عمل الاختبار هذا."
+      pt:
+        description: "Cuida das responsabilidades de suporte de faturamento neste workflow de teste."
+      vi:
+        description: "Đảm nhiệm vai trò hỗ trợ thanh toán trong workflow kiểm thử này."
     overrides:
       system_prompt: |-
         You are a billing specialist. Handle billing and payment issues. Call exit when done.
@@ -100,6 +172,30 @@ agents:
       session_id_strategy: auto
   general_handler:
     preset: universal
+    description: "Handles general customer support responsibilities in this test workflow."
+    translations:
+      en:
+        description: "Handles general customer support responsibilities in this test workflow."
+      zh:
+        description: "负责此测试工作流中的一般客户支持职责。"
+      zhHant:
+        description: "負責此測試工作流程中的一般客戶支援職責。"
+      ja:
+        description: "このテストワークフローで一般カスタマーサポートを担当します。"
+      ko:
+        description: "이 테스트 워크플로에서 일반 고객 지원 역할을 담당합니다."
+      es:
+        description: "Se encarga de las responsabilidades de soporte general al cliente en este flujo de trabajo de prueba."
+      fr:
+        description: "Prend en charge les responsabilités de support client général dans ce workflow de test."
+      de:
+        description: "Übernimmt in diesem Test-Workflow die Verantwortung für allgemeinen Kundensupport."
+      ar:
+        description: "يتولى مسؤوليات دعم العملاء العام في سير عمل الاختبار هذا."
+      pt:
+        description: "Cuida das responsabilidades de suporte geral ao cliente neste workflow de teste."
+      vi:
+        description: "Đảm nhiệm vai trò hỗ trợ khách hàng chung trong workflow kiểm thử này."
     overrides:
       system_prompt: |-
         You are a general support agent. Handle general inquiries. Call exit when done.
@@ -116,6 +212,30 @@ agents:
       session_id_strategy: auto
   summarizer:
     preset: universal
+    description: "Handles report summarization responsibilities in this test workflow."
+    translations:
+      en:
+        description: "Handles report summarization responsibilities in this test workflow."
+      zh:
+        description: "负责此测试工作流中的报告总结职责。"
+      zhHant:
+        description: "負責此測試工作流程中的報告摘要職責。"
+      ja:
+        description: "このテストワークフローでレポート要約を担当します。"
+      ko:
+        description: "이 테스트 워크플로에서 보고서 요약 역할을 담당합니다."
+      es:
+        description: "Se encarga de las responsabilidades de resumen de informes en este flujo de trabajo de prueba."
+      fr:
+        description: "Prend en charge les responsabilités de synthèse de rapports dans ce workflow de test."
+      de:
+        description: "Übernimmt in diesem Test-Workflow die Verantwortung für Berichtszusammenfassung."
+      ar:
+        description: "يتولى مسؤوليات تلخيص التقارير في سير عمل الاختبار هذا."
+      pt:
+        description: "Cuida das responsabilidades de resumo de relatórios neste workflow de teste."
+      vi:
+        description: "Đảm nhiệm vai trò tóm tắt báo cáo trong workflow kiểm thử này."
     overrides:
       system_prompt: |-
         You are a report summarizer. Create summaries. Call exit when done.

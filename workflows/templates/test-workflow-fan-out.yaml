@@ -45,6 +45,30 @@ variables:
 agents:
   coordinator:
     preset: universal
+    description: "Handles task coordination responsibilities in this test workflow."
+    translations:
+      en:
+        description: "Handles task coordination responsibilities in this test workflow."
+      zh:
+        description: "负责此测试工作流中的任务协调职责。"
+      zhHant:
+        description: "負責此測試工作流程中的任務協調職責。"
+      ja:
+        description: "このテストワークフローでタスク調整を担当します。"
+      ko:
+        description: "이 테스트 워크플로에서 작업 조정 역할을 담당합니다."
+      es:
+        description: "Se encarga de las responsabilidades de coordinación de tareas en este flujo de trabajo de prueba."
+      fr:
+        description: "Prend en charge les responsabilités de coordination des tâches dans ce workflow de test."
+      de:
+        description: "Übernimmt in diesem Test-Workflow die Verantwortung für Aufgabenkoordination."
+      ar:
+        description: "يتولى مسؤوليات تنسيق المهام في سير عمل الاختبار هذا."
+      pt:
+        description: "Cuida das responsabilidades de coordenação de tarefas neste workflow de teste."
+      vi:
+        description: "Đảm nhiệm vai trò điều phối tác vụ trong workflow kiểm thử này."
     overrides:
       system_prompt: |-
         You are a coordinator agent. Manage tasks precisely and call exit when done.

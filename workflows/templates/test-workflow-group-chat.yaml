@@ -51,6 +51,30 @@ variables:
 agents:
   pm:
     preset: universal
+    description: "Handles product management responsibilities in this test workflow."
+    translations:
+      en:
+        description: "Handles product management responsibilities in this test workflow."
+      zh:
+        description: "负责此测试工作流中的产品管理职责。"
+      zhHant:
+        description: "負責此測試工作流程中的產品管理職責。"
+      ja:
+        description: "このテストワークフローでプロダクト管理を担当します。"
+      ko:
+        description: "이 테스트 워크플로에서 제품 관리 역할을 담당합니다."
+      es:
+        description: "Se encarga de las responsabilidades de gestión de productos en este flujo de trabajo de prueba."
+      fr:
+        description: "Prend en charge les responsabilités de gestion de produit dans ce workflow de test."
+      de:
+        description: "Übernimmt in diesem Test-Workflow die Verantwortung für Produktmanagement."
+      ar:
+        description: "يتولى مسؤوليات إدارة المنتج في سير عمل الاختبار هذا."
+      pt:
+        description: "Cuida das responsabilidades de gestão de produtos neste workflow de teste."
+      vi:
+        description: "Đảm nhiệm vai trò quản lý sản phẩm trong workflow kiểm thử này."
     overrides:
       system_prompt: |-
         You are a product manager. Provide product requirements and user stories. Call exit when done.
@@ -67,6 +91,30 @@ agents:
       session_id_strategy: auto
   designer:
     preset: universal
+    description: "Handles UI/UX design responsibilities in this test workflow."
+    translations:
+      en:
+        description: "Handles UI/UX design responsibilities in this test workflow."
+      zh:
+        description: "负责此测试工作流中的UI/UX 设计职责。"
+      zhHant:
+        description: "負責此測試工作流程中的UI/UX 設計職責。"
+      ja:
+        description: "このテストワークフローでUI/UX デザインを担当します。"
+      ko:
+        description: "이 테스트 워크플로에서 UI/UX 디자인 역할을 담당합니다."
+      es:
+        description: "Se encarga de las responsabilidades de diseño UI/UX en este flujo de trabajo de prueba."
+      fr:
+        description: "Prend en charge les responsabilités de conception UI/UX dans ce workflow de test."
+      de:
+        description: "Übernimmt in diesem Test-Workflow die Verantwortung für UI/UX-Design."
+      ar:
+        description: "يتولى مسؤوليات تصميم UI/UX في سير عمل الاختبار هذا."
+      pt:
+        description: "Cuida das responsabilidades de design de UI/UX neste workflow de teste."
+      vi:
+        description: "Đảm nhiệm vai trò thiết kế UI/UX trong workflow kiểm thử này."
     overrides:
       system_prompt: |-
         You are a UI/UX designer. Propose design solutions and user experience improvements. Call exit when done.
@@ -83,6 +131,30 @@ agents:
       session_id_strategy: auto
   engineer:
     preset: universal
+    description: "Handles engineering feasibility responsibilities in this test workflow."
+    translations:
+      en:
+        description: "Handles engineering feasibility responsibilities in this test workflow."
+      zh:
+        description: "负责此测试工作流中的工程可行性分析职责。"
+      zhHant:
+        description: "負責此測試工作流程中的工程可行性分析職責。"
+      ja:
+        description: "このテストワークフローで技術的実現可能性の評価を担当します。"
+      ko:
+        description: "이 테스트 워크플로에서 엔지니어링 타당성 검토 역할을 담당합니다."
+      es:
+        description: "Se encarga de las responsabilidades de viabilidad técnica en este flujo de trabajo de prueba."
+      fr:
+        description: "Prend en charge les responsabilités de faisabilité technique dans ce workflow de test."
+      de:
+        description: "Übernimmt in diesem Test-Workflow die Verantwortung für technische Machbarkeit."
+      ar:
+        description: "يتولى مسؤوليات الجدوى الهندسية في سير عمل الاختبار هذا."
+      pt:
+        description: "Cuida das responsabilidades de viabilidade técnica neste workflow de teste."
+      vi:
+        description: "Đảm nhiệm vai trò đánh giá tính khả thi kỹ thuật trong workflow kiểm thử này."
     overrides:
       system_prompt: |-
         You are a software engineer. Evaluate technical feasibility and propose implementation plans. Call exit when done.
@@ -99,6 +171,30 @@ agents:
       session_id_strategy: auto
   qa:
     preset: universal
+    description: "Handles quality assurance responsibilities in this test workflow."
+    translations:
+      en:
+        description: "Handles quality assurance responsibilities in this test workflow."
+      zh:
+        description: "负责此测试工作流中的质量保证职责。"
+      zhHant:
+        description: "負責此測試工作流程中的品質保證職責。"
+      ja:
+        description: "このテストワークフローで品質保証を担当します。"
+      ko:
+        description: "이 테스트 워크플로에서 품질 보증 역할을 담당합니다."
+      es:
+        description: "Se encarga de las responsabilidades de aseguramiento de calidad en este flujo de trabajo de prueba."
+      fr:
+        description: "Prend en charge les responsabilités de assurance qualité dans ce workflow de test."
+      de:
+        description: "Übernimmt in diesem Test-Workflow die Verantwortung für Qualitätssicherung."
+      ar:
+        description: "يتولى مسؤوليات ضمان الجودة في سير عمل الاختبار هذا."
+      pt:
+        description: "Cuida das responsabilidades de garantia de qualidade neste workflow de teste."
+      vi:
+        description: "Đảm nhiệm vai trò đảm bảo chất lượng trong workflow kiểm thử này."
     overrides:
       system_prompt: |-
         You are a QA engineer. Identify potential issues and suggest test strategies. Call exit when done.

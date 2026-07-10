@@ -47,6 +47,30 @@ variables:
 agents:
   worker:
     preset: universal
+    description: "Handles precise task execution responsibilities in this test workflow."
+    translations:
+      en:
+        description: "Handles precise task execution responsibilities in this test workflow."
+      zh:
+        description: "负责此测试工作流中的精确任务执行职责。"
+      zhHant:
+        description: "負責此測試工作流程中的精確任務執行職責。"
+      ja:
+        description: "このテストワークフローで正確なタスク実行を担当します。"
+      ko:
+        description: "이 테스트 워크플로에서 정확한 작업 실행 역할을 담당합니다."
+      es:
+        description: "Se encarga de las responsabilidades de ejecución precisa de tareas en este flujo de trabajo de prueba."
+      fr:
+        description: "Prend en charge les responsabilités de exécution précise des tâches dans ce workflow de test."
+      de:
+        description: "Übernimmt in diesem Test-Workflow die Verantwortung für präzise Aufgabenausführung."
+      ar:
+        description: "يتولى مسؤوليات التنفيذ الدقيق للمهام في سير عمل الاختبار هذا."
+      pt:
+        description: "Cuida das responsabilidades de execução precisa de tarefas neste workflow de teste."
+      vi:
+        description: "Đảm nhiệm vai trò thực thi tác vụ chính xác trong workflow kiểm thử này."
     overrides:
       system_prompt: |-
         You are a precise assistant. Follow instructions exactly. Call exit when done.

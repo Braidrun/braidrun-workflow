@@ -45,6 +45,30 @@ variables:
 agents:
   helper:
     preset: universal
+    description: "Handles task assistance responsibilities in this test workflow."
+    translations:
+      en:
+        description: "Handles task assistance responsibilities in this test workflow."
+      zh:
+        description: "负责此测试工作流中的任务协助职责。"
+      zhHant:
+        description: "負責此測試工作流程中的任務協助職責。"
+      ja:
+        description: "このテストワークフローでタスク支援を担当します。"
+      ko:
+        description: "이 테스트 워크플로에서 작업 지원 역할을 담당합니다."
+      es:
+        description: "Se encarga de las responsabilidades de asistencia de tareas en este flujo de trabajo de prueba."
+      fr:
+        description: "Prend en charge les responsabilités de assistance aux tâches dans ce workflow de test."
+      de:
+        description: "Übernimmt in diesem Test-Workflow die Verantwortung für Aufgabenunterstützung."
+      ar:
+        description: "يتولى مسؤوليات المساعدة في المهام في سير عمل الاختبار هذا."
+      pt:
+        description: "Cuida das responsabilidades de assistência a tarefas neste workflow de teste."
+      vi:
+        description: "Đảm nhiệm vai trò hỗ trợ tác vụ trong workflow kiểm thử này."
     overrides:
       system_prompt: |-
         You are a helpful assistant. Complete the task and call exit when done.
