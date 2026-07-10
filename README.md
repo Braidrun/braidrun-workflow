@@ -1,6 +1,6 @@
 # Braidrun Workflow
 
-Braidrun Workflow is the open workflow runtime behind [Braidrun](https://braidrun.com). It runs YAML-defined AI workflows with agent presets, deterministic code steps, tool execution, sub-workflows, MCP integration, external Claude Code / Codex delegation, and Docker-backed subprocess isolation.
+Braidrun Workflow is the open workflow runtime behind [Braidrun](https://braidrun.com). It orchestrates YAML-defined AI workflows across an embedded Koog runtime and external Claude Code and OpenAI Codex runtimes, with agent presets, deterministic code steps, tool execution, sub-workflows, MCP integration, and Docker-backed subprocess isolation.
 
 Use this repository when you need the runtime as a command-line tool or an embeddable Kotlin/JVM library. Use [braidrun.com](https://braidrun.com) when you want the hosted product experience: visual workflow editing, team execution history, managed deployments, monitoring, and a web UI for non-developer operators.
 
@@ -10,8 +10,18 @@ Use this repository when you need the runtime as a command-line tool or an embed
 - Agent steps, code steps, parallel execution, conditions, iteration, retries, state machines, and sub-workflows.
 - Built-in presets for coding, research, writing, data analysis, documents, browser automation, DevOps, communication, and marketing research.
 - Built-in tool groups for files, shell, Git, HTTP, browser automation, documents, databases, RAG, email, image processing, and MCP.
-- External coding-agent delegation through Claude Code and OpenAI Codex subprocesses.
+- Multi-runtime agent execution: embedded Koog agents, plus Claude Code and OpenAI Codex as direct workflow agents or delegated sub-agents.
 - Native subprocess mode for trusted local development and Docker subprocess mode for production isolation.
+
+## Agent Runtimes
+
+| Runtime | Integration | Best for |
+| --- | --- | --- |
+| Koog | Embedded Kotlin/JVM runtime | General LLM-backed agents, tools, and custom workflow strategies |
+| Claude Code | `claude` CLI subprocess | Repository-aware coding agents and delegated engineering tasks |
+| OpenAI Codex | `codex` CLI subprocess | Coding agents, repository automation, and delegated engineering tasks |
+
+Claude Code and Codex can run as first-class workflow agent steps or be spawned by a parent agent through the `external_agent` tool group. Both use the same native or Docker-backed subprocess executor as code and shell steps. See [Claude Code and Codex Agents](docs/EXTERNAL_AGENTS.md) for setup and authentication.
 
 ## Quick Start
 
@@ -19,7 +29,8 @@ Requirements:
 
 - JDK 21 or newer
 - Docker Desktop or Docker Engine for Docker subprocess mode
-- Provider API keys for LLM-backed agent workflows
+- Provider API keys for Koog-backed agent workflows
+- Node.js and the relevant `claude` or `codex` CLI only when using Claude Code or Codex agents
 
 ```bash
 ./gradlew installDist
