@@ -2,6 +2,40 @@
 name: test-sleep
 version: 1.0.0
 description: Test sleep — fixed 1 second.
+translations:
+  en:
+    name: "Sleep Test"
+    description: "Test sleep — fixed 1 second."
+  zh:
+    name: "休眠测试"
+    description: "测试 sleep——固定 1 秒。"
+  zhHant:
+    name: "休眠測試"
+    description: "測試 sleep——固定 1 秒。"
+  ja:
+    name: "スリープテスト"
+    description: "sleep をテストする。固定 1 秒。"
+  ko:
+    name: "슬립 테스트"
+    description: "sleep 테스트 — 고정 1초."
+  es:
+    name: "Prueba de suspensión"
+    description: "Prueba de sleep; duración fija de 1 segundo."
+  fr:
+    name: "Test de veille"
+    description: "Test de sleep — durée fixe de 1 seconde."
+  de:
+    name: "Sleep-Test"
+    description: "Test von sleep — feste Dauer von 1 Sekunde."
+  ar:
+    name: "اختبار السكون"
+    description: "اختبار sleep — مدة ثابتة 1 ثانية."
+  pt:
+    name: "Teste de suspensão"
+    description: "Teste de sleep — 1 segundo fixo."
+  vi:
+    name: "Kiểm thử sleep"
+    description: "Kiểm thử sleep — cố định 1 giây."
 tags:
   - code
   - extract

@@ -5,6 +5,40 @@ tags:
 - test
 - minimal-workflow
 description: The simplest single-step workflow - uses the built-in universal agent
+translations:
+  en:
+    name: "Minimal Workflow Test"
+    description: "The simplest single-step workflow - uses the built-in universal agent"
+  zh:
+    name: "最小工作流测试"
+    description: "最简单的单步工作流测试 - 使用内置通用代理"
+  zhHant:
+    name: "最小工作流測試"
+    description: "最簡單的單步工作流測試 - 使用內置通用代理"
+  ja:
+    name: "最小ワークフロー テスト"
+    description: "最も簡単な単一ステップのワークフローテスト - 組み込みの汎用エージェントを使用します"
+  ko:
+    name: "최소 워크플로 테스트"
+    description: "가장 단순한 단일 단계 워크플로 테스트 - 내장된 범용 에이전트를 사용합니다"
+  es:
+    name: "Prueba de flujo de trabajo mínimo"
+    description: "La prueba de flujo de trabajo de un solo paso más simple: usa el agente universal integrado"
+  fr:
+    name: "Test de workflow minimal"
+    description: "Le test de workflow à une seule étape le plus simple : utilise l’agent universel intégré"
+  de:
+    name: "Minimaler Workflow-Test"
+    description: "Der einfachste Workflow mit einem Schritt - verwendet den integrierten universellen Agenten"
+  ar:
+    name: "اختبار سير عمل بسيط"
+    description: "أبسط اختبار لسير عمل من خطوة واحدة - يستخدم الوكيل الشامل المدمج"
+  pt:
+    name: "Teste de fluxo de trabalho mínimo"
+    description: "O teste de fluxo de trabalho de uma única etapa mais simples - usa o agente universal integrado"
+  vi:
+    name: "Kiểm thử quy trình làm việc tối thiểu"
+    description: "Kiểm thử quy trình làm việc một bước đơn giản nhất - sử dụng tác nhân đa năng tích hợp"
 variables:
   output_dir: "./output/test-workflow-minimal"
   demo_mode: 'true'
@@ -33,7 +67,7 @@ workflow:
     Create a file called ./output/hello.txt with the content "Hello from workflow!".
     Then call exit.
 
-    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/hello.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/hello.md.
 error_handling:
   max_retries: 2
   retry_delay: 3s

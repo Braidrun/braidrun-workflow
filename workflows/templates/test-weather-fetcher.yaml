@@ -2,6 +2,40 @@
 name: test-weather-fetcher
 version: 1.0.0
 description: Test weather-fetcher for Shanghai via wttr.
+translations:
+  en:
+    name: "Weather Fetcher Test"
+    description: "Test weather-fetcher for Shanghai via wttr."
+  zh:
+    name: "天气获取器测试"
+    description: "测试 weather-fetcher 获取上海天气，使用 wttr。"
+  zhHant:
+    name: "天氣擷取器測試"
+    description: "測試 weather-fetcher 透過 wttr 取得上海天氣。"
+  ja:
+    name: "天気取得テスト"
+    description: "wttr を使用して Shanghai の weather-fetcher をテストします。"
+  ko:
+    name: "날씨 가져오기 테스트"
+    description: "wttr를 통해 Shanghai의 weather-fetcher를 테스트합니다."
+  es:
+    name: "Prueba de obtención del tiempo"
+    description: "Prueba weather-fetcher para Shanghai mediante wttr."
+  fr:
+    name: "Test de récupération météo"
+    description: "Tester weather-fetcher pour Shanghai via wttr."
+  de:
+    name: "Wetterabruf-Test"
+    description: "weather-fetcher für Shanghai über wttr testen."
+  ar:
+    name: "اختبار جلب الطقس"
+    description: "اختبار weather-fetcher لمدينة Shanghai عبر wttr."
+  pt:
+    name: "Teste de obtenção do clima"
+    description: "Testar weather-fetcher para Shanghai via wttr."
+  vi:
+    name: "Kiểm thử lấy thời tiết"
+    description: "Kiểm thử weather-fetcher cho Shanghai qua wttr."
 tags:
   - code
   - extract

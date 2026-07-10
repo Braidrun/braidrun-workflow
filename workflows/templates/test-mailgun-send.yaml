@@ -2,6 +2,40 @@
 name: test-mailgun-send
 version: 1.0.0
 description: Negative-path test for utility-module-mailgun-send — bad credentials trigger module-level rejection.
+translations:
+  en:
+    name: "Mailgun Send Test"
+    description: "Negative-path test for utility-module-mailgun-send — bad credentials trigger module-level rejection."
+  zh:
+    name: "Mailgun发送测试"
+    description: "utility-module-mailgun-send 的负路径测试——错误凭据会触发模块级拒绝。"
+  zhHant:
+    name: "Mailgun傳送測試"
+    description: "utility-module-mailgun-send 的負路徑測試——錯誤憑據會觸發模組級拒絕。"
+  ja:
+    name: "Mailgun送信テスト"
+    description: "utility-module-mailgun-send のネガティブパステスト。無効な認証情報によりモジュールレベルで拒否されます。"
+  ko:
+    name: "Mailgun 전송 테스트"
+    description: "utility-module-mailgun-send의 부정 경로 테스트입니다. 잘못된 자격 증명은 모듈 수준 거부를 트리거합니다."
+  es:
+    name: "Prueba de envío de Mailgun"
+    description: "Prueba de ruta negativa para utility-module-mailgun-send: credenciales incorrectas activan un rechazo a nivel de módulo."
+  fr:
+    name: "Test d’envoi Mailgun"
+    description: "Test de chemin négatif pour utility-module-mailgun-send : de mauvais identifiants déclenchent un rejet au niveau du module."
+  de:
+    name: "Mailgun-Senden Test"
+    description: "Negativpfad-Test für utility-module-mailgun-send: Ungültige Anmeldedaten lösen eine Ablehnung auf Modulebene aus."
+  ar:
+    name: "اختبار إرسال Mailgun"
+    description: "اختبار مسار سلبي لـ utility-module-mailgun-send — تؤدي بيانات الاعتماد غير الصحيحة إلى رفض على مستوى الوحدة."
+  pt:
+    name: "Teste de envio do Mailgun"
+    description: "Teste de caminho negativo para utility-module-mailgun-send — credenciais inválidas acionam rejeição no nível do módulo."
+  vi:
+    name: "Kiểm thử gửi Mailgun"
+    description: "Kiểm thử đường dẫn âm cho utility-module-mailgun-send — thông tin xác thực sai sẽ kích hoạt từ chối ở cấp mô-đun."
 tags:
   - code
   - error_handling

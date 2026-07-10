@@ -11,6 +11,40 @@ description: |
   Smart classification routing feature test - tests the Classifier step's classification and conditional branching
   Covers: agent, input, categories (name + description), output_variable,
   default_category, working together with condition branching
+translations:
+  en:
+    name: "Workflow Classifier Test"
+    description: "Smart classification routing feature test - tests the Classifier step's classification and conditional branching Covers: agent, input, categories (name + description), output_variable, default_category, working together with condition branching"
+  zh:
+    name: "工作流分类器测试"
+    description: "智能分类路由功能测试 - 测试 Classifier 步骤的分类与条件分支。涵盖：agent、input、categories（name + description）、output_variable、default_category，以及与条件分支协同工作。"
+  zhHant:
+    name: "工作流分類器測試"
+    description: "智慧分類路由功能測試 - 測試 Classifier 步驟的分類與條件分支。涵蓋：agent、input、categories（name + description）、output_variable、default_category，以及與條件分支協同工作。"
+  ja:
+    name: "ワークフロー分類器テスト"
+    description: "スマート分類ルーティング機能のテスト - Classifier ステップの分類と条件分岐をテストします。対象：agent、input、categories（name + description）、output_variable、default_category、および条件分岐との連携。"
+  ko:
+    name: "워크플로 분류기 테스트"
+    description: "스마트 분류 라우팅 기능 테스트 - Classifier 단계의 분류와 조건 분기를 테스트합니다. 포함 항목: agent, input, categories(name + description), output_variable, default_category, 및 조건 분기와의 연동."
+  es:
+    name: "Prueba de clasificador de flujo de trabajo"
+    description: "Prueba de la función de enrutamiento inteligente por clasificación: prueba la clasificación y el ramificado condicional del paso Classifier. Cubre: agent, input, categories (name + description), output_variable, default_category y su funcionamiento conjunto con el ramificado condicional."
+  fr:
+    name: "Test du classifieur de workflow"
+    description: "Test de la fonctionnalité de routage intelligent par classification - teste la classification et le branchement conditionnel de l’étape Classifier. Couvre : agent, input, categories (name + description), output_variable, default_category, et leur fonctionnement avec le branchement conditionnel."
+  de:
+    name: "Workflow-Klassifizierer-Test"
+    description: "Test der intelligenten Klassifizierungsweiterleitung - testet die Klassifizierung und bedingte Verzweigung des Schritts Classifier. Umfasst: agent, input, categories (name + description), output_variable, default_category sowie das Zusammenspiel mit bedingter Verzweigung."
+  ar:
+    name: "اختبار مصنف سير العمل"
+    description: "اختبار ميزة التوجيه الذكي بالتصنيف - يختبر التصنيف والتفرع الشرطي في خطوة Classifier. يشمل: agent، input، categories (name + description)، output_variable، default_category، والعمل مع التفرع الشرطي."
+  pt:
+    name: "Teste de classificador de fluxo de trabalho"
+    description: "Teste do recurso de roteamento inteligente por classificação - testa a classificação e o desvio condicional da etapa Classifier. Cobre: agent, input, categories (name + description), output_variable, default_category e o funcionamento conjunto com o desvio condicional."
+  vi:
+    name: "Kiểm thử bộ phân loại quy trình làm việc"
+    description: "Kiểm thử tính năng định tuyến phân loại thông minh - kiểm thử phân loại và rẽ nhánh có điều kiện của bước Classifier. Bao gồm: agent, input, categories (name + description), output_variable, default_category, và hoạt động cùng với rẽ nhánh có điều kiện."
 variables:
   user_message: I cannot log in to my account; it says the password is wrong, but I am sure the password is correct
   output_dir: "./output"
@@ -104,7 +138,7 @@ workflow:
       Classify the following user question:
       {{var:user_message}}
 
-      Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/classify_ticket.md。
+      Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/classify_ticket.md.
     categories:
     - name: technical
       description: Technical issues, including account login, system errors, feature failures, and configuration problems
@@ -123,7 +157,7 @@ workflow:
     Ticket category: {{var:ticket_category}}
     Output detailed troubleshooting steps and a solution.
 
-    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/handle_technical.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/handle_technical.md.
   depends_on:
   - classify_ticket
 - step: handle_billing
@@ -135,7 +169,7 @@ workflow:
     Ticket category: {{var:ticket_category}}
     Output the handling plan and the follow-up steps.
 
-    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/handle_billing.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/handle_billing.md.
   depends_on:
   - classify_ticket
 - step: handle_general
@@ -147,7 +181,7 @@ workflow:
     Ticket category: {{var:ticket_category}}
     Please provide relevant information and suggestions.
 
-    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/handle_general.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/handle_general.md.
   depends_on:
   - classify_ticket
 - step: ticket_summary

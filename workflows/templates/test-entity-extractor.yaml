@@ -2,6 +2,40 @@
 name: test-entity-extractor
 version: 1.0.0
 description: Test utility-module-entity-extractor (LLM, needs OPENROUTER_API_KEY).
+translations:
+  en:
+    name: "Entity Extractor Test"
+    description: "Test utility-module-entity-extractor (LLM, needs OPENROUTER_API_KEY)."
+  zh:
+    name: "实体提取器测试"
+    description: "测试 utility-module-entity-extractor（LLM，需要 OPENROUTER_API_KEY）。"
+  zhHant:
+    name: "實體擷取器測試"
+    description: "測試 utility-module-entity-extractor（LLM，需要 OPENROUTER_API_KEY）。"
+  ja:
+    name: "エンティティ抽出テスト"
+    description: "utility-module-entity-extractor（LLM、OPENROUTER_API_KEY が必要）をテストします。"
+  ko:
+    name: "엔터티 추출기 테스트"
+    description: "utility-module-entity-extractor(LLM, OPENROUTER_API_KEY 필요)를 테스트합니다."
+  es:
+    name: "Prueba de extractor de entidades"
+    description: "Prueba de utility-module-entity-extractor (LLM, requiere OPENROUTER_API_KEY)."
+  fr:
+    name: "Test d’extracteur d’entités"
+    description: "Test de utility-module-entity-extractor (LLM, nécessite OPENROUTER_API_KEY)."
+  de:
+    name: "Entitäts-Extraktor-Test"
+    description: "Test von utility-module-entity-extractor (LLM, benötigt OPENROUTER_API_KEY)."
+  ar:
+    name: "اختبار مستخرج الكيانات"
+    description: "اختبار utility-module-entity-extractor (LLM، يتطلب OPENROUTER_API_KEY)."
+  pt:
+    name: "Teste de extrator de entidades"
+    description: "Teste de utility-module-entity-extractor (LLM, requer OPENROUTER_API_KEY)."
+  vi:
+    name: "Kiểm thử bộ trích xuất thực thể"
+    description: "Kiểm thử utility-module-entity-extractor (LLM, cần OPENROUTER_API_KEY)."
 tags:
   - code
   - extract

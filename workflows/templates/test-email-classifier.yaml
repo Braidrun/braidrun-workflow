@@ -2,6 +2,40 @@
 name: test-email-classifier
 version: 1.0.0
 description: Test utility-module-email-classifier (LLM, needs OPENROUTER_API_KEY).
+translations:
+  en:
+    name: "Email Classifier Test"
+    description: "Test utility-module-email-classifier (LLM, needs OPENROUTER_API_KEY)."
+  zh:
+    name: "电子邮件分类器测试"
+    description: "测试 utility-module-email-classifier（LLM，需要 OPENROUTER_API_KEY）。"
+  zhHant:
+    name: "電子郵件分類器測試"
+    description: "測試 utility-module-email-classifier（LLM，需要 OPENROUTER_API_KEY）。"
+  ja:
+    name: "メール分類器テスト"
+    description: "utility-module-email-classifier（LLM、OPENROUTER_API_KEY が必要）をテストします。"
+  ko:
+    name: "이메일 분류기 테스트"
+    description: "utility-module-email-classifier(LLM, OPENROUTER_API_KEY 필요)를 테스트합니다."
+  es:
+    name: "Prueba de clasificador de correo electrónico"
+    description: "Prueba de utility-module-email-classifier (LLM, requiere OPENROUTER_API_KEY)."
+  fr:
+    name: "Test du classificateur d’e-mails"
+    description: "Test de utility-module-email-classifier (LLM, nécessite OPENROUTER_API_KEY)."
+  de:
+    name: "E-Mail-Klassifikator-Test"
+    description: "Test von utility-module-email-classifier (LLM, benötigt OPENROUTER_API_KEY)."
+  ar:
+    name: "اختبار مصنف البريد الإلكتروني"
+    description: "اختبار utility-module-email-classifier (LLM، يتطلب OPENROUTER_API_KEY)."
+  pt:
+    name: "Teste de classificador de e-mails"
+    description: "Teste de utility-module-email-classifier (LLM, requer OPENROUTER_API_KEY)."
+  vi:
+    name: "Kiểm thử bộ phân loại email"
+    description: "Kiểm thử utility-module-email-classifier (LLM, cần OPENROUTER_API_KEY)."
 tags:
   - code
   - extract

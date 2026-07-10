@@ -415,7 +415,7 @@ private data class McpOptions(
 private class CliException(message: String) : RuntimeException(message)
 
 private val VERSION: String =
-    BraidrunWorkflowCli::class.java.`package`?.implementationVersion ?: "1.0.5"
+    BraidrunWorkflowCli::class.java.`package`?.implementationVersion ?: "1.0.6"
 
 private val HELP = """
     Braidrun Workflow CLI

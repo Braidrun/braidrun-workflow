@@ -2,6 +2,40 @@
 name: test-port-check
 version: 1.0.0
 description: Test port-check — mixture of reachable (google:443) and unreachable (localhost:1).
+translations:
+  en:
+    name: "Port Check Test"
+    description: "Test port-check — mixture of reachable (google:443) and unreachable (localhost:1)."
+  zh:
+    name: "端口检查测试"
+    description: "测试 port-check——混合可达端口（google:443）和不可达端口（localhost:1）。"
+  zhHant:
+    name: "連接埠檢查測試"
+    description: "測試 port-check——混合可達連接埠（google:443）和不可達連接埠（localhost:1）。"
+  ja:
+    name: "ポートチェックテスト"
+    description: "port-check のテスト — 到達可能なポート（google:443）と到達不可能なポート（localhost:1）を混在させます。"
+  ko:
+    name: "포트 검사 테스트"
+    description: "port-check 테스트 — 도달 가능한 포트(google:443)와 도달 불가능한 포트(localhost:1)를 혼합합니다."
+  es:
+    name: "Prueba de comprobación de puertos"
+    description: "Prueba de port-check: mezcla de puertos accesibles (google:443) e inaccesibles (localhost:1)."
+  fr:
+    name: "Test de vérification de port"
+    description: "Test de port-check — mélange de ports accessibles (google:443) et inaccessibles (localhost:1)."
+  de:
+    name: "Portprüfungs-Test"
+    description: "Test von port-check — Mischung aus erreichbaren (google:443) und unerreichbaren (localhost:1) Ports."
+  ar:
+    name: "اختبار فحص المنفذ"
+    description: "اختبار port-check — مزيج من المنافذ القابلة للوصول (google:443) وغير القابلة للوصول (localhost:1)."
+  pt:
+    name: "Teste de verificação de porta"
+    description: "Teste de port-check — mistura de portas acessíveis (google:443) e inacessíveis (localhost:1)."
+  vi:
+    name: "Kiểm thử kiểm tra cổng"
+    description: "Kiểm thử port-check — kết hợp cổng truy cập được (google:443) và không truy cập được (localhost:1)."
 tags:
   - code
   - extract

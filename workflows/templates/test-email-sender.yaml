@@ -8,6 +8,40 @@ description: |
   validation guard: passing inputs that lack both body_text and body_html
   must fail at the pre-flight check (before any SMTP connection).
 
+translations:
+  en:
+    name: "Email Sender Test"
+    description: "Negative-path test for utility-module-email-sender. We don't have SMTP credentials in test, so we verify the module's validation guard: passing inputs that lack both body_text and body_html must fail at the pre-flight check (before any SMTP connection)."
+  zh:
+    name: "电子邮件发送器测试"
+    description: "utility-module-email-sender 的负路径测试。测试中没有 SMTP 凭据，因此我们验证模块的校验保护：传入同时缺少 body_text 和 body_html 的输入必须在预检阶段失败（在建立任何 SMTP 连接之前）。"
+  zhHant:
+    name: "電子郵件傳送器測試"
+    description: "utility-module-email-sender 的負向路徑測試。測試中沒有 SMTP 憑證，因此我們驗證模組的驗證保護：傳入同時缺少 body_text 和 body_html 的輸入必須在預檢階段失敗（在建立任何 SMTP 連線之前）。"
+  ja:
+    name: "メール送信テスト"
+    description: "utility-module-email-sender のネガティブパステストです。テストでは SMTP 認証情報がないため、モジュールの検証ガードを確認します。body_text と body_html の両方がない入力は、SMTP 接続の前の事前チェックで失敗しなければなりません。"
+  ko:
+    name: "이메일 발신기 테스트"
+    description: "utility-module-email-sender에 대한 부정 경로 테스트입니다. 테스트에는 SMTP 자격 증명이 없으므로 모듈의 검증 가드를 확인합니다. body_text와 body_html가 모두 없는 입력은 SMTP 연결 전에 사전 검사에서 실패해야 합니다."
+  es:
+    name: "Prueba de remitente de correo electrónico"
+    description: "Prueba de ruta negativa para utility-module-email-sender. No tenemos credenciales SMTP en la prueba, así que verificamos la protección de validación del módulo: las entradas que no incluyan ni body_text ni body_html deben fallar en la comprobación previa, antes de cualquier conexión SMTP."
+  fr:
+    name: "Test d’envoi d’e-mails"
+    description: "Test de chemin négatif pour utility-module-email-sender. Nous n’avons pas d’identifiants SMTP dans le test, nous vérifions donc la garde de validation du module : les entrées qui ne contiennent ni body_text ni body_html doivent échouer lors du contrôle préalable, avant toute connexion SMTP."
+  de:
+    name: "E-Mail-Versand-Test"
+    description: "Negativpfad-Test für utility-module-email-sender. Im Test haben wir keine SMTP-Anmeldedaten, daher prüfen wir die Validierungssperre des Moduls: Eingaben, denen sowohl body_text als auch body_html fehlen, müssen bei der Vorabprüfung fehlschlagen, bevor eine SMTP-Verbindung hergestellt wird."
+  ar:
+    name: "اختبار مرسل البريد الإلكتروني"
+    description: "اختبار مسار سلبي لـ utility-module-email-sender. لا تتوفر لدينا بيانات اعتماد SMTP في الاختبار، لذا نتحقق من حارس التحقق الخاص بالوحدة: يجب أن تفشل المدخلات التي تفتقر إلى كلٍّ من body_text وbody_html في الفحص المسبق قبل أي اتصال SMTP."
+  pt:
+    name: "Teste de envio de e-mails"
+    description: "Teste de caminho negativo para utility-module-email-sender. Não temos credenciais SMTP no teste, então verificamos a guarda de validação do módulo: entradas que não tenham body_text nem body_html devem falhar na verificação prévia, antes de qualquer conexão SMTP."
+  vi:
+    name: "Kiểm thử trình gửi email"
+    description: "Kiểm thử theo đường dẫn lỗi cho utility-module-email-sender. Chúng tôi không có thông tin xác thực SMTP trong bài kiểm thử, nên xác minh lớp bảo vệ xác thực của mô-đun: các đầu vào thiếu cả body_text và body_html phải thất bại ở bước kiểm tra trước khi thực hiện bất kỳ kết nối SMTP nào."
 tags:
   - code
   - error_handling

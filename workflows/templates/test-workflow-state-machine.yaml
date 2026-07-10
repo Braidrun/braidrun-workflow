@@ -15,6 +15,40 @@ description: |
   - run code / agent states inside a node
   - use extract to drive state transitions from variables
   - expose results to downstream steps via variables such as review_flow_final_state / review_flow_last_output
+translations:
+  en:
+    name: "State Machine Workflow Test"
+    description: "State-machine node feature test template. Demonstrates the basic use of state_machine as a DAG node: - run code / agent states inside a node - use extract to drive state transitions from variables - expose results to downstream steps via variables such as review_flow_final_state / review_flow_last_output"
+  zh:
+    name: "状态机工作流测试"
+    description: "状态机节点功能测试模板。演示 state_machine 作为 DAG 节点的基本用法：- 在节点内运行代码 / agent 状态 - 使用 extract 从变量驱动状态转换 - 通过 review_flow_final_state / review_flow_last_output 等变量将结果暴露给下游步骤"
+  zhHant:
+    name: "狀態機工作流程測試"
+    description: "狀態機節點功能測試範本。示範 state_machine 作為 DAG 節點的基本用法：- 在節點內執行 code / agent 狀態 - 使用 extract 從變數驅動狀態轉換 - 透過 review_flow_final_state / review_flow_last_output 等變數將結果提供給下游步驟"
+  ja:
+    name: "ステートマシンワークフローテスト"
+    description: "ステートマシンノード機能のテスト用テンプレート。state_machine を DAG ノードとして使う基本例を示します。- ノード内で code / agent 状態を実行 - extract を使って変数から状態遷移を駆動 - review_flow_final_state / review_flow_last_output などの変数で結果を下流ステップに公開"
+  ko:
+    name: "상태 머신 워크플로 테스트"
+    description: "상태 머신 노드 기능 테스트 템플릿입니다. state_machine 을 DAG 노드로 사용하는 기본 예를 보여줍니다: - 노드 내부에서 code / agent 상태 실행 - extract 를 사용해 변수에서 상태 전이 구동 - review_flow_final_state / review_flow_last_output 같은 변수로 결과를 하위 단계에 노출"
+  es:
+    name: "Prueba de flujo de trabajo de máquina de estados"
+    description: "Plantilla de prueba de la función del nodo de máquina de estados. Demuestra el uso básico de state_machine como nodo DAG: - ejecutar estados de code / agent dentro de un nodo - usar extract para impulsar transiciones de estado desde variables - exponer resultados a pasos posteriores mediante variables como review_flow_final_state / review_flow_last_output"
+  fr:
+    name: "Test de flux de travail à machine à états"
+    description: "Modèle de test de fonctionnalité du nœud machine à états. Décrit l’utilisation de base de state_machine comme nœud DAG : - exécuter des états code / agent dans un nœud - utiliser extract pour piloter les transitions d’état à partir de variables - exposer les résultats aux étapes en aval via des variables telles que review_flow_final_state / review_flow_last_output"
+  de:
+    name: "State-Machine-Workflow-Test"
+    description: "Testvorlage für die State-Machine-Knotenfunktion. Zeigt die grundlegende Verwendung von state_machine als DAG-Knoten: - code / agent-Zustände innerhalb eines Knotens ausführen - extract verwenden, um Zustandsübergänge aus Variablen zu steuern - Ergebnisse über Variablen wie review_flow_final_state / review_flow_last_output an nachgelagerte Schritte weitergeben"
+  ar:
+    name: "اختبار سير عمل آلة الحالات"
+    description: "قالب اختبار لميزة عقدة آلة الحالات. يوضح الاستخدام الأساسي لـ state_machine كعقدة DAG: - تشغيل حالات code / agent داخل عقدة - استخدام extract لقيادة انتقالات الحالة من المتغيرات - إتاحة النتائج للخطوات اللاحقة عبر متغيرات مثل review_flow_final_state / review_flow_last_output"
+  pt:
+    name: "Teste de fluxo de trabalho de máquina de estados"
+    description: "Modelo de teste da funcionalidade do nó de máquina de estados. Demonstra o uso básico de state_machine como nó DAG: - executar estados de code / agent dentro de um nó - usar extract para conduzir transições de estado a partir de variáveis - expor resultados para etapas subsequentes por meio de variáveis como review_flow_final_state / review_flow_last_output"
+  vi:
+    name: "Kiểm thử quy trình làm việc máy trạng thái"
+    description: "Mẫu kiểm thử tính năng nút máy trạng thái. Minh họa cách dùng cơ bản của state_machine như một nút DAG: - chạy trạng thái code / agent trong một nút - dùng extract để điều khiển chuyển trạng thái từ biến - hiển thị kết quả cho các bước phía sau qua các biến như review_flow_final_state / review_flow_last_output"
 variables:
   draft_text: Please review this product copy and give a conclusion
   desired_decision: approved

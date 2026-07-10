@@ -2,6 +2,40 @@
 name: test-page-change-detector
 version: 1.0.0
 description: Test page-change-detector — first run reports changed, second with same hash reports no change.
+translations:
+  en:
+    name: "Page Change Detector Test"
+    description: "Test page-change-detector — first run reports changed, second with same hash reports no change."
+  zh:
+    name: "页面变更检测测试"
+    description: "测试 page-change-detector——第一次运行报告已更改，第二次使用相同哈希报告无更改。"
+  zhHant:
+    name: "頁面變更偵測測試"
+    description: "測試 page-change-detector——第一次執行回報已變更，第二次使用相同雜湊回報無變更。"
+  ja:
+    name: "ページ変更検出テスト"
+    description: "page-change-detector のテスト — 1 回目の実行では変更ありを報告し、同じハッシュでの 2 回目は変更なしを報告します。"
+  ko:
+    name: "페이지 변경 감지 테스트"
+    description: "page-change-detector 테스트 — 첫 실행은 변경됨을 보고하고, 같은 해시로 두 번째 실행은 변경 없음으로 보고합니다."
+  es:
+    name: "Prueba de detector de cambios de página"
+    description: "Prueba de page-change-detector: la primera ejecución informa cambio; la segunda, con el mismo hash, informa sin cambios."
+  fr:
+    name: "Test du détecteur de changement de page"
+    description: "Test de page-change-detector — la première exécution signale un changement, la seconde avec le même hachage signale aucun changement."
+  de:
+    name: "Seitenänderungsdetektor-Test"
+    description: "Test von page-change-detector — der erste Lauf meldet eine Änderung, der zweite mit demselben Hash meldet keine Änderung."
+  ar:
+    name: "اختبار كاشف تغيّر الصفحة"
+    description: "اختبار page-change-detector — التشغيل الأول يُبلغ عن تغيّر، والثاني مع التجزئة نفسها يُبلغ عن عدم وجود تغيّر."
+  pt:
+    name: "Teste de detector de alteração de página"
+    description: "Teste de page-change-detector — a primeira execução informa alterado; a segunda, com o mesmo hash, informa sem alteração."
+  vi:
+    name: "Kiểm thử bộ phát hiện thay đổi trang"
+    description: "Kiểm thử page-change-detector — lần chạy đầu báo đã thay đổi, lần chạy thứ hai với cùng hash báo không thay đổi."
 tags:
   - code
   - extract

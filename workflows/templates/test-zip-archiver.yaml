@@ -7,6 +7,40 @@ description: |
   Creates 3 fixture files, packs them into a zip via mode=create,
   then extracts the zip via mode=extract and asserts round-trip fidelity.
 
+translations:
+  en:
+    name: "ZIP Archiver Test"
+    description: "Test harness for utility-module-zip-archiver. Creates 3 fixture files, packs them into a zip via mode=create, then extracts the zip via mode=extract and asserts round-trip fidelity."
+  zh:
+    name: "ZIP 归档器测试"
+    description: "utility-module-zip-archiver 的测试框架。创建 3 个 fixture 文件，通过 mode=create 打包为 zip，然后通过 mode=extract 解压该 zip，并断言往返一致性。"
+  zhHant:
+    name: "ZIP 封存器測試"
+    description: "utility-module-zip-archiver 的測試框架。建立 3 個 fixture 檔案，透過 mode=create 打包成 zip，然後透過 mode=extract 解壓該 zip，並斷言往返一致性。"
+  ja:
+    name: "ZIP アーカイバーテスト"
+    description: "utility-module-zip-archiver のテストハーネスです。3 個の fixture ファイルを作成し、mode=create で zip にまとめ、その後 mode=extract で zip を展開して、ラウンドトリップの整合性を検証します。"
+  ko:
+    name: "ZIP 압축 해제기 테스트"
+    description: "utility-module-zip-archiver의 테스트 하네스입니다. 3개의 fixture 파일을 만들고 mode=create로 zip에 묶은 다음, mode=extract로 zip을 추출하고 왕복 일관성을 검증합니다."
+  es:
+    name: "Prueba de archivador ZIP"
+    description: "Banco de pruebas para utility-module-zip-archiver. Crea 3 archivos fixture, los empaqueta en un zip mediante mode=create, luego extrae el zip mediante mode=extract y comprueba la fidelidad de ida y vuelta."
+  fr:
+    name: "Test d’archiver ZIP"
+    description: "Harness de test pour utility-module-zip-archiver. Crée 3 fichiers fixture, les empaquette dans un zip via mode=create, puis extrait le zip via mode=extract et vérifie la fidélité aller-retour."
+  de:
+    name: "ZIP-Archivierungstest"
+    description: "Test-Harness für utility-module-zip-archiver. Erstellt 3 Fixture-Dateien, packt sie per mode=create in ein zip, extrahiert das zip anschließend per mode=extract und prüft die Roundtrip-Treue."
+  ar:
+    name: "اختبار أرشفة ZIP"
+    description: "بيئة اختبار لـ utility-module-zip-archiver. تنشئ 3 ملفات fixture، وتحزمها في ملف zip عبر mode=create، ثم تستخرج ملف zip عبر mode=extract وتتحقق من سلامة التبادل ذهابًا وإيابًا."
+  pt:
+    name: "Teste de arquivador ZIP"
+    description: "Estrutura de teste para utility-module-zip-archiver. Cria 3 arquivos fixture, empacota-os em um zip via mode=create, depois extrai o zip via mode=extract e verifica a fidelidade de ida e volta."
+  vi:
+    name: "Kiểm thử bộ lưu trữ ZIP"
+    description: "Khung kiểm thử cho utility-module-zip-archiver. Tạo 3 tệp fixture, đóng gói chúng thành một zip qua mode=create, sau đó giải nén zip qua mode=extract và xác nhận tính toàn vẹn sau vòng lặp."
 tags:
   - code
   - extract

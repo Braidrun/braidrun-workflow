@@ -12,6 +12,40 @@ description: |
 
   Requires: OPENROUTER_API_KEY env var set.
 
+translations:
+  en:
+    name: "Translator Test"
+    description: "Test harness for utility-module-translator (LLM-driven, needs OpenRouter key). Translates a short Chinese sentence to English, asserts: - status is ok - translated_text is non-empty and length-sane - detected_source_language is reasonable (zh / chinese / auto) - translated_path points to an existing file Requires: OPENROUTER_API_KEY env var set."
+  zh:
+    name: "翻译器测试"
+    description: "utility-module-translator 的测试框架（LLM 驱动，需要 OpenRouter key）。将一条简短中文句子翻译成英文，并断言：- status 为 ok - translated_text 非空且长度合理 - detected_source_language 合理（zh / chinese / auto）- translated_path 指向一个现有文件。需要：设置 OPENROUTER_API_KEY 环境变量。"
+  zhHant:
+    name: "翻譯器測試"
+    description: "utility-module-translator 的測試框架（LLM 驅動，需要 OpenRouter key）。將一條簡短中文句子翻譯成英文，並斷言：- status 為 ok - translated_text 非空且長度合理 - detected_source_language 合理（zh / chinese / auto）- translated_path 指向一個現有檔案。需要：設定 OPENROUTER_API_KEY 環境變數。"
+  ja:
+    name: "翻訳ツールテスト"
+    description: "utility-module-translator のテストハーネスです（LLM 駆動、OpenRouter key が必要）。短い中国語の文を英語に翻訳し、次を検証します: - status が ok - translated_text が空でなく、長さが妥当 - detected_source_language が妥当（zh / chinese / auto）- translated_path が存在するファイルを指す。必要条件: OPENROUTER_API_KEY 環境変数を設定すること。"
+  ko:
+    name: "번역기 테스트"
+    description: "utility-module-translator용 테스트 하니스입니다(LLM 기반, OpenRouter key 필요). 짧은 중국어 문장을 영어로 번역하고 다음을 검증합니다: - status가 ok - translated_text가 비어 있지 않고 길이가 적절함 - detected_source_language가 적절함(zh / chinese / auto) - translated_path가 존재하는 파일을 가리킴. 필요 사항: OPENROUTER_API_KEY 환경 변수 설정."
+  es:
+    name: "Prueba de traductor"
+    description: "Banco de pruebas para utility-module-translator (basado en LLM, requiere OpenRouter key). Traduce una frase corta en chino al inglés y verifica: - status es ok - translated_text no está vacío y tiene una longitud razonable - detected_source_language es razonable (zh / chinese / auto) - translated_path apunta a un archivo existente. Requiere: variable de entorno OPENROUTER_API_KEY configurada."
+  fr:
+    name: "Test du traducteur"
+    description: "Banc d’essai pour utility-module-translator (piloté par LLM, nécessite OpenRouter key). Traduit une courte phrase chinoise en anglais et vérifie : - status est ok - translated_text n’est pas vide et a une longueur plausible - detected_source_language est cohérent (zh / chinese / auto) - translated_path pointe vers un fichier existant. Requis : variable d’environnement OPENROUTER_API_KEY définie."
+  de:
+    name: "Übersetzer-Test"
+    description: "Test-Harness für utility-module-translator (LLM-gesteuert, benötigt OpenRouter key). Übersetzt einen kurzen chinesischen Satz ins Englische und prüft: - status ist ok - translated_text ist nicht leer und hat eine angemessene Länge - detected_source_language ist plausibel (zh / chinese / auto) - translated_path verweist auf eine vorhandene Datei. Erforderlich: OPENROUTER_API_KEY-Umgebungsvariable gesetzt."
+  ar:
+    name: "اختبار المترجم"
+    description: "بيئة اختبار لـ utility-module-translator (مدعومة بـ LLM، وتتطلب OpenRouter key). تترجم جملة صينية قصيرة إلى الإنجليزية، وتتحقق من: - status هو ok - translated_text غير فارغ وطوله مناسب - detected_source_language معقول (zh / chinese / auto) - translated_path يشير إلى ملف موجود. المتطلبات: ضبط متغير البيئة OPENROUTER_API_KEY."
+  pt:
+    name: "Teste de tradutor"
+    description: "Banco de testes para utility-module-translator (orientado por LLM, requer OpenRouter key). Traduz uma frase curta em chinês para inglês e verifica: - status é ok - translated_text não está vazio e tem tamanho adequado - detected_source_language é razoável (zh / chinese / auto) - translated_path aponta para um arquivo existente. Requer: variável de ambiente OPENROUTER_API_KEY definida."
+  vi:
+    name: "Kiểm thử trình dịch"
+    description: "Bộ kiểm thử cho utility-module-translator (do LLM điều khiển, cần OpenRouter key). Dịch một câu tiếng Trung ngắn sang tiếng Anh và xác nhận: - status là ok - translated_text không rỗng và có độ dài hợp lý - detected_source_language hợp lý (zh / chinese / auto) - translated_path trỏ tới một tệp tồn tại. Yêu cầu: đặt biến môi trường OPENROUTER_API_KEY."
 tags:
   - code
   - extract

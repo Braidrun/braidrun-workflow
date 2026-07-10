@@ -2,6 +2,40 @@
 name: test-html-sanitizer
 version: 1.0.0
 description: Test html-sanitizer — strip mode removes tags, whitelist blocks script.
+translations:
+  en:
+    name: "HTML Sanitizer Test"
+    description: "Test html-sanitizer — strip mode removes tags, whitelist blocks script."
+  zh:
+    name: "HTML 清理器测试"
+    description: "测试 html-sanitizer — strip 模式会移除标签，白名单会阻止 script。"
+  zhHant:
+    name: "HTML 清理器測試"
+    description: "測試 html-sanitizer — strip 模式會移除標籤，白名單會阻止 script。"
+  ja:
+    name: "HTML サニタイザーテスト"
+    description: "html-sanitizer のテスト — strip モードではタグを削除し、ホワイトリストは script をブロックします。"
+  ko:
+    name: "HTML 정리기 테스트"
+    description: "html-sanitizer 테스트 — strip 모드는 태그를 제거하고, 허용 목록은 script를 차단합니다."
+  es:
+    name: "Test de saneador HTML"
+    description: "Prueba de html-sanitizer — el modo strip elimina las etiquetas y la lista de अनुमति bloquea script."
+  fr:
+    name: "Test de nettoyage HTML"
+    description: "Test de html-sanitizer — le mode strip supprime les balises et la liste blanche bloque script."
+  de:
+    name: "HTML-Bereinigungs-Test"
+    description: "Test für html-sanitizer — der strip-Modus entfernt Tags, die Whitelist blockiert script."
+  ar:
+    name: "اختبار منظف HTML"
+    description: "اختبار html-sanitizer — وضع strip يزيل العلامات، والقائمة البيضاء تحظر script."
+  pt:
+    name: "Teste de saneador HTML"
+    description: "Teste de html-sanitizer — o modo strip remove as tags e a lista de अनुमति bloqueia script."
+  vi:
+    name: "Kiểm thử bộ làm sạch HTML"
+    description: "Kiểm thử html-sanitizer — chế độ strip xóa thẻ, và danh sách cho phép chặn script."
 tags:
   - code
   - extract

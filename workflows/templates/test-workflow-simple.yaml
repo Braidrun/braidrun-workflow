@@ -5,6 +5,40 @@ tags:
 - test
 - simple-workflow
 description: Test workflow template - uses a preset template plus a custom LLM configuration
+translations:
+  en:
+    name: "Simple Workflow Test"
+    description: "Test workflow template - uses a preset template plus a custom LLM configuration"
+  zh:
+    name: "简单工作流测试"
+    description: "测试工作流模板 - 使用预设模板加自定义 LLM 配置"
+  zhHant:
+    name: "簡單工作流程測試"
+    description: "測試工作流程範本 - 使用預設範本加自訂 LLM 設定"
+  ja:
+    name: "シンプルワークフローテスト"
+    description: "テスト用ワークフローテンプレート - 事前設定テンプレートとカスタム LLM 設定を使用"
+  ko:
+    name: "단순 워크플로 테스트"
+    description: "테스트 워크플로 템플릿 - 사전 설정된 템플릿과 사용자 지정 LLM 구성을 사용"
+  es:
+    name: "Prueba de flujo de trabajo simple"
+    description: "Plantilla de flujo de trabajo de prueba: usa una plantilla predefinida más una configuración personalizada de LLM"
+  fr:
+    name: "Test de flux de travail simple"
+    description: "Modèle de flux de travail de test - utilise un modèle prédéfini et une configuration LLM personnalisée"
+  de:
+    name: "Einfacher Workflow-Test"
+    description: "Test-Workflow-Vorlage - verwendet eine voreingestellte Vorlage plus eine benutzerdefinierte LLM-Konfiguration"
+  ar:
+    name: "اختبار سير عمل بسيط"
+    description: "قالب سير عمل للاختبار - يستخدم قالبًا مُسبق الإعداد مع إعداد LLM مخصص"
+  pt:
+    name: "Teste de fluxo de trabalho simples"
+    description: "Modelo de fluxo de trabalho de teste - usa um modelo predefinido mais uma configuração personalizada de LLM"
+  vi:
+    name: "Kiểm thử quy trình làm việc đơn giản"
+    description: "Mẫu quy trình làm việc kiểm thử - dùng mẫu có sẵn cùng cấu hình LLM tùy chỉnh"
 variables:
   output_dir: "./output/test-workflow-simple"
   demo_mode: 'true'
@@ -102,7 +136,7 @@ workflow:
     2. Write clear, engaging content
     3. Call exit when done
 
-    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/generate_content.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/generate_content.md.
 - step: review_content
   agent: reviewer
   depends_on:
@@ -119,7 +153,7 @@ workflow:
     Save your review to ./output/review_feedback.txt
     Call exit when done
 
-    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/review_content.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/review_content.md.
 - step: revise_content
   agent: editor
   depends_on:
@@ -135,7 +169,7 @@ workflow:
 
     Call exit when complete
 
-    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/revise_content.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/revise_content.md.
 error_handling:
   max_retries: 2
   retry_delay: 3s

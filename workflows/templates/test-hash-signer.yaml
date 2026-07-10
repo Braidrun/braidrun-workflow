@@ -8,6 +8,40 @@ description: |
   - HMAC-SHA256 with a secret key
   - expected_digest verification path (both success and base64 encoding)
 
+translations:
+  en:
+    name: "Hash Signer Test"
+    description: "Test harness for utility-module-hash-signer. - Plain SHA-256 of a known string - HMAC-SHA256 with a secret key - expected_digest verification path (both success and base64 encoding)"
+  zh:
+    name: "哈希签名器测试"
+    description: "测试 utility-module-hash-signer。- 已知字符串的纯 SHA-256 - 使用密钥的 HMAC-SHA256 - expected_digest 验证路径（成功和 base64 编码）"
+  zhHant:
+    name: "雜湊簽署器測試"
+    description: "測試 utility-module-hash-signer。- 已知字串的純 SHA-256 - 使用密鑰的 HMAC-SHA256 - expected_digest 驗證路徑（成功和 base64 編碼）"
+  ja:
+    name: "ハッシュ署名テスト"
+    description: "utility-module-hash-signer のテストハーネスです。- 既知の文字列の通常の SHA-256 - 秘密鍵を使った HMAC-SHA256 - expected_digest の検証パス（成功と base64 エンコードの両方）"
+  ko:
+    name: "해시 서명기 테스트"
+    description: "utility-module-hash-signer용 테스트 하네스입니다. - 알려진 문자열의 순수 SHA-256 - 비밀 키를 사용한 HMAC-SHA256 - expected_digest 검증 경로(성공 및 base64 인코딩 모두)"
+  es:
+    name: "Prueba de firmador de hash"
+    description: "Banco de pruebas para utility-module-hash-signer. - SHA-256 simple de una cadena conocida - HMAC-SHA256 con una clave secreta - ruta de verificación de expected_digest (tanto éxito como codificación base64)"
+  fr:
+    name: "Test du signataire de hachage"
+    description: "Harness de test pour utility-module-hash-signer. - SHA-256 simple d’une chaîne connue - HMAC-SHA256 avec une clé secrète - chemin de vérification expected_digest (succès et encodage base64)"
+  de:
+    name: "Hash-Signer-Test"
+    description: "Test-Harness für utility-module-hash-signer. - Reines SHA-256 eines bekannten Strings - HMAC-SHA256 mit einem geheimen Schlüssel - expected_digest-Prüfpfad (sowohl Erfolg als auch base64-Kodierung)"
+  ar:
+    name: "اختبار توقيع التجزئة"
+    description: "بيئة اختبار لـ utility-module-hash-signer. - SHA-256 عادي لسلسلة معروفة - HMAC-SHA256 باستخدام مفتاح سري - مسار التحقق expected_digest (كلٌّ من النجاح وترميز base64)"
+  pt:
+    name: "Teste de assinador de hash"
+    description: "Ambiente de teste para utility-module-hash-signer. - SHA-256 simples de uma string conhecida - HMAC-SHA256 com uma chave secreta - caminho de verificação expected_digest (tanto sucesso quanto codificação base64)"
+  vi:
+    name: "Kiểm thử bộ ký hash"
+    description: "Bộ kiểm thử cho utility-module-hash-signer. - SHA-256 thuần của một chuỗi đã biết - HMAC-SHA256 với một khóa bí mật - đường dẫn xác minh expected_digest (cả thành công và mã hóa base64)"
 tags:
   - code
   - extract

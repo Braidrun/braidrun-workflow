@@ -2,6 +2,40 @@
 name: test-ssl-cert-expiry
 version: 1.0.0
 description: Test ssl-cert-expiry on google.com (always valid).
+translations:
+  en:
+    name: "SSL Cert Expiry Test"
+    description: "Test ssl-cert-expiry on google.com (always valid)."
+  zh:
+    name: "SSL 证书到期测试"
+    description: "测试 google.com 上的 ssl-cert-expiry（始终有效）。"
+  zhHant:
+    name: "SSL 憑證到期測試"
+    description: "測試 google.com 上的 ssl-cert-expiry（始終有效）。"
+  ja:
+    name: "SSL証明書有効期限テスト"
+    description: "google.com 上の ssl-cert-expiry をテストします（常に有効）。"
+  ko:
+    name: "SSL 인증서 만료 테스트"
+    description: "google.com의 ssl-cert-expiry를 테스트합니다(항상 유효함)."
+  es:
+    name: "Prueba de expiración de certificado SSL"
+    description: "Prueba ssl-cert-expiry en google.com (siempre válido)."
+  fr:
+    name: "Test d’expiration du certificat SSL"
+    description: "Teste ssl-cert-expiry sur google.com (toujours valide)."
+  de:
+    name: "SSL-Zertifikat-Ablauf-Test"
+    description: "Testet ssl-cert-expiry auf google.com (immer gültig)."
+  ar:
+    name: "اختبار انتهاء صلاحية شهادة SSL"
+    description: "اختبار ssl-cert-expiry على google.com (صالحة دائمًا)."
+  pt:
+    name: "Teste de expiração de certificado SSL"
+    description: "Testa ssl-cert-expiry em google.com (sempre válido)."
+  vi:
+    name: "Kiểm thử hết hạn chứng chỉ SSL"
+    description: "Kiểm thử ssl-cert-expiry trên google.com (luôn hợp lệ)."
 tags:
   - code
   - extract

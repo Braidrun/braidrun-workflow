@@ -2,6 +2,40 @@
 name: test-sitemap-reader
 version: 1.0.0
 description: Test sitemap-reader on a tiny public sitemap.
+translations:
+  en:
+    name: "Sitemap Reader Test"
+    description: "Test sitemap-reader on a tiny public sitemap."
+  zh:
+    name: "站点地图读取器测试"
+    description: "在一个小型公开站点地图上测试 sitemap-reader。"
+  zhHant:
+    name: "網站地圖讀取器測試"
+    description: "在一個小型公開網站地圖上測試 sitemap-reader。"
+  ja:
+    name: "サイトマップリーダーテスト"
+    description: "小さな公開サイトマップ上で sitemap-reader をテストする。"
+  ko:
+    name: "사이트맵 리더 테스트"
+    description: "작은 공개 사이트맵에서 sitemap-reader를 테스트합니다."
+  es:
+    name: "Prueba de lector de sitemap"
+    description: "Prueba de sitemap-reader en un sitemap público pequeño."
+  fr:
+    name: "Test du lecteur de sitemap"
+    description: "Test de sitemap-reader sur un petit sitemap public."
+  de:
+    name: "Sitemap-Reader-Test"
+    description: "Test von sitemap-reader auf einer kleinen öffentlichen Sitemap."
+  ar:
+    name: "اختبار قارئ خريطة الموقع"
+    description: "اختبار sitemap-reader على خريطة موقع عامة صغيرة."
+  pt:
+    name: "Teste do leitor de sitemap"
+    description: "Teste de sitemap-reader em um sitemap público pequeno."
+  vi:
+    name: "Kiểm thử trình đọc sitemap"
+    description: "Kiểm thử sitemap-reader trên một sitemap công khai nhỏ."
 tags:
   - code
   - extract

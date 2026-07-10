@@ -2,6 +2,40 @@
 name: test-review-categorizer
 version: 1.0.0
 description: Test utility-module-review-categorizer (LLM, needs OPENROUTER_API_KEY).
+translations:
+  en:
+    name: "Review Categorizer Test"
+    description: "Test utility-module-review-categorizer (LLM, needs OPENROUTER_API_KEY)."
+  zh:
+    name: "评论分类器测试"
+    description: "测试 utility-module-review-categorizer（LLM，需要 OPENROUTER_API_KEY）。"
+  zhHant:
+    name: "評論分類器測試"
+    description: "測試 utility-module-review-categorizer（LLM，需要 OPENROUTER_API_KEY）。"
+  ja:
+    name: "レビュー分類器テスト"
+    description: "utility-module-review-categorizer をテストします（LLM、OPENROUTER_API_KEY が必要）。"
+  ko:
+    name: "리뷰 분류기 테스트"
+    description: "utility-module-review-categorizer 테스트(LLM, OPENROUTER_API_KEY 필요)."
+  es:
+    name: "Prueba de clasificador de reseñas"
+    description: "Prueba de utility-module-review-categorizer (LLM, requiere OPENROUTER_API_KEY)."
+  fr:
+    name: "Test du classificateur d'avis"
+    description: "Test de utility-module-review-categorizer (LLM, nécessite OPENROUTER_API_KEY)."
+  de:
+    name: "Bewertungs-Kategorisierer-Test"
+    description: "Test von utility-module-review-categorizer (LLM, benötigt OPENROUTER_API_KEY)."
+  ar:
+    name: "اختبار مصنِّف المراجعات"
+    description: "اختبار utility-module-review-categorizer (LLM، يتطلب OPENROUTER_API_KEY)."
+  pt:
+    name: "Teste de categorizador de avaliações"
+    description: "Teste de utility-module-review-categorizer (LLM, requer OPENROUTER_API_KEY)."
+  vi:
+    name: "Kiểm thử bộ phân loại đánh giá"
+    description: "Kiểm thử utility-module-review-categorizer (LLM, cần OPENROUTER_API_KEY)."
 tags:
   - code
   - extract

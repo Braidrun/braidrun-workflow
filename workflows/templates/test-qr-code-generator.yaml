@@ -2,6 +2,40 @@
 name: test-qr-code-generator
 version: 1.0.0
 description: Test qr-code-generator — produce PNG and verify magic bytes.
+translations:
+  en:
+    name: "QR Code Generator Test"
+    description: "Test qr-code-generator — produce PNG and verify magic bytes."
+  zh:
+    name: "二维码生成器测试"
+    description: "测试 qr-code-generator——生成 PNG 并验证魔数。"
+  zhHant:
+    name: "QR Code 產生器測試"
+    description: "測試 qr-code-generator——產生 PNG 並驗證魔術位元組。"
+  ja:
+    name: "QR コードジェネレーターテスト"
+    description: "qr-code-generator をテストする。PNG を生成し、マジックバイトを検証する。"
+  ko:
+    name: "QR 코드 생성기 테스트"
+    description: "qr-code-generator 테스트 — PNG를 생성하고 매직 바이트를 확인한다."
+  es:
+    name: "Prueba de generador de código QR"
+    description: "Prueba de qr-code-generator: generar PNG y verificar los bytes mágicos."
+  fr:
+    name: "Test du générateur de code QR"
+    description: "Test de qr-code-generator — produire un PNG et vérifier les octets magiques."
+  de:
+    name: "QR-Code-Generator Test"
+    description: "Test von qr-code-generator — PNG erzeugen und die Magic Bytes prüfen."
+  ar:
+    name: "اختبار مولّد رمز QR"
+    description: "اختبار qr-code-generator — إنشاء PNG والتحقق من البايتات السحرية."
+  pt:
+    name: "Teste de gerador de código QR"
+    description: "Teste de qr-code-generator — gerar PNG e verificar os bytes mágicos."
+  vi:
+    name: "Kiểm thử bộ tạo mã QR"
+    description: "Kiểm thử qr-code-generator — tạo PNG và xác minh các byte ma thuật."
 tags:
   - code
   - extract

@@ -328,7 +328,7 @@ dependencies {
 }
 
 group = "com.fartech.braidrun"
-version = "1.0.5"
+version = "1.0.6"
 description = "braidrun-workflow"
 
 tasks.named<Jar>("jar") {
@@ -374,6 +374,14 @@ sourceSets {
         }
     }
 }
+
+tasks.named<Copy>("processResources") {
+    from("workflows/templates") {
+        include("*.yaml", "*.yml", "resources-index.txt")
+        into("workflows/templates")
+    }
+}
+
 tasks.test {
     useJUnitPlatform()
     maxParallelForks = findProperty("test.maxParallelForks")

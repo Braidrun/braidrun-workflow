@@ -2,6 +2,40 @@
 name: test-sendgrid-send
 version: 1.0.0
 description: Negative-path test for utility-module-sendgrid-send — bad credentials trigger module-level rejection.
+translations:
+  en:
+    name: "SendGrid Send Test"
+    description: "Negative-path test for utility-module-sendgrid-send — bad credentials trigger module-level rejection."
+  zh:
+    name: "SendGrid 发送测试"
+    description: "utility-module-sendgrid-send 的负路径测试——错误凭据触发模块级拒绝。"
+  zhHant:
+    name: "SendGrid 傳送測試"
+    description: "utility-module-sendgrid-send 的負路徑測試——錯誤憑證觸發模組級拒絕。"
+  ja:
+    name: "SendGrid 送信テスト"
+    description: "utility-module-sendgrid-send の負のパステスト。無効な認証情報によりモジュールレベルで拒否されます。"
+  ko:
+    name: "SendGrid 전송 테스트"
+    description: "utility-module-sendgrid-send의 부정 경로 테스트—잘못된 자격 증명으로 모듈 수준에서 거부됩니다."
+  es:
+    name: "Prueba de envío de SendGrid"
+    description: "Prueba de ruta negativa para utility-module-sendgrid-send: unas credenciales incorrectas provocan un rechazo a nivel de módulo."
+  fr:
+    name: "Test d’envoi SendGrid"
+    description: "Test de chemin négatif pour utility-module-sendgrid-send : de mauvaises informations d’identification déclenchent un rejet au niveau du module."
+  de:
+    name: "SendGrid-Sendetest"
+    description: "Negativtest für utility-module-sendgrid-send — ungültige Anmeldedaten lösen eine Ablehnung auf Modulebene aus."
+  ar:
+    name: "اختبار الإرسال عبر SendGrid"
+    description: "اختبار مسار سلبي لـ utility-module-sendgrid-send — تؤدي بيانات الاعتماد غير الصحيحة إلى رفض على مستوى الوحدة."
+  pt:
+    name: "Teste de envio do SendGrid"
+    description: "Teste de caminho negativo para utility-module-sendgrid-send — credenciais incorretas acionam rejeição no nível do módulo."
+  vi:
+    name: "Kiểm thử gửi SendGrid"
+    description: "Kiểm thử đường dẫn tiêu cực cho utility-module-sendgrid-send — thông tin đăng nhập sai kích hoạt từ chối ở cấp mô-đun."
 tags:
   - code
   - error_handling

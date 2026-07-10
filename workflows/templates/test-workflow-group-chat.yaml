@@ -9,7 +9,41 @@ tags:
 description: |
   Group Chat feature test - tests the multi-agent collaborative conversation mode
   Covers: participants, moderator, max_rounds, speaker_selection,
-  termination_keyword、initial_message、summary_agent
+  termination_keyword, initial_message, summary_agent
+translations:
+  en:
+    name: "Group Chat Test"
+    description: "Group Chat feature test - tests the multi-agent collaborative conversation mode Covers: participants, moderator, max_rounds, speaker_selection, termination_keyword, initial_message, summary_agent"
+  zh:
+    name: "群聊测试"
+    description: "群聊功能测试——测试多代理协作对话模式。涵盖：participants、moderator、max_rounds、speaker_selection、termination_keyword、initial_message、summary_agent。"
+  zhHant:
+    name: "群聊測試"
+    description: "群聊功能測試——測試多代理協作對話模式。涵蓋：participants、moderator、max_rounds、speaker_selection、termination_keyword、initial_message、summary_agent。"
+  ja:
+    name: "グループチャットテスト"
+    description: "グループチャット機能テスト - マルチエージェントの協調会話モードをテストします。対象: participants、moderator、max_rounds、speaker_selection、termination_keyword、initial_message、summary_agent。"
+  ko:
+    name: "그룹 채팅 테스트"
+    description: "그룹 채팅 기능 테스트 - 다중 에이전트 협업 대화 모드를 테스트합니다. 포함: participants, moderator, max_rounds, speaker_selection, termination_keyword, initial_message, summary_agent."
+  es:
+    name: "Prueba de chat grupal"
+    description: "Prueba de la función de chat grupal: prueba el modo de conversación colaborativa multiagente. Incluye: participants, moderator, max_rounds, speaker_selection, termination_keyword, initial_message, summary_agent."
+  fr:
+    name: "Test de chat de groupe"
+    description: "Test de la fonctionnalité de chat de groupe - teste le mode de conversation collaborative multi-agent. Couvre : participants, moderator, max_rounds, speaker_selection, termination_keyword, initial_message, summary_agent."
+  de:
+    name: "Gruppenchat-Test"
+    description: "Test der Gruppenchat-Funktion - testet den kollaborativen Multi-Agenten-Konversationsmodus. Umfasst: participants, moderator, max_rounds, speaker_selection, termination_keyword, initial_message, summary_agent."
+  ar:
+    name: "اختبار الدردشة الجماعية"
+    description: "اختبار ميزة الدردشة الجماعية - يختبر وضع المحادثة التعاونية متعددة الوكلاء. يشمل: participants، moderator، max_rounds، speaker_selection، termination_keyword، initial_message، summary_agent."
+  pt:
+    name: "Teste de bate-papo em grupo"
+    description: "Teste do recurso de bate-papo em grupo - testa o modo de conversa colaborativa com vários agentes. Inclui: participants, moderator, max_rounds, speaker_selection, termination_keyword, initial_message, summary_agent."
+  vi:
+    name: "Kiểm thử trò chuyện nhóm"
+    description: "Kiểm thử tính năng trò chuyện nhóm - kiểm tra chế độ hội thoại cộng tác đa tác tử. Bao gồm: participants, moderator, max_rounds, speaker_selection, termination_keyword, initial_message, summary_agent."
 variables:
   topic: Optimizing the new-user registration flow
   output_dir: "./output"

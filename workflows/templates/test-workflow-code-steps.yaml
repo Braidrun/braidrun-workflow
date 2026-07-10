@@ -12,6 +12,40 @@ description: |
   Covers: language (python/javascript/bash), script (inline),
   script_file (external file), timeout, working_directory,
   environment variable injection (WF_VAR_/STEP_OUTPUT_/STEP_INPUTS)
+translations:
+  en:
+    name: "Workflow Code Steps Test"
+    description: "Deterministic code step feature test - tests the various languages and configurations of the Code step Covers: language (python/javascript/bash), script (inline), script_file (external file), timeout, working_directory, environment variable injection (WF_VAR_/STEP_OUTPUT_/STEP_INPUTS)"
+  zh:
+    name: "工作流代码步骤测试"
+    description: "确定性代码步骤功能测试 - 测试 Code 步骤的多种语言和配置。涵盖：language（python/javascript/bash）、script（inline）、script_file（external file）、timeout、working_directory、环境变量注入（WF_VAR_/STEP_OUTPUT_/STEP_INPUTS/）。"
+  zhHant:
+    name: "工作流代碼步驟測試"
+    description: "確定性代碼步驟功能測試 - 測試 Code 步驟的多種語言和設定。涵蓋：language（python/javascript/bash）、script（inline）、script_file（external file）、timeout、working_directory、環境變數注入（WF_VAR_/STEP_OUTPUT_/STEP_INPUTS/）。"
+  ja:
+    name: "ワークフローコードステップテスト"
+    description: "決定的なコードステップ機能のテスト - Code ステップのさまざまな言語と設定をテストします。対象：language（python/javascript/bash）、script（inline）、script_file（external file）、timeout、working_directory、環境変数の注入（WF_VAR_/STEP_OUTPUT_/STEP_INPUTS/）。"
+  ko:
+    name: "워크플로 코드 단계 테스트"
+    description: "결정적 코드 단계 기능 테스트 - Code 단계의 다양한 언어와 구성을 테스트합니다. 포함 항목: language（python/javascript/bash）, script（inline）, script_file（external file）, timeout, working_directory, 환경 변수 주입（WF_VAR_/STEP_OUTPUT_/STEP_INPUTS/）."
+  es:
+    name: "Prueba de pasos de código de flujo de trabajo"
+    description: "Prueba de la función de pasos de código deterministas: prueba los distintos lenguajes y configuraciones del paso Code. Cubre: language (python/javascript/bash), script (inline), script_file (external file), timeout, working_directory e inyección de variables de entorno (WF_VAR_/STEP_OUTPUT_/STEP_INPUTS/)."
+  fr:
+    name: "Test des étapes de code du workflow"
+    description: "Test de la fonctionnalité des étapes de code déterministes - teste les différents langages et configurations de l’étape Code. Couvre : language (python/javascript/bash), script (inline), script_file (external file), timeout, working_directory, et l’injection de variables d’environnement (WF_VAR_/STEP_OUTPUT_/STEP_INPUTS/)."
+  de:
+    name: "Workflow-Code-Schritte-Test"
+    description: "Test der deterministischen Code-Schritt-Funktion - testet die verschiedenen Sprachen und Konfigurationen des Schritts Code. Umfasst: language (python/javascript/bash), script (inline), script_file (external file), timeout, working_directory, Umgebungsvariablen-Injektion (WF_VAR_/STEP_OUTPUT_/STEP_INPUTS/)."
+  ar:
+    name: "اختبار خطوات كود سير العمل"
+    description: "اختبار ميزة خطوة الكود الحتمية - يختبر اللغات والإعدادات المختلفة لخطوة Code. يشمل: language (python/javascript/bash)، script (inline)، script_file (external file)، timeout، working_directory، وحقن متغيرات البيئة (WF_VAR_/STEP_OUTPUT_/STEP_INPUTS/)."
+  pt:
+    name: "Teste de etapas de código de fluxo de trabalho"
+    description: "Teste do recurso determinístico de etapa de código - testa os vários idiomas e configurações da etapa Code. Cobre: language (python/javascript/bash), script (inline), script_file (external file), timeout, working_directory e injeção de variáveis de ambiente (WF_VAR_/STEP_OUTPUT_/STEP_INPUTS/)."
+  vi:
+    name: "Kiểm thử các bước mã của quy trình làm việc"
+    description: "Kiểm thử tính năng bước mã mang tính quyết định - kiểm thử các ngôn ngữ và cấu hình khác nhau của bước Code. Bao gồm: language (python/javascript/bash), script (inline), script_file (external file), timeout, working_directory, và chèn biến môi trường (WF_VAR_/STEP_OUTPUT_/STEP_INPUTS/)."
 variables:
   project_name: CodeStepTest
   input_data: hello,world,foo,bar

@@ -1,6 +1,40 @@
 name: ticket-triage-state-machine
 version: 1.0.0
 description: Generic support ticket triage workflow.
+translations:
+  en:
+    name: "Support Ticket Triage"
+    description: "Generic support ticket triage workflow."
+  zh:
+    name: "支持工单分诊"
+    description: "通用支持工单分诊工作流。"
+  zhHant:
+    name: "支援工單分診"
+    description: "通用支援工單分診工作流程。"
+  ja:
+    name: "サポートチケットトリアージ"
+    description: "汎用サポートチケットトリアージワークフロー。"
+  ko:
+    name: "지원 티켓 분류"
+    description: "범용 지원 티켓 분류 워크플로입니다."
+  es:
+    name: "Clasificación de tickets de soporte"
+    description: "Workflow genérico de clasificación de tickets de soporte."
+  fr:
+    name: "Triage des tickets d’assistance"
+    description: "Workflow générique de triage des tickets d’assistance."
+  de:
+    name: "Support-Ticket-Triage"
+    description: "Allgemeiner Workflow zur Triage von Support-Tickets."
+  ar:
+    name: "فرز تذاكر الدعم"
+    description: "سير عمل عام لفرز تذاكر الدعم."
+  pt:
+    name: "Triagem de tickets de suporte"
+    description: "Workflow genérico de triagem de tickets de suporte."
+  vi:
+    name: "Phân loại phiếu hỗ trợ"
+    description: "Workflow phân loại phiếu hỗ trợ chung."
 tags:
   - support
   - triage

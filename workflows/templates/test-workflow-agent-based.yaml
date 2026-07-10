@@ -9,7 +9,41 @@ tags:
 description: |
   Agent-based orchestration feature test - tests the Orchestrator Agent dynamically delegating tasks
   Covers: orchestrator (preset + overrides), participants, goal,
-  max_steps、budget_tokens、timeout_seconds
+  max_steps, budget_tokens, timeout_seconds
+translations:
+  en:
+    name: "Workflow Agent-Based Test"
+    description: "Agent-based orchestration feature test - tests the Orchestrator Agent dynamically delegating tasks Covers: orchestrator (preset + overrides), participants, goal, max_steps, budget_tokens, timeout_seconds"
+  zh:
+    name: "工作流基于代理测试"
+    description: "基于代理的编排功能测试——测试 Orchestrator Agent 动态委派任务。涵盖：orchestrator（preset + overrides）、participants、goal、max_steps、budget_tokens、timeout_seconds"
+  zhHant:
+    name: "工作流程基於代理測試"
+    description: "基於代理的編排功能測試——測試 Orchestrator Agent 動態委派任務。涵蓋：orchestrator（preset + overrides）、participants、goal、max_steps、budget_tokens、timeout_seconds"
+  ja:
+    name: "ワークフローエージェントベーステスト"
+    description: "エージェントベースのオーケストレーション機能テスト—Orchestrator Agent がタスクを動的に委任する動作をテストします。対象: orchestrator (preset + overrides)、participants、goal、max_steps、budget_tokens、timeout_seconds"
+  ko:
+    name: "워크플로 에이전트 기반 테스트"
+    description: "에이전트 기반 오케스트레이션 기능 테스트 — Orchestrator Agent가 작업을 동적으로 위임하는 동작을 테스트합니다. 범위: orchestrator (preset + overrides), participants, goal, max_steps, budget_tokens, timeout_seconds"
+  es:
+    name: "Prueba de flujo de trabajo basada en agentes"
+    description: "Prueba de la función de orquestación basada en agentes: verifica que Orchestrator Agent delega tareas dinámicamente. Cubre: orchestrator (preset + overrides), participants, goal, max_steps, budget_tokens, timeout_seconds"
+  fr:
+    name: "Test de workflow basé sur un agent"
+    description: "Test de fonctionnalité d’orchestration basée sur des agents — vérifie qu’Orchestrator Agent délègue les tâches de manière dynamique. Couvre : orchestrator (preset + overrides), participants, goal, max_steps, budget_tokens, timeout_seconds"
+  de:
+    name: "Agentenbasierter Workflow-Test"
+    description: "Test der agentenbasierten Orchestrierungsfunktion — prüft, dass Orchestrator Agent Aufgaben dynamisch delegiert. Abgedeckt: orchestrator (preset + overrides), participants, goal, max_steps, budget_tokens, timeout_seconds"
+  ar:
+    name: "اختبار سير العمل القائم على الوكيل"
+    description: "اختبار ميزة التنسيق القائم على الوكيل — يختبر قيام Orchestrator Agent بتفويض المهام ديناميكيًا. يشمل: orchestrator (preset + overrides)، participants، goal، max_steps، budget_tokens، timeout_seconds"
+  pt:
+    name: "Teste de fluxo de trabalho baseado em agente"
+    description: "Teste de recurso de orquestração baseada em agente — verifica se Orchestrator Agent delega tarefas dinamicamente. Cobre: orchestrator (preset + overrides), participants, goal, max_steps, budget_tokens, timeout_seconds"
+  vi:
+    name: "Kiểm thử workflow dựa trên tác nhân"
+    description: "Kiểm thử tính năng điều phối dựa trên tác nhân — kiểm tra Orchestrator Agent phân công nhiệm vụ một cách động. Bao gồm: orchestrator (preset + overrides), participants, goal, max_steps, budget_tokens, timeout_seconds"
 variables:
   project_name: User Authentication Module
   output_dir: "./output"

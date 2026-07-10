@@ -2,6 +2,40 @@
 name: test-opengraph-fetcher
 version: 1.0.0
 description: Test opengraph-fetcher on github.com home (reliable OG tags).
+translations:
+  en:
+    name: "OpenGraph Fetcher Test"
+    description: "Test opengraph-fetcher on github.com home (reliable OG tags)."
+  zh:
+    name: "OpenGraph 抓取测试"
+    description: "在 github.com 首页测试 opengraph-fetcher（OG 标签稳定可靠）。"
+  zhHant:
+    name: "OpenGraph 擷取測試"
+    description: "在 github.com 首頁測試 opengraph-fetcher（OG 標籤穩定可靠）。"
+  ja:
+    name: "OpenGraph フェッチャー テスト"
+    description: "github.com のホームページで opengraph-fetcher をテストします（OG タグが安定して信頼できます）。"
+  ko:
+    name: "OpenGraph 가져오기 테스트"
+    description: "github.com 홈에서 opengraph-fetcher를 테스트합니다(OG 태그가 안정적임)."
+  es:
+    name: "Prueba de recuperación de OpenGraph"
+    description: "Prueba de opengraph-fetcher en la página principal de github.com (etiquetas OG confiables)."
+  fr:
+    name: "Test de récupération OpenGraph"
+    description: "Test de opengraph-fetcher sur la page d’accueil de github.com (balises OG fiables)."
+  de:
+    name: "OpenGraph-Abruf-Test"
+    description: "Test von opengraph-fetcher auf der Startseite von github.com (zuverlässige OG-Tags)."
+  ar:
+    name: "اختبار جلب OpenGraph"
+    description: "اختبار opengraph-fetcher على الصفحة الرئيسية لـ github.com (علامات OG موثوقة)."
+  pt:
+    name: "Teste de busca de OpenGraph"
+    description: "Teste de opengraph-fetcher na página inicial de github.com (tags OG confiáveis)."
+  vi:
+    name: "Kiểm thử OpenGraph Fetcher"
+    description: "Kiểm thử opengraph-fetcher trên trang chủ github.com (thẻ OG đáng tin cậy)."
 tags:
   - code
   - extract

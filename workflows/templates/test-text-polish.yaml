@@ -2,6 +2,40 @@
 name: test-text-polish
 version: 1.0.0
 description: Test utility-module-text-polish (LLM, needs OPENROUTER_API_KEY).
+translations:
+  en:
+    name: "Text Polish Test"
+    description: "Test utility-module-text-polish (LLM, needs OPENROUTER_API_KEY)."
+  zh:
+    name: "文本润色测试"
+    description: "测试 utility-module-text-polish（LLM，需要 OPENROUTER_API_KEY）。"
+  zhHant:
+    name: "文字潤飾測試"
+    description: "測試 utility-module-text-polish（LLM，需要 OPENROUTER_API_KEY）。"
+  ja:
+    name: "テキスト校正テスト"
+    description: "utility-module-text-polish をテストします（LLM、OPENROUTER_API_KEY が必要）。"
+  ko:
+    name: "텍스트 다듬기 테스트"
+    description: "utility-module-text-polish를 테스트합니다(LLM, OPENROUTER_API_KEY 필요)."
+  es:
+    name: "Prueba de pulido de texto"
+    description: "Prueba utility-module-text-polish (LLM, requiere OPENROUTER_API_KEY)."
+  fr:
+    name: "Test de peaufinage de texte"
+    description: "Teste utility-module-text-polish (LLM, nécessite OPENROUTER_API_KEY)."
+  de:
+    name: "Text-Politur-Test"
+    description: "Testet utility-module-text-polish (LLM, benötigt OPENROUTER_API_KEY)."
+  ar:
+    name: "اختبار تنقيح النص"
+    description: "اختبار utility-module-text-polish (LLM، يتطلب OPENROUTER_API_KEY)."
+  pt:
+    name: "Teste de refinamento de texto"
+    description: "Testa utility-module-text-polish (LLM, requer OPENROUTER_API_KEY)."
+  vi:
+    name: "Kiểm thử trau chuốt văn bản"
+    description: "Kiểm thử utility-module-text-polish (LLM, cần OPENROUTER_API_KEY)."
 tags:
   - code
   - extract

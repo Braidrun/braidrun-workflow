@@ -11,6 +11,40 @@ description: |
 
   Expects overall_state=down, healthy_count=1, down_count=2.
 
+translations:
+  en:
+    name: "Webhook Health Check Test"
+    description: "Test harness for utility-module-webhook-health-check. Probes 3 targets: - httpbin.org/status/200 → healthy - httpbin.org/status/500 → down - httpbin.org/status/503 → down Expects overall_state=down, healthy_count=1, down_count=2."
+  zh:
+    name: "Webhook 健康检查测试"
+    description: "utility-module-webhook-health-check 的测试框架。探测 3 个目标：- httpbin.org/status/200 → healthy - httpbin.org/status/500 → down - httpbin.org/status/503 → down 期望 overall_state=down、healthy_count=1、down_count=2。"
+  zhHant:
+    name: "Webhook 健康檢查測試"
+    description: "utility-module-webhook-health-check 的測試框架。探測 3 個目標：- httpbin.org/status/200 → healthy - httpbin.org/status/500 → down - httpbin.org/status/503 → down 預期 overall_state=down、healthy_count=1、down_count=2。"
+  ja:
+    name: "Webhook ヘルスチェックテスト"
+    description: "utility-module-webhook-health-check のテストハーネス。3 つの対象をプローブします: - httpbin.org/status/200 → healthy - httpbin.org/status/500 → down - httpbin.org/status/503 → down。overall_state=down、healthy_count=1、down_count=2 を期待します。"
+  ko:
+    name: "Webhook 상태 점검 테스트"
+    description: "utility-module-webhook-health-check용 테스트 하네스입니다. 3개 대상을 검사합니다: - httpbin.org/status/200 → healthy - httpbin.org/status/500 → down - httpbin.org/status/503 → down. overall_state=down, healthy_count=1, down_count=2를 기대합니다."
+  es:
+    name: "Prueba de estado de webhook"
+    description: "Banco de pruebas para utility-module-webhook-health-check. Sondea 3 objetivos: - httpbin.org/status/200 → healthy - httpbin.org/status/500 → down - httpbin.org/status/503 → down. Se espera overall_state=down, healthy_count=1, down_count=2."
+  fr:
+    name: "Test de santé de webhook"
+    description: "Harness de test pour utility-module-webhook-health-check. Sonde 3 cibles : - httpbin.org/status/200 → healthy - httpbin.org/status/500 → down - httpbin.org/status/503 → down. Attend overall_state=down, healthy_count=1, down_count=2."
+  de:
+    name: "Webhook-Gesundheitscheck-Test"
+    description: "Test-Harness für utility-module-webhook-health-check. Prüft 3 Ziele: - httpbin.org/status/200 → healthy - httpbin.org/status/500 → down - httpbin.org/status/503 → down. Erwartet overall_state=down, healthy_count=1, down_count=2."
+  ar:
+    name: "اختبار فحص صحة Webhook"
+    description: "إطار اختبار لـ utility-module-webhook-health-check. يفحص 3 أهداف: - httpbin.org/status/200 → healthy - httpbin.org/status/500 → down - httpbin.org/status/503 → down. يتوقع overall_state=down و healthy_count=1 و down_count=2."
+  pt:
+    name: "Teste de integridade de webhook"
+    description: "Estrutura de teste para utility-module-webhook-health-check. Faz sondagem de 3 alvos: - httpbin.org/status/200 → healthy - httpbin.org/status/500 → down - httpbin.org/status/503 → down. Espera overall_state=down, healthy_count=1, down_count=2."
+  vi:
+    name: "Kiểm thử tình trạng webhook"
+    description: "Bộ kiểm thử cho utility-module-webhook-health-check. Thăm dò 3 mục tiêu: - httpbin.org/status/200 → healthy - httpbin.org/status/500 → down - httpbin.org/status/503 → down. Kỳ vọng overall_state=down, healthy_count=1, down_count=2."
 tags:
   - code
   - extract

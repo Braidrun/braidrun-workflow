@@ -2,6 +2,40 @@
 name: test-pdf-text-extractor
 version: 1.0.0
 description: Test pdf-text-extractor — generate a small PDF then extract text.
+translations:
+  en:
+    name: "PDF Text Extractor Test"
+    description: "Test pdf-text-extractor — generate a small PDF then extract text."
+  zh:
+    name: "PDF 文本提取测试"
+    description: "测试 pdf-text-extractor——先生成一个小型 PDF，然后提取文本。"
+  zhHant:
+    name: "PDF 文字擷取測試"
+    description: "測試 pdf-text-extractor——先產生一個小型 PDF，然後擷取文字。"
+  ja:
+    name: "PDF テキスト抽出テスト"
+    description: "pdf-text-extractor のテスト — 小さな PDF を生成してからテキストを抽出します。"
+  ko:
+    name: "PDF 텍스트 추출 테스트"
+    description: "pdf-text-extractor 테스트 — 작은 PDF를 생성한 다음 텍스트를 추출합니다."
+  es:
+    name: "Prueba de extractor de texto PDF"
+    description: "Prueba de pdf-text-extractor: genera un PDF pequeño y luego extrae el texto."
+  fr:
+    name: "Test d’extracteur de texte PDF"
+    description: "Test de pdf-text-extractor — génère un petit PDF puis extrait le texte."
+  de:
+    name: "PDF-Textextraktor-Test"
+    description: "Test von pdf-text-extractor — erzeugt zuerst ein kleines PDF und extrahiert dann den Text."
+  ar:
+    name: "اختبار مستخرج نص PDF"
+    description: "اختبار pdf-text-extractor — أنشئ ملف PDF صغيرًا ثم استخرج النص."
+  pt:
+    name: "Teste de extrator de texto PDF"
+    description: "Teste de pdf-text-extractor — gera um PDF pequeno e depois extrai o texto."
+  vi:
+    name: "Kiểm thử trích xuất văn bản PDF"
+    description: "Kiểm thử pdf-text-extractor — tạo một PDF nhỏ rồi trích xuất văn bản."
 tags:
   - code
   - extract

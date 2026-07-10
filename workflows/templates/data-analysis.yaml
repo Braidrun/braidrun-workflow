@@ -1,6 +1,40 @@
 name: data-analysis
 version: 1.0.0
 description: Generic data analysis workflow for a local CSV file.
+translations:
+  en:
+    name: "Data Analysis"
+    description: "Generic data analysis workflow for a local CSV file."
+  zh:
+    name: "数据分析"
+    description: "用于本地 CSV 文件的通用数据分析工作流。"
+  zhHant:
+    name: "資料分析"
+    description: "用於本機 CSV 檔案的通用資料分析工作流程。"
+  ja:
+    name: "データ分析"
+    description: "ローカル CSV ファイル向けの汎用データ分析ワークフロー。"
+  ko:
+    name: "데이터 분석"
+    description: "로컬 CSV 파일을 위한 범용 데이터 분석 워크플로입니다."
+  es:
+    name: "Análisis de datos"
+    description: "Workflow genérico de análisis de datos para un archivo CSV local."
+  fr:
+    name: "Analyse de données"
+    description: "Workflow générique d’analyse de données pour un fichier CSV local."
+  de:
+    name: "Datenanalyse"
+    description: "Allgemeiner Datenanalyse-Workflow für eine lokale CSV-Datei."
+  ar:
+    name: "تحليل البيانات"
+    description: "سير عمل عام لتحليل البيانات في ملف CSV محلي."
+  pt:
+    name: "Análise de dados"
+    description: "Workflow genérico de análise de dados para um arquivo CSV local."
+  vi:
+    name: "Phân tích dữ liệu"
+    description: "Workflow phân tích dữ liệu chung cho tệp CSV cục bộ."
 tags:
   - data
   - analysis

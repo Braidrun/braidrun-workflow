@@ -7,6 +7,40 @@ description: |
   Exercises both mustache and python_format syntaxes, including nested key
   resolution and missing-variable handling.
 
+translations:
+  en:
+    name: "Template Renderer Test"
+    description: "Test harness for utility-module-template-renderer. Exercises both mustache and python_format syntaxes, including nested key resolution and missing-variable handling."
+  zh:
+    name: "模板渲染器测试"
+    description: "utility-module-template-renderer 的测试框架。覆盖 mustache 和 python_format 语法，包括嵌套键解析和缺失变量处理。"
+  zhHant:
+    name: "模板轉譯器測試"
+    description: "utility-module-template-renderer 的測試框架。涵蓋 mustache 和 python_format 語法，包括巢狀鍵解析和缺失變數處理。"
+  ja:
+    name: "テンプレートレンダラーテスト"
+    description: "utility-module-template-renderer のテストハーネスです。mustache と python_format の両方の構文を検証し、ネストしたキー解決と未定義変数の処理も含みます。"
+  ko:
+    name: "템플릿 렌더러 테스트"
+    description: "utility-module-template-renderer용 테스트 하니스입니다. mustache와 python_format 구문을 모두 검증하며, 중첩 키 해석과 누락 변수 처리도 포함합니다."
+  es:
+    name: "Prueba de renderizador de plantillas"
+    description: "Banco de pruebas para utility-module-template-renderer. Exercita las sintaxis mustache y python_format, incluida la resolución de claves anidadas y el manejo de variables faltantes."
+  fr:
+    name: "Test du rendu de modèles"
+    description: "Banc d’essai pour utility-module-template-renderer. Il couvre les syntaxes mustache et python_format, y compris la résolution des clés imbriquées et la gestion des variables manquantes."
+  de:
+    name: "Template-Renderer-Test"
+    description: "Test-Harness für utility-module-template-renderer. Prüft sowohl mustache- als auch python_format-Syntax, einschließlich der Auflösung verschachtelter Schlüssel und des Umgangs mit fehlenden Variablen."
+  ar:
+    name: "اختبار عرض القالب"
+    description: "بيئة اختبار لـ utility-module-template-renderer. تغطي صياغتي mustache وpython_format، بما في ذلك حل المفاتيح المتداخلة والتعامل مع المتغيرات المفقودة."
+  pt:
+    name: "Teste de renderizador de template"
+    description: "Banco de testes para utility-module-template-renderer. Exercita as sintaxes mustache e python_format, incluindo resolução de chaves aninhadas e tratamento de variáveis ausentes."
+  vi:
+    name: "Kiểm thử bộ hiển thị mẫu"
+    description: "Bộ kiểm thử cho utility-module-template-renderer. Kiểm tra cả cú pháp mustache và python_format, bao gồm phân giải khóa lồng nhau và xử lý biến thiếu."
 tags:
   - code
   - extract

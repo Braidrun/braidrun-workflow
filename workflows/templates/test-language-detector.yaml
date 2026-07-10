@@ -2,6 +2,40 @@
 name: test-language-detector
 version: 1.0.0
 description: Test utility-module-language-detector (LLM, needs OPENROUTER_API_KEY).
+translations:
+  en:
+    name: "Language Detector Test"
+    description: "Test utility-module-language-detector (LLM, needs OPENROUTER_API_KEY)."
+  zh:
+    name: "语言检测器测试"
+    description: "测试 utility-module-language-detector（LLM，需要 OPENROUTER_API_KEY）。"
+  zhHant:
+    name: "語言偵測器測試"
+    description: "測試 utility-module-language-detector（LLM，需要 OPENROUTER_API_KEY）。"
+  ja:
+    name: "言語検出器テスト"
+    description: "utility-module-language-detector（LLM、OPENROUTER_API_KEY が必要）をテストします。"
+  ko:
+    name: "언어 감지기 테스트"
+    description: "utility-module-language-detector(LLM, OPENROUTER_API_KEY 필요)를 테스트합니다."
+  es:
+    name: "Prueba de detector de idioma"
+    description: "Prueba utility-module-language-detector (LLM, requiere OPENROUTER_API_KEY)."
+  fr:
+    name: "Test de détecteur de langue"
+    description: "Teste utility-module-language-detector (LLM, nécessite OPENROUTER_API_KEY)."
+  de:
+    name: "Spracherkennung Test"
+    description: "Testet utility-module-language-detector (LLM, benötigt OPENROUTER_API_KEY)."
+  ar:
+    name: "اختبار كاشف اللغة"
+    description: "اختبار utility-module-language-detector (LLM، يتطلب OPENROUTER_API_KEY)."
+  pt:
+    name: "Teste de detector de idioma"
+    description: "Testa utility-module-language-detector (LLM, requer OPENROUTER_API_KEY)."
+  vi:
+    name: "Kiểm thử bộ phát hiện ngôn ngữ"
+    description: "Kiểm thử utility-module-language-detector (LLM, cần OPENROUTER_API_KEY)."
 tags:
   - code
   - extract

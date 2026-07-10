@@ -5,6 +5,40 @@ tags:
 - test
 - variable-system
 description: Variable and template-substitution test - pass variables via CLI -v and reference step outputs through templates
+translations:
+  en:
+    name: "Variables and Template Substitution Test"
+    description: "Variable and template-substitution test - pass variables via CLI -v and reference step outputs through templates"
+  zh:
+    name: "变量和模板替换测试"
+    description: "变量和模板替换测试 - 通过 CLI -v 传递变量，并通过模板引用步骤输出"
+  zhHant:
+    name: "變數和範本替換測試"
+    description: "變數和範本替換測試 - 透過 CLI -v 傳遞變數，並透過範本參照步驟輸出"
+  ja:
+    name: "変数とテンプレート置換テスト"
+    description: "変数とテンプレート置換のテスト - CLI -v で変数を渡し、テンプレート経由でステップ出力を参照"
+  ko:
+    name: "변수 및 템플릿 치환 테스트"
+    description: "변수 및 템플릿 치환 테스트 - CLI -v로 변수를 전달하고 템플릿을 통해 단계 출력을 참조"
+  es:
+    name: "Prueba de variables y sustitución de plantillas"
+    description: "Prueba de variables y sustitución de plantillas: pasa variables mediante CLI -v y referencia las salidas de los pasos mediante plantillas"
+  fr:
+    name: "Test des variables et de la substitution de modèles"
+    description: "Test des variables et de la substitution de modèles - transmet des variables via CLI -v et référence les sorties des étapes via des modèles"
+  de:
+    name: "Variablen- und Vorlagenersetzungs-Test"
+    description: "Test für Variablen und Vorlagenersetzung - Variablen über CLI -v übergeben und Schritt-Ausgaben über Vorlagen referenzieren"
+  ar:
+    name: "اختبار المتغيرات واستبدال القوالب"
+    description: "اختبار المتغيرات واستبدال القوالب - مرِّر المتغيرات عبر CLI -v وارجع إلى مخرجات الخطوات عبر القوالب"
+  pt:
+    name: "Teste de variáveis e substituição de modelos"
+    description: "Teste de variáveis e substituição de modelos - passe variáveis via CLI -v e referencie as saídas das etapas por meio de modelos"
+  vi:
+    name: "Kiểm thử biến và thay thế mẫu"
+    description: "Kiểm thử biến và thay thế mẫu - truyền biến qua CLI -v và tham chiếu đầu ra bước thông qua mẫu"
 variables:
   greeting: Hello
   target: World
@@ -35,7 +69,7 @@ workflow:
     Create a file called ./output/greeting.txt with exactly this content: "{{var:greeting}}, {{var:target}}!"
     Do not add any extra text. Then call exit.
 
-    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/write_greeting.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/write_greeting.md.
 - step: transform
   agent: helper
   depends_on:
@@ -45,7 +79,7 @@ workflow:
     that contains the original content converted to UPPERCASE.
     Then call exit.
 
-    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/transform.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/transform.md.
 error_handling:
   max_retries: 2
   retry_delay: 3s

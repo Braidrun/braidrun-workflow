@@ -11,8 +11,42 @@ tags:
 description: |
   Dynamic list iteration feature test - tests various configurations of the iterate_over step
   Covers: source (variable/step output), delimiter (newline/comma/json_array),
-  item_variable、index_variable、max_items、parallel、
-  max_parallel、results_variable
+  item_variable, index_variable, max_items, parallel,
+  max_parallel, results_variable
+translations:
+  en:
+    name: "Iterate Over Test"
+    description: "Dynamic list iteration feature test - tests various configurations of the iterate_over step Covers: source (variable/step output), delimiter (newline/comma/json_array), item_variable, index_variable, max_items, parallel, max_parallel, results_variable"
+  zh:
+    name: "遍历测试"
+    description: "动态列表遍历功能测试——测试 iterate_over 步骤的各种配置。涵盖：source（variable/step output）、delimiter（newline/comma/json_array）、item_variable、index_variable、max_items、parallel、max_parallel、results_variable。"
+  zhHant:
+    name: "遍歷測試"
+    description: "動態清單迭代功能測試——測試 iterate_over 步驟的各種設定。涵蓋：source（variable/step output）、delimiter（newline/comma/json_array）、item_variable、index_variable、max_items、parallel、max_parallel、results_variable。"
+  ja:
+    name: "繰り返しテスト"
+    description: "動的リスト反復機能テスト - iterate_over ステップのさまざまな設定をテストします。対象: source（variable/step output）、delimiter（newline/comma/json_array）、item_variable、index_variable、max_items、parallel、max_parallel、results_variable。"
+  ko:
+    name: "반복 테스트"
+    description: "동적 목록 반복 기능 테스트 - iterate_over 단계의 다양한 구성을 테스트합니다. 포함: source(variable/step output), delimiter(newline/comma/json_array), item_variable, index_variable, max_items, parallel, max_parallel, results_variable."
+  es:
+    name: "Prueba de iteración"
+    description: "Prueba de la función de iteración de listas dinámicas: prueba varias configuraciones del paso iterate_over. Incluye: source (variable/step output), delimiter (newline/comma/json_array), item_variable, index_variable, max_items, parallel, max_parallel, results_variable."
+  fr:
+    name: "Test d’itération"
+    description: "Test de la fonctionnalité d’itération de liste dynamique - teste diverses configurations de l’étape iterate_over. Couvre : source (variable/step output), delimiter (newline/comma/json_array), item_variable, index_variable, max_items, parallel, max_parallel, results_variable."
+  de:
+    name: "Über Testen"
+    description: "Test der dynamischen Listeniteration - prüft verschiedene Konfigurationen des Schritts iterate_over. Abgedeckt: source (variable/step output), delimiter (newline/comma/json_array), item_variable, index_variable, max_items, parallel, max_parallel, results_variable."
+  ar:
+    name: "اختبار التكرار"
+    description: "اختبار ميزة تكرار القوائم الديناميكية - يختبر إعدادات متنوعة لخطوة iterate_over. يشمل: source (variable/step output)، delimiter (newline/comma/json_array)، item_variable، index_variable، max_items، parallel، max_parallel، results_variable."
+  pt:
+    name: "Teste de iteração"
+    description: "Teste do recurso de iteração de lista dinâmica - testa várias configurações da etapa iterate_over. Inclui: source (variable/step output), delimiter (newline/comma/json_array), item_variable, index_variable, max_items, parallel, max_parallel, results_variable."
+  vi:
+    name: "Kiểm thử lặp qua"
+    description: "Kiểm thử tính năng lặp danh sách động - kiểm tra nhiều cấu hình của bước iterate_over. Bao gồm: source (variable/step output), delimiter (newline/comma/json_array), item_variable, index_variable, max_items, parallel, max_parallel, results_variable."
 variables:
   task_list: Design the login page, implement user registration, write unit tests, deploy to the test environment
   output_dir: "./output"
@@ -73,7 +107,7 @@ workflow:
     Handle task #{{var:task_index}}: {{var:task_item}}
     Output an execution plan for this task (a single paragraph is fine).
 
-    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/process_tasks_serial.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/process_tasks_serial.md.
   iterate_over:
     source: "{{var:task_list}}"
     delimiter: ","
@@ -89,14 +123,14 @@ workflow:
     {{var:serial_results}}
     Output one check item per line, in the format: check-item name
 
-    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/generate_checklist.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/generate_checklist.md.
 - step: parallel_check
   agent: processor
   input: |-
     Execute quality-check item #{{var:check_index}}: {{var:check_item}}
     Output the check result: pass or fail, with the reason.
 
-    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/parallel_check.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/parallel_check.md.
   iterate_over:
     source: "{{steps.generate_checklist.output}}"
     delimiter: "\n"

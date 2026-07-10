@@ -2,6 +2,40 @@
 name: test-image-metadata-extractor
 version: 1.0.0
 description: Test image-metadata-extractor — generate a small JPEG and verify width/height.
+translations:
+  en:
+    name: "Image Metadata Extractor Test"
+    description: "Test image-metadata-extractor — generate a small JPEG and verify width/height."
+  zh:
+    name: "图像元数据提取器测试"
+    description: "测试 image-metadata-extractor — 生成一个小型 JPEG 并验证宽度/高度。"
+  zhHant:
+    name: "圖像元數據提取器測試"
+    description: "測試 image-metadata-extractor — 生成一個小型 JPEG 並驗證寬度/高度。"
+  ja:
+    name: "画像メタデータ抽出テスト"
+    description: "image-metadata-extractor のテスト — 小さな JPEG を生成し、幅/高さを検証します。"
+  ko:
+    name: "이미지 메타데이터 추출기 테스트"
+    description: "image-metadata-extractor 테스트 — 작은 JPEG를 생성하고 width/height를 검증합니다."
+  es:
+    name: "Test de extractor de metadatos de imagen"
+    description: "Prueba de image-metadata-extractor — genera un JPEG pequeño y verifica width/height."
+  fr:
+    name: "Test d’extracteur de métadonnées d’image"
+    description: "Test de image-metadata-extractor — génère un petit JPEG et vérifie width/height."
+  de:
+    name: "Bildmetadaten-Extraktor-Test"
+    description: "Test für image-metadata-extractor — erzeugt ein kleines JPEG und prüft width/height."
+  ar:
+    name: "اختبار مستخرج بيانات صورة"
+    description: "اختبار image-metadata-extractor — ينشئ JPEG صغيرًا ويتحقق من width/height."
+  pt:
+    name: "Teste de extrator de metadados de imagem"
+    description: "Teste de image-metadata-extractor — gera um JPEG pequeno e verifica width/height."
+  vi:
+    name: "Kiểm thử bộ trích xuất siêu dữ liệu ảnh"
+    description: "Kiểm thử image-metadata-extractor — tạo một JPEG nhỏ và xác minh width/height."
 tags:
   - code
   - extract

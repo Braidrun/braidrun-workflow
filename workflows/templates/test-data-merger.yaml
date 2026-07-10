@@ -2,6 +2,40 @@
 name: test-data-merger
 version: 1.0.0
 description: Test data-merger LEFT JOIN users + orders on id = user_id.
+translations:
+  en:
+    name: "Data Merger Test"
+    description: "Test data-merger LEFT JOIN users + orders on id = user_id."
+  zh:
+    name: "数据合并测试"
+    description: "测试 data-merger 对用户和订单按 id = user_id 执行 LEFT JOIN。"
+  zhHant:
+    name: "資料合併測試"
+    description: "測試 data-merger 針對使用者與訂單依 id = user_id 執行 LEFT JOIN。"
+  ja:
+    name: "データマージャーテスト"
+    description: "data-merger の users と orders を id = user_id で LEFT JOIN するテスト。"
+  ko:
+    name: "데이터 병합 테스트"
+    description: "data-merger가 users와 orders를 id = user_id로 LEFT JOIN하는지 테스트합니다."
+  es:
+    name: "Prueba de combinación de datos"
+    description: "Prueba de data-merger: LEFT JOIN de users y orders por id = user_id."
+  fr:
+    name: "Test de fusion de données"
+    description: "Test de data-merger : LEFT JOIN de users et orders sur id = user_id."
+  de:
+    name: "Datenzusammenführungs-Test"
+    description: "Test von data-merger: LEFT JOIN von users und orders über id = user_id."
+  ar:
+    name: "اختبار دمج البيانات"
+    description: "اختبار data-merger: تنفيذ LEFT JOIN بين users وorders على id = user_id."
+  pt:
+    name: "Teste de mesclagem de dados"
+    description: "Teste de data-merger: LEFT JOIN de users e orders em id = user_id."
+  vi:
+    name: "Kiểm thử gộp dữ liệu"
+    description: "Kiểm thử data-merger: LEFT JOIN users và orders theo id = user_id."
 tags:
   - code
   - extract

@@ -5,6 +5,40 @@ tags:
 - test
 - multi-preset
 description: Multi-preset collaboration test - use different agent presets to complete a task together
+translations:
+  en:
+    name: "Multi-Preset Collaboration Test"
+    description: "Multi-preset collaboration test - use different agent presets to complete a task together"
+  zh:
+    name: "多预设协作测试"
+    description: "多预设协作测试 - 使用不同的代理预设共同完成任务"
+  zhHant:
+    name: "多預設協作測試"
+    description: "多預設協作測試 - 使用不同的代理預設共同完成任務"
+  ja:
+    name: "マルチプリセット協調 テスト"
+    description: "マルチプリセット協調テスト - さまざまなエージェントプリセットを使用して一緒にタスクを完了します"
+  ko:
+    name: "다중 프리셋 협업 테스트"
+    description: "다중 프리셋 협업 테스트 - 서로 다른 에이전트 프리셋을 사용해 함께 작업을 완료합니다"
+  es:
+    name: "Prueba de colaboración de múltiples preajustes"
+    description: "Prueba de colaboración de múltiples preajustes: usa distintos preajustes de agente para completar una tarea en conjunto"
+  fr:
+    name: "Test de collaboration multi-préréglage"
+    description: "Test de collaboration multi-préréglage : utilisez différents préréglages d’agent pour terminer une tâche ensemble"
+  de:
+    name: "Zusammenarbeits-Test mit mehreren Presets"
+    description: "Zusammenarbeits-Test mit mehreren Presets - verwendet verschiedene Agenten-Presets, um eine Aufgabe gemeinsam zu erledigen"
+  ar:
+    name: "اختبار تعاون متعدد الإعدادات المسبقة"
+    description: "اختبار تعاون متعدد الإعدادات المسبقة - استخدم إعدادات وكيل مسبقة مختلفة لإكمال مهمة معًا"
+  pt:
+    name: "Teste de colaboração com vários predefinições"
+    description: "Teste de colaboração com vários predefinições - usa diferentes predefinições de agente para concluir uma tarefa em conjunto"
+  vi:
+    name: "Kiểm thử cộng tác nhiều cấu hình sẵn"
+    description: "Kiểm thử cộng tác nhiều cấu hình sẵn - dùng các cấu hình sẵn tác nhân khác nhau để cùng hoàn thành một tác vụ"
 variables:
   topic: Trends in cloud computing technology
   output_dir: "./output"
@@ -69,7 +103,7 @@ workflow:
     Create the output directory if it doesn't exist.
     Call exit when done.
 
-    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/research.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/research.md.
 - step: analyze
   agent: analyst
   depends_on:
@@ -81,7 +115,7 @@ workflow:
     Write your analysis to {{output_dir}}/analysis.txt.
     Call exit when done.
 
-    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/analyze.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/analyze.md.
 - step: report
   agent: writer
   depends_on:
@@ -93,7 +127,7 @@ workflow:
     Save the report to {{output_dir}}/final_report.txt.
     Call exit when done.
 
-    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/report.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/report.md.
 error_handling:
   max_retries: 2
   retry_delay: 3s

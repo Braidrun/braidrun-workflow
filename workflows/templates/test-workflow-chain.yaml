@@ -5,6 +5,40 @@ tags:
 - test
 - basic-chaining
 description: Multi-step chained workflow - steps pass data through files, testing the dependency chain and priorities
+translations:
+  en:
+    name: "Workflow Chain Test"
+    description: "Multi-step chained workflow - steps pass data through files, testing the dependency chain and priorities"
+  zh:
+    name: "工作流链式测试"
+    description: "多步骤链式工作流——步骤通过文件传递数据，测试依赖链和优先级。"
+  zhHant:
+    name: "工作流程鏈式測試"
+    description: "多步驟鏈式工作流程——步驟透過檔案傳遞資料，測試依賴鏈和優先級。"
+  ja:
+    name: "ワークフロー連鎖テスト"
+    description: "複数ステップの連鎖ワークフロー—ステップはファイルを介してデータを受け渡し、依存関係の連鎖と優先順位をテストします。"
+  ko:
+    name: "워크플로 체인 테스트"
+    description: "다단계 체인형 워크플로 — 단계가 파일을 통해 데이터를 전달하며, 의존성 체인과 우선순위를 테스트합니다."
+  es:
+    name: "Prueba de cadena de flujo de trabajo"
+    description: "Flujo de trabajo encadenado de varios pasos: los pasos pasan datos a través de archivos y prueban la cadena de dependencias y las prioridades."
+  fr:
+    name: "Test de chaîne de workflow"
+    description: "Workflow chaîné en plusieurs étapes — les étapes transmettent des données via des fichiers, en testant la chaîne de dépendances et les priorités."
+  de:
+    name: "Workflow-Ketten-Test"
+    description: "Mehrstufiger verketteter Workflow — Schritte geben Daten über Dateien weiter und testen die Abhängigkeitskette sowie Prioritäten."
+  ar:
+    name: "اختبار سلسلة سير العمل"
+    description: "سير عمل متسلسل متعدد الخطوات — تمرر الخطوات البيانات عبر الملفات، مع اختبار سلسلة الاعتماد والأولويات."
+  pt:
+    name: "Teste de cadeia de fluxo de trabalho"
+    description: "Fluxo de trabalho encadeado em عدة etapas — as etapas passam dados por meio de arquivos, testando a cadeia de dependências e as prioridades."
+  vi:
+    name: "Kiểm thử chuỗi workflow"
+    description: "Workflow chuỗi nhiều bước — các bước truyền dữ liệu qua tệp, kiểm tra chuỗi phụ thuộc và mức ưu tiên."
 variables:
   project_name: TestProject
   output_dir: "./output/test-workflow-chain"
@@ -37,7 +71,7 @@ workflow:
     {"project": "{{var:project_name}}", "steps_completed": []}
     Then call exit.
 
-    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/init.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/init.md.
 - step: step_a
   agent: worker
   depends_on:
@@ -49,7 +83,7 @@ workflow:
     Also create ./output/step_a.txt with content "Step A done".
     Then call exit.
 
-    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/step_a.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/step_a.md.
 - step: step_b
   agent: worker
   depends_on:
@@ -61,7 +95,7 @@ workflow:
     Also create ./output/step_b.txt with content "Step B done".
     Then call exit.
 
-    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/step_b.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/step_b.md.
 - step: finalize
   agent: worker
   depends_on:
@@ -75,7 +109,7 @@ workflow:
     - List of all files in the output directory
     Then call exit.
 
-    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/finalize.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/finalize.md.
 error_handling:
   max_retries: 2
   retry_delay: 3s

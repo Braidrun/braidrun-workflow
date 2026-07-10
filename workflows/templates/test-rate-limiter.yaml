@@ -2,6 +2,40 @@
 name: test-rate-limiter
 version: 1.0.0
 description: Test rate-limiter — 3 calls on a limit-of-2 window should have 1 rejected.
+translations:
+  en:
+    name: "Rate Limiter Test"
+    description: "Test rate-limiter — 3 calls on a limit-of-2 window should have 1 rejected."
+  zh:
+    name: "速率限制器测试"
+    description: "测试 rate-limiter——在限制为 2 的窗口内调用 3 次，应拒绝 1 次。"
+  zhHant:
+    name: "速率限制器測試"
+    description: "測試 rate-limiter——在限制為 2 的視窗內呼叫 3 次，應拒絕 1 次。"
+  ja:
+    name: "レート制限テスト"
+    description: "rate-limiter をテストする。制限 2 のウィンドウで 3 回呼び出すと、1 回は拒否される。"
+  ko:
+    name: "레이트 리미터 테스트"
+    description: "rate-limiter 테스트 — 제한 2인 창에서 3번 호출하면 1번은 거부되어야 한다."
+  es:
+    name: "Prueba de limitador de velocidad"
+    description: "Prueba de rate-limiter: 3 llamadas en una ventana con límite de 2 deben tener 1 rechazada."
+  fr:
+    name: "Test du limiteur de débit"
+    description: "Test de rate-limiter — 3 appels dans une fenêtre limitée à 2 doivent en rejeter 1."
+  de:
+    name: "Rate-Limiter Test"
+    description: "Test von rate-limiter — bei 3 Aufrufen in einem Fenster mit Limit 2 muss 1 Aufruf abgelehnt werden."
+  ar:
+    name: "اختبار محدِّد المعدّل"
+    description: "اختبار rate-limiter — يجب أن تؤدي 3 استدعاءات ضمن نافذة حدّها 2 إلى رفض 1."
+  pt:
+    name: "Teste de limitador de taxa"
+    description: "Teste de rate-limiter — 3 chamadas em uma janela com limite de 2 devem ter 1 rejeitada."
+  vi:
+    name: "Kiểm thử bộ giới hạn tốc độ"
+    description: "Kiểm thử rate-limiter — 3 lần gọi trong một cửa sổ giới hạn 2 phải có 1 lần bị từ chối."
 tags:
   - code
   - extract

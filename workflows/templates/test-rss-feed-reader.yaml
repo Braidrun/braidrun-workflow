@@ -2,6 +2,40 @@
 name: test-rss-feed-reader
 version: 1.0.0
 description: Test rss-feed-reader on NYT world RSS (stable).
+translations:
+  en:
+    name: "RSS Feed Reader Test"
+    description: "Test rss-feed-reader on NYT world RSS (stable)."
+  zh:
+    name: "RSS Feed Reader 测试"
+    description: "在 NYT world RSS（稳定版）上测试 rss-feed-reader。"
+  zhHant:
+    name: "RSS Feed Reader 測試"
+    description: "在 NYT world RSS（穩定版）上測試 rss-feed-reader。"
+  ja:
+    name: "RSS フィードリーダーテスト"
+    description: "NYT world RSS（stable）で rss-feed-reader をテストします。"
+  ko:
+    name: "RSS 피드 리더 테스트"
+    description: "NYT world RSS(stable)에서 rss-feed-reader를 테스트합니다."
+  es:
+    name: "Prueba de lector de RSS"
+    description: "Prueba de rss-feed-reader en NYT world RSS (stable)."
+  fr:
+    name: "Test du lecteur RSS"
+    description: "Test de rss-feed-reader sur NYT world RSS (stable)."
+  de:
+    name: "RSS-Feed-Reader-Test"
+    description: "Test von rss-feed-reader mit NYT world RSS (stable)."
+  ar:
+    name: "اختبار قارئ RSS"
+    description: "اختبار rss-feed-reader على NYT world RSS (stable)."
+  pt:
+    name: "Teste de leitor de RSS"
+    description: "Teste de rss-feed-reader no NYT world RSS (stable)."
+  vi:
+    name: "Kiểm thử trình đọc RSS"
+    description: "Kiểm thử rss-feed-reader trên NYT world RSS (stable)."
 tags:
   - code
   - extract

@@ -8,6 +8,40 @@ description: |
   plus a custom price-pattern; asserts each extractor returns the expected
   number of matches.
 
+translations:
+  en:
+    name: "Regex Extractor Test"
+    description: "Test harness for utility-module-regex-extractor. Feeds a mixed text blob through the built-in email + url + ipv4 extractors plus a custom price-pattern; asserts each extractor returns the expected number of matches."
+  zh:
+    name: "正则提取器测试"
+    description: "utility-module-regex-extractor 的测试框架。将混合文本块输入内置的 email、url、ipv4 提取器以及自定义价格模式；断言每个提取器返回的匹配数量符合预期。"
+  zhHant:
+    name: "Regex 擷取器測試"
+    description: "utility-module-regex-extractor 的測試框架。將混合文字區塊輸入內建的 email、url、ipv4 擷取器以及自訂價格模式；斷言每個擷取器返回的符合數量符合預期。"
+  ja:
+    name: "Regex 抽出テスト"
+    description: "utility-module-regex-extractor のテストハーネス。混在したテキストブロックを組み込みの email、url、ipv4 抽出器とカスタムの price-pattern に通し、各抽出器が期待どおりの一致数を返すことを検証する。"
+  ko:
+    name: "정규식 추출기 테스트"
+    description: "utility-module-regex-extractor의 테스트 하니스. 혼합된 텍스트 블록을 내장 email, url, ipv4 추출기와 사용자 지정 price-pattern에 통과시키고, 각 추출기가 예상한 일치 개수를 반환하는지 검증한다."
+  es:
+    name: "Prueba de extractor de expresiones regulares"
+    description: "Arnés de pruebas para utility-module-regex-extractor. Pasa un bloque de texto mixto por los extractores integrados email, url e ipv4, además de un patrón de precio personalizado; afirma que cada extractor devuelve el número esperado de coincidencias."
+  fr:
+    name: "Test d’extracteur d’expressions régulières"
+    description: "Harnais de test pour utility-module-regex-extractor. Envoie un bloc de texte mixte aux extracteurs intégrés email, url et ipv4, ainsi qu’à un motif de prix personnalisé ; vérifie que chaque extracteur renvoie le nombre de correspondances attendu."
+  de:
+    name: "Regex-Extraktor Test"
+    description: "Testharness für utility-module-regex-extractor. Führt einen gemischten Textblock durch die integrierten email-, url- und ipv4-Extraktoren sowie ein benutzerdefiniertes price-pattern; prüft, dass jeder Extraktor die erwartete Anzahl von Treffern zurückgibt."
+  ar:
+    name: "اختبار مستخرج التعبيرات النمطية"
+    description: "إطار اختبار لـ utility-module-regex-extractor. يمرر كتلة نصية مختلطة عبر مستخرجات email وurl وipv4 المضمنة بالإضافة إلى نمط price-pattern مخصص؛ ويؤكد أن كل مستخرج يعيد العدد المتوقع من المطابقات."
+  pt:
+    name: "Teste de extrator de regex"
+    description: "Suíte de teste para utility-module-regex-extractor. Envia um bloco de texto misto pelos extratores embutidos email, url e ipv4, além de um padrão de preço personalizado; afirma que cada extrator retorna o número esperado de correspondências."
+  vi:
+    name: "Kiểm thử bộ trích xuất regex"
+    description: "Bộ kiểm thử cho utility-module-regex-extractor. Đưa một khối văn bản hỗn hợp qua các bộ trích xuất email, url và ipv4 tích hợp cùng một mẫu giá tùy chỉnh; xác nhận mỗi bộ trích xuất trả về số lượng khớp như mong đợi."
 tags:
   - code
   - extract

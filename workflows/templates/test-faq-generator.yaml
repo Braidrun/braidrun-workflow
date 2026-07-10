@@ -2,6 +2,40 @@
 name: test-faq-generator
 version: 1.0.0
 description: Test utility-module-faq-generator (LLM, needs OPENROUTER_API_KEY).
+translations:
+  en:
+    name: "FAQ Generator Test"
+    description: "Test utility-module-faq-generator (LLM, needs OPENROUTER_API_KEY)."
+  zh:
+    name: "FAQ 生成器测试"
+    description: "测试 utility-module-faq-generator（LLM，需要 OPENROUTER_API_KEY）。"
+  zhHant:
+    name: "FAQ 生成器測試"
+    description: "測試 utility-module-faq-generator（LLM，需要 OPENROUTER_API_KEY）。"
+  ja:
+    name: "FAQ生成器テスト"
+    description: "utility-module-faq-generator（LLM、OPENROUTER_API_KEY が必要）をテストします。"
+  ko:
+    name: "FAQ 생성기 테스트"
+    description: "utility-module-faq-generator(LLM, OPENROUTER_API_KEY 필요)를 테스트합니다."
+  es:
+    name: "Prueba de generador de FAQ"
+    description: "Prueba de utility-module-faq-generator (LLM, requiere OPENROUTER_API_KEY)."
+  fr:
+    name: "Test du générateur de FAQ"
+    description: "Test de utility-module-faq-generator (LLM, nécessite OPENROUTER_API_KEY)."
+  de:
+    name: "FAQ-Generator-Test"
+    description: "Test von utility-module-faq-generator (LLM, benötigt OPENROUTER_API_KEY)."
+  ar:
+    name: "اختبار مولّد FAQ"
+    description: "اختبار utility-module-faq-generator (LLM، يتطلب OPENROUTER_API_KEY)."
+  pt:
+    name: "Teste de gerador de FAQ"
+    description: "Teste de utility-module-faq-generator (LLM, requer OPENROUTER_API_KEY)."
+  vi:
+    name: "Kiểm thử trình tạo FAQ"
+    description: "Kiểm thử utility-module-faq-generator (LLM, cần OPENROUTER_API_KEY)."
 tags:
   - code
   - extract

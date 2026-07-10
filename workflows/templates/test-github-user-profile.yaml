@@ -2,6 +2,40 @@
 name: test-github-user-profile
 version: 1.0.0
 description: Test github-user-profile for octocat.
+translations:
+  en:
+    name: "GitHub User Profile Test"
+    description: "Test github-user-profile for octocat."
+  zh:
+    name: "GitHub 用户资料测试"
+    description: "测试 github-user-profile，针对 octocat。"
+  zhHant:
+    name: "GitHub 使用者個人資料測試"
+    description: "測試 github-user-profile，針對 octocat。"
+  ja:
+    name: "GitHub ユーザープロフィールテスト"
+    description: "octocat 向けの github-user-profile をテストします。"
+  ko:
+    name: "GitHub 사용자 프로필 테스트"
+    description: "octocat용 github-user-profile를 테스트합니다."
+  es:
+    name: "Prueba de perfil de usuario de GitHub"
+    description: "Prueba de github-user-profile para octocat."
+  fr:
+    name: "Test du profil utilisateur GitHub"
+    description: "Test de github-user-profile pour octocat."
+  de:
+    name: "GitHub-Benutzerprofil-Test"
+    description: "Test von github-user-profile für octocat."
+  ar:
+    name: "اختبار ملف مستخدم GitHub"
+    description: "اختبار github-user-profile لـ octocat."
+  pt:
+    name: "Teste de perfil de usuário do GitHub"
+    description: "Teste de github-user-profile para octocat."
+  vi:
+    name: "Kiểm thử hồ sơ người dùng GitHub"
+    description: "Kiểm thử github-user-profile cho octocat."
 tags:
   - code
   - extract

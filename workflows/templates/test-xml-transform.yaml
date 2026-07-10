@@ -2,6 +2,40 @@
 name: test-xml-transform
 version: 1.0.0
 description: Test xml-transform — XPath extract + count on a small XML fixture.
+translations:
+  en:
+    name: "XML Transform Test"
+    description: "Test xml-transform — XPath extract + count on a small XML fixture."
+  zh:
+    name: "XML 转换测试"
+    description: "测试 xml-transform — 在一个小型 XML fixture 上进行 XPath 提取和计数。"
+  zhHant:
+    name: "XML 轉換測試"
+    description: "測試 xml-transform — 在一個小型 XML fixture 上進行 XPath 擷取和計數。"
+  ja:
+    name: "XML 変換テスト"
+    description: "テスト xml-transform — 小さな XML fixture に対して XPath の抽出と件数カウントを行います。"
+  ko:
+    name: "XML 변환 테스트"
+    description: "테스트 xml-transform — 작은 XML fixture에서 XPath 추출과 개수 계산을 수행합니다."
+  es:
+    name: "Prueba de transformación XML"
+    description: "Prueba xml-transform — extracción XPath y recuento sobre un pequeño XML fixture."
+  fr:
+    name: "Test de transformation XML"
+    description: "Test xml-transform — extraction XPath et comptage sur un petit XML fixture."
+  de:
+    name: "XML-Transform-Test"
+    description: "Test xml-transform — XPath-Extraktion und Zählung auf einem kleinen XML fixture."
+  ar:
+    name: "اختبار تحويل XML"
+    description: "اختبار xml-transform — استخراج XPath والعد على ملف XML fixture صغير."
+  pt:
+    name: "Teste de transformação XML"
+    description: "Teste xml-transform — extração XPath e contagem em um pequeno XML fixture."
+  vi:
+    name: "Kiểm thử chuyển đổi XML"
+    description: "Kiểm thử xml-transform — trích xuất XPath và đếm trên một XML fixture nhỏ."
 tags:
   - code
   - extract

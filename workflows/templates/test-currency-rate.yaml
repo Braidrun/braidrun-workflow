@@ -2,6 +2,40 @@
 name: test-currency-rate
 version: 1.0.0
 description: Test currency-rate USD→EUR conversion via open-er-api.
+translations:
+  en:
+    name: "Currency Rate Test"
+    description: "Test currency-rate USD→EUR conversion via open-er-api."
+  zh:
+    name: "汇率测试"
+    description: "通过 open-er-api 测试 USD→EUR 转换。"
+  zhHant:
+    name: "匯率測試"
+    description: "透過 open-er-api 測試 USD→EUR 轉換。"
+  ja:
+    name: "為替レートテスト"
+    description: "open-er-api を介した USD→EUR 変換をテストします。"
+  ko:
+    name: "환율 테스트"
+    description: "open-er-api를 통해 USD→EUR 변환을 테스트합니다."
+  es:
+    name: "Prueba de tipo de cambio"
+    description: "Prueba la conversión USD→EUR mediante open-er-api."
+  fr:
+    name: "Test de taux de change"
+    description: "Teste la conversion USD→EUR via open-er-api."
+  de:
+    name: "Wechselkurs Test"
+    description: "Testet die USD→EUR-Konvertierung über open-er-api."
+  ar:
+    name: "اختبار سعر الصرف"
+    description: "اختبار تحويل USD→EUR عبر open-er-api."
+  pt:
+    name: "Teste de taxa de câmbio"
+    description: "Testa a conversão USD→EUR via open-er-api."
+  vi:
+    name: "Kiểm thử tỷ giá"
+    description: "Kiểm thử chuyển đổi USD→EUR qua open-er-api."
 tags:
   - code
   - extract

@@ -2,6 +2,40 @@
 name: test-pypi-package-info
 version: 1.0.0
 description: Test pypi-package-info for requests (stable, popular).
+translations:
+  en:
+    name: "PyPI Package Info Test"
+    description: "Test pypi-package-info for requests (stable, popular)."
+  zh:
+    name: "PyPI 包信息测试"
+    description: "针对 requests 的 pypi-package-info 测试（稳定、流行）。"
+  zhHant:
+    name: "PyPI 套件資訊測試"
+    description: "針對 requests 的 pypi-package-info 測試（穩定、熱門）。"
+  ja:
+    name: "PyPI パッケージ情報テスト"
+    description: "requests に対する pypi-package-info のテスト（安定、人気）。"
+  ko:
+    name: "PyPI 패키지 정보 테스트"
+    description: "requests에 대한 pypi-package-info 테스트(안정적, 인기 있음)."
+  es:
+    name: "Prueba de información de paquete de PyPI"
+    description: "Prueba de pypi-package-info para requests (estable, popular)."
+  fr:
+    name: "Test d’informations de paquet PyPI"
+    description: "Test de pypi-package-info pour requests (stable, populaire)."
+  de:
+    name: "PyPI-Paketinfo-Test"
+    description: "Test von pypi-package-info für requests (stabil, beliebt)."
+  ar:
+    name: "اختبار معلومات حزمة PyPI"
+    description: "اختبار pypi-package-info لـ requests (مستقر، شائع)."
+  pt:
+    name: "Teste de informações do pacote PyPI"
+    description: "Teste de pypi-package-info para requests (estável, popular)."
+  vi:
+    name: "Kiểm thử thông tin gói PyPI"
+    description: "Kiểm thử pypi-package-info cho requests (ổn định, phổ biến)."
 tags:
   - code
   - extract

@@ -2,6 +2,40 @@
 name: test-yaml-transform
 version: 1.0.0
 description: Test yaml-transform — modify k8s-like YAML via set/merge/delete ops.
+translations:
+  en:
+    name: "YAML Transform Test"
+    description: "Test yaml-transform — modify k8s-like YAML via set/merge/delete ops."
+  zh:
+    name: "YAML 转换测试"
+    description: "测试 yaml-transform — 通过 set/merge/delete 操作修改类似 k8s 的 YAML。"
+  zhHant:
+    name: "YAML 轉換測試"
+    description: "測試 yaml-transform — 透過 set/merge/delete 操作修改類似 k8s 的 YAML。"
+  ja:
+    name: "YAML 変換テスト"
+    description: "テスト yaml-transform — set/merge/delete 操作で k8s-like YAML を変更します。"
+  ko:
+    name: "YAML 변환 테스트"
+    description: "테스트 yaml-transform — set/merge/delete 작업으로 k8s-like YAML을 수정합니다."
+  es:
+    name: "Prueba de transformación YAML"
+    description: "Prueba yaml-transform — modifica YAML similar a k8s mediante operaciones set/merge/delete."
+  fr:
+    name: "Test de transformation YAML"
+    description: "Test yaml-transform — modifie un YAML de type k8s via les opérations set/merge/delete."
+  de:
+    name: "YAML-Transform-Test"
+    description: "Test yaml-transform — verändert k8s-like YAML per set/merge/delete-Operationen."
+  ar:
+    name: "اختبار تحويل YAML"
+    description: "اختبار yaml-transform — يعدّل YAML شبيهًا بـ k8s عبر عمليات set/merge/delete."
+  pt:
+    name: "Teste de transformação YAML"
+    description: "Teste yaml-transform — modifica YAML semelhante a k8s por meio de operações set/merge/delete."
+  vi:
+    name: "Kiểm thử chuyển đổi YAML"
+    description: "Kiểm thử yaml-transform — sửa đổi YAML kiểu k8s bằng các thao tác set/merge/delete."
 tags:
   - code
   - extract

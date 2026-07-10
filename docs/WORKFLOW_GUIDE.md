@@ -14,6 +14,43 @@ workflow:
     input: "Summarize the data in ./data/input.csv."
 ```
 
+## Display Translations
+
+Use `translations` for user-visible workflow and agent metadata. The canonical
+`name` and `description` remain English defaults. Runtime fields such as step
+inputs, system prompts, code, variables, state names, and extraction markers are
+not localized.
+
+```yaml
+name: code-review
+version: 1.0.0
+description: Generic code review workflow for repository changes.
+translations:
+  en:
+    name: Code Review
+    description: Generic code review workflow for repository changes.
+  zh:
+    name: 代码审查
+    description: 面向仓库改动的通用代码审查工作流。
+agents:
+  reviewer:
+    preset: coder
+    description: Reviews changes for correctness and regressions.
+    translations:
+      en:
+        description: Reviews changes for correctness and regressions.
+      zh:
+        description: 审查改动的正确性与回归风险。
+workflow:
+  - step: review
+    agent: reviewer
+    input: "Review the current repository changes."
+```
+
+Bundled templates provide `en`, `zh`, `zhHant`, `ja`, `ko`, `es`, `fr`, `de`,
+`ar`, `pt`, and `vi`. Consumers should fall back to the canonical fields when a
+custom workflow does not provide the requested locale.
+
 ## Code Step
 
 ```yaml

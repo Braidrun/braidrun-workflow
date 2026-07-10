@@ -2,6 +2,40 @@
 name: test-dns-lookup
 version: 1.0.0
 description: Test dns-lookup A record for cloudflare.com.
+translations:
+  en:
+    name: "DNS Lookup Test"
+    description: "Test dns-lookup A record for cloudflare.com."
+  zh:
+    name: "DNS 查询测试"
+    description: "测试 cloudflare.com 的 dns-lookup A 记录。"
+  zhHant:
+    name: "DNS 查詢測試"
+    description: "測試 cloudflare.com 的 dns-lookup A 記錄。"
+  ja:
+    name: "DNS ルックアップテスト"
+    description: "cloudflare.com の dns-lookup A レコードをテストします。"
+  ko:
+    name: "DNS 조회 테스트"
+    description: "cloudflare.com의 dns-lookup A 레코드를 테스트합니다."
+  es:
+    name: "Prueba de búsqueda DNS"
+    description: "Prueba del registro A de dns-lookup para cloudflare.com."
+  fr:
+    name: "Test de recherche DNS"
+    description: "Test de l’enregistrement A de dns-lookup pour cloudflare.com."
+  de:
+    name: "DNS-Lookup-Test"
+    description: "Test des A-Eintrags von dns-lookup für cloudflare.com."
+  ar:
+    name: "اختبار بحث DNS"
+    description: "اختبار سجل A لـ dns-lookup على cloudflare.com."
+  pt:
+    name: "Teste de consulta DNS"
+    description: "Teste do registro A de dns-lookup para cloudflare.com."
+  vi:
+    name: "Kiểm thử tra cứu DNS"
+    description: "Kiểm thử bản ghi A của dns-lookup cho cloudflare.com."
 tags:
   - code
   - extract

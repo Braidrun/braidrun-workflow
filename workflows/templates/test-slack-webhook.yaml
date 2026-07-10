@@ -8,6 +8,40 @@ description: |
   match the hooks.slack.com pattern. Uses on_failure routing so the
   sub_workflow failure is properly recovered.
 
+translations:
+  en:
+    name: "Slack Webhook Test"
+    description: "Negative-path test for utility-module-slack-webhook. Verifies the module's URL validation guard rejects a URL that doesn't match the hooks.slack.com pattern. Uses on_failure routing so the sub_workflow failure is properly recovered."
+  zh:
+    name: "Slack Webhook 测试"
+    description: "utility-module-slack-webhook 的负向路径测试。验证模块的 URL 验证保护会拒绝不匹配 hooks.slack.com 模式的 URL。使用 on_failure 路由，以便正确恢复 sub_workflow 失败。"
+  zhHant:
+    name: "Slack Webhook 測試"
+    description: "utility-module-slack-webhook 的負向路徑測試。驗證模組的 URL 驗證保護會拒絕不符合 hooks.slack.com 模式的 URL。使用 on_failure 路由，以便正確復原 sub_workflow 失敗。"
+  ja:
+    name: "Slack Webhookテスト"
+    description: "utility-module-slack-webhook のネガティブパステスト。モジュールの URL 検証ガードが hooks.slack.com パターンに一致しない URL を拒否することを確認する。on_failure ルーティングを使用し、sub_workflow の失敗が適切に回復されるようにする。"
+  ko:
+    name: "Slack Webhook 테스트"
+    description: "utility-module-slack-webhook의 부정 경로 테스트. 모듈의 URL 검증 가드가 hooks.slack.com 패턴과 일치하지 않는 URL을 거부하는지 확인한다. on_failure 라우팅을 사용하여 sub_workflow 실패가 올바르게 복구되도록 한다."
+  es:
+    name: "Prueba de webhook de Slack"
+    description: "Prueba de ruta negativa para utility-module-slack-webhook. Verifica que la protección de validación de URL del módulo rechaza una URL que no coincide con el patrón hooks.slack.com. Usa enrutamiento on_failure para que el fallo de sub_workflow se recupere correctamente."
+  fr:
+    name: "Test du webhook Slack"
+    description: "Test de chemin négatif pour utility-module-slack-webhook. Vérifie que la garde de validation d’URL du module rejette une URL qui ne correspond pas au modèle hooks.slack.com. Utilise le routage on_failure afin que l’échec de sub_workflow soit correctement récupéré."
+  de:
+    name: "Slack-Webhook-Test"
+    description: "Negativpfad-Test für utility-module-slack-webhook. Prüft, dass die URL-Validierung des Moduls eine URL ablehnt, die nicht dem Muster hooks.slack.com entspricht. Verwendet on_failure-Routing, damit der sub_workflow-Fehler korrekt wiederhergestellt wird."
+  ar:
+    name: "اختبار Slack Webhook"
+    description: "اختبار مسار سلبي لـ utility-module-slack-webhook. يتحقق من أن حماية التحقق من صحة URL في الوحدة ترفض عنوان URL لا يطابق نمط hooks.slack.com. يستخدم توجيه on_failure بحيث تتم معالجة فشل sub_workflow بشكل صحيح."
+  pt:
+    name: "Teste de webhook do Slack"
+    description: "Teste de caminho negativo para utility-module-slack-webhook. Verifica se a proteção de validação de URL do módulo rejeita uma URL que não corresponde ao padrão hooks.slack.com. Usa roteamento on_failure para que a falha de sub_workflow seja recuperada corretamente."
+  vi:
+    name: "Kiểm thử webhook Slack"
+    description: "Kiểm thử đường dẫn lỗi cho utility-module-slack-webhook. Xác minh cơ chế kiểm tra URL của mô-đun từ chối một URL không khớp mẫu hooks.slack.com. Sử dụng định tuyến on_failure để lỗi sub_workflow được khôi phục đúng cách."
 tags:
   - code
   - error_handling

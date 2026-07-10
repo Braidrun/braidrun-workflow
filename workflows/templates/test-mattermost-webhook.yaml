@@ -2,6 +2,40 @@
 name: test-mattermost-webhook
 version: 1.0.0
 description: Negative-path test for utility-module-mattermost-webhook — bad credentials trigger module-level rejection.
+translations:
+  en:
+    name: "Mattermost Webhook Test"
+    description: "Negative-path test for utility-module-mattermost-webhook — bad credentials trigger module-level rejection."
+  zh:
+    name: "Mattermost Webhook测试"
+    description: "utility-module-mattermost-webhook 的负路径测试——错误凭据会触发模块级拒绝。"
+  zhHant:
+    name: "Mattermost Webhook測試"
+    description: "utility-module-mattermost-webhook 的負路徑測試——錯誤憑據會觸發模組級拒絕。"
+  ja:
+    name: "Mattermost Webhookテスト"
+    description: "utility-module-mattermost-webhook のネガティブパステスト。無効な認証情報によりモジュールレベルで拒否されます。"
+  ko:
+    name: "Mattermost Webhook 테스트"
+    description: "utility-module-mattermost-webhook의 부정 경로 테스트입니다. 잘못된 자격 증명은 모듈 수준 거부를 트리거합니다."
+  es:
+    name: "Prueba de webhook de Mattermost"
+    description: "Prueba de ruta negativa para utility-module-mattermost-webhook: credenciales incorrectas activan un rechazo a nivel de módulo."
+  fr:
+    name: "Test de webhook Mattermost"
+    description: "Test de chemin négatif pour utility-module-mattermost-webhook : de mauvais identifiants déclenchent un rejet au niveau du module."
+  de:
+    name: "Mattermost-Webhook Test"
+    description: "Negativpfad-Test für utility-module-mattermost-webhook: Ungültige Anmeldedaten lösen eine Ablehnung auf Modulebene aus."
+  ar:
+    name: "اختبار Mattermost Webhook"
+    description: "اختبار مسار سلبي لـ utility-module-mattermost-webhook — تؤدي بيانات الاعتماد غير الصحيحة إلى رفض على مستوى الوحدة."
+  pt:
+    name: "Teste de webhook do Mattermost"
+    description: "Teste de caminho negativo para utility-module-mattermost-webhook — credenciais inválidas acionam rejeição no nível do módulo."
+  vi:
+    name: "Kiểm thử webhook Mattermost"
+    description: "Kiểm thử đường dẫn âm cho utility-module-mattermost-webhook — thông tin xác thực sai sẽ kích hoạt từ chối ở cấp mô-đun."
 tags:
   - code
   - error_handling

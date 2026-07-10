@@ -2,6 +2,40 @@
 name: test-markdown-to-html
 version: 1.0.0
 description: Test markdown-to-html — render common MD to HTML.
+translations:
+  en:
+    name: "Markdown to HTML Test"
+    description: "Test markdown-to-html — render common MD to HTML."
+  zh:
+    name: "Markdown转HTML测试"
+    description: "测试 markdown-to-html——将常用 MD 渲染为 HTML。"
+  zhHant:
+    name: "Markdown轉HTML測試"
+    description: "測試 markdown-to-html——將常用 MD 轉譯為 HTML。"
+  ja:
+    name: "MarkdownからHTMLへの変換テスト"
+    description: "markdown-to-html をテストし、一般的な MD を HTML にレンダリングします。"
+  ko:
+    name: "Markdown을 HTML로 변환 테스트"
+    description: "markdown-to-html을 테스트하여 일반적인 MD를 HTML로 렌더링합니다."
+  es:
+    name: "Prueba de Markdown a HTML"
+    description: "Prueba markdown-to-html: renderiza MD común como HTML."
+  fr:
+    name: "Test Markdown vers HTML"
+    description: "Teste markdown-to-html : rend du MD courant en HTML."
+  de:
+    name: "Markdown-zu-HTML Test"
+    description: "Testet markdown-to-html: Rendert gängiges MD als HTML."
+  ar:
+    name: "اختبار تحويل Markdown إلى HTML"
+    description: "اختبار markdown-to-html — يعرض MD الشائع بصيغة HTML."
+  pt:
+    name: "Teste de Markdown para HTML"
+    description: "Testa markdown-to-html — renderiza MD comum como HTML."
+  vi:
+    name: "Kiểm thử Markdown sang HTML"
+    description: "Kiểm thử markdown-to-html — kết xuất MD thông dụng thành HTML."
 tags:
   - code
   - extract

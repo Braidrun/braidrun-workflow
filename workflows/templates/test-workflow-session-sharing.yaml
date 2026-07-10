@@ -5,6 +5,40 @@ tags:
 - test
 - session-sharing
 description: Session-sharing test - use the per_execution strategy so multiple steps of the same agent share context
+translations:
+  en:
+    name: "Session Sharing Test"
+    description: "Session-sharing test - use the per_execution strategy so multiple steps of the same agent share context"
+  zh:
+    name: "会话共享测试"
+    description: "会话共享测试 - 使用 per_execution 策略，使同一代理的多个步骤共享上下文"
+  zhHant:
+    name: "會話共享測試"
+    description: "會話共享測試 - 使用 per_execution 策略，使同一代理的多個步驟共用上下文"
+  ja:
+    name: "セッション共有 テスト"
+    description: "セッション共有テスト - per_execution 戦略を使用して、同じエージェントの複数のステップでコンテキストを共有します"
+  ko:
+    name: "세션 공유 테스트"
+    description: "세션 공유 테스트 - per_execution 전략을 사용하여 동일한 에이전트의 여러 단계가 컨텍스트를 공유합니다"
+  es:
+    name: "Prueba de compartición de sesión"
+    description: "Prueba de compartición de sesión: usa la estrategia per_execution para que varios pasos del mismo agente compartan contexto"
+  fr:
+    name: "Test de partage de session"
+    description: "Test de partage de session : utilise la stratégie per_execution pour que plusieurs étapes du même agent partagent le contexte"
+  de:
+    name: "Sitzungsfreigabe-Test"
+    description: "Sitzungsfreigabe-Test - verwendet die per_execution-Strategie, damit mehrere Schritte desselben Agents den Kontext teilen"
+  ar:
+    name: "اختبار مشاركة الجلسة"
+    description: "اختبار مشاركة الجلسة - يستخدم استراتيجية per_execution لكي تشارك عدة خطوات من الوكيل نفسه السياق"
+  pt:
+    name: "Teste de compartilhamento de sessão"
+    description: "Teste de compartilhamento de sessão - usa a estratégia per_execution para que várias etapas do mesmo agente compartilhem o contexto"
+  vi:
+    name: "Kiểm thử chia sẻ phiên"
+    description: "Kiểm thử chia sẻ phiên - dùng chiến lược per_execution để nhiều bước của cùng một tác nhân dùng chung ngữ cảnh"
 variables:
   output_dir: "./output"
   demo_mode: 'true'
@@ -36,7 +70,7 @@ workflow:
     Save it to {{output_dir}}/introduction.txt.
     Call exit when done.
 
-    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/introduce_topic.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/introduce_topic.md.
 - step: expand_topic
   agent: assistant
   depends_on:
@@ -49,7 +83,7 @@ workflow:
     Save the expanded content to {{output_dir}}/expanded.txt.
     Call exit when done.
 
-    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/expand_topic.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/expand_topic.md.
 - step: conclude_topic
   agent: assistant
   depends_on:
@@ -61,7 +95,7 @@ workflow:
     Save the complete article (introduction + expansion + conclusion) to {{output_dir}}/full_article.txt.
     Call exit when done.
 
-    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/conclude_topic.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/conclude_topic.md.
 error_handling:
   max_retries: 2
   retry_delay: 3s

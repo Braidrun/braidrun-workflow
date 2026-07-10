@@ -2,6 +2,40 @@
 name: test-wechat-work-webhook
 version: 1.0.0
 description: Negative-path test for utility-module-wechat-work-webhook — bad credentials trigger module-level rejection.
+translations:
+  en:
+    name: "WeChat Work Webhook Test"
+    description: "Negative-path test for utility-module-wechat-work-webhook — bad credentials trigger module-level rejection."
+  zh:
+    name: "微信企业版 Webhook 测试"
+    description: "针对 utility-module-wechat-work-webhook 的负向路径测试——错误凭据会触发模块级拒绝。"
+  zhHant:
+    name: "微信企業版 Webhook 測試"
+    description: "針對 utility-module-wechat-work-webhook 的負向路徑測試——錯誤憑證會觸發模組級拒絕。"
+  ja:
+    name: "WeChat Work Webhookテスト"
+    description: "utility-module-wechat-work-webhook の負の経路テスト—不正な資格情報によりモジュールレベルの拒否が発生します。"
+  ko:
+    name: "WeChat Work Webhook 테스트"
+    description: "utility-module-wechat-work-webhook에 대한 부정 경로 테스트 — 잘못된 자격 증명은 모듈 수준 거부를 트리거합니다."
+  es:
+    name: "Prueba de webhook de WeChat Work"
+    description: "Prueba de ruta negativa para utility-module-wechat-work-webhook: unas credenciales incorrectas activan un rechazo a nivel de módulo."
+  fr:
+    name: "Test de webhook WeChat Work"
+    description: "Test de chemin négatif pour utility-module-wechat-work-webhook — de mauvaises informations d’identification déclenchent un rejet au niveau du module."
+  de:
+    name: "WeChat Work Webhook-Test"
+    description: "Negativpfad-Test für utility-module-wechat-work-webhook — ungültige Anmeldedaten lösen eine Ablehnung auf Modulebene aus."
+  ar:
+    name: "اختبار Webhook WeChat Work"
+    description: "اختبار مسار سلبي لـ utility-module-wechat-work-webhook — تؤدي بيانات الاعتماد غير الصحيحة إلى رفض على مستوى الوحدة."
+  pt:
+    name: "Teste de webhook do WeChat Work"
+    description: "Teste de caminho negativo para utility-module-wechat-work-webhook — credenciais inválidas acionam rejeição no nível do módulo."
+  vi:
+    name: "Kiểm thử Webhook WeChat Work"
+    description: "Kiểm thử luồng âm tính cho utility-module-wechat-work-webhook — thông tin xác thực sai kích hoạt việc từ chối ở cấp mô-đun."
 tags:
   - code
   - error_handling

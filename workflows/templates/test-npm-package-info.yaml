@@ -2,6 +2,40 @@
 name: test-npm-package-info
 version: 1.0.0
 description: Test npm-package-info for lodash.
+translations:
+  en:
+    name: "NPM Package Info Test"
+    description: "Test npm-package-info for lodash."
+  zh:
+    name: "NPM 包信息测试"
+    description: "测试 npm-package-info，针对 lodash。"
+  zhHant:
+    name: "NPM 套件資訊測試"
+    description: "測試 npm-package-info，針對 lodash。"
+  ja:
+    name: "NPM パッケージ情報テスト"
+    description: "lodash に対する npm-package-info のテスト。"
+  ko:
+    name: "NPM 패키지 정보 테스트"
+    description: "lodash에 대한 npm-package-info 테스트."
+  es:
+    name: "Prueba de información del paquete NPM"
+    description: "Prueba de npm-package-info para lodash."
+  fr:
+    name: "Test d’informations sur le paquet NPM"
+    description: "Test de npm-package-info pour lodash."
+  de:
+    name: "NPM-Paketinfo-Test"
+    description: "Test von npm-package-info für lodash."
+  ar:
+    name: "اختبار معلومات حزمة NPM"
+    description: "اختبار npm-package-info لـ lodash."
+  pt:
+    name: "Teste de informações do pacote NPM"
+    description: "Teste de npm-package-info para lodash."
+  vi:
+    name: "Kiểm thử thông tin gói NPM"
+    description: "Kiểm thử npm-package-info cho lodash."
 tags:
   - code
   - extract

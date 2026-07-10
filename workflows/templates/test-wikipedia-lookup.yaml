@@ -2,6 +2,40 @@
 name: test-wikipedia-lookup
 version: 1.0.0
 description: Test wikipedia-lookup on a stable topic.
+translations:
+  en:
+    name: "Wikipedia Lookup Test"
+    description: "Test wikipedia-lookup on a stable topic."
+  zh:
+    name: "Wikipedia 查找测试"
+    description: "对稳定主题进行 wikipedia-lookup 测试。"
+  zhHant:
+    name: "Wikipedia 查找測試"
+    description: "對穩定主題進行 wikipedia-lookup 測試。"
+  ja:
+    name: "Wikipedia ルックアップテスト"
+    description: "安定したトピックで wikipedia-lookup をテストします。"
+  ko:
+    name: "Wikipedia 조회 테스트"
+    description: "안정적인 주제로 wikipedia-lookup를 테스트합니다."
+  es:
+    name: "Prueba de búsqueda en Wikipedia"
+    description: "Prueba de wikipedia-lookup sobre un tema estable."
+  fr:
+    name: "Test de recherche Wikipedia"
+    description: "Test de wikipedia-lookup sur un sujet stable."
+  de:
+    name: "Wikipedia-Suchtest"
+    description: "Test von wikipedia-lookup zu einem stabilen Thema."
+  ar:
+    name: "اختبار البحث في Wikipedia"
+    description: "اختبار wikipedia-lookup على موضوع ثابت."
+  pt:
+    name: "Teste de consulta na Wikipedia"
+    description: "Teste de wikipedia-lookup em um tópico estável."
+  vi:
+    name: "Kiểm thử tra cứu Wikipedia"
+    description: "Kiểm thử wikipedia-lookup trên một chủ đề ổn định."
 tags:
   - code
   - extract

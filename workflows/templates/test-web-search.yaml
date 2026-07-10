@@ -2,6 +2,40 @@
 name: test-web-search
 version: 1.0.0
 description: Test web-search via DuckDuckGo (no API key).
+translations:
+  en:
+    name: "Web Search Test"
+    description: "Test web-search via DuckDuckGo (no API key)."
+  zh:
+    name: "网页搜索测试"
+    description: "通过 DuckDuckGo 测试 web-search（无 API key）。"
+  zhHant:
+    name: "網頁搜尋測試"
+    description: "透過 DuckDuckGo 測試 web-search（無 API key）。"
+  ja:
+    name: "Web 検索テスト"
+    description: "DuckDuckGo 経由で web-search をテストします（API key なし）。"
+  ko:
+    name: "Web 검색 테스트"
+    description: "DuckDuckGo를 통해 web-search를 테스트합니다(API key 없음)."
+  es:
+    name: "Prueba de búsqueda web"
+    description: "Probar web-search mediante DuckDuckGo (sin API key)."
+  fr:
+    name: "Test de recherche web"
+    description: "Tester web-search via DuckDuckGo (sans API key)."
+  de:
+    name: "Websuche-Test"
+    description: "web-search über DuckDuckGo testen (ohne API key)."
+  ar:
+    name: "اختبار البحث على الويب"
+    description: "اختبار web-search عبر DuckDuckGo (بدون API key)."
+  pt:
+    name: "Teste de busca na web"
+    description: "Testar web-search via DuckDuckGo (sem API key)."
+  vi:
+    name: "Kiểm thử tìm kiếm web"
+    description: "Kiểm thử web-search qua DuckDuckGo (không có API key)."
 tags:
   - code
   - extract

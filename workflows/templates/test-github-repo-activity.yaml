@@ -2,6 +2,40 @@
 name: test-github-repo-activity
 version: 1.0.0
 description: Test github-repo-activity for a small stable repo (octocat/Hello-World).
+translations:
+  en:
+    name: "GitHub Repo Activity Test"
+    description: "Test github-repo-activity for a small stable repo (octocat/Hello-World)."
+  zh:
+    name: "GitHub 仓库活动测试"
+    description: "测试 github-repo-activity，针对一个小型稳定仓库（octocat/Hello-World）。"
+  zhHant:
+    name: "GitHub 倉庫活動測試"
+    description: "測試 github-repo-activity，針對一個小型穩定倉庫（octocat/Hello-World）。"
+  ja:
+    name: "GitHub リポジトリアクティビティテスト"
+    description: "小規模で安定したリポジトリ（octocat/Hello-World）向けの github-repo-activity をテストします。"
+  ko:
+    name: "GitHub 저장소 활동 테스트"
+    description: "작고 안정적인 저장소(octocat/Hello-World)를 대상으로 github-repo-activity를 테스트합니다."
+  es:
+    name: "Prueba de actividad del repositorio de GitHub"
+    description: "Prueba de github-repo-activity para un repositorio pequeño y estable (octocat/Hello-World)."
+  fr:
+    name: "Test d’activité du dépôt GitHub"
+    description: "Test de github-repo-activity pour un dépôt petit et stable (octocat/Hello-World)."
+  de:
+    name: "GitHub-Repository-Aktivitätstest"
+    description: "Test von github-repo-activity für ein kleines, stabiles Repository (octocat/Hello-World)."
+  ar:
+    name: "اختبار نشاط مستودع GitHub"
+    description: "اختبار github-repo-activity لمستودع صغير ومستقر (octocat/Hello-World)."
+  pt:
+    name: "Teste de atividade de repositório GitHub"
+    description: "Teste de github-repo-activity para um repositório pequeno e estável (octocat/Hello-World)."
+  vi:
+    name: "Kiểm thử hoạt động kho lưu trữ GitHub"
+    description: "Kiểm thử github-repo-activity cho một kho lưu trữ nhỏ, ổn định (octocat/Hello-World)."
 tags:
   - code
   - extract

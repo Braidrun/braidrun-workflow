@@ -1,6 +1,40 @@
 name: group-chat-code-review
 version: 1.0.0
 description: Multi-agent discussion workflow for reviewing a proposed code change.
+translations:
+  en:
+    name: "Group Chat Code Review"
+    description: "Multi-agent discussion workflow for reviewing a proposed code change."
+  zh:
+    name: "群聊代码审查"
+    description: "用于审查拟议代码变更的多智能体讨论工作流。"
+  zhHant:
+    name: "群聊程式碼審查"
+    description: "用於審查擬議程式碼變更的多代理討論工作流程。"
+  ja:
+    name: "グループチャットコードレビュー"
+    description: "提案されたコード変更をレビューするためのマルチエージェント議論ワークフロー。"
+  ko:
+    name: "그룹 채팅 코드 리뷰"
+    description: "제안된 코드 변경을 검토하기 위한 다중 에이전트 토론 워크플로입니다."
+  es:
+    name: "Revisión de código en chat grupal"
+    description: "Workflow de discusión multiagente para revisar un cambio de código propuesto."
+  fr:
+    name: "Revue de code en discussion de groupe"
+    description: "Workflow de discussion multi-agent pour examiner une modification de code proposée."
+  de:
+    name: "Code-Review im Gruppenchat"
+    description: "Multi-Agenten-Diskussionsworkflow zur Prüfung einer vorgeschlagenen Codeänderung."
+  ar:
+    name: "مراجعة الكود عبر الدردشة الجماعية"
+    description: "سير عمل مناقشة متعدد الوكلاء لمراجعة تغيير مقترح في الكود."
+  pt:
+    name: "Revisão de código em chat em grupo"
+    description: "Workflow de discussão multiagente para revisar uma alteração de código proposta."
+  vi:
+    name: "Đánh giá mã qua trò chuyện nhóm"
+    description: "Workflow thảo luận đa tác nhân để đánh giá một thay đổi mã được đề xuất."
 tags:
   - coding
   - group-chat

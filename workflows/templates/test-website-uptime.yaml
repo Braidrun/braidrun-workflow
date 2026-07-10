@@ -2,6 +2,40 @@
 name: test-website-uptime
 version: 1.0.0
 description: Test website-uptime — mix of up (httpbin/200) and down (httpbin/500).
+translations:
+  en:
+    name: "Website Uptime Test"
+    description: "Test website-uptime — mix of up (httpbin/200) and down (httpbin/500)."
+  zh:
+    name: "网站正常运行时间测试"
+    description: "测试 website-uptime——混合 up（httpbin/200）和 down（httpbin/500）。"
+  zhHant:
+    name: "網站正常運行時間測試"
+    description: "測試 website-uptime——混合 up（httpbin/200）和 down（httpbin/500）。"
+  ja:
+    name: "Website 稼働率テスト"
+    description: "website-uptime をテストします。up（httpbin/200）と down（httpbin/500）の混在です。"
+  ko:
+    name: "웹사이트 가동 시간 테스트"
+    description: "website-uptime를 테스트합니다. up(httpbin/200)과 down(httpbin/500)이 혼합됩니다."
+  es:
+    name: "Prueba de disponibilidad del sitio web"
+    description: "Probar website-uptime: mezcla de up (httpbin/200) y down (httpbin/500)."
+  fr:
+    name: "Test de disponibilité du site web"
+    description: "Tester website-uptime : mélange de up (httpbin/200) et de down (httpbin/500)."
+  de:
+    name: "Website-Verfügbarkeits-Test"
+    description: "website-uptime testen — Mischung aus up (httpbin/200) und down (httpbin/500)."
+  ar:
+    name: "اختبار مدة تشغيل الموقع"
+    description: "اختبار website-uptime — مزيج من up (httpbin/200) و down (httpbin/500)."
+  pt:
+    name: "Teste de uptime do site"
+    description: "Testar website-uptime — mistura de up (httpbin/200) e down (httpbin/500)."
+  vi:
+    name: "Kiểm thử thời gian hoạt động website"
+    description: "Kiểm thử website-uptime — kết hợp up (httpbin/200) và down (httpbin/500)."
 tags:
   - code
   - extract

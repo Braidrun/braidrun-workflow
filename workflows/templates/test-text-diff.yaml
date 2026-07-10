@@ -7,6 +7,40 @@ description: |
   Compares two short text blobs, asserts unified diff has the expected +/- line
   counts and that similarity is in a reasonable range.
 
+translations:
+  en:
+    name: "Text Diff Test"
+    description: "Test harness for utility-module-text-diff. Compares two short text blobs, asserts unified diff has the expected +/- line counts and that similarity is in a reasonable range."
+  zh:
+    name: "文本差异测试"
+    description: "utility-module-text-diff 的测试框架。比较两个短文本块，断言 unified diff 的 +/- 行数符合预期，并且相似度处于合理范围。"
+  zhHant:
+    name: "文字差異測試"
+    description: "utility-module-text-diff 的測試框架。比較兩個短文字區塊，斷言 unified diff 的 +/- 行數符合預期，且相似度在合理範圍內。"
+  ja:
+    name: "テキスト差分テスト"
+    description: "utility-module-text-diff のテストハーネスです。2つの短いテキストブロックを比較し、unified diff の +/- 行数が想定どおりで、類似度が妥当な範囲にあることを検証します。"
+  ko:
+    name: "텍스트 diff 테스트"
+    description: "utility-module-text-diff용 테스트 하니스입니다. 두 개의 짧은 텍스트 블록을 비교하고, unified diff의 +/- 줄 수가 예상과 일치하며 유사도가 적절한 범위인지 검증합니다."
+  es:
+    name: "Prueba de diff de texto"
+    description: "Banco de pruebas para utility-module-text-diff. Compara dos fragmentos breves de texto, verifica que unified diff tenga los recuentos de líneas +/- esperados y que la similitud esté en un rango razonable."
+  fr:
+    name: "Test de diff de texte"
+    description: "Banc d’essai pour utility-module-text-diff. Compare deux courts blocs de texte, vérifie que le unified diff a les décomptes de lignes +/- attendus et que la similarité se situe dans une plage raisonnable."
+  de:
+    name: "Text-Diff-Test"
+    description: "Test-Harness für utility-module-text-diff. Vergleicht zwei kurze Textblöcke, prüft, dass unified diff die erwarteten +/- Zeilenzahlen hat, und dass die Ähnlichkeit in einem vernünftigen Bereich liegt."
+  ar:
+    name: "اختبار فرق النص"
+    description: "بيئة اختبار لـ utility-module-text-diff. تقارن بين كتلتين نصيتين قصيرتين، وتتحقق من أن unified diff يحتوي على أعداد الأسطر +/- المتوقعة وأن التشابه ضمن نطاق معقول."
+  pt:
+    name: "Teste de diff de texto"
+    description: "Banco de testes para utility-module-text-diff. Compara dois blocos curtos de texto, verifica se o unified diff tem as contagens de linhas +/- esperadas e se a similaridade está em uma faixa razoável."
+  vi:
+    name: "Kiểm thử diff văn bản"
+    description: "Bộ kiểm thử cho utility-module-text-diff. So sánh hai khối văn bản ngắn, xác nhận unified diff có số dòng +/- như mong đợi và độ tương đồng ở mức hợp lý."
 tags:
   - code
   - extract

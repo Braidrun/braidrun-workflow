@@ -7,6 +7,40 @@ description: |
   Writes a small CSV into a temp file, runs filter → sort → select → limit,
   then asserts the resulting row count and ordering.
 
+translations:
+  en:
+    name: "CSV Processor Test"
+    description: "Test harness for utility-module-csv-processor. Writes a small CSV into a temp file, runs filter → sort → select → limit, then asserts the resulting row count and ordering."
+  zh:
+    name: "CSV 处理器测试"
+    description: "utility-module-csv-processor 的测试工具。将一个小型 CSV 写入临时文件，运行 filter → sort → select → limit，然后断言结果行数和排序。"
+  zhHant:
+    name: "CSV 處理器測試"
+    description: "utility-module-csv-processor 的測試工具。將一個小型 CSV 寫入暫存檔，執行 filter → sort → select → limit，然後斷言結果列數和排序。"
+  ja:
+    name: "CSV プロセッサーテスト"
+    description: "utility-module-csv-processor のテストハーネス。小さな CSV を一時ファイルに書き込み、filter → sort → select → limit を実行してから、結果の行数と並び順を検証します。"
+  ko:
+    name: "CSV 프로세서 테스트"
+    description: "utility-module-csv-processor의 테스트 하니스입니다. 작은 CSV를 임시 파일에 쓰고 filter → sort → select → limit를 실행한 뒤, 결과 행 수와 정렬을 검증합니다."
+  es:
+    name: "Prueba del procesador CSV"
+    description: "Banco de pruebas para utility-module-csv-processor. Escribe un CSV pequeño en un archivo temporal, ejecuta filter → sort → select → limit y luego verifica el número de filas resultante y el orden."
+  fr:
+    name: "Test du processeur CSV"
+    description: "Banc de test pour utility-module-csv-processor. Écrit un petit CSV dans un fichier temporaire, exécute filter → sort → select → limit, puis vérifie le nombre de lignes obtenu et l’ordre."
+  de:
+    name: "CSV-Prozessor Test"
+    description: "Test-Harness für utility-module-csv-processor. Schreibt eine kleine CSV in eine temporäre Datei, führt filter → sort → select → limit aus und prüft dann die resultierende Zeilenanzahl und Sortierung."
+  ar:
+    name: "اختبار معالج CSV"
+    description: "إطار اختبار لـ utility-module-csv-processor. يكتب CSV صغيرًا في ملف مؤقت، ثم يشغّل filter → sort → select → limit، وبعدها يتحقق من عدد الصفوف الناتج والترتيب."
+  pt:
+    name: "Teste do processador CSV"
+    description: "Harness de teste para utility-module-csv-processor. Escreve um pequeno CSV em um arquivo temporário, executa filter → sort → select → limit e, em seguida, verifica a quantidade de linhas resultante e a ordem."
+  vi:
+    name: "Kiểm thử bộ xử lý CSV"
+    description: "Khung kiểm thử cho utility-module-csv-processor. Ghi một CSV nhỏ vào tệp tạm, chạy filter → sort → select → limit, rồi xác nhận số dòng kết quả và thứ tự."
 tags:
   - code
   - extract

@@ -4,9 +4,67 @@ description: Generic approval workflow with a human review gate.
 tags:
   - approval
   - governance
+translations:
+  en:
+    name: Approval Lifecycle State Machine
+    description: Generic approval workflow with a human review gate.
+  zh:
+    name: 审批生命周期状态机
+    description: 带人工审核关卡的通用审批工作流。
+  zhHant:
+    name: 審批生命週期狀態機
+    description: 帶人工審核關卡的通用審批工作流。
+  ja:
+    name: 承認ライフサイクル状態マシン
+    description: 人によるレビューゲートを備えた汎用承認ワークフロー。
+  ko:
+    name: 승인 라이프사이클 상태 머신
+    description: 사람 검토 단계를 포함한 범용 승인 워크플로입니다.
+  es:
+    name: Máquina de estados del ciclo de aprobación
+    description: Workflow genérico de aprobación con una puerta de revisión humana.
+  fr:
+    name: Machine d'etat du cycle d'approbation
+    description: Workflow d'approbation générique avec une étape de validation humaine.
+  de:
+    name: Genehmigungs-Lifecycle-Zustandsmaschine
+    description: Allgemeiner Genehmigungs-Workflow mit menschlicher Prüfstation.
+  ar:
+    name: آلة حالات دورة حياة الموافقة
+    description: سير عمل موافقات عام يتضمن بوابة مراجعة بشرية.
+  pt:
+    name: Máquina de estados do ciclo de aprovação
+    description: Workflow genérico de aprovação com uma etapa de revisão humana.
+  vi:
+    name: Máy trạng thái vòng đời phê duyệt
+    description: Workflow phê duyệt chung có cổng xem xét của con người.
 agents:
   operator:
     preset: universal
+    description: Prepares change proposals, waits for approval, and turns approved changes into execution plans.
+    translations:
+      en:
+        description: Prepares change proposals, waits for approval, and turns approved changes into execution plans.
+      zh:
+        description: 准备变更方案，等待审批，并将通过审批的变更转成执行计划。
+      zhHant:
+        description: 準備變更方案，等待審批，並將通過審批的變更轉成執行計畫。
+      ja:
+        description: 変更提案を作成し、承認を待ち、承認済みの変更を実行計画に落とし込みます。
+      ko:
+        description: 변경 제안을 준비하고 승인을 기다린 뒤 승인된 변경을 실행 계획으로 전환합니다.
+      es:
+        description: Prepara propuestas de cambio, espera aprobación y convierte los cambios aprobados en planes de ejecución.
+      fr:
+        description: Prépare les propositions de changement, attend l'approbation et transforme les changements approuvés en plans d'exécution.
+      de:
+        description: Erstellt Änderungsvorschläge, wartet auf Genehmigung und überführt genehmigte Änderungen in Ausführungspläne.
+      ar:
+        description: يجهز مقترحات التغيير وينتظر الموافقة ثم يحول التغييرات المعتمدة إلى خطط تنفيذ.
+      pt:
+        description: Prepara propostas de mudança, aguarda aprovação e transforma mudanças aprovadas em planos de execução.
+      vi:
+        description: Chuẩn bị đề xuất thay đổi, chờ phê duyệt và chuyển thay đổi đã duyệt thành kế hoạch thực thi.
 workflow:
   - step: prepare_change
     agent: operator

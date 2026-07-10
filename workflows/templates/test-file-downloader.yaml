@@ -9,6 +9,40 @@ description: |
   - sha256 is computed and 64 hex chars
   - local file actually exists with the declared bytes
 
+translations:
+  en:
+    name: "File Downloader Test"
+    description: "Test harness for utility-module-file-downloader. Downloads a known-size blob from httpbin.org and verifies: - file_size matches expectation - sha256 is computed and 64 hex chars - local file actually exists with the declared bytes"
+  zh:
+    name: "文件下载器测试"
+    description: "测试 utility-module-file-downloader。从 httpbin.org 下载一个已知大小的 blob，并验证：- file_size 与预期一致 - sha256 已计算且为 64 个十六进制字符 - 本地文件实际存在且字节数与声明一致"
+  zhHant:
+    name: "檔案下載器測試"
+    description: "測試 utility-module-file-downloader。從 httpbin.org 下載一個已知大小的 blob，並驗證：- file_size 與預期一致 - sha256 已計算且為 64 個十六進位字元 - 本機檔案實際存在且位元組數與宣告一致"
+  ja:
+    name: "ファイルダウンローダーテスト"
+    description: "utility-module-file-downloader のテストハーネスです。httpbin.org から既知サイズの blob をダウンロードし、次を検証します。- file_size が期待値と一致する - sha256 が計算され、64 桁の16進文字列である - ローカルファイルが実際に存在し、宣言されたバイト数を持つ"
+  ko:
+    name: "파일 다운로드기 테스트"
+    description: "utility-module-file-downloader용 테스트 하네스입니다. httpbin.org에서 알려진 크기의 blob을 다운로드하고 다음을 검증합니다. - file_size가 예상과 일치함 - sha256이 계산되며 64자리 16진수임 - 로컬 파일이 실제로 존재하고 선언된 바이트 수와 일치함"
+  es:
+    name: "Prueba de descargador de archivos"
+    description: "Banco de pruebas para utility-module-file-downloader. Descarga un blob de tamaño conocido desde httpbin.org y verifica: - file_size coincide con lo esperado - se calcula sha256 y tiene 64 caracteres hexadecimales - el archivo local realmente existe con los bytes declarados"
+  fr:
+    name: "Test du téléchargeur de fichiers"
+    description: "Harness de test pour utility-module-file-downloader. Télécharge un blob de taille connue depuis httpbin.org et vérifie : - file_size correspond à l'attendu - sha256 est calculé et comporte 64 caractères hexadécimaux - le fichier local existe bien avec le nombre d'octets घोषित"
+  de:
+    name: "Dateidownloader-Test"
+    description: "Test-Harness für utility-module-file-downloader. Lädt einen Blob bekannter Größe von httpbin.org herunter und prüft: - file_size stimmt mit der Erwartung überein - sha256 wird berechnet und hat 64 Hex-Zeichen - die lokale Datei existiert tatsächlich mit den deklarierten Bytes"
+  ar:
+    name: "اختبار مُنزّل الملفات"
+    description: "بيئة اختبار لـ utility-module-file-downloader. يحمّل blob بحجم معروف من httpbin.org ويتحقق من: - file_size يطابق المتوقع - تم حساب sha256 وهو 64 حرفًا سداسيًا عشريًا - الملف المحلي موجود فعلاً وبالبايتات المعلنة"
+  pt:
+    name: "Teste de baixador de arquivos"
+    description: "Ambiente de teste para utility-module-file-downloader. Baixa um blob de tamanho conhecido de httpbin.org e verifica: - file_size corresponde ao esperado - sha256 é calculado e tem 64 caracteres hexadecimais - o arquivo local realmente existe com os bytes declarados"
+  vi:
+    name: "Kiểm thử trình tải tệp"
+    description: "Bộ kiểm thử cho utility-module-file-downloader. Tải một blob có kích thước đã biết từ httpbin.org và xác minh: - file_size khớp với kỳ vọng - sha256 được tính và có 64 ký tự hex - tệp cục bộ thực sự tồn tại với số byte đã khai báo"
 tags:
   - code
   - extract

@@ -12,7 +12,41 @@ tags:
 description: |
   Multi-path variable aggregation feature test - tests the various aggregation strategies of the Aggregate step
   Covers: sources (multiple sources), strategy (concat/json_array/numbered_list/
-  pick_longest/pick_shortest）、separator、output_variable
+  pick_longest/pick_shortest), separator, output_variable
+translations:
+  en:
+    name: "Workflow Aggregate Test"
+    description: "Multi-path variable aggregation feature test - tests the various aggregation strategies of the Aggregate step Covers: sources (multiple sources), strategy (concat/json_array/numbered_list/ pick_longest/pick_shortest), separator, output_variable"
+  zh:
+    name: "工作流聚合测试"
+    description: "多路径变量聚合功能测试——测试 Aggregate 步骤的各种聚合策略。涵盖：sources（multiple sources）、strategy（concat/json_array/numbered_list/pick_longest/pick_shortest）、separator、output_variable"
+  zhHant:
+    name: "工作流程聚合測試"
+    description: "多路徑變數聚合功能測試——測試 Aggregate 步驟的各種聚合策略。涵蓋：sources（multiple sources）、strategy（concat/json_array/numbered_list/pick_longest/pick_shortest）、separator、output_variable"
+  ja:
+    name: "ワークフロー集約テスト"
+    description: "マルチパス変数集約機能テスト—Aggregate ステップの各種集約戦略をテストします。対象: sources (multiple sources)、strategy (concat/json_array/numbered_list/pick_longest/pick_shortest)、separator、output_variable"
+  ko:
+    name: "워크플로 집계 테스트"
+    description: "다중 경로 변수 집계 기능 테스트 — Aggregate 단계의 다양한 집계 전략을 테스트합니다. 범위: sources (multiple sources), strategy (concat/json_array/numbered_list/pick_longest/pick_shortest), separator, output_variable"
+  es:
+    name: "Prueba de agregación de flujo de trabajo"
+    description: "Prueba de la función de agregación de variables por múltiples rutas: verifica las distintas estrategias de agregación del paso Aggregate. Cubre: sources (multiple sources), strategy (concat/json_array/numbered_list/pick_longest/pick_shortest), separator, output_variable"
+  fr:
+    name: "Test d’agrégation de workflow"
+    description: "Test de fonctionnalité d’agrégation de variables multi-chemins — vérifie les différentes stratégies d’agrégation de l’étape Aggregate. Couvre : sources (multiple sources), strategy (concat/json_array/numbered_list/pick_longest/pick_shortest), separator, output_variable"
+  de:
+    name: "Workflow-Aggregationstest"
+    description: "Test der mehrpfadigen Variablenaggregation — prüft die verschiedenen Aggregationsstrategien des Schritts Aggregate. Abgedeckt: sources (multiple sources), strategy (concat/json_array/numbered_list/pick_longest/pick_shortest), separator, output_variable"
+  ar:
+    name: "اختبار تجميع سير العمل"
+    description: "اختبار ميزة تجميع المتغيرات متعددة المسارات — يختبر استراتيجيات التجميع المختلفة في خطوة Aggregate. يشمل: sources (multiple sources)، strategy (concat/json_array/numbered_list/pick_longest/pick_shortest)، separator، output_variable"
+  pt:
+    name: "Teste de agregação de fluxo de trabalho"
+    description: "Teste de recurso de agregação de variáveis em múltiplos caminhos — verifica as várias estratégias de agregação da etapa Aggregate. Cobre: sources (multiple sources), strategy (concat/json_array/numbered_list/pick_longest/pick_shortest), separator, output_variable"
+  vi:
+    name: "Kiểm thử tổng hợp workflow"
+    description: "Kiểm thử tính năng tổng hợp biến đa nhánh — kiểm tra các chiến lược tổng hợp khác nhau của bước Aggregate. Bao gồm: sources (multiple sources), strategy (concat/json_array/numbered_list/pick_longest/pick_shortest), separator, output_variable"
 variables:
   target_system: E-commerce platform shopping-cart module
   output_dir: "./output"
@@ -90,7 +124,7 @@ workflow:
     Focus on: authentication, data encryption, SQL injection, and XSS protection.
     Output a review report.
 
-    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/security_review.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/security_review.md.
 - step: performance_review
   agent: reviewer_b
   input: |-
@@ -98,7 +132,7 @@ workflow:
     Focus on: response time, concurrency, caching strategy, and database query optimization.
     Output a review report.
 
-    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/performance_review.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/performance_review.md.
 - step: ux_review
   agent: reviewer_c
   input: |-
@@ -106,7 +140,7 @@ workflow:
     Focus on: interaction flow, UI design, accessibility, and mobile responsiveness.
     Output a review report.
 
-    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/ux_review.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/ux_review.md.
 - step: concat_aggregate
   agent: summarizer
   input: |-
@@ -114,7 +148,7 @@ workflow:
     {{var:concat_reviews}}
     Based on this, generate a consolidated review summary.
 
-    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/concat_aggregate.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/concat_aggregate.md.
   aggregate:
     sources:
     - "{{steps.security_review.output}}"
@@ -138,7 +172,7 @@ workflow:
     {{var:numbered_reviews}}
     Extract the key finding of each item.
 
-    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/numbered_aggregate.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/numbered_aggregate.md.
   aggregate:
     sources:
     - "{{steps.security_review.output}}"
@@ -188,7 +222,7 @@ workflow:
     {{var:longest_review_text}}
     Write a concise summary of it.
 
-    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/longest_review.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/longest_review.md.
   aggregate:
     sources:
     - "{{steps.security_review.output}}"

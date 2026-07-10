@@ -7,6 +7,40 @@ description: |
   Feeds a small JSON array with duplicate emails and verifies the first-wins
   strategy keeps 3 unique records.
 
+translations:
+  en:
+    name: "Data Deduplicator Test"
+    description: "Test harness for utility-module-data-deduplicator. Feeds a small JSON array with duplicate emails and verifies the first-wins strategy keeps 3 unique records."
+  zh:
+    name: "数据去重测试"
+    description: "utility-module-data-deduplicator 的测试工具。输入一个包含重复电子邮件的小型 JSON 数组，并验证首个保留策略会保留 3 条唯一记录。"
+  zhHant:
+    name: "資料去重測試"
+    description: "utility-module-data-deduplicator 的測試工具。輸入一個包含重複電子郵件的小型 JSON 陣列，並驗證首個保留策略會保留 3 筆唯一記錄。"
+  ja:
+    name: "データ重複排除テスト"
+    description: "utility-module-data-deduplicator のテストハーネス。重複するメールアドレスを含む小さな JSON 配列を渡し、先勝ちの戦略で 3 件の一意なレコードが保持されることを検証します。"
+  ko:
+    name: "데이터 중복 제거 테스트"
+    description: "utility-module-data-deduplicator의 테스트 하니스입니다. 중복 이메일이 있는 작은 JSON 배열을 입력하고, 첫 항목 우선 전략으로 3개의 고유 레코드가 유지되는지 검증합니다."
+  es:
+    name: "Prueba de deduplicación de datos"
+    description: "Banco de pruebas para utility-module-data-deduplicator. Introduce una pequeña matriz JSON con correos duplicados y verifica que la estrategia de primer valor conserva 3 registros únicos."
+  fr:
+    name: "Test de déduplication des données"
+    description: "Banc de test pour utility-module-data-deduplicator. Fournit un petit tableau JSON avec des e-mails en double et vérifie que la stratégie du premier conservé garde 3 enregistrements uniques."
+  de:
+    name: "Daten-Deduplizierung Test"
+    description: "Test-Harness für utility-module-data-deduplicator. Übergibt ein kleines JSON-Array mit doppelten E-Mails und prüft, dass die First-Wins-Strategie 3 eindeutige Datensätze beibehält."
+  ar:
+    name: "اختبار إزالة تكرار البيانات"
+    description: "إطار اختبار لـ utility-module-data-deduplicator. يمرر مصفوفة JSON صغيرة تحتوي على رسائل بريد إلكتروني مكررة ويتحقق من أن استراتيجية الاحتفاظ بالأول تُبقي 3 سجلات فريدة."
+  pt:
+    name: "Teste de deduplicação de dados"
+    description: "Harness de teste para utility-module-data-deduplicator. Envia um pequeno array JSON com e-mails duplicados e verifica se a estratégia first-wins mantém 3 registros exclusivos."
+  vi:
+    name: "Kiểm thử khử trùng lặp dữ liệu"
+    description: "Khung kiểm thử cho utility-module-data-deduplicator. Đưa vào một mảng JSON nhỏ có email trùng lặp và xác minh chiến lược giữ bản ghi đầu tiên bảo toàn 3 bản ghi duy nhất."
 tags:
   - code
   - extract

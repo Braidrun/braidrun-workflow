@@ -10,7 +10,41 @@ tags:
 description: |
   repeat_until iterative-refinement feature test - tests conditional loop execution
   Covers: condition, max_iterations, evaluate_agent, evaluate_prompt,
-  extract_pattern、extract_variable
+  extract_pattern, extract_variable
+translations:
+  en:
+    name: "Repeat Until Iteration Test"
+    description: "repeat_until iterative-refinement feature test - tests conditional loop execution Covers: condition, max_iterations, evaluate_agent, evaluate_prompt, extract_pattern, extract_variable"
+  zh:
+    name: "重复直到迭代测试"
+    description: "repeat_until 迭代优化功能测试 - 测试条件循环执行。涵盖：condition、max_iterations、evaluate_agent、evaluate_prompt、extract_pattern、extract_variable"
+  zhHant:
+    name: "重複直到迭代測試"
+    description: "repeat_until 迭代優化功能測試 - 測試條件迴圈執行。涵蓋：condition、max_iterations、evaluate_agent、evaluate_prompt、extract_pattern、extract_variable"
+  ja:
+    name: "Repeat Until 反復テスト"
+    description: "repeat_until の反復改善機能テスト - 条件付きループ実行をテストします。対象: condition、max_iterations、evaluate_agent、evaluate_prompt、extract_pattern、extract_variable"
+  ko:
+    name: "Repeat Until 반복 테스트"
+    description: "repeat_until 반복 개선 기능 테스트 - 조건부 루프 실행을 테스트합니다. 포함: condition, max_iterations, evaluate_agent, evaluate_prompt, extract_pattern, extract_variable"
+  es:
+    name: "Prueba de iteración hasta repetir"
+    description: "Prueba de la función de refinamiento iterativo repeat_until: prueba la ejecución de bucles condicionales. Cubre: condition, max_iterations, evaluate_agent, evaluate_prompt, extract_pattern, extract_variable"
+  fr:
+    name: "Test d’itération Répéter jusqu’à"
+    description: "Test de la fonctionnalité d’affinage itératif repeat_until : teste l’exécution conditionnelle en boucle. Couvre : condition, max_iterations, evaluate_agent, evaluate_prompt, extract_pattern, extract_variable"
+  de:
+    name: "Wiederholen-bis-Iterationen-Test"
+    description: "repeat_until-Test für iterative Verfeinerung - testet die bedingte Schleifenausführung. Umfasst: condition, max_iterations, evaluate_agent, evaluate_prompt, extract_pattern, extract_variable"
+  ar:
+    name: "اختبار التكرار حتى"
+    description: "اختبار ميزة التحسين التكراري repeat_until - يختبر تنفيذ الحلقات الشرطية. يشمل: condition، max_iterations، evaluate_agent، evaluate_prompt، extract_pattern، extract_variable"
+  pt:
+    name: "Teste de iteração Repetir até"
+    description: "Teste do recurso de refinamento iterativo repeat_until - testa a execução de loop condicional. Abrange: condition, max_iterations, evaluate_agent, evaluate_prompt, extract_pattern, extract_variable"
+  vi:
+    name: "Kiểm thử lặp cho đến khi"
+    description: "Kiểm thử tính năng tinh chỉnh lặp repeat_until - kiểm thử thực thi vòng lặp có điều kiện. Bao gồm: condition, max_iterations, evaluate_agent, evaluate_prompt, extract_pattern, extract_variable"
 variables:
   topic: Applications of AI in education
   quality_threshold: '7'
@@ -75,7 +109,7 @@ workflow:
     The previous score was {{var:quality_score}}; please improve on it.
     Output format: after the article content, append quality_score=N (N is a self-assessed score from 1-10).
 
-    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/draft_article.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/draft_article.md.
   repeat_until:
     condition: quality_score >= 7
     max_iterations: 3
@@ -93,7 +127,7 @@ workflow:
     Output summary_done=yes at the end of the summary when you consider it concise enough.
     Article: {{steps.draft_article.output}}
 
-    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/refine_summary.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/refine_summary.md.
   repeat_until:
     condition: summary_done == 'yes'
     max_iterations: 2

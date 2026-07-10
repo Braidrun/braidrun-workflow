@@ -5,6 +5,40 @@ tags:
 - test
 - fan-out
 description: Fan-out/fan-in test - one initial step fans out to several parallel branches that finally converge in a summary step
+translations:
+  en:
+    name: "Fan Out Fan In Test"
+    description: "Fan-out/fan-in test - one initial step fans out to several parallel branches that finally converge in a summary step"
+  zh:
+    name: "分支汇聚测试"
+    description: "分支汇聚测试——一个初始步骤分支为多个并行分支，最后在汇总步骤中汇聚。"
+  zhHant:
+    name: "分支匯聚測試"
+    description: "分支匯聚測試——一個初始步驟分支為多個並行分支，最後在彙總步驟中匯聚。"
+  ja:
+    name: "ファンアウト・ファンインテスト"
+    description: "ファンアウト・ファンインテスト - 1つの初期ステップが複数の並列ブランチに分岐し、最後にサマリーステップで収束します。"
+  ko:
+    name: "팬아웃 팬인 테스트"
+    description: "팬아웃/팬인 테스트 - 하나의 초기 단계가 여러 병렬 분기로 분기한 뒤 마지막에 요약 단계에서 수렴합니다."
+  es:
+    name: "Prueba de expansión y convergencia"
+    description: "Prueba de expansión y convergencia: un paso inicial se expande en varias ramas paralelas que finalmente convergen en un paso de resumen."
+  fr:
+    name: "Test de fan-out et fan-in"
+    description: "Test de fan-out/fan-in - une étape initiale se déploie en plusieurs branches parallèles qui convergent finalement vers une étape de résumé."
+  de:
+    name: "Fan-out Fan-in Test"
+    description: "Fan-out/Fan-in-Test – ein erster Schritt verzweigt sich in mehrere parallele Branches, die am Ende in einem Zusammenfassungsschritt zusammenlaufen."
+  ar:
+    name: "اختبار التفرع والتجميع"
+    description: "اختبار التفرع/التجميع - تتفرع خطوة أولية واحدة إلى عدة فروع متوازية تتلاقى أخيرًا في خطوة ملخص."
+  pt:
+    name: "Teste de fan-out e fan-in"
+    description: "Teste de fan-out/fan-in - uma etapa inicial se desdobra em vários ramos paralelos que convergem ao final em uma etapa de resumo."
+  vi:
+    name: "Kiểm thử fan-out fan-in"
+    description: "Kiểm thử fan-out/fan-in - một bước ban đầu tỏa ra nhiều nhánh song song, rồi cuối cùng hội tụ ở bước tóm tắt."
 variables:
   output_dir: "./output"
   demo_mode: 'true'
@@ -35,7 +69,7 @@ workflow:
     {"task": "market_analysis", "branches": ["competitor", "customer", "technology"], "status": "started"}
     Call exit when done.
 
-    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/prepare.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/prepare.md.
 - step: branch_competitor
   agent: coordinator
   depends_on:
@@ -47,7 +81,7 @@ workflow:
     Include at least 3 competitor strengths.
     Call exit when done.
 
-    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/branch_competitor.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/branch_competitor.md.
 - step: branch_customer
   agent: coordinator
   depends_on:
@@ -59,7 +93,7 @@ workflow:
     Include at least 3 customer pain points.
     Call exit when done.
 
-    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/branch_customer.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/branch_customer.md.
 - step: branch_technology
   agent: coordinator
   depends_on:
@@ -71,7 +105,7 @@ workflow:
     Include at least 3 emerging technologies.
     Call exit when done.
 
-    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/branch_technology.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/branch_technology.md.
 - step: aggregate
   agent: coordinator
   depends_on:
@@ -89,7 +123,7 @@ workflow:
     into a unified market analysis summary (100-150 words).
     Call exit when done.
 
-    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/aggregate.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/aggregate.md.
 error_handling:
   max_retries: 2
   retry_delay: 3s

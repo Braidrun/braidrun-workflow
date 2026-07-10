@@ -9,6 +9,40 @@ description: |
   - SELECT with positional parameters, assert rows_json + row_count
   - Attempt a write with allow_writes=false → expect rejection
 
+translations:
+  en:
+    name: "SQL Query Runner Test"
+    description: "Test harness for utility-module-sql-query-runner. Uses SQLite to avoid external DB dependency: - Create a DB file, insert test rows (allow_writes=true) - SELECT with positional parameters, assert rows_json + row_count - Attempt a write with allow_writes=false → expect rejection"
+  zh:
+    name: "SQL 查询运行器测试"
+    description: "utility-module-sql-query-runner 的测试框架。使用 SQLite 以避免外部数据库依赖：- 创建数据库文件，插入测试行（allow_writes=true）- 使用位置参数执行 SELECT，断言 rows_json 和 row_count - 尝试在 allow_writes=false 时写入 → 预期被拒绝"
+  zhHant:
+    name: "SQL 查詢執行器測試"
+    description: "utility-module-sql-query-runner 的測試框架。使用 SQLite 以避免外部資料庫依賴：- 建立資料庫檔案，插入測試列（allow_writes=true）- 使用位置參數執行 SELECT，斷言 rows_json 和 row_count - 嘗試在 allow_writes=false 時寫入 → 預期被拒絕"
+  ja:
+    name: "SQLクエリ実行テスト"
+    description: "utility-module-sql-query-runner のテストハーネス。外部DB依存を避けるため SQLite を使用する。- DB ファイルを作成し、テスト行を挿入する（allow_writes=true）- 位置パラメータ付きで SELECT を実行し、rows_json と row_count を検証する - allow_writes=false で書き込みを試行 → 拒否を期待する"
+  ko:
+    name: "SQL 쿼리 실행기 테스트"
+    description: "utility-module-sql-query-runner용 테스트 하네스. 외부 DB 의존성을 피하기 위해 SQLite를 사용한다: - DB 파일을 만들고 테스트 행을 삽입한다(allow_writes=true) - 위치 매개변수로 SELECT를 실행하고 rows_json 및 row_count를 검증한다 - allow_writes=false에서 쓰기를 시도 → 거부를 기대한다"
+  es:
+    name: "Prueba de ejecutor de consultas SQL"
+    description: "Banco de pruebas para utility-module-sql-query-runner. Usa SQLite para evitar dependencia de una base de datos externa: - crear un archivo de BD, insertar filas de prueba (allow_writes=true) - ejecutar SELECT con parámetros posicionales, validar rows_json y row_count - intentar una escritura con allow_writes=false → se espera rechazo"
+  fr:
+    name: "Test du moteur de requêtes SQL"
+    description: "Banc de test pour utility-module-sql-query-runner. Utilise SQLite afin d’éviter une dépendance à une base de données externe : - créer un fichier de base de données, insérer des lignes de test (allow_writes=true) - exécuter SELECT avec des paramètres positionnels, vérifier rows_json et row_count - tenter une écriture avec allow_writes=false → rejet attendu"
+  de:
+    name: "SQL-Abfrageausführungs-Test"
+    description: "Test-Harness für utility-module-sql-query-runner. Verwendet SQLite, um eine externe DB-Abhängigkeit zu vermeiden: - DB-Datei erstellen, Testzeilen einfügen (allow_writes=true) - SELECT mit Positionsparametern ausführen, rows_json und row_count prüfen - Schreibversuch mit allow_writes=false → Ablehnung erwartet"
+  ar:
+    name: "اختبار مشغّل استعلامات SQL"
+    description: "إطار اختبار لـ utility-module-sql-query-runner. يستخدم SQLite لتجنب الاعتماد على قاعدة بيانات خارجية: - إنشاء ملف قاعدة بيانات، إدراج صفوف اختبار (allow_writes=true) - تنفيذ SELECT باستخدام معاملات موضعية، والتحقق من rows_json و row_count - محاولة كتابة مع allow_writes=false → يُتوقع الرفض"
+  pt:
+    name: "Teste do executor de consultas SQL"
+    description: "Estrutura de teste para utility-module-sql-query-runner. Usa SQLite para evitar dependência de banco de dados externo: - criar um arquivo de BD, inserir linhas de teste (allow_writes=true) - executar SELECT com parâmetros posicionais, verificar rows_json e row_count - tentar uma escrita com allow_writes=false → rejeição esperada"
+  vi:
+    name: "Kiểm thử trình chạy truy vấn SQL"
+    description: "Bộ khung kiểm thử cho utility-module-sql-query-runner. Dùng SQLite để tránh phụ thuộc CSDL bên ngoài: - tạo tệp CSDL, chèn các hàng kiểm thử (allow_writes=true) - chạy SELECT với tham số vị trí, xác nhận rows_json và row_count - thử ghi với allow_writes=false → ожидается bị từ chối"
 tags:
   - code
   - error_handling

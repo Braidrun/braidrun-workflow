@@ -9,6 +9,40 @@ description: |
   - POST with JSON body (httpbin echoes json field back)
   - Non-2xx response (status 418) — expect request_status=http_error, no exception
 
+translations:
+  en:
+    name: "HTTP Request Test"
+    description: "Test harness for utility-module-http-request using httpbin.org. Covers: - GET with query params (httpbin echoes them back) - POST with JSON body (httpbin echoes json field back) - Non-2xx response (status 418) — expect request_status=http_error, no exception"
+  zh:
+    name: "HTTP 请求测试"
+    description: "utility-module-http-request 的测试套件，使用 httpbin.org。涵盖：- 使用查询参数的 GET（httpbin 会回显它们）- 带 JSON 主体的 POST（httpbin 会回显 json 字段）- 非 2xx 响应（状态 418）— 预期 request_status=http_error，不抛出异常"
+  zhHant:
+    name: "HTTP 請求測試"
+    description: "utility-module-http-request 的測試套件，使用 httpbin.org。涵蓋：- 使用查詢參數的 GET（httpbin 會回顯它們）- 帶 JSON 主體的 POST（httpbin 會回顯 json 欄位）- 非 2xx 回應（狀態 418）— 預期 request_status=http_error，不拋出例外"
+  ja:
+    name: "HTTP リクエストテスト"
+    description: "utility-module-http-request 用のテストハーネス。httpbin.org を使用します。対象: - クエリパラメータ付き GET（httpbin がそれらをエコーします）- JSON 本文付き POST（httpbin が json フィールドをエコーします）- 2xx 以外のレスポンス（status 418）— request_status=http_error を期待し、例外は発生しません"
+  ko:
+    name: "HTTP 요청 테스트"
+    description: "httpbin.org를 사용하는 utility-module-http-request용 테스트 하네스입니다. 포함: - 쿼리 매개변수가 있는 GET(httpbin이 이를 다시 반환) - JSON 본문이 있는 POST(httpbin이 json 필드를 다시 반환) - 2xx가 아닌 응답(status 418) — request_status=http_error를 예상하며 예외는 발생하지 않음"
+  es:
+    name: "Test de solicitud HTTP"
+    description: "Banco de pruebas para utility-module-http-request usando httpbin.org. Cubre: - GET con parámetros de consulta (httpbin los devuelve) - POST con cuerpo JSON (httpbin devuelve el campo json) - Respuesta no 2xx (estado 418) — se espera request_status=http_error, sin excepción"
+  fr:
+    name: "Test de requête HTTP"
+    description: "Banc de test pour utility-module-http-request utilisant httpbin.org. Couvre : - GET avec paramètres de requête (httpbin les renvoie) - POST avec corps JSON (httpbin renvoie le champ json) - Réponse non-2xx (statut 418) — attendre request_status=http_error, sans exception"
+  de:
+    name: "HTTP-Anfrage-Test"
+    description: "Test-Harness für utility-module-http-request mit httpbin.org. Deckt ab: - GET mit Query-Parametern (httpbin gibt sie zurück) - POST mit JSON-Body (httpbin gibt das json-Feld zurück) - Nicht-2xx-Antwort (Status 418) — erwartet request_status=http_error, keine Ausnahme"
+  ar:
+    name: "اختبار طلب HTTP"
+    description: "إطار اختبار لـ utility-module-http-request باستخدام httpbin.org. يغطي: - GET مع معاملات استعلام (يقوم httpbin بإرجاعها) - POST مع نص JSON (يقوم httpbin بإرجاع حقل json) - استجابة غير 2xx (الحالة 418) — المتوقَّع request_status=http_error، بدون استثناء"
+  pt:
+    name: "Teste de solicitação HTTP"
+    description: "Harness de teste para utility-module-http-request usando httpbin.org. Abrange: - GET com parâmetros de consulta (o httpbin os retorna) - POST com corpo JSON (o httpbin retorna o campo json) - Resposta não 2xx (status 418) — esperar request_status=http_error, sem exceção"
+  vi:
+    name: "Kiểm thử yêu cầu HTTP"
+    description: "Bộ kiểm thử cho utility-module-http-request dùng httpbin.org. Bao gồm: - GET với tham số truy vấn (httpbin trả lại chúng) - POST với phần thân JSON (httpbin trả lại trường json) - Phản hồi không thuộc 2xx (status 418) — mong đợi request_status=http_error, không có ngoại lệ"
 tags:
   - code
   - extract

@@ -7,6 +7,40 @@ description: |
   Generates 7 daily dates in UTC between two known dates, asserts count and
   bounds.
 
+translations:
+  en:
+    name: "Date Range Generator Test"
+    description: "Test harness for utility-module-date-range-generator. Generates 7 daily dates in UTC between two known dates, asserts count and bounds."
+  zh:
+    name: "日期范围生成器测试"
+    description: "测试 utility-module-date-range-generator。生成两个已知日期之间 UTC 中 7 个每日日期，并断言计数和边界。"
+  zhHant:
+    name: "日期範圍產生器測試"
+    description: "測試 utility-module-date-range-generator。於 UTC 中在兩個已知日期之間產生 7 個每日日期，並斷言計數與邊界。"
+  ja:
+    name: "日付範囲ジェネレーターテスト"
+    description: "utility-module-date-range-generator のテストハーネス。既知の2つの日付の間で UTC の7日分の日付を生成し、件数と境界をアサートします。"
+  ko:
+    name: "날짜 범위 생성기 테스트"
+    description: "utility-module-date-range-generator용 테스트 하네스입니다. 두 개의 알려진 날짜 사이 UTC에서 7개의 일별 날짜를 생성하고 개수와 경계를 검증합니다."
+  es:
+    name: "Prueba de generador de rango de fechas"
+    description: "Banco de pruebas para utility-module-date-range-generator. Genera 7 fechas diarias en UTC entre dos fechas conocidas y verifica el conteo y los límites."
+  fr:
+    name: "Test du générateur de plage de dates"
+    description: "Banc de test pour utility-module-date-range-generator. Génère 7 dates quotidiennes en UTC entre deux dates connues et vérifie le nombre et les bornes."
+  de:
+    name: "Datumsbereichsgenerator-Test"
+    description: "Test-Harness für utility-module-date-range-generator. Erzeugt 7 tägliche Datumswerte in UTC zwischen zwei bekannten Daten und prüft Anzahl sowie Grenzen."
+  ar:
+    name: "اختبار مولّد نطاق التاريخ"
+    description: "إطار اختبار لـ utility-module-date-range-generator. يُنشئ 7 تواريخ يومية بتوقيت UTC بين تاريخين معروفين، ويؤكد العدد والحدود."
+  pt:
+    name: "Teste do gerador de intervalo de datas"
+    description: "Harness de teste para utility-module-date-range-generator. Gera 7 datas diárias em UTC entre duas datas conhecidas e valida a contagem e os limites."
+  vi:
+    name: "Kiểm thử bộ tạo khoảng ngày"
+    description: "Khung kiểm thử cho utility-module-date-range-generator. Tạo 7 ngày hằng ngày trong UTC giữa hai ngày đã biết, và xác nhận số lượng cùng các giới hạn."
 tags:
   - code
   - extract

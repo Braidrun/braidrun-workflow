@@ -2,6 +2,40 @@
 name: test-twilio-sms
 version: 1.0.0
 description: Negative-path test for utility-module-twilio-sms — bad credentials trigger module-level rejection.
+translations:
+  en:
+    name: "Twilio SMS Test"
+    description: "Negative-path test for utility-module-twilio-sms — bad credentials trigger module-level rejection."
+  zh:
+    name: "Twilio SMS 测试"
+    description: "针对 utility-module-twilio-sms 的负向路径测试——错误凭据会触发模块级拒绝。"
+  zhHant:
+    name: "Twilio SMS 測試"
+    description: "針對 utility-module-twilio-sms 的負向路徑測試——錯誤憑證會觸發模組級拒絕。"
+  ja:
+    name: "Twilio SMS テスト"
+    description: "utility-module-twilio-sms の負のパステスト。無効な認証情報によりモジュールレベルで拒否されます。"
+  ko:
+    name: "Twilio SMS 테스트"
+    description: "utility-module-twilio-sms의 부정 경로 테스트입니다. 잘못된 자격 증명은 모듈 수준 거부를 유발합니다."
+  es:
+    name: "Prueba de SMS de Twilio"
+    description: "Prueba de ruta negativa para utility-module-twilio-sms: unas credenciales incorrectas desencadenan un rechazo a nivel de módulo."
+  fr:
+    name: "Test SMS Twilio"
+    description: "Test de chemin négatif pour utility-module-twilio-sms : de mauvaises informations d’identification déclenchent un rejet au niveau du module."
+  de:
+    name: "Twilio-SMS-Test"
+    description: "Negativpfad-Test für utility-module-twilio-sms — falsche Anmeldedaten lösen eine Ablehnung auf Modulebene aus."
+  ar:
+    name: "اختبار Twilio SMS"
+    description: "اختبار مسار سلبي لـ utility-module-twilio-sms — تؤدي بيانات الاعتماد غير الصحيحة إلى رفض على مستوى الوحدة."
+  pt:
+    name: "Teste de SMS do Twilio"
+    description: "Teste de caminho negativo para utility-module-twilio-sms — credenciais incorretas acionam rejeição no nível do módulo."
+  vi:
+    name: "Kiểm thử Twilio SMS"
+    description: "Kiểm thử đường đi lỗi cho utility-module-twilio-sms — thông tin xác thực sai sẽ kích hoạt từ chối ở cấp mô-đun."
 tags:
   - code
   - error_handling

@@ -2,6 +2,40 @@
 name: test-date-formatter
 version: 1.0.0
 description: Test date-formatter — ISO → epoch → RFC roundtrip.
+translations:
+  en:
+    name: "Date Formatter Test"
+    description: "Test date-formatter — ISO → epoch → RFC roundtrip."
+  zh:
+    name: "日期格式化测试"
+    description: "测试 date-formatter：ISO → epoch → RFC 往返转换。"
+  zhHant:
+    name: "日期格式化測試"
+    description: "測試 date-formatter：ISO → epoch → RFC 往返轉換。"
+  ja:
+    name: "日付フォーマッターテスト"
+    description: "date-formatter の ISO → epoch → RFC の往復変換をテストします。"
+  ko:
+    name: "날짜 포맷터 테스트"
+    description: "date-formatter의 ISO → epoch → RFC 왕복 변환을 테스트합니다."
+  es:
+    name: "Prueba de formateador de fechas"
+    description: "Prueba de date-formatter: conversión de ida y vuelta ISO → epoch → RFC."
+  fr:
+    name: "Test de formateur de date"
+    description: "Test de date-formatter : aller-retour ISO → epoch → RFC."
+  de:
+    name: "Datumsformatierungs-Test"
+    description: "Test von date-formatter: ISO → epoch → RFC im Rundlauf."
+  ar:
+    name: "اختبار تنسيق التاريخ"
+    description: "اختبار date-formatter: تحويل ذهابًا وإيابًا من ISO → epoch → RFC."
+  pt:
+    name: "Teste de formatador de data"
+    description: "Teste de date-formatter: conversão de ida e volta ISO → epoch → RFC."
+  vi:
+    name: "Kiểm thử bộ định dạng ngày"
+    description: "Kiểm thử date-formatter: chuyển đổi vòng lặp ISO → epoch → RFC."
 tags:
   - code
   - extract

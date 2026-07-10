@@ -7,6 +7,40 @@ tags:
 description: |
   Test workflow - uses inline agent definitions plus API-key configuration
   Demonstrates how to configure a different LLM provider and API key for each agent in a workflow
+translations:
+  en:
+    name: "Workflow with API Keys Test"
+    description: "Test workflow - uses inline agent definitions plus API-key configuration Demonstrates how to configure a different LLM provider and API key for each agent in a workflow"
+  zh:
+    name: "带 API 密钥的工作流测试"
+    description: "测试工作流 - 使用内联 agent 定义和 API-key 配置。演示如何为工作流中的每个 agent 配置不同的 LLM 提供方和 API key"
+  zhHant:
+    name: "含 API 金鑰的工作流程測試"
+    description: "測試工作流程 - 使用內嵌 agent 定義與 API-key 設定。示範如何為工作流程中的每個 agent 設定不同的 LLM 提供者和 API key"
+  ja:
+    name: "APIキー付きワークフローテスト"
+    description: "テスト用ワークフロー - インラインの agent 定義と API-key 設定を使用。ワークフロー内の各 agent ごとに異なる LLM プロバイダーと API key を設定する方法を示します"
+  ko:
+    name: "API 키가 있는 워크플로 테스트"
+    description: "테스트 워크플로 - 인라인 agent 정의와 API-key 구성을 사용합니다. 워크플로의 각 agent에 서로 다른 LLM 제공자와 API key를 구성하는 방법을 보여줍니다"
+  es:
+    name: "Prueba de flujo de trabajo con API keys"
+    description: "Flujo de trabajo de prueba: usa definiciones de agent en línea y configuración de API-key. Demuestra cómo configurar un proveedor de LLM y una API key distintos para cada agent en un flujo de trabajo"
+  fr:
+    name: "Test de flux de travail avec clés API"
+    description: "Flux de travail de test - utilise des définitions d’agent intégrées et une configuration de API-key. Montre comment configurer un fournisseur de LLM et une API key différents pour chaque agent dans un flux de travail"
+  de:
+    name: "Workflow mit API-Keys Test"
+    description: "Test-Workflow - verwendet Inline-Agent-Definitionen plus API-key-Konfiguration. Zeigt, wie für jeden Agent in einem Workflow ein anderer LLM-Anbieter und ein anderer API key konfiguriert werden kann"
+  ar:
+    name: "اختبار سير عمل بمفاتيح API"
+    description: "سير عمل للاختبار - يستخدم تعريفات agent مضمّنة مع إعداد API-key. يوضح كيفية تهيئة مزود LLM ومفتاح API مختلفين لكل agent في سير العمل"
+  pt:
+    name: "Teste de fluxo de trabalho com chaves API"
+    description: "Fluxo de trabalho de teste - usa definições inline de agent e configuração de API-key. Demonstra como configurar um provedor de LLM e uma API key diferentes para cada agent em um fluxo de trabalho"
+  vi:
+    name: "Kiểm thử quy trình làm việc với API keys"
+    description: "Quy trình làm việc kiểm thử - dùng các định nghĩa agent nội tuyến cùng cấu hình API-key. Minh họa cách cấu hình nhà cung cấp LLM và API key khác nhau cho từng agent trong một quy trình làm việc"
 variables:
   topic: Applications and benefits of AI in software development
   output_dir: "./output"

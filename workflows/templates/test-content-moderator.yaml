@@ -2,6 +2,40 @@
 name: test-content-moderator
 version: 1.0.0
 description: Test utility-module-content-moderator (LLM, needs OPENROUTER_API_KEY).
+translations:
+  en:
+    name: "Content Moderator Test"
+    description: "Test utility-module-content-moderator (LLM, needs OPENROUTER_API_KEY)."
+  zh:
+    name: "内容审核测试"
+    description: "测试 utility-module-content-moderator（LLM，需要 OPENROUTER_API_KEY）。"
+  zhHant:
+    name: "內容審核測試"
+    description: "測試 utility-module-content-moderator（LLM，需要 OPENROUTER_API_KEY）。"
+  ja:
+    name: "コンテンツモデレーターテスト"
+    description: "utility-module-content-moderator（LLM、OPENROUTER_API_KEY が必要）をテストします。"
+  ko:
+    name: "콘텐츠 모더레이터 테스트"
+    description: "utility-module-content-moderator(LLM, OPENROUTER_API_KEY 필요)를 테스트합니다."
+  es:
+    name: "Prueba de moderador de contenido"
+    description: "Prueba utility-module-content-moderator (LLM, requiere OPENROUTER_API_KEY)."
+  fr:
+    name: "Test du modérateur de contenu"
+    description: "Teste utility-module-content-moderator (LLM, nécessite OPENROUTER_API_KEY)."
+  de:
+    name: "Content-Moderator Test"
+    description: "Testet utility-module-content-moderator (LLM, benötigt OPENROUTER_API_KEY)."
+  ar:
+    name: "اختبار منسق المحتوى"
+    description: "اختبار utility-module-content-moderator (LLM، يتطلب OPENROUTER_API_KEY)."
+  pt:
+    name: "Teste do moderador de conteúdo"
+    description: "Testa utility-module-content-moderator (LLM, requer OPENROUTER_API_KEY)."
+  vi:
+    name: "Kiểm thử kiểm duyệt nội dung"
+    description: "Kiểm thử utility-module-content-moderator (LLM, cần OPENROUTER_API_KEY)."
 tags:
   - code
   - extract

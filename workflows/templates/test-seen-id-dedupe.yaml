@@ -2,6 +2,40 @@
 name: test-seen-id-dedupe
 version: 1.0.0
 description: Test seen-id-dedupe — first batch all new; second batch overlapping IDs partially new.
+translations:
+  en:
+    name: "Seen ID Dedupe Test"
+    description: "Test seen-id-dedupe — first batch all new; second batch overlapping IDs partially new."
+  zh:
+    name: "已见 ID 去重测试"
+    description: "测试 seen-id-dedupe——第一批全部为新项；第二批重叠 ID 部分为新项。"
+  zhHant:
+    name: "已見 ID 去重測試"
+    description: "測試 seen-id-dedupe——第一批全部為新項；第二批重疊 ID 部分為新項。"
+  ja:
+    name: "既存 ID 重複排除テスト"
+    description: "seen-id-dedupe をテストします。第1バッチはすべて新規、第2バッチは重複 ID の一部が新規です。"
+  ko:
+    name: "확인된 ID 중복 제거 테스트"
+    description: "seen-id-dedupe 테스트 — 첫 번째 배치는 모두 새 항목이며, 두 번째 배치는 중복 ID가 일부 새 항목입니다."
+  es:
+    name: "Prueba de deduplicación de IDs vistos"
+    description: "Prueba de seen-id-dedupe: el primer lote es todo nuevo; el segundo lote tiene IDs superpuestos y algunos son nuevos."
+  fr:
+    name: "Test de déduplication des ID vus"
+    description: "Test de seen-id-dedupe : le premier lot est entièrement nouveau ; le deuxième lot comporte des ID superposés, dont certains sont nouveaux."
+  de:
+    name: "Bereits gesehene ID-Deduplizierung Test"
+    description: "Test von seen-id-dedupe — der erste Batch ist komplett neu; der zweite Batch hat überlappende IDs, von denen einige neu sind."
+  ar:
+    name: "اختبار إزالة تكرار المعرفات المرئية"
+    description: "اختبار seen-id-dedupe — الدفعة الأولى كلها جديدة؛ والدفعة الثانية تحتوي على معرّفات متداخلة وبعضها جديد."
+  pt:
+    name: "Teste de deduplicação de IDs vistos"
+    description: "Teste de seen-id-dedupe — o primeiro lote é todo novo; o segundo lote tem IDs sobrepostos, com parte nova."
+  vi:
+    name: "Kiểm thử khử trùng lặp ID đã xem"
+    description: "Kiểm thử seen-id-dedupe — lô đầu tiên đều là mới; lô thứ hai có các ID chồng lấp, một phần là mới."
 tags:
   - code
   - extract

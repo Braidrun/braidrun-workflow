@@ -2,6 +2,40 @@
 name: test-dingtalk-webhook
 version: 1.0.0
 description: Negative-path test for utility-module-dingtalk-webhook — invalid webhook URL rejected.
+translations:
+  en:
+    name: "DingTalk Webhook Test"
+    description: "Negative-path test for utility-module-dingtalk-webhook — invalid webhook URL rejected."
+  zh:
+    name: "DingTalk Webhook 测试"
+    description: "utility-module-dingtalk-webhook 的负向测试：拒绝无效的 webhook URL。"
+  zhHant:
+    name: "DingTalk Webhook 測試"
+    description: "utility-module-dingtalk-webhook 的負向測試：拒絕無效的 webhook URL。"
+  ja:
+    name: "DingTalk Webhook テスト"
+    description: "utility-module-dingtalk-webhook の負のテスト。無効な webhook URL は拒否されます。"
+  ko:
+    name: "DingTalk Webhook 테스트"
+    description: "utility-module-dingtalk-webhook의 음수 경로 테스트입니다. 잘못된 webhook URL은 거부됩니다."
+  es:
+    name: "Prueba de webhook de DingTalk"
+    description: "Prueba de ruta negativa para utility-module-dingtalk-webhook: se rechaza una URL de webhook no válida."
+  fr:
+    name: "Test de webhook DingTalk"
+    description: "Test de parcours négatif pour utility-module-dingtalk-webhook : une URL de webhook invalide est rejetée."
+  de:
+    name: "DingTalk-Webhook-Test"
+    description: "Negativtest für utility-module-dingtalk-webhook: Ungültige webhook URL wird abgelehnt."
+  ar:
+    name: "اختبار Webhook DingTalk"
+    description: "اختبار مسار سلبي لـ utility-module-dingtalk-webhook: يتم رفض webhook URL غير صالح."
+  pt:
+    name: "Teste de webhook do DingTalk"
+    description: "Teste de caminho negativo para utility-module-dingtalk-webhook: uma URL de webhook inválida é rejeitada."
+  vi:
+    name: "Kiểm thử webhook DingTalk"
+    description: "Kiểm thử luồng âm cho utility-module-dingtalk-webhook: URL webhook không hợp lệ bị từ chối."
 tags:
   - code
   - error_handling

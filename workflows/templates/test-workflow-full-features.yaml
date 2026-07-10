@@ -7,6 +7,40 @@ tags:
 - condition
 - retry
 description: Comprehensive feature test - covers variable substitution, conditional execution, parallelism, dependency chains, priorities, timeouts, and error handling
+translations:
+  en:
+    name: "Full Features Test"
+    description: "Comprehensive feature test - covers variable substitution, conditional execution, parallelism, dependency chains, priorities, timeouts, and error handling"
+  zh:
+    name: "全功能测试"
+    description: "全功能测试——涵盖变量替换、条件执行、并行处理、依赖链、优先级、超时和错误处理。"
+  zhHant:
+    name: "全功能測試"
+    description: "全功能測試——涵蓋變數替換、條件執行、平行處理、依賴鏈、優先級、逾時和錯誤處理。"
+  ja:
+    name: "全機能テスト"
+    description: "全機能テスト - 変数置換、条件実行、並列処理、依存チェーン、優先度、タイムアウト、エラー処理を網羅します。"
+  ko:
+    name: "전체 기능 테스트"
+    description: "전체 기능 테스트 - 변수 치환, 조건부 실행, 병렬 처리, 의존성 체인, 우선순위, 시간 제한, 오류 처리를 다룹니다."
+  es:
+    name: "Prueba de funciones completas"
+    description: "Prueba de funciones completas: cubre sustitución de variables, ejecución condicional, paralelismo, cadenas de dependencias, prioridades, tiempos de espera y control de errores."
+  fr:
+    name: "Test de fonctionnalités complètes"
+    description: "Test de fonctionnalités complètes - couvre la substitution de variables, l’exécution conditionnelle, le parallélisme, les chaînes de dépendances, les priorités, les délais d’expiration et la gestion des erreurs."
+  de:
+    name: "Test aller Funktionen"
+    description: "Vollständiger Funktionstest – deckt Variablenersetzung, bedingte Ausführung, Parallelität, Abhängigkeitsketten, Prioritäten, Zeitüberschreitungen und Fehlerbehandlung ab."
+  ar:
+    name: "اختبار الميزات الكاملة"
+    description: "اختبار الميزات الكاملة - يغطي استبدال المتغيرات، والتنفيذ الشرطي، والتوازي، وسلاسل الاعتماد، والأولويات، والمهلات، ومعالجة الأخطاء."
+  pt:
+    name: "Teste de recursos completos"
+    description: "Teste de recursos completos - abrange substituição de variáveis, execução condicional, paralelismo, cadeias de dependências, prioridades, timeouts e tratamento de erros."
+  vi:
+    name: "Kiểm thử đầy đủ tính năng"
+    description: "Kiểm thử đầy đủ tính năng - bao gồm thay thế biến, thực thi có điều kiện, xử lý song song, chuỗi phụ thuộc, mức ưu tiên, thời gian chờ và xử lý lỗi."
 variables:
   project_name: FullFeatureTest
   mode: standard
@@ -79,7 +113,7 @@ workflow:
     }
     Then call exit.
 
-    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/init_project.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/init_project.md.
 - step: task_data_collection
   agent: executor
   depends_on:
@@ -89,7 +123,7 @@ workflow:
     "Data collection completed for project {{var:project_name}}"
     Then call exit.
 
-    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/task_data_collection.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/task_data_collection.md.
 - step: task_config_setup
   agent: executor
   depends_on:
@@ -99,7 +133,7 @@ workflow:
     "Configuration: mode={{var:mode}}, review={{var:enable_review}}"
     Then call exit.
 
-    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/task_config_setup.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/task_config_setup.md.
 - step: task_resource_prep
   agent: executor
   depends_on:
@@ -109,7 +143,7 @@ workflow:
     "Resources prepared for {{var:project_name}}"
     Then call exit.
 
-    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/task_resource_prep.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/task_resource_prep.md.
 - step: standard_processing
   agent: executor
   depends_on:
@@ -123,7 +157,7 @@ workflow:
     "Standard processing completed. Inputs: data.txt, config.txt, resources.txt"
     Then call exit.
 
-    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/standard_processing.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/standard_processing.md.
 - step: fast_processing
   agent: executor
   depends_on:
@@ -135,7 +169,7 @@ workflow:
     "Fast processing completed. Only data input used."
     Then call exit.
 
-    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/fast_processing.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/fast_processing.md.
 - step: quality_review
   agent: reviewer
   depends_on:
@@ -153,7 +187,7 @@ workflow:
     - Mark review as PASSED or FAILED
     Then call exit.
 
-    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/quality_review.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/quality_review.md.
 - step: generate_summary
   agent: planner
   depends_on:
@@ -170,7 +204,7 @@ workflow:
     - Final status: SUCCESS
     Then call exit.
 
-    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/generate_summary.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/generate_summary.md.
 error_handling:
   max_retries: 2
   retry_delay: 5s

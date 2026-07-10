@@ -2,6 +2,40 @@
 name: test-bark-notify
 version: 1.0.0
 description: Negative-path test for utility-module-bark-notify — bad credentials trigger module-level rejection.
+translations:
+  en:
+    name: "Bark Notify Test"
+    description: "Negative-path test for utility-module-bark-notify — bad credentials trigger module-level rejection."
+  zh:
+    name: "Bark 通知测试"
+    description: "utility-module-bark-notify 的负路径测试——错误凭据会触发模块级拒绝。"
+  zhHant:
+    name: "Bark 通知測試"
+    description: "utility-module-bark-notify 的負路徑測試——錯誤憑據會觸發模組級拒絕。"
+  ja:
+    name: "Bark 通知テスト"
+    description: "utility-module-bark-notify のネガティブパステスト。無効な認証情報によりモジュールレベルで拒否されます。"
+  ko:
+    name: "Bark 알림 테스트"
+    description: "utility-module-bark-notify의 부정 경로 테스트입니다. 잘못된 자격 증명은 모듈 수준 거부를 트리거합니다."
+  es:
+    name: "Prueba de notificación Bark"
+    description: "Prueba de ruta negativa para utility-module-bark-notify: credenciales incorrectas activan un rechazo a nivel de módulo."
+  fr:
+    name: "Test de notification Bark"
+    description: "Test de chemin négatif pour utility-module-bark-notify : de mauvais identifiants déclenchent un rejet au niveau du module."
+  de:
+    name: "Bark-Benachrichtigung Test"
+    description: "Negativpfad-Test für utility-module-bark-notify: Ungültige Anmeldedaten lösen eine Ablehnung auf Modulebene aus."
+  ar:
+    name: "اختبار إشعار Bark"
+    description: "اختبار مسار سلبي لـ utility-module-bark-notify — تؤدي بيانات الاعتماد غير الصحيحة إلى رفض على مستوى الوحدة."
+  pt:
+    name: "Teste de notificação Bark"
+    description: "Teste de caminho negativo para utility-module-bark-notify — credenciais inválidas acionam rejeição no nível do módulo."
+  vi:
+    name: "Kiểm thử thông báo Bark"
+    description: "Kiểm thử đường dẫn âm cho utility-module-bark-notify — thông tin xác thực sai sẽ kích hoạt từ chối ở cấp mô-đun."
 tags:
   - code
   - error_handling

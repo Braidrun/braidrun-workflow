@@ -4,12 +4,70 @@ description: Generic CI workflow that validates a repository build and test comm
 tags:
   - devops
   - ci
+translations:
+  en:
+    name: CI/CD Pipeline
+    description: Generic CI workflow that validates a repository build and test command.
+  zh:
+    name: CI/CD 流水线
+    description: 用于校验仓库构建命令和测试命令的通用 CI 工作流。
+  zhHant:
+    name: CI/CD 流水線
+    description: 用於驗證儲存庫建置命令和測試命令的通用 CI 工作流。
+  ja:
+    name: CI/CD パイプライン
+    description: リポジトリのビルドコマンドとテストコマンドを検証する汎用 CI ワークフロー。
+  ko:
+    name: CI/CD 파이프라인
+    description: 저장소의 빌드 명령과 테스트 명령을 검증하는 범용 CI 워크플로입니다.
+  es:
+    name: Pipeline de CI/CD
+    description: Workflow de CI genérico que valida los comandos de compilación y prueba de un repositorio.
+  fr:
+    name: Pipeline CI/CD
+    description: Workflow CI générique qui valide les commandes de build et de test d'un dépôt.
+  de:
+    name: CI/CD-Pipeline
+    description: Allgemeiner CI-Workflow zum Validieren von Build- und Testbefehlen eines Repositorys.
+  ar:
+    name: مسار CI/CD
+    description: سير عمل CI عام يتحقق من أوامر البناء والاختبار في المستودع.
+  pt:
+    name: Pipeline de CI/CD
+    description: Workflow genérico de CI que valida comandos de build e teste de um repositório.
+  vi:
+    name: Quy trình CI/CD
+    description: Workflow CI chung để xác thực lệnh build và lệnh test của một repository.
 variables:
   build_command: ./gradlew classes
   test_command: ./gradlew test
 agents:
   devops:
     preset: devops
+    description: Runs build and test commands, then summarizes CI outcomes and follow-up actions.
+    translations:
+      en:
+        description: Runs build and test commands, then summarizes CI outcomes and follow-up actions.
+      zh:
+        description: 运行构建和测试命令，并总结 CI 结果与后续动作。
+      zhHant:
+        description: 執行建置和測試命令，並總結 CI 結果與後續動作。
+      ja:
+        description: ビルドとテストのコマンドを実行し、CI 結果と次の対応を要約します。
+      ko:
+        description: 빌드와 테스트 명령을 실행한 뒤 CI 결과와 후속 조치를 요약합니다.
+      es:
+        description: Ejecuta comandos de compilación y prueba, y resume resultados de CI y acciones de seguimiento.
+      fr:
+        description: Exécute les commandes de build et de test, puis résume les résultats CI et les actions de suivi.
+      de:
+        description: Führt Build- und Testbefehle aus und fasst CI-Ergebnisse sowie Folgeaktionen zusammen.
+      ar:
+        description: يشغل أوامر البناء والاختبار ثم يلخص نتائج CI وإجراءات المتابعة.
+      pt:
+        description: Executa comandos de build e teste, depois resume resultados de CI e ações de acompanhamento.
+      vi:
+        description: Chạy lệnh build và test, sau đó tóm tắt kết quả CI và các hành động tiếp theo.
 workflow:
   - step: build
     code:

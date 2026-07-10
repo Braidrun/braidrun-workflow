@@ -5,6 +5,40 @@ tags:
 - test
 - long-running
 description: Long-running and progress-monitoring test - tests WebSocket live updates, progress tracking, and cancellation
+translations:
+  en:
+    name: "Long Running Test"
+    description: "Long-running and progress-monitoring test - tests WebSocket live updates, progress tracking, and cancellation"
+  zh:
+    name: "长时间运行测试"
+    description: "长时间运行和进度监控测试——测试 WebSocket 实时更新、进度跟踪和取消。"
+  zhHant:
+    name: "長時間執行測試"
+    description: "長時間執行和進度監控測試——測試 WebSocket 即時更新、進度追蹤和取消。"
+  ja:
+    name: "長時間実行テスト"
+    description: "長時間実行と進捗監視のテスト - WebSocket のライブ更新、進捗追跡、キャンセルをテストします。"
+  ko:
+    name: "장시간 실행 테스트"
+    description: "장시간 실행 및 진행 상황 모니터링 테스트 - WebSocket 실시간 업데이트, 진행 추적, 취소를 테스트합니다."
+  es:
+    name: "Prueba de larga ejecución"
+    description: "Prueba de ejecución prolongada y seguimiento del progreso: prueba las actualizaciones en vivo de WebSocket, el seguimiento del progreso y la cancelación."
+  fr:
+    name: "Test de longue exécution"
+    description: "Test d’exécution longue et de suivi de progression - teste les mises à jour en direct via WebSocket, le suivi de progression et l’annulation."
+  de:
+    name: "Laufzeit Test"
+    description: "Test für Langläufer und Fortschrittsüberwachung - prüft Live-Updates über WebSocket, Fortschrittsverfolgung und Abbruch."
+  ar:
+    name: "اختبار التشغيل الطويل"
+    description: "اختبار التشغيل الطويل ومراقبة التقدم - يختبر التحديثات المباشرة عبر WebSocket، وتتبع التقدم، والإلغاء."
+  pt:
+    name: "Teste de execução longa"
+    description: "Teste de execução prolongada e monitoramento de progresso - testa atualizações ao vivo via WebSocket, rastreamento de progresso e cancelamento."
+  vi:
+    name: "Kiểm thử chạy dài"
+    description: "Kiểm thử chạy dài và giám sát tiến độ - kiểm tra cập nhật trực tiếp qua WebSocket, theo dõi tiến độ và hủy."
 variables:
   output_dir: "./output"
   total_items: '5'
@@ -37,7 +71,7 @@ workflow:
     {"total_items": {{var:total_items}}, "status": "started"}
     Then call exit.
 
-    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/prepare.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/prepare.md.
 - step: process_batch_1
   agent: worker
   depends_on:
@@ -47,7 +81,7 @@ workflow:
     "Batch 1: Processing items 1-2 of {{var:total_items}}"
     Then call exit.
 
-    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/process_batch_1.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/process_batch_1.md.
 - step: process_batch_2
   agent: worker
   depends_on:
@@ -57,7 +91,7 @@ workflow:
     "Batch 2: Processing items 3-4 of {{var:total_items}}"
     Then call exit.
 
-    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/process_batch_2.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/process_batch_2.md.
 - step: process_batch_3
   agent: worker
   depends_on:
@@ -67,7 +101,7 @@ workflow:
     "Batch 3: Processing item 5 of {{var:total_items}}"
     Then call exit.
 
-    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/process_batch_3.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/process_batch_3.md.
 - step: validate_results
   agent: worker
   depends_on:
@@ -78,7 +112,7 @@ workflow:
     Create {{var:output_dir}}/long_running/validation.txt with content "All batches validated".
     Then call exit.
 
-    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/validate_results.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/validate_results.md.
 - step: generate_report
   agent: worker
   depends_on:
@@ -90,7 +124,7 @@ workflow:
     Create {{var:output_dir}}/long_running/final_report.txt summarizing all processed batches.
     Then call exit.
 
-    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/generate_report.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/generate_report.md.
 error_handling:
   max_retries: 2
   retry_delay: 3s

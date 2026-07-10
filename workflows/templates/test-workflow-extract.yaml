@@ -11,6 +11,40 @@ description: |
   General structured-output extraction feature test - tests using Extract across various step types
   Covers: pattern (regex extraction), json_path (JSON path extraction), variable,
   multi-rule extraction, working together with code/agent steps
+translations:
+  en:
+    name: "Workflow Extract Test"
+    description: "General structured-output extraction feature test - tests using Extract across various step types Covers: pattern (regex extraction), json_path (JSON path extraction), variable, multi-rule extraction, working together with code/agent steps"
+  zh:
+    name: "工作流提取测试"
+    description: "通用结构化输出提取功能测试 - 测试在各种步骤类型中使用 Extract。涵盖：pattern（regex extraction）、json_path（JSON path extraction）、variable、多规则提取，以及与 code/agent 步骤协同工作。"
+  zhHant:
+    name: "工作流擷取測試"
+    description: "通用結構化輸出擷取功能測試 - 測試在各種步驟類型中使用 Extract。涵蓋：pattern（regex extraction）、json_path（JSON path extraction）、variable、多規則擷取，以及與 code/agent 步驟協同工作。"
+  ja:
+    name: "ワークフロー抽出テスト"
+    description: "汎用の構造化出力抽出機能のテスト - さまざまなステップタイプで Extract を使用することをテストします。対象：pattern（regex extraction）、json_path（JSON path extraction）、variable、複数ルール抽出、および code/agent ステップとの連携。"
+  ko:
+    name: "워크플로 추출 테스트"
+    description: "범용 구조화 출력 추출 기능 테스트 - 다양한 단계 유형에서 Extract 사용을 테스트합니다. 포함 항목: pattern（regex extraction）, json_path（JSON path extraction）, variable, 다중 규칙 추출, 및 code/agent 단계와의 연동."
+  es:
+    name: "Prueba de extracción de flujo de trabajo"
+    description: "Prueba de la función general de extracción de salida estructurada: prueba el uso de Extract en distintos tipos de pasos. Cubre: pattern (regex extraction), json_path (JSON path extraction), variable, extracción de varias reglas y funcionamiento conjunto con los pasos code/agent."
+  fr:
+    name: "Test d’extraction de workflow"
+    description: "Test de la fonctionnalité générale d’extraction de sortie structurée - teste l’utilisation de Extract dans différents types d’étapes. Couvre : pattern (regex extraction), json_path (JSON path extraction), variable, extraction multi-règles, et fonctionnement avec les étapes code/agent."
+  de:
+    name: "Workflow-Extraktionstest"
+    description: "Test der allgemeinen strukturierten Ausgabeextraktion - testet die Verwendung von Extract über verschiedene Schritttypen hinweg. Umfasst: pattern (regex extraction), json_path (JSON path extraction), variable, Extraktion mit mehreren Regeln sowie die Zusammenarbeit mit code/agent-Schritten."
+  ar:
+    name: "اختبار الاستخراج في سير العمل"
+    description: "اختبار ميزة استخراج المخرجات المهيكلة العامة - يختبر استخدام Extract عبر أنواع مختلفة من الخطوات. يشمل: pattern (regex extraction)، json_path (JSON path extraction)، variable، استخراج متعدد القواعد، والعمل مع خطوات code/agent."
+  pt:
+    name: "Teste de extração de fluxo de trabalho"
+    description: "Teste do recurso geral de extração de saída estruturada - testa o uso de Extract em vários tipos de etapa. Cobre: pattern (regex extraction), json_path (JSON path extraction), variable, extração de múltiplas regras e funcionamento conjunto com etapas code/agent."
+  vi:
+    name: "Kiểm thử trích xuất quy trình làm việc"
+    description: "Kiểm thử tính năng trích xuất đầu ra có cấu trúc chung - kiểm thử việc dùng Extract trên nhiều loại bước khác nhau. Bao gồm: pattern (regex extraction), json_path (JSON path extraction), variable, trích xuất nhiều quy tắc, và hoạt động cùng với các bước code/agent."
 variables:
   dataset: sales_q4_2025
   output_dir: "./output"
@@ -59,7 +93,7 @@ workflow:
     anomaly_count=<number of anomalies>
     status=completed
 
-    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/analyze_data.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/analyze_data.md.
   extract:
   - pattern: total_records=(\d+)
     variable: total_records

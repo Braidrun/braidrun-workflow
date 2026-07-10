@@ -2,6 +2,40 @@
 name: test-http-latency-profiler
 version: 1.0.0
 description: Test http-latency-profiler — small samples against example.com.
+translations:
+  en:
+    name: "HTTP Latency Profiler Test"
+    description: "Test http-latency-profiler — small samples against example.com."
+  zh:
+    name: "HTTP 延迟分析器测试"
+    description: "测试 http-latency-profiler — 对 example.com 进行小样本采样。"
+  zhHant:
+    name: "HTTP 延遲分析器測試"
+    description: "測試 http-latency-profiler — 對 example.com 進行小樣本採樣。"
+  ja:
+    name: "HTTP レイテンシープロファイラーテスト"
+    description: "http-latency-profiler のテスト — example.com に対して小規模サンプルを実行します。"
+  ko:
+    name: "HTTP 지연 프로파일러 테스트"
+    description: "http-latency-profiler 테스트 — example.com에 대해 소규모 샘플을 측정합니다."
+  es:
+    name: "Test de perfilador de latencia HTTP"
+    description: "Prueba de http-latency-profiler — realiza muestras pequeñas contra example.com."
+  fr:
+    name: "Test du profileur de latence HTTP"
+    description: "Test de http-latency-profiler — effectue de petits échantillons sur example.com."
+  de:
+    name: "HTTP-Latenzprofil-Test"
+    description: "Test für http-latency-profiler — kleine Stichproben gegen example.com."
+  ar:
+    name: "اختبار محلل كمون HTTP"
+    description: "اختبار http-latency-profiler — عينات صغيرة مقابل example.com."
+  pt:
+    name: "Teste de perfilador de latência HTTP"
+    description: "Teste de http-latency-profiler — amostras pequenas contra example.com."
+  vi:
+    name: "Kiểm thử bộ phân tích độ trễ HTTP"
+    description: "Kiểm thử http-latency-profiler — lấy mẫu nhỏ trên example.com."
 tags:
   - code
   - extract

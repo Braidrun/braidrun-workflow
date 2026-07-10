@@ -7,6 +7,40 @@ description: |
   Runs a chain of extract → filter → sort → pick on a small fixture,
   then asserts the output size and status.
 
+translations:
+  en:
+    name: "JSON Transform Test"
+    description: "Test harness for utility-module-json-transform. Runs a chain of extract → filter → sort → pick on a small fixture, then asserts the output size and status."
+  zh:
+    name: "JSON 转换测试"
+    description: "utility-module-json-transform 的测试套件。对一个小型 fixture 运行 extract → filter → sort → pick 链，然后断言输出大小和状态。"
+  zhHant:
+    name: "JSON 轉換測試"
+    description: "utility-module-json-transform 的測試套件。對一個小型 fixture 執行 extract → filter → sort → pick 鏈，然後斷言輸出大小和狀態。"
+  ja:
+    name: "JSON 変換テスト"
+    description: "utility-module-json-transform 用のテストハーネス。小さな fixture に対して extract → filter → sort → pick のチェーンを実行し、出力サイズと状態を検証します。"
+  ko:
+    name: "JSON 변환 테스트"
+    description: "utility-module-json-transform용 테스트 하네스입니다. 작은 fixture에 대해 extract → filter → sort → pick 체인을 실행한 뒤 출력 크기와 상태를 검증합니다."
+  es:
+    name: "Test de transformación JSON"
+    description: "Banco de pruebas para utility-module-json-transform. Ejecuta una cadena extract → filter → sort → pick sobre un fixture pequeño y luego comprueba el tamaño de salida y el estado."
+  fr:
+    name: "Test de transformation JSON"
+    description: "Banc de test pour utility-module-json-transform. Exécute une chaîne extract → filter → sort → pick sur un petit fixture, puis vérifie la taille de sortie et l’état."
+  de:
+    name: "JSON-Transformations-Test"
+    description: "Test-Harness für utility-module-json-transform. Führt auf einem kleinen Fixture eine Kette aus extract → filter → sort → pick aus und prüft anschließend Ausgabelänge und Status."
+  ar:
+    name: "اختبار تحويل JSON"
+    description: "إطار اختبار لـ utility-module-json-transform. يشغّل سلسلة extract → filter → sort → pick على fixture صغير، ثم يتحقق من حجم المخرجات والحالة."
+  pt:
+    name: "Teste de transformação JSON"
+    description: "Harness de teste para utility-module-json-transform. Executa uma cadeia extract → filter → sort → pick em um fixture pequeno e depois verifica o tamanho da saída e o status."
+  vi:
+    name: "Kiểm thử chuyển đổi JSON"
+    description: "Bộ kiểm thử cho utility-module-json-transform. Chạy chuỗi extract → filter → sort → pick trên một fixture nhỏ, rồi xác nhận kích thước đầu ra và trạng thái."
 tags:
   - code
   - extract

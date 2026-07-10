@@ -7,6 +7,40 @@ description: |
   Verifies the module's URL validation guard rejects a URL that doesn't
   match the open.feishu.cn / open.larksuite.com pattern.
 
+translations:
+  en:
+    name: "Lark Webhook Test"
+    description: "Negative-path test for utility-module-lark-webhook. Verifies the module's URL validation guard rejects a URL that doesn't match the open.feishu.cn / open.larksuite.com pattern."
+  zh:
+    name: "Lark Webhook测试"
+    description: "utility-module-lark-webhook 的负路径测试。验证模块的 URL 校验保护会拒绝不符合 open.feishu.cn / open.larksuite.com 模式的 URL。"
+  zhHant:
+    name: "Lark Webhook測試"
+    description: "utility-module-lark-webhook 的負路徑測試。驗證模組的 URL 驗證保護會拒絕不符合 open.feishu.cn / open.larksuite.com 模式的 URL。"
+  ja:
+    name: "Lark Webhookテスト"
+    description: "utility-module-lark-webhook のネガティブパステスト。モジュールの URL 検証ガードが open.feishu.cn / open.larksuite.com パターンに一致しない URL を拒否することを確認します。"
+  ko:
+    name: "Lark Webhook 테스트"
+    description: "utility-module-lark-webhook의 부정 경로 테스트입니다. 모듈의 URL 검증 가드가 open.feishu.cn / open.larksuite.com 패턴과 일치하지 않는 URL을 거부하는지 확인합니다."
+  es:
+    name: "Prueba de webhook de Lark"
+    description: "Prueba de ruta negativa para utility-module-lark-webhook. Verifica que la validación de URL del módulo rechace una URL que no coincida con el patrón open.feishu.cn / open.larksuite.com."
+  fr:
+    name: "Test de webhook Lark"
+    description: "Test de chemin négatif pour utility-module-lark-webhook. Vérifie que la validation d’URL du module rejette une URL ne correspondant pas au modèle open.feishu.cn / open.larksuite.com."
+  de:
+    name: "Lark-Webhook Test"
+    description: "Negativpfad-Test für utility-module-lark-webhook. Prüft, dass die URL-Validierung des Moduls eine URL ablehnt, die nicht dem Muster open.feishu.cn / open.larksuite.com entspricht."
+  ar:
+    name: "اختبار Lark Webhook"
+    description: "اختبار مسار سلبي لـ utility-module-lark-webhook. يتحقق من أن حماية التحقق من URL في الوحدة ترفض أي URL لا يطابق نمط open.feishu.cn / open.larksuite.com."
+  pt:
+    name: "Teste de webhook do Lark"
+    description: "Teste de caminho negativo para utility-module-lark-webhook. Verifica se a validação de URL do módulo rejeita uma URL que não corresponda ao padrão open.feishu.cn / open.larksuite.com."
+  vi:
+    name: "Kiểm thử webhook Lark"
+    description: "Kiểm thử đường dẫn âm cho utility-module-lark-webhook. Xác minh bộ bảo vệ xác thực URL của mô-đun từ chối URL không khớp mẫu open.feishu.cn / open.larksuite.com."
 tags:
   - code
   - error_handling

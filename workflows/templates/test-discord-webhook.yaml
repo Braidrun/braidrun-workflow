@@ -11,6 +11,40 @@ description: |
   Uses on_failure routing so the sub_workflow failure is "recovered"
   and the assert step still runs.
 
+translations:
+  en:
+    name: "Discord Webhook Test"
+    description: "Negative-path test for utility-module-discord-webhook. We don't have a real Discord webhook URL, so we verify the module's *validation guard* — when given a URL that doesn't look like a Discord webhook, the module must raise (not silently succeed). Uses on_failure routing so the sub_workflow failure is \"recovered\" and the assert step still runs."
+  zh:
+    name: "Discord Webhook 测试"
+    description: "utility-module-discord-webhook 的负向测试。我们没有真实的 Discord webhook URL，因此验证模块的校验保护：当提供一个看起来不像 Discord webhook 的 URL 时，模块必须抛出错误（而不是静默成功）。使用 on_failure 路由，因此 sub_workflow 的失败会被“恢复”，并且 assert 步骤仍会运行。"
+  zhHant:
+    name: "Discord Webhook 測試"
+    description: "utility-module-discord-webhook 的負向測試。我們沒有真實的 Discord webhook URL，因此驗證模組的驗證保護：當提供一個看起來不像 Discord webhook 的 URL 時，模組必須拋出錯誤（而不是靜默成功）。使用 on_failure 路由，因此 sub_workflow 的失敗會被「恢復」，而且 assert 步驟仍會執行。"
+  ja:
+    name: "Discord Webhook テスト"
+    description: "utility-module-discord-webhook の負のテストです。実際の Discord webhook URL がないため、モジュールの検証ガードを確認します。Discord webhook らしくない URL を与えた場合、モジュールは静かに成功せず、必ずエラーを送出しなければなりません。on_failure ルーティングを使用するため、sub_workflow の失敗は「復旧」され、assert ステップは引き続き実行されます。"
+  ko:
+    name: "Discord Webhook 테스트"
+    description: "utility-module-discord-webhook의 음수 경로 테스트입니다. 실제 Discord webhook URL이 없으므로 모듈의 검증 가드를 확인합니다. Discord webhook처럼 보이지 않는 URL을 주면 모듈은 조용히 성공해서는 안 되며, 반드시 오류를 발생시켜야 합니다. on_failure 라우팅을 사용하므로 sub_workflow 실패는 \"복구\"되고 assert 단계도 계속 실행됩니다."
+  es:
+    name: "Prueba de webhook de Discord"
+    description: "Prueba de ruta negativa para utility-module-discord-webhook. No tenemos una URL real de webhook de Discord, así que verificamos la barrera de validación del módulo: cuando se le da una URL que no parece un webhook de Discord, el módulo debe fallar (no tener éxito silenciosamente). Usa enrutamiento on_failure, por lo que el fallo de sub_workflow se \"recupera\" y el paso assert sigue ejecutándose."
+  fr:
+    name: "Test de webhook Discord"
+    description: "Test de parcours négatif pour utility-module-discord-webhook. Nous n’avons pas de vraie URL de webhook Discord, donc nous vérifions le garde de validation du module : lorsqu’une URL qui ne ressemble pas à un webhook Discord est fournie, le module doit lever une erreur (et non réussir silencieusement). Le routage on_failure est utilisé, donc l’échec de sub_workflow est « récupéré » et l’étape assert s’exécute quand même."
+  de:
+    name: "Discord-Webhook-Test"
+    description: "Negativtest für utility-module-discord-webhook. Wir haben keine echte Discord webhook URL, daher prüfen wir die Validierungsschranke des Moduls: Wenn eine URL übergeben wird, die nicht wie ein Discord webhook aussieht, muss das Modul einen Fehler auslösen und darf nicht stillschweigend erfolgreich sein. Das on_failure-Routing wird verwendet, sodass der sub_workflow-Fehler „wiederhergestellt“ wird und der assert-Schritt trotzdem ausgeführt wird."
+  ar:
+    name: "اختبار Webhook Discord"
+    description: "اختبار مسار سلبي لـ utility-module-discord-webhook. ليس لدينا webhook URL حقيقية لـ Discord، لذا نتحقق من حارس التحقق في الوحدة: عندما تُعطى URL لا تبدو كـ Discord webhook، يجب أن ترفع الوحدة خطأً (لا أن تنجح بصمت). يستخدم التوجيه on_failure، لذا يتم \"استرداد\" فشل sub_workflow وتستمر خطوة assert في التنفيذ."
+  pt:
+    name: "Teste de webhook do Discord"
+    description: "Teste de caminho negativo para utility-module-discord-webhook. Não გვაქვს uma URL real de webhook do Discord, então verificamos a proteção de validação do módulo: quando é fornecida uma URL que não parece um webhook do Discord, o módulo deve gerar erro (e não concluir com sucesso silenciosamente). Usa roteamento on_failure, então a falha de sub_workflow é \"recuperada\" e a etapa assert ainda é executada."
+  vi:
+    name: "Kiểm thử webhook Discord"
+    description: "Kiểm thử luồng âm cho utility-module-discord-webhook. Chúng tôi không có URL webhook Discord thực, nên xác minh bộ kiểm tra của mô-đun: khi cung cấp một URL không giống webhook Discord, mô-đun phải phát sinh lỗi, không được âm thầm thành công. Sử dụng định tuyến on_failure, nên lỗi sub_workflow được \"khôi phục\" và bước assert vẫn chạy."
 tags:
   - code
   - error_handling

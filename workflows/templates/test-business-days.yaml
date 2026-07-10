@@ -2,6 +2,40 @@
 name: test-business-days
 version: 1.0.0
 description: Test business-days between 2026-04-20 (Mon) and 2026-04-27 (Mon). Add 5 business days from Fri.
+translations:
+  en:
+    name: "Business Days Test"
+    description: "Test business-days between 2026-04-20 (Mon) and 2026-04-27 (Mon). Add 5 business days from Fri."
+  zh:
+    name: "工作日测试"
+    description: "测试 2026-04-20（周一）到 2026-04-27（周一）之间的工作日数。并从周五起增加 5 个工作日。"
+  zhHant:
+    name: "工作日測試"
+    description: "測試 2026-04-20（週一）到 2026-04-27（週一）之間的工作日數。並從週五起增加 5 個工作日。"
+  ja:
+    name: "営業日テスト"
+    description: "2026-04-20（月）から 2026-04-27（月）までの営業日数をテストします。金曜から 5 営業日を加算します。"
+  ko:
+    name: "영업일 테스트"
+    description: "2026-04-20(월)부터 2026-04-27(월)까지의 영업일을 테스트합니다. 금요일부터 5영업일을 추가합니다."
+  es:
+    name: "Prueba de días hábiles"
+    description: "Prueba los días hábiles entre 2026-04-20 (lun) y 2026-04-27 (lun). Añade 5 días hábiles desde el viernes."
+  fr:
+    name: "Test de jours ouvrés"
+    description: "Teste les jours ouvrés entre 2026-04-20 (lun) et 2026-04-27 (lun). Ajoute 5 jours ouvrés à partir du vendredi."
+  de:
+    name: "Werktage Test"
+    description: "Testet die Werktage zwischen 2026-04-20 (Mo) und 2026-04-27 (Mo). Fügt ab Freitag 5 Werktage hinzu."
+  ar:
+    name: "اختبار أيام العمل"
+    description: "اختبار عدد أيام العمل بين 2026-04-20 (الاثنين) و2026-04-27 (الاثنين). أضف 5 أيام عمل بدءًا من الجمعة."
+  pt:
+    name: "Teste de dias úteis"
+    description: "Testa os dias úteis entre 2026-04-20 (seg) e 2026-04-27 (seg). Adiciona 5 dias úteis a partir de sexta-feira."
+  vi:
+    name: "Kiểm thử ngày làm việc"
+    description: "Kiểm thử số ngày làm việc giữa 2026-04-20 (Thứ Hai) và 2026-04-27 (Thứ Hai). Cộng thêm 5 ngày làm việc từ Thứ Sáu."
 tags:
   - code
   - extract

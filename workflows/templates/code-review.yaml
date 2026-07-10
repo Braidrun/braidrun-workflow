@@ -4,9 +4,67 @@ description: Generic code review workflow for repository changes.
 tags:
   - coding
   - review
+translations:
+  en:
+    name: Code Review
+    description: Generic code review workflow for repository changes.
+  zh:
+    name: 代码审查
+    description: 面向仓库改动的通用代码审查工作流。
+  zhHant:
+    name: 程式碼審查
+    description: 面向儲存庫改動的通用程式碼審查工作流。
+  ja:
+    name: コードレビュー
+    description: リポジトリの変更をレビューする汎用コードレビューワークフロー。
+  ko:
+    name: 코드 리뷰
+    description: 저장소 변경 사항을 검토하는 범용 코드 리뷰 워크플로입니다.
+  es:
+    name: Revisión de código
+    description: Workflow genérico de revisión de código para cambios en repositorios.
+  fr:
+    name: Revue de code
+    description: Workflow générique de revue de code pour les changements de dépôt.
+  de:
+    name: Code-Review
+    description: Allgemeiner Code-Review-Workflow für Repository-Änderungen.
+  ar:
+    name: مراجعة الكود
+    description: سير عمل عام لمراجعة تغييرات المستودع.
+  pt:
+    name: Revisão de código
+    description: Workflow genérico de revisão de código para mudanças em repositórios.
+  vi:
+    name: Đánh giá mã
+    description: Workflow đánh giá mã chung cho các thay đổi trong repository.
 agents:
   reviewer:
     preset: coder
+    description: Reviews repository changes for correctness, regressions, security risks, and missing tests.
+    translations:
+      en:
+        description: Reviews repository changes for correctness, regressions, security risks, and missing tests.
+      zh:
+        description: 审查仓库改动，关注正确性、回归风险、安全隐患和测试覆盖缺失。
+      zhHant:
+        description: 審查儲存庫改動，關注正確性、回歸風險、安全隱患和測試覆蓋缺失。
+      ja:
+        description: 正しさ、回帰リスク、セキュリティリスク、テスト不足の観点でリポジトリ変更をレビューします。
+      ko:
+        description: 정확성, 회귀 위험, 보안 위험, 누락된 테스트를 중심으로 저장소 변경 사항을 검토합니다.
+      es:
+        description: Revisa cambios del repositorio buscando corrección, regresiones, riesgos de seguridad y pruebas faltantes.
+      fr:
+        description: Passe en revue les changements du dépôt pour la correction, les régressions, les risques de sécurité et les tests manquants.
+      de:
+        description: Prüft Repository-Änderungen auf Korrektheit, Regressionen, Sicherheitsrisiken und fehlende Tests.
+      ar:
+        description: يراجع تغييرات المستودع من حيث الصحة ومخاطر التراجع والمخاطر الأمنية ونقص الاختبارات.
+      pt:
+        description: Revisa mudanças do repositório quanto a correção, regressões, riscos de segurança e testes ausentes.
+      vi:
+        description: Đánh giá thay đổi repository về tính đúng đắn, rủi ro hồi quy, rủi ro bảo mật và phần test còn thiếu.
     overrides:
       max_iterations: 24
 workflow:

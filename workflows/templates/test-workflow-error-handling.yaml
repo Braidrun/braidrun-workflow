@@ -7,6 +7,40 @@ tags:
 - error_handling
 - retry
 description: Error handling and retry test - tests failure recovery, retry mechanisms, and error propagation
+translations:
+  en:
+    name: "Workflow Error Handling Test"
+    description: "Error handling and retry test - tests failure recovery, retry mechanisms, and error propagation"
+  zh:
+    name: "工作流错误处理测试"
+    description: "错误处理与重试测试 - 测试失败恢复、重试机制和错误传播。"
+  zhHant:
+    name: "工作流錯誤處理測試"
+    description: "錯誤處理與重試測試 - 測試失敗恢復、重試機制和錯誤傳播。"
+  ja:
+    name: "ワークフローエラーハンドリングテスト"
+    description: "エラー処理と再試行のテスト - 失敗の復旧、再試行メカニズム、エラー伝播をテストします。"
+  ko:
+    name: "워크플로 오류 처리 테스트"
+    description: "오류 처리 및 재시도 테스트 - 실패 복구, 재시도 메커니즘, 오류 전파를 테스트합니다."
+  es:
+    name: "Prueba de manejo de errores de flujo de trabajo"
+    description: "Prueba de manejo de errores y reintentos: prueba la recuperación ante fallos, los mecanismos de reintento y la propagación de errores."
+  fr:
+    name: "Test de gestion des erreurs de workflow"
+    description: "Test de gestion des erreurs et de reprise - teste la récupération après échec, les mécanismes de relance et la propagation des erreurs."
+  de:
+    name: "Workflow-Fehlerbehandlungstest"
+    description: "Test der Fehlerbehandlung und Wiederholungsversuche - testet die Wiederherstellung nach Fehlern, Wiederholungsmechanismen und die Fehlerweitergabe."
+  ar:
+    name: "اختبار معالجة أخطاء سير العمل"
+    description: "اختبار معالجة الأخطاء وإعادة المحاولة - يختبر استعادة الفشل وآليات إعادة المحاولة ونشر الأخطاء."
+  pt:
+    name: "Teste de tratamento de erros de fluxo de trabalho"
+    description: "Teste de tratamento de erros e repetição - testa a recuperação de falhas, os mecanismos de repetição e a propagação de erros."
+  vi:
+    name: "Kiểm thử xử lý lỗi quy trình làm việc"
+    description: "Kiểm thử xử lý lỗi và thử lại - kiểm thử khôi phục khi thất bại, cơ chế thử lại và lan truyền lỗi."
 variables:
   output_dir: "./output"
   demo_mode: 'true'
@@ -53,7 +87,7 @@ workflow:
     Create a file {{var:output_dir}}/error_test/setup.txt with content "Setup completed".
     Then call exit.
 
-    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/setup.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/setup.md.
 - step: risky_operation
   agent: worker
   depends_on:
@@ -68,7 +102,7 @@ workflow:
     If successful, create {{var:output_dir}}/error_test/risky_result.txt with content "Risky operation succeeded".
     Then call exit.
 
-    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/risky_operation.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/risky_operation.md.
   on_success:
   - next: success_handler
   on_failure:
@@ -82,7 +116,7 @@ workflow:
     Create a file {{var:output_dir}}/error_test/success.txt with content "Success path executed".
     Then call exit.
 
-    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/success_handler.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/success_handler.md.
 - step: error_handler
   agent: fallback_worker
   depends_on:
@@ -91,7 +125,7 @@ workflow:
     Create a file {{var:output_dir}}/error_test/error_handled.txt with content "Error was handled gracefully".
     Then call exit.
 
-    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/error_handler.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/error_handler.md.
 - step: cleanup
   agent: worker
   depends_on:
@@ -102,7 +136,7 @@ workflow:
     Create a file {{var:output_dir}}/error_test/report.txt with a summary of which files exist.
     Then call exit.
 
-    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/cleanup.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/cleanup.md.
 error_handling:
   max_retries: 2
   retry_delay: 3s

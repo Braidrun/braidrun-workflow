@@ -2,6 +2,40 @@
 name: test-meeting-action-items
 version: 1.0.0
 description: Test utility-module-meeting-action-items (LLM, needs OPENROUTER_API_KEY).
+translations:
+  en:
+    name: "Meeting Action Items Test"
+    description: "Test utility-module-meeting-action-items (LLM, needs OPENROUTER_API_KEY)."
+  zh:
+    name: "会议行动项测试"
+    description: "测试 utility-module-meeting-action-items（LLM，需要 OPENROUTER_API_KEY）。"
+  zhHant:
+    name: "會議行動項測試"
+    description: "測試 utility-module-meeting-action-items（LLM，需要 OPENROUTER_API_KEY）。"
+  ja:
+    name: "会議アクション項目テスト"
+    description: "utility-module-meeting-action-items（LLM、OPENROUTER_API_KEY が必要）をテストします。"
+  ko:
+    name: "회의 작업 항목 테스트"
+    description: "utility-module-meeting-action-items(LLM, OPENROUTER_API_KEY 필요)를 테스트합니다."
+  es:
+    name: "Prueba de elementos de acción de reunión"
+    description: "Prueba utility-module-meeting-action-items (LLM, requiere OPENROUTER_API_KEY)."
+  fr:
+    name: "Test des actions de réunion"
+    description: "Teste utility-module-meeting-action-items (LLM, nécessite OPENROUTER_API_KEY)."
+  de:
+    name: "Besprechungs-Aktionspunkte Test"
+    description: "Testet utility-module-meeting-action-items (LLM, benötigt OPENROUTER_API_KEY)."
+  ar:
+    name: "اختبار بنود إجراءات الاجتماع"
+    description: "اختبار utility-module-meeting-action-items (LLM، يتطلب OPENROUTER_API_KEY)."
+  pt:
+    name: "Teste de itens de ação da reunião"
+    description: "Testa utility-module-meeting-action-items (LLM, requer OPENROUTER_API_KEY)."
+  vi:
+    name: "Kiểm thử các mục hành động cuộc họp"
+    description: "Kiểm thử utility-module-meeting-action-items (LLM, cần OPENROUTER_API_KEY)."
 tags:
   - code
   - extract

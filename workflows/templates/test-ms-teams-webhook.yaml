@@ -2,6 +2,40 @@
 name: test-ms-teams-webhook
 version: 1.0.0
 description: Negative-path test for utility-module-ms-teams-webhook — bad credentials trigger module-level rejection.
+translations:
+  en:
+    name: "MS Teams Webhook Test"
+    description: "Negative-path test for utility-module-ms-teams-webhook — bad credentials trigger module-level rejection."
+  zh:
+    name: "MS Teams Webhook 测试"
+    description: "utility-module-ms-teams-webhook 的负路径测试——错误凭据触发模块级拒绝。"
+  zhHant:
+    name: "MS Teams Webhook 測試"
+    description: "utility-module-ms-teams-webhook 的負路徑測試——錯誤憑據觸發模組級拒絕。"
+  ja:
+    name: "MS Teams Webhook テスト"
+    description: "utility-module-ms-teams-webhook の負の経路テスト — 不正な認証情報によりモジュールレベルで拒否されます。"
+  ko:
+    name: "MS Teams Webhook 테스트"
+    description: "utility-module-ms-teams-webhook의 실패 경로 테스트 — 잘못된 자격 증명으로 모듈 수준 거부가 발생합니다."
+  es:
+    name: "Prueba de webhook de MS Teams"
+    description: "Prueba de ruta negativa para utility-module-ms-teams-webhook: credenciales incorrectas activan el rechazo a nivel de módulo."
+  fr:
+    name: "Test de webhook MS Teams"
+    description: "Test de chemin négatif pour utility-module-ms-teams-webhook — des identifiants incorrects déclenchent un rejet au niveau du module."
+  de:
+    name: "MS Teams Webhook Test"
+    description: "Negativtest für utility-module-ms-teams-webhook — ungültige Anmeldeinformationen lösen eine Ablehnung auf Modulebene aus."
+  ar:
+    name: "اختبار MS Teams Webhook"
+    description: "اختبار مسار سلبي لـ utility-module-ms-teams-webhook — تؤدي بيانات الاعتماد الخاطئة إلى رفض على مستوى الوحدة."
+  pt:
+    name: "Teste de webhook do MS Teams"
+    description: "Teste de caminho negativo para utility-module-ms-teams-webhook — credenciais incorretas acionam rejeição no nível do módulo."
+  vi:
+    name: "Kiểm thử MS Teams Webhook"
+    description: "Kiểm thử đường dẫn lỗi cho utility-module-ms-teams-webhook — thông tin xác thực không hợp lệ sẽ kích hoạt từ chối ở cấp mô-đun."
 tags:
   - code
   - error_handling

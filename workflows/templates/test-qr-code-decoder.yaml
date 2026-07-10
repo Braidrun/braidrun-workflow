@@ -2,6 +2,40 @@
 name: test-qr-code-decoder
 version: 1.0.0
 description: Test qr-code-decoder by first generating a QR and then decoding it.
+translations:
+  en:
+    name: "QR Code Decoder Test"
+    description: "Test qr-code-decoder by first generating a QR and then decoding it."
+  zh:
+    name: "二维码解码器测试"
+    description: "通过先生成 QR，再对其进行解码来测试 qr-code-decoder。"
+  zhHant:
+    name: "QR Code 解碼器測試"
+    description: "先產生 QR，然後將其解碼，以測試 qr-code-decoder。"
+  ja:
+    name: "QR コードデコーダーテスト"
+    description: "まず QR を生成し、次にそれをデコードして qr-code-decoder をテストする。"
+  ko:
+    name: "QR 코드 디코더 테스트"
+    description: "먼저 QR를 생성한 다음 이를 디코딩하여 qr-code-decoder를 테스트한다."
+  es:
+    name: "Prueba de decodificador de código QR"
+    description: "Prueba de qr-code-decoder generando primero un QR y luego decodificándolo."
+  fr:
+    name: "Test du décodeur de code QR"
+    description: "Test de qr-code-decoder en générant d’abord un QR, puis en le décodant."
+  de:
+    name: "QR-Code-Decoder Test"
+    description: "Test von qr-code-decoder, indem zuerst ein QR erzeugt und dann decodiert wird."
+  ar:
+    name: "اختبار فك ترميز رمز QR"
+    description: "اختبار qr-code-decoder عبر إنشاء QR أولاً ثم فك ترميزه."
+  pt:
+    name: "Teste de decodificador de código QR"
+    description: "Teste de qr-code-decoder gerando primeiro um QR e depois decodificando-o."
+  vi:
+    name: "Kiểm thử bộ giải mã mã QR"
+    description: "Kiểm thử qr-code-decoder bằng cách trước tiên tạo QR rồi giải mã nó."
 tags:
   - code
   - extract

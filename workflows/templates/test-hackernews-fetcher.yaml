@@ -2,6 +2,40 @@
 name: test-hackernews-fetcher
 version: 1.0.0
 description: Test hackernews-fetcher top stories.
+translations:
+  en:
+    name: "Hacker News Fetcher Test"
+    description: "Test hackernews-fetcher top stories."
+  zh:
+    name: "Hacker News 获取器测试"
+    description: "测试 hackernews-fetcher 热门故事。"
+  zhHant:
+    name: "Hacker News 擷取器測試"
+    description: "測試 hackernews-fetcher 熱門故事。"
+  ja:
+    name: "Hacker News フェッチャーテスト"
+    description: "hackernews-fetcher のトップストーリーをテストします。"
+  ko:
+    name: "Hacker News 가져오기 테스트"
+    description: "hackernews-fetcher 상위 스토리를 테스트합니다."
+  es:
+    name: "Prueba de capturador de Hacker News"
+    description: "Prueba de las historias principales de hackernews-fetcher."
+  fr:
+    name: "Test du récupérateur Hacker News"
+    description: "Test des meilleures histoires de hackernews-fetcher."
+  de:
+    name: "Hacker-News-Fetcher-Test"
+    description: "Test von hackernews-fetcher für Top-Storys."
+  ar:
+    name: "اختبار جالب Hacker News"
+    description: "اختبار القصص الأعلى في hackernews-fetcher."
+  pt:
+    name: "Teste de coletor do Hacker News"
+    description: "Teste das histórias principais de hackernews-fetcher."
+  vi:
+    name: "Kiểm thử bộ tìm nạp Hacker News"
+    description: "Kiểm thử các tin hàng đầu của hackernews-fetcher."
 tags:
   - code
   - extract

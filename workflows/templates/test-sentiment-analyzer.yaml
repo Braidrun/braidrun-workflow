@@ -2,6 +2,40 @@
 name: test-sentiment-analyzer
 version: 1.0.0
 description: Test utility-module-sentiment-analyzer (LLM, needs OPENROUTER_API_KEY).
+translations:
+  en:
+    name: "Sentiment Analyzer Test"
+    description: "Test utility-module-sentiment-analyzer (LLM, needs OPENROUTER_API_KEY)."
+  zh:
+    name: "情感分析器测试"
+    description: "测试 utility-module-sentiment-analyzer（LLM，需要 OPENROUTER_API_KEY）。"
+  zhHant:
+    name: "情感分析器測試"
+    description: "測試 utility-module-sentiment-analyzer（LLM，需要 OPENROUTER_API_KEY）。"
+  ja:
+    name: "感情分析器テスト"
+    description: "utility-module-sentiment-analyzer をテストします（LLM、OPENROUTER_API_KEY が必要）。"
+  ko:
+    name: "감성 분석기 테스트"
+    description: "utility-module-sentiment-analyzer 테스트(LLM, OPENROUTER_API_KEY 필요)."
+  es:
+    name: "Prueba de analizador de sentimiento"
+    description: "Prueba de utility-module-sentiment-analyzer (LLM, requiere OPENROUTER_API_KEY)."
+  fr:
+    name: "Test de l’analyseur de sentiment"
+    description: "Test de utility-module-sentiment-analyzer (LLM, nécessite OPENROUTER_API_KEY)."
+  de:
+    name: "Sentiment-Analyzer-Test"
+    description: "Test von utility-module-sentiment-analyzer (LLM, benötigt OPENROUTER_API_KEY)."
+  ar:
+    name: "اختبار محلّل المشاعر"
+    description: "اختبار utility-module-sentiment-analyzer (LLM، يتطلب OPENROUTER_API_KEY)."
+  pt:
+    name: "Teste de analisador de sentimento"
+    description: "Teste de utility-module-sentiment-analyzer (LLM, requer OPENROUTER_API_KEY)."
+  vi:
+    name: "Kiểm thử bộ phân tích cảm xúc"
+    description: "Kiểm thử utility-module-sentiment-analyzer (LLM, cần OPENROUTER_API_KEY)."
 tags:
   - code
   - extract

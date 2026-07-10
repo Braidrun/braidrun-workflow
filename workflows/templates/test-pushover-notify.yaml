@@ -2,6 +2,40 @@
 name: test-pushover-notify
 version: 1.0.0
 description: Negative-path test for utility-module-pushover-notify — bad credentials trigger module-level rejection.
+translations:
+  en:
+    name: "Pushover Notify Test"
+    description: "Negative-path test for utility-module-pushover-notify — bad credentials trigger module-level rejection."
+  zh:
+    name: "Pushover 通知测试"
+    description: "utility-module-pushover-notify 的负向路径测试——无效凭据触发模块级拒绝。"
+  zhHant:
+    name: "Pushover 通知測試"
+    description: "utility-module-pushover-notify 的負向路徑測試——無效憑證觸發模組級拒絕。"
+  ja:
+    name: "Pushover 通知テスト"
+    description: "utility-module-pushover-notify の負のパステスト。無効な認証情報によりモジュールレベルで拒否される。"
+  ko:
+    name: "Pushover 알림 테스트"
+    description: "utility-module-pushover-notify의 부정 경로 테스트 — 잘못된 자격 증명으로 모듈 수준 거부가 발생한다."
+  es:
+    name: "Prueba de notificación de Pushover"
+    description: "Prueba de ruta negativa para utility-module-pushover-notify: unas credenciales incorrectas provocan un rechazo a nivel de módulo."
+  fr:
+    name: "Test de notification Pushover"
+    description: "Test de chemin négatif pour utility-module-pushover-notify — des identifiants incorrects déclenchent un rejet au niveau du module."
+  de:
+    name: "Pushover-Benachrichtigung Test"
+    description: "Negativtest für utility-module-pushover-notify — ungültige Anmeldedaten lösen eine Ablehnung auf Modulebene aus."
+  ar:
+    name: "اختبار إشعار Pushover"
+    description: "اختبار مسار سلبي لـ utility-module-pushover-notify — تؤدي بيانات الاعتماد غير الصحيحة إلى رفض على مستوى الوحدة."
+  pt:
+    name: "Teste de notificação do Pushover"
+    description: "Teste de caminho negativo para utility-module-pushover-notify — credenciais inválidas acionam rejeição no nível do módulo."
+  vi:
+    name: "Kiểm thử thông báo Pushover"
+    description: "Kiểm thử đường đi lỗi cho utility-module-pushover-notify — thông tin xác thực sai kích hoạt từ chối ở cấp mô-đun."
 tags:
   - code
   - error_handling

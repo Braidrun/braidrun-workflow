@@ -5,6 +5,40 @@ tags:
 - test
 - sequential-execution
 description: Two-step sequential execution test - the second step depends on the first step's output
+translations:
+  en:
+    name: "Sequential Execution Test"
+    description: "Two-step sequential execution test - the second step depends on the first step's output"
+  zh:
+    name: "顺序执行测试"
+    description: "两步顺序执行测试 - 第二步依赖第一步的输出"
+  zhHant:
+    name: "順序執行測試"
+    description: "兩步順序執行測試 - 第二步依賴第一步的輸出"
+  ja:
+    name: "順次実行 テスト"
+    description: "2 ステップの順次実行テスト - 2 番目のステップは 1 番目のステップの出力に依存します"
+  ko:
+    name: "순차 실행 테스트"
+    description: "두 단계 순차 실행 테스트 - 두 번째 단계는 첫 번째 단계의 출력에 의존합니다"
+  es:
+    name: "Prueba de ejecución secuencial"
+    description: "Prueba de ejecución secuencial de dos pasos: el segundo paso depende de la salida del primero"
+  fr:
+    name: "Test d’exécution séquentielle"
+    description: "Test d’exécution séquentielle en deux étapes : la deuxième étape dépend de la sortie de la première"
+  de:
+    name: "Sequenzieller Ausführungs-Test"
+    description: "Zweistufiger Test der sequenziellen Ausführung - der zweite Schritt hängt von der Ausgabe des ersten Schritts ab"
+  ar:
+    name: "اختبار التنفيذ المتسلسل"
+    description: "اختبار تنفيذ متسلسل من خطوتين - تعتمد الخطوة الثانية على مخرجات الخطوة الأولى"
+  pt:
+    name: "Teste de execução sequencial"
+    description: "Teste de execução sequencial em duas etapas - a segunda etapa depende da saída da primeira"
+  vi:
+    name: "Kiểm thử thực thi tuần tự"
+    description: "Kiểm thử thực thi tuần tự hai bước - bước thứ hai phụ thuộc vào đầu ra của bước thứ nhất"
 variables:
   output_dir: "./output/test-workflow-sequential"
   demo_mode: 'true'
@@ -33,7 +67,7 @@ workflow:
     Create a file called ./output/step1.txt with the content "Step 1 completed successfully".
     Then call exit.
 
-    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/create_file.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/create_file.md.
 - step: read_and_append
   agent: helper
   depends_on:
@@ -43,7 +77,7 @@ workflow:
     that contains the text "Step 2 read: " followed by the content of step1.txt.
     Then call exit.
 
-    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/read_and_append.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/read_and_append.md.
 error_handling:
   max_retries: 2
   retry_delay: 3s

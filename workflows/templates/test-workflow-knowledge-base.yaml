@@ -9,8 +9,42 @@ tags:
 description: |
   Workflow-level shared knowledge base feature test - tests the knowledge_base configuration
   Covers: enabled, storage_dir, embedding_model, embedding_provider,
-  auto_index_outputs、auto_inject_rag_tools、chunk_size、chunk_overlap、
-  max_indexed_documents、max_total_chunks、source_files
+  auto_index_outputs, auto_inject_rag_tools, chunk_size, chunk_overlap,
+  max_indexed_documents, max_total_chunks, source_files
+translations:
+  en:
+    name: "Knowledge Base Test"
+    description: "Workflow-level shared knowledge base feature test - tests the knowledge_base configuration Covers: enabled, storage_dir, embedding_model, embedding_provider, auto_index_outputs, auto_inject_rag_tools, chunk_size, chunk_overlap, max_indexed_documents, max_total_chunks, source_files"
+  zh:
+    name: "知识库测试"
+    description: "工作流级共享知识库功能测试——测试 knowledge_base 配置。涵盖：enabled、storage_dir、embedding_model、embedding_provider、auto_index_outputs、auto_inject_rag_tools、chunk_size、chunk_overlap、max_indexed_documents、max_total_chunks、source_files。"
+  zhHant:
+    name: "知識庫測試"
+    description: "工作流程級共享知識庫功能測試——測試 knowledge_base 設定。涵蓋：enabled、storage_dir、embedding_model、embedding_provider、auto_index_outputs、auto_inject_rag_tools、chunk_size、chunk_overlap、max_indexed_documents、max_total_chunks、source_files。"
+  ja:
+    name: "ナレッジベーステスト"
+    description: "ワークフロー全体で共有するナレッジベース機能テスト - knowledge_base 設定をテストします。対象: enabled、storage_dir、embedding_model、embedding_provider、auto_index_outputs、auto_inject_rag_tools、chunk_size、chunk_overlap、max_indexed_documents、max_total_chunks、source_files。"
+  ko:
+    name: "지식 베이스 테스트"
+    description: "워크플로 수준의 공유 지식 베이스 기능 테스트 - knowledge_base 구성을 테스트합니다. 포함: enabled, storage_dir, embedding_model, embedding_provider, auto_index_outputs, auto_inject_rag_tools, chunk_size, chunk_overlap, max_indexed_documents, max_total_chunks, source_files."
+  es:
+    name: "Prueba de base de conocimiento"
+    description: "Prueba de la función de base de conocimiento compartida a nivel de flujo de trabajo: prueba la configuración knowledge_base. Incluye: enabled, storage_dir, embedding_model, embedding_provider, auto_index_outputs, auto_inject_rag_tools, chunk_size, chunk_overlap, max_indexed_documents, max_total_chunks, source_files."
+  fr:
+    name: "Test de base de connaissances"
+    description: "Test de la fonctionnalité de base de connaissances partagée au niveau du workflow - teste la configuration knowledge_base. Couvre : enabled, storage_dir, embedding_model, embedding_provider, auto_index_outputs, auto_inject_rag_tools, chunk_size, chunk_overlap, max_indexed_documents, max_total_chunks, source_files."
+  de:
+    name: "Wissensdatenbank Test"
+    description: "Test der gemeinsam genutzten Wissensdatenbank auf Workflow-Ebene - prüft die knowledge_base-Konfiguration. Abgedeckt: enabled, storage_dir, embedding_model, embedding_provider, auto_index_outputs, auto_inject_rag_tools, chunk_size, chunk_overlap, max_indexed_documents, max_total_chunks, source_files."
+  ar:
+    name: "اختبار قاعدة المعرفة"
+    description: "اختبار ميزة قاعدة المعرفة المشتركة على مستوى سير العمل - يختبر إعداد knowledge_base. يشمل: enabled، storage_dir، embedding_model، embedding_provider، auto_index_outputs، auto_inject_rag_tools، chunk_size، chunk_overlap، max_indexed_documents، max_total_chunks، source_files."
+  pt:
+    name: "Teste de base de conhecimento"
+    description: "Teste do recurso de base de conhecimento compartilhada no nível do fluxo de trabalho - testa a configuração knowledge_base. Inclui: enabled, storage_dir, embedding_model, embedding_provider, auto_index_outputs, auto_inject_rag_tools, chunk_size, chunk_overlap, max_indexed_documents, max_total_chunks, source_files."
+  vi:
+    name: "Kiểm thử cơ sở tri thức"
+    description: "Kiểm thử tính năng cơ sở tri thức chia sẻ ở cấp quy trình làm việc - kiểm tra cấu hình knowledge_base. Bao gồm: enabled, storage_dir, embedding_model, embedding_provider, auto_index_outputs, auto_inject_rag_tools, chunk_size, chunk_overlap, max_indexed_documents, max_total_chunks, source_files."
 variables:
   research_topic: Capabilities and best practices of the braidrun-workflow workflow system
   output_dir: "./output"
@@ -76,7 +110,7 @@ workflow:
     Output the key findings, major trends, and important data points.
     Note: your output will be automatically indexed into the shared knowledge base.
 
-    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/initial_research.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/initial_research.md.
 - step: deep_analysis
   agent: analyst
   input: |-
@@ -84,7 +118,7 @@ workflow:
     Use the searchKnowledge tool to look up relevant information in the knowledge base.
     Output an analysis report backed by concrete data.
 
-    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/deep_analysis.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/deep_analysis.md.
   depends_on:
   - initial_research
 - step: supplementary_research
@@ -94,7 +128,7 @@ workflow:
     Use searchKnowledge to look up existing findings in the knowledge base and avoid duplication.
     Focus on aspects not covered previously.
 
-    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/supplementary_research.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/supplementary_research.md.
   depends_on:
   - deep_analysis
 - step: final_report

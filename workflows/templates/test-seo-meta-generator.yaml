@@ -2,6 +2,40 @@
 name: test-seo-meta-generator
 version: 1.0.0
 description: Test utility-module-seo-meta-generator (LLM, needs OPENROUTER_API_KEY).
+translations:
+  en:
+    name: "SEO Meta Generator Test"
+    description: "Test utility-module-seo-meta-generator (LLM, needs OPENROUTER_API_KEY)."
+  zh:
+    name: "SEO 元标签生成器测试"
+    description: "测试 utility-module-seo-meta-generator（LLM，需要 OPENROUTER_API_KEY）。"
+  zhHant:
+    name: "SEO 元標籤產生器測試"
+    description: "測試 utility-module-seo-meta-generator（LLM，需要 OPENROUTER_API_KEY）。"
+  ja:
+    name: "SEOメタ生成器テスト"
+    description: "utility-module-seo-meta-generator のテスト（LLM、OPENROUTER_API_KEY が必要）。"
+  ko:
+    name: "SEO 메타 생성기 테스트"
+    description: "utility-module-seo-meta-generator 테스트(LLM, OPENROUTER_API_KEY 필요)."
+  es:
+    name: "Prueba de generador de metadatos SEO"
+    description: "Prueba de utility-module-seo-meta-generator (LLM, requiere OPENROUTER_API_KEY)."
+  fr:
+    name: "Test du générateur de métadonnées SEO"
+    description: "Test de utility-module-seo-meta-generator (LLM, nécessite OPENROUTER_API_KEY)."
+  de:
+    name: "SEO-Metadaten-Generator-Test"
+    description: "Test von utility-module-seo-meta-generator (LLM, benötigt OPENROUTER_API_KEY)."
+  ar:
+    name: "اختبار مولّد بيانات SEO الوصفية"
+    description: "اختبار utility-module-seo-meta-generator (LLM، يتطلب OPENROUTER_API_KEY)."
+  pt:
+    name: "Teste do gerador de metadados de SEO"
+    description: "Teste de utility-module-seo-meta-generator (LLM, requer OPENROUTER_API_KEY)."
+  vi:
+    name: "Kiểm thử trình tạo siêu dữ liệu SEO"
+    description: "Kiểm thử utility-module-seo-meta-generator (LLM, cần OPENROUTER_API_KEY)."
 tags:
   - code
   - extract

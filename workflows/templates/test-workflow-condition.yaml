@@ -6,6 +6,40 @@ tags:
 - conditional-branching
 - condition
 description: Conditional execution test - use variables to control which steps run
+translations:
+  en:
+    name: "Workflow Condition Test"
+    description: "Conditional execution test - use variables to control which steps run"
+  zh:
+    name: "工作流条件测试"
+    description: "条件执行测试 - 使用变量控制哪些步骤运行。"
+  zhHant:
+    name: "工作流條件測試"
+    description: "條件執行測試 - 使用變數控制哪些步驟執行。"
+  ja:
+    name: "ワークフロー条件テスト"
+    description: "条件付き実行のテスト - 変数を使用して、どのステップを実行するかを制御します。"
+  ko:
+    name: "워크플로 조건 테스트"
+    description: "조건부 실행 테스트 - 변수를 사용하여 어떤 단계가 실행될지 제어합니다."
+  es:
+    name: "Prueba de condición de flujo de trabajo"
+    description: "Prueba de ejecución condicional: usa variables para controlar qué pasos se ejecutan."
+  fr:
+    name: "Test de condition de workflow"
+    description: "Test d’exécution conditionnelle - utilise des variables pour contrôler les étapes qui s’exécutent."
+  de:
+    name: "Workflow-Bedingungstest"
+    description: "Test der bedingten Ausführung - verwendet Variablen, um zu steuern, welche Schritte ausgeführt werden."
+  ar:
+    name: "اختبار شرط سير العمل"
+    description: "اختبار التنفيذ الشرطي - يستخدم المتغيرات للتحكم في الخطوات التي يتم تشغيلها."
+  pt:
+    name: "Teste de condição de fluxo de trabalho"
+    description: "Teste de execução condicional - usa variáveis para controlar quais etapas são executadas."
+  vi:
+    name: "Kiểm thử điều kiện quy trình làm việc"
+    description: "Kiểm thử thực thi có điều kiện - dùng biến để kiểm soát những bước nào được chạy."
 variables:
   mode: full
   output_dir: "./output/test-workflow-condition"
@@ -34,7 +68,7 @@ workflow:
     Create a file ./output/always.txt with content "This step always runs".
     Then call exit.
 
-    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/always_run.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/always_run.md.
 - step: full_only
   agent: helper
   depends_on:
@@ -44,7 +78,7 @@ workflow:
     Create a file ./output/full_only.txt with content "This runs only in full mode".
     Then call exit.
 
-    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/full_only.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/full_only.md.
 - step: quick_only
   agent: helper
   depends_on:
@@ -54,7 +88,7 @@ workflow:
     Create a file ./output/quick_only.txt with content "This runs only in quick mode".
     Then call exit.
 
-    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/quick_only.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/quick_only.md.
 - step: summary
   agent: helper
   depends_on:
@@ -65,7 +99,7 @@ workflow:
     listing which files exist.
     Then call exit.
 
-    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/summary.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/summary.md.
 error_handling:
   max_retries: 2
   retry_delay: 3s

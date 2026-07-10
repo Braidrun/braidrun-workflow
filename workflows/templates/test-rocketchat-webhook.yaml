@@ -2,6 +2,40 @@
 name: test-rocketchat-webhook
 version: 1.0.0
 description: Negative-path test for utility-module-rocketchat-webhook — bad credentials trigger module-level rejection.
+translations:
+  en:
+    name: "RocketChat Webhook Test"
+    description: "Negative-path test for utility-module-rocketchat-webhook — bad credentials trigger module-level rejection."
+  zh:
+    name: "RocketChat Webhook 测试"
+    description: "utility-module-rocketchat-webhook 的负路径测试——错误凭据触发模块级拒绝。"
+  zhHant:
+    name: "RocketChat Webhook 測試"
+    description: "utility-module-rocketchat-webhook 的負路徑測試——錯誤憑證觸發模組級拒絕。"
+  ja:
+    name: "RocketChat Webhook テスト"
+    description: "utility-module-rocketchat-webhook の負のパステスト。無効な認証情報によりモジュールレベルで拒否されます。"
+  ko:
+    name: "RocketChat Webhook 테스트"
+    description: "utility-module-rocketchat-webhook의 부정 경로 테스트—잘못된 자격 증명으로 모듈 수준에서 거부됩니다."
+  es:
+    name: "Prueba de webhook de RocketChat"
+    description: "Prueba de ruta negativa para utility-module-rocketchat-webhook: unas credenciales incorrectas provocan un rechazo a nivel de módulo."
+  fr:
+    name: "Test du webhook RocketChat"
+    description: "Test de chemin négatif pour utility-module-rocketchat-webhook : de mauvaises informations d’identification déclenchent un rejet au niveau du module."
+  de:
+    name: "RocketChat-Webhook-Test"
+    description: "Negativtest für utility-module-rocketchat-webhook — ungültige Anmeldedaten lösen eine Ablehnung auf Modulebene aus."
+  ar:
+    name: "اختبار Webhook لـ RocketChat"
+    description: "اختبار مسار سلبي لـ utility-module-rocketchat-webhook — تؤدي بيانات الاعتماد غير الصحيحة إلى رفض على مستوى الوحدة."
+  pt:
+    name: "Teste de webhook do RocketChat"
+    description: "Teste de caminho negativo para utility-module-rocketchat-webhook — credenciais incorretas acionam rejeição no nível do módulo."
+  vi:
+    name: "Kiểm thử webhook RocketChat"
+    description: "Kiểm thử đường dẫn tiêu cực cho utility-module-rocketchat-webhook — thông tin đăng nhập sai kích hoạt từ chối ở cấp mô-đun."
 tags:
   - code
   - error_handling

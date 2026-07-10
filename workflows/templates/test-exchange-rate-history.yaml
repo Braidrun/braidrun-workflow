@@ -2,6 +2,40 @@
 name: test-exchange-rate-history
 version: 1.0.0
 description: Test exchange-rate-history USD→EUR over a fixed historical week.
+translations:
+  en:
+    name: "Exchange Rate History Test"
+    description: "Test exchange-rate-history USD→EUR over a fixed historical week."
+  zh:
+    name: "汇率历史测试"
+    description: "测试固定历史周内的 USD→EUR exchange-rate-history。"
+  zhHant:
+    name: "匯率歷史測試"
+    description: "測試固定歷史週內的 USD→EUR exchange-rate-history。"
+  ja:
+    name: "為替レート履歴テスト"
+    description: "固定された過去の1週間における USD→EUR の exchange-rate-history をテストします。"
+  ko:
+    name: "환율 기록 테스트"
+    description: "고정된 과거 1주간의 USD→EUR exchange-rate-history를 테스트합니다."
+  es:
+    name: "Prueba de historial de tipo de cambio"
+    description: "Prueba de exchange-rate-history USD→EUR durante una semana histórica fija."
+  fr:
+    name: "Test d’historique des taux de change"
+    description: "Test de exchange-rate-history USD→EUR sur une semaine historique fixe."
+  de:
+    name: "Wechselkursverlauf-Test"
+    description: "Test von exchange-rate-history USD→EUR über eine feste historische Woche."
+  ar:
+    name: "اختبار سجل أسعار الصرف"
+    description: "اختبار exchange-rate-history USD→EUR خلال أسبوع تاريخي ثابت."
+  pt:
+    name: "Teste de histórico de taxa de câmbio"
+    description: "Teste de exchange-rate-history USD→EUR durante uma semana histórica fixa."
+  vi:
+    name: "Kiểm thử lịch sử tỷ giá"
+    description: "Kiểm thử exchange-rate-history USD→EUR trong một tuần lịch sử cố định."
 tags:
   - code
   - extract

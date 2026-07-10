@@ -2,6 +2,40 @@
 name: test-webpage-article-extractor
 version: 1.0.0
 description: Test webpage-article-extractor on a stable URL (example.com).
+translations:
+  en:
+    name: "Webpage Article Extractor Test"
+    description: "Test webpage-article-extractor on a stable URL (example.com)."
+  zh:
+    name: "网页文章提取器测试"
+    description: "在稳定 URL（example.com）上测试 webpage-article-extractor。"
+  zhHant:
+    name: "網頁文章擷取器測試"
+    description: "在穩定 URL（example.com）上測試 webpage-article-extractor。"
+  ja:
+    name: "Web ページ記事抽出テスト"
+    description: "安定した URL（example.com）で webpage-article-extractor をテストします。"
+  ko:
+    name: "웹페이지 기사 추출기 테스트"
+    description: "안정적인 URL(example.com)에서 webpage-article-extractor를 테스트합니다."
+  es:
+    name: "Prueba de extracción de artículos de páginas web"
+    description: "Probar webpage-article-extractor en una URL estable (example.com)."
+  fr:
+    name: "Test d’extracteur d’articles de page web"
+    description: "Tester webpage-article-extractor sur une URL stable (example.com)."
+  de:
+    name: "Webseiten-Artikel-Extraktor-Test"
+    description: "webpage-article-extractor an einer stabilen URL (example.com) testen."
+  ar:
+    name: "اختبار مستخرج مقالات صفحات الويب"
+    description: "اختبار webpage-article-extractor على عنوان URL مستقر (example.com)."
+  pt:
+    name: "Teste de extração de artigos de página web"
+    description: "Testar webpage-article-extractor em uma URL estável (example.com)."
+  vi:
+    name: "Kiểm thử trích xuất bài viết từ trang web"
+    description: "Kiểm thử webpage-article-extractor trên một URL ổn định (example.com)."
 tags:
   - code
   - extract

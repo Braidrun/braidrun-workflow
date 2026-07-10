@@ -2,6 +2,40 @@
 name: test-ip-geolocation
 version: 1.0.0
 description: Test ip-geolocation on Cloudflare 1.1.1.1.
+translations:
+  en:
+    name: "IP Geolocation Test"
+    description: "Test ip-geolocation on Cloudflare 1.1.1.1."
+  zh:
+    name: "IP 地理定位测试"
+    description: "测试 ip-geolocation，针对 Cloudflare 1.1.1.1。"
+  zhHant:
+    name: "IP 地理定位測試"
+    description: "測試 ip-geolocation，針對 Cloudflare 1.1.1.1。"
+  ja:
+    name: "IP ジオロケーションテスト"
+    description: "Cloudflare 1.1.1.1 に対する ip-geolocation のテスト。"
+  ko:
+    name: "IP 지리 위치 테스트"
+    description: "Cloudflare 1.1.1.1에서 ip-geolocation 테스트를 수행합니다."
+  es:
+    name: "Test de geolocalización IP"
+    description: "Prueba de ip-geolocation en Cloudflare 1.1.1.1."
+  fr:
+    name: "Test de géolocalisation IP"
+    description: "Test de ip-geolocation sur Cloudflare 1.1.1.1."
+  de:
+    name: "IP-Geolokalisierungs-Test"
+    description: "Test für ip-geolocation auf Cloudflare 1.1.1.1."
+  ar:
+    name: "اختبار تحديد الموقع الجغرافي عبر IP"
+    description: "اختبار ip-geolocation على Cloudflare 1.1.1.1."
+  pt:
+    name: "Teste de geolocalização IP"
+    description: "Teste de ip-geolocation na Cloudflare 1.1.1.1."
+  vi:
+    name: "Kiểm thử định vị địa lý IP"
+    description: "Kiểm thử ip-geolocation trên Cloudflare 1.1.1.1."
 tags:
   - code
   - extract

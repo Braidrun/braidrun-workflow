@@ -256,6 +256,21 @@ data class WorkflowGlobalAgentConfig(
 )
 
 /**
+ * 单个 locale 下的展示文案覆盖，用于 [WorkflowDefinition.translations] 和
+ * [AgentDefinition.translations]。两处都只覆盖"给用户看的文案"（工作流/模板名称、
+ * 描述、agent 简介），不涉及 system_prompt、代码步骤等运行时内容——那些内容按
+ * 项目约定始终保持英文，不做多语言翻译。
+ */
+@Serializable
+data class LocalizedText(
+    @SerialName("name")
+    val name: String? = null,
+
+    @SerialName("description")
+    val description: String? = null
+)
+
+/**
  * 工作流定义的完整模型
  *
  * 支持的功能:
@@ -320,6 +335,15 @@ data class WorkflowDefinition(
     /** 工作流标签（行业标签、技术标签、场景标签，用于分类筛选） */
     @SerialName("tags")
     val tags: List<String> = emptyList(),
+
+    /**
+     * 按 locale 覆盖 [name] / [description] 的展示文案，用于模板 / 模块的多语言展示。
+     * [name]/[description] 本身是 canonical 英文默认值；节点内部的 system_prompt、
+     * 代码步骤脚本等运行时内容不进入这个机制，始终保持英文。key 是前端支持的 locale code
+     * （如 zh、zhHant、en、ja、ko、es、fr、de、ar、pt、vi），未覆盖的字段回退到英文默认值。
+     */
+    @SerialName("translations")
+    val translations: Map<String, LocalizedText> = emptyMap(),
 
     /** 代码前导（按语言分组，自动拼接到对应语言的每个 code step 脚本头部） */
     @SerialName("code_preamble")
@@ -573,6 +597,18 @@ data class AgentDefinition(
 
     @SerialName("name")
     val name: String? = null,
+
+    /**
+     * 面向用户展示的 agent 简介（英文，canonical 默认文案），与 [systemPrompt] 分离——
+     * system_prompt 是内部执行提示词，不做多语言翻译；description 是模板详情页 /
+     * agent 卡片展示给用户看的文案，会被 [translations] 覆盖成对应语言。
+     */
+    @SerialName("description")
+    val description: String? = null,
+
+    /** 按 locale 覆盖 [name] / [description] 的展示文案，不影响 [systemPrompt]。 */
+    @SerialName("translations")
+    val translations: Map<String, LocalizedText> = emptyMap(),
 
     /** UI hint for model filtering. Supported values: text / video / image. */
     @SerialName("media_type")

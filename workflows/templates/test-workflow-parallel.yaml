@@ -7,6 +7,40 @@ tags:
 - parallel-processing
 - parallel
 description: Parallel execution test - multiple steps run simultaneously, testing parallel scheduling and result aggregation
+translations:
+  en:
+    name: "Parallel Execution Test"
+    description: "Parallel execution test - multiple steps run simultaneously, testing parallel scheduling and result aggregation"
+  zh:
+    name: "并行执行测试"
+    description: "并行执行测试 - 多个步骤同时运行，测试并行调度和结果聚合"
+  zhHant:
+    name: "並行執行測試"
+    description: "並行執行測試 - 多個步驟同時執行，測試並行排程和結果彙總"
+  ja:
+    name: "並列実行 テスト"
+    description: "並列実行テスト - 複数のステップを同時に実行し、並列スケジューリングと結果の集約をテストします"
+  ko:
+    name: "병렬 실행 테스트"
+    description: "병렬 실행 테스트 - 여러 단계가 동시에 실행되며, 병렬 스케줄링과 결과 집계를 테스트합니다"
+  es:
+    name: "Prueba de ejecución paralela"
+    description: "Prueba de ejecución paralela: varias etapas se ejecutan simultáneamente, probando la programación paralela y la agregación de resultados"
+  fr:
+    name: "Test d’exécution parallèle"
+    description: "Test d’exécution parallèle : plusieurs étapes s’exécutent simultanément, en testant la planification parallèle et l’agrégation des résultats"
+  de:
+    name: "Parallelausführungs-Test"
+    description: "Parallelausführungs-Test - mehrere Schritte laufen gleichzeitig und testen die parallele Planung sowie die Ergebnisaggregation"
+  ar:
+    name: "اختبار التنفيذ المتوازي"
+    description: "اختبار التنفيذ المتوازي - تعمل عدة خطوات في وقت واحد، مع اختبار الجدولة المتوازية وتجميع النتائج"
+  pt:
+    name: "Teste de execução paralela"
+    description: "Teste de execução paralela - várias etapas são executadas simultaneamente, testando o agendamento paralelo e a agregação de resultados"
+  vi:
+    name: "Kiểm thử thực thi song song"
+    description: "Kiểm thử thực thi song song - nhiều bước chạy đồng thời, kiểm thử lập lịch song song và tổng hợp kết quả"
 variables:
   output_dir: "./output"
   demo_mode: 'true'
@@ -36,7 +70,7 @@ workflow:
     Create a file {{var:output_dir}}/parallel/start.txt with content "Parallel test started".
     Then call exit.
 
-    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/init.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/init.md.
 - step: task_a
   agent: worker
   depends_on:
@@ -45,7 +79,7 @@ workflow:
     Create a file {{var:output_dir}}/parallel/task_a.txt with content "Task A completed".
     Then call exit.
 
-    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/task_a.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/task_a.md.
 - step: task_b
   agent: worker
   depends_on:
@@ -54,7 +88,7 @@ workflow:
     Create a file {{var:output_dir}}/parallel/task_b.txt with content "Task B completed".
     Then call exit.
 
-    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/task_b.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/task_b.md.
 - step: task_c
   agent: worker
   depends_on:
@@ -63,7 +97,7 @@ workflow:
     Create a file {{var:output_dir}}/parallel/task_c.txt with content "Task C completed".
     Then call exit.
 
-    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/task_c.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/task_c.md.
 - step: aggregate
   agent: worker
   depends_on:
@@ -84,7 +118,7 @@ workflow:
     - The content of each task file
     Then call exit.
 
-    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/aggregate.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/aggregate.md.
 error_handling:
   max_retries: 2
   retry_delay: 3s

@@ -2,6 +2,40 @@
 name: test-data-pivot
 version: 1.0.0
 description: Test data-pivot groupby region + sum sales + count rows.
+translations:
+  en:
+    name: "Data Pivot Test"
+    description: "Test data-pivot groupby region + sum sales + count rows."
+  zh:
+    name: "数据透视测试"
+    description: "测试 data-pivot：按 region 执行 groupby，汇总 sales 并统计行数。"
+  zhHant:
+    name: "資料樞紐測試"
+    description: "測試 data-pivot：依 region 執行 groupby，彙總 sales 並計算列數。"
+  ja:
+    name: "データピボットテスト"
+    description: "data-pivot で region ごとに groupby し、sales を合計して行数をカウントするテスト。"
+  ko:
+    name: "데이터 피벗 테스트"
+    description: "data-pivot에서 region별로 groupby하고 sales를 합계한 뒤 행 수를 카운트하는 테스트입니다."
+  es:
+    name: "Prueba de tabla dinámica de datos"
+    description: "Prueba de data-pivot: groupby por region, suma de sales y conteo de filas."
+  fr:
+    name: "Test de pivot de données"
+    description: "Test de data-pivot : groupby par region, somme de sales et comptage des lignes."
+  de:
+    name: "Datenpivot-Test"
+    description: "Test von data-pivot: groupby nach region, sales summieren und Zeilen zählen."
+  ar:
+    name: "اختبار محورية البيانات"
+    description: "اختبار data-pivot: groupby حسب region، ثم جمع sales وعدّ الصفوف."
+  pt:
+    name: "Teste de pivot de dados"
+    description: "Teste de data-pivot: groupby por region, soma de sales e contagem de linhas."
+  vi:
+    name: "Kiểm thử pivot dữ liệu"
+    description: "Kiểm thử data-pivot: groupby theo region, tính tổng sales và đếm số dòng."
 tags:
   - code
   - extract

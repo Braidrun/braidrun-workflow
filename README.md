@@ -53,7 +53,7 @@ repositories {
 }
 
 dependencies {
-    implementation("com.github.Braidrun:braidrun-workflow:1.0.5")
+    implementation("com.github.Braidrun:braidrun-workflow:1.0.6")
 }
 ```
 

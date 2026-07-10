@@ -2,6 +2,40 @@
 name: test-server-chan-notify
 version: 1.0.0
 description: Negative-path test for utility-module-server-chan-notify — bad credentials trigger module-level rejection.
+translations:
+  en:
+    name: "Server Chan Notify Test"
+    description: "Negative-path test for utility-module-server-chan-notify — bad credentials trigger module-level rejection."
+  zh:
+    name: "Server 酱通知测试"
+    description: "utility-module-server-chan-notify 的负向路径测试；错误凭据会触发模块级拒绝。"
+  zhHant:
+    name: "Server 醬通知測試"
+    description: "utility-module-server-chan-notify 的負向路徑測試；錯誤憑證會觸發模組級拒絕。"
+  ja:
+    name: "Server Chan通知テスト"
+    description: "utility-module-server-chan-notify のネガティブパステスト。無効な認証情報によりモジュールレベルの拒否が発生する。"
+  ko:
+    name: "Server Chan 알림 테스트"
+    description: "utility-module-server-chan-notify의 부정 경로 테스트. 잘못된 자격 증명은 모듈 수준 거부를 트리거한다."
+  es:
+    name: "Prueba de notificación de Server Chan"
+    description: "Prueba de ruta negativa para utility-module-server-chan-notify; unas credenciales incorrectas activan un rechazo a nivel de módulo."
+  fr:
+    name: "Test de notification Server Chan"
+    description: "Test de chemin négatif pour utility-module-server-chan-notify ; de mauvais identifiants déclenchent un rejet au niveau du module."
+  de:
+    name: "Server-Chan-Benachrichtigungstest"
+    description: "Negativpfad-Test für utility-module-server-chan-notify; ungültige Anmeldedaten lösen eine Ablehnung auf Modulebene aus."
+  ar:
+    name: "اختبار إشعار Server Chan"
+    description: "اختبار مسار سلبي لـ utility-module-server-chan-notify؛ تؤدي بيانات الاعتماد غير الصحيحة إلى رفض على مستوى الوحدة."
+  pt:
+    name: "Teste de notificação do Server Chan"
+    description: "Teste de caminho negativo para utility-module-server-chan-notify; credenciais inválidas acionam rejeição no nível do módulo."
+  vi:
+    name: "Kiểm thử thông báo Server Chan"
+    description: "Kiểm thử đường dẫn lỗi cho utility-module-server-chan-notify; thông tin xác thực không hợp lệ sẽ kích hoạt từ chối ở cấp mô-đun."
 tags:
   - code
   - error_handling

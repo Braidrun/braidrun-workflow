@@ -5,6 +5,40 @@ tags:
 - test
 - coding-task
 description: Coding workflow test - uses the coder preset to generate code and run a code review
+translations:
+  en:
+    name: "Workflow Coding Test"
+    description: "Coding workflow test - uses the coder preset to generate code and run a code review"
+  zh:
+    name: "工作流编码测试"
+    description: "编码工作流测试 - 使用 coder 预设生成代码并执行代码审查。"
+  zhHant:
+    name: "工作流編碼測試"
+    description: "編碼工作流測試 - 使用 coder 預設生成代碼並執行代碼審查。"
+  ja:
+    name: "ワークフローコーディングテスト"
+    description: "コーディングワークフローテスト - coder プリセットを使用してコードを生成し、コードレビューを実行します。"
+  ko:
+    name: "워크플로 코딩 테스트"
+    description: "코딩 워크플로 테스트 - coder 프리셋을 사용하여 코드를 생성하고 코드 리뷰를 실행합니다."
+  es:
+    name: "Prueba de codificación de flujo de trabajo"
+    description: "Prueba del flujo de trabajo de codificación: usa el ajuste preestablecido coder para generar código y ejecutar una revisión de código."
+  fr:
+    name: "Test de codage de workflow"
+    description: "Test du workflow de codage - utilise le préréglage coder pour générer du code et exécuter une revue de code."
+  de:
+    name: "Workflow-Coding-Test"
+    description: "Test des Coding-Workflows - verwendet die Voreinstellung coder, um Code zu generieren und eine Codeüberprüfung auszuführen."
+  ar:
+    name: "اختبار ترميز سير العمل"
+    description: "اختبار سير عمل البرمجة - يستخدم الإعداد المسبق coder لتوليد الشيفرة وتشغيل مراجعة للشيفرة."
+  pt:
+    name: "Teste de programação de fluxo de trabalho"
+    description: "Teste do fluxo de trabalho de programação - usa a predefinição coder para gerar código e executar uma revisão de código."
+  vi:
+    name: "Kiểm thử lập trình quy trình làm việc"
+    description: "Kiểm thử quy trình làm việc lập trình - dùng thiết lập sẵn coder để tạo mã và chạy rà soát mã."
 variables:
   output_dir: "./output"
   language: Python
@@ -57,7 +91,7 @@ workflow:
     5. A main block that demonstrates each operation
     Call exit when done.
 
-    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/write_code.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/write_code.md.
 - step: write_tests
   agent: developer
   depends_on:
@@ -69,7 +103,7 @@ workflow:
     Cover all methods including edge cases (e.g., division by zero).
     Call exit when done.
 
-    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/write_tests.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/write_tests.md.
 - step: review_code
   agent: code_reviewer
   depends_on:
@@ -88,7 +122,7 @@ workflow:
     4. Suggestions for improvement
     Call exit when done.
 
-    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/review_code.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/review_code.md.
 error_handling:
   max_retries: 2
   retry_delay: 3s

@@ -5,6 +5,28 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.6]
+
+### Added
+
+- Display-only `translations` metadata for workflow names/descriptions and
+  agent names/descriptions, with locale-specific fallback handled by consumers.
+- Complete `en`, `zh`, `zhHant`, `ja`, `ko`, `es`, `fr`, `de`, `ar`, `pt`, and
+  `vi` display metadata for every bundled workflow template.
+- Bundled workflow template YAML resources and an index so library consumers can
+  discover the public template catalog from the published jar.
+- Regression coverage that validates locale completeness, canonical English
+  descriptions, preserved technical identifiers, and English-only runtime text.
+
+### Changed
+
+- Kept workflow prompts, code, variables, markers, and test behavior canonical
+  in English; localization applies only to user-visible metadata.
+
+### Removed
+
+- Removed the obsolete `test-text-summarizer` test template.
+
 ## [1.0.5]
 
 First public release that ships the command-line interface alongside the
@@ -43,4 +65,5 @@ The runtime library provides:
 - LLM provider integration via the Koog AI Agents framework, including
   Anthropic, OpenAI, DeepSeek, OpenRouter, Z.ai, and NVIDIA model registries.
 
+[1.0.6]: https://github.com/Braidrun/braidrun-workflow/releases/tag/1.0.6
 [1.0.5]: https://github.com/Braidrun/braidrun-workflow/releases/tag/1.0.5

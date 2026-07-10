@@ -25,7 +25,41 @@ tags:
 description: |
   Comprehensive new-feature test - combines all new features in a single workflow
   Covers: group_chat, repeat_until, agent_based, code, extract,
-  classifier、iterate_over、aggregate、knowledge_base
+  classifier, iterate_over, aggregate, knowledge_base
+translations:
+  en:
+    name: "Workflow All Features Test"
+    description: "Comprehensive new-feature test - combines all new features in a single workflow Covers: group_chat, repeat_until, agent_based, code, extract, classifier, iterate_over, aggregate, knowledge_base"
+  zh:
+    name: "工作流全部功能测试"
+    description: "综合新功能测试——在一个工作流中组合所有新功能。涵盖：group_chat、repeat_until、agent_based、code、extract、classifier、iterate_over、aggregate、knowledge_base"
+  zhHant:
+    name: "工作流程全部功能測試"
+    description: "綜合新功能測試——在一個工作流程中組合所有新功能。涵蓋：group_chat、repeat_until、agent_based、code、extract、classifier、iterate_over、aggregate、knowledge_base"
+  ja:
+    name: "ワークフロー全機能テスト"
+    description: "包括的な新機能テスト—1 つのワークフローで新機能をすべて組み合わせます。対象: group_chat、repeat_until、agent_based、code、extract、classifier、iterate_over、aggregate、knowledge_base"
+  ko:
+    name: "워크플로 전체 기능 테스트"
+    description: "종합 신규 기능 테스트 — 하나의 워크플로에서 모든 새 기능을 결합합니다. 범위: group_chat, repeat_until, agent_based, code, extract, classifier, iterate_over, aggregate, knowledge_base"
+  es:
+    name: "Prueba de todas las funciones del flujo de trabajo"
+    description: "Prueba integral de nuevas funciones: combina todas las funciones nuevas en un solo flujo de trabajo. Cubre: group_chat, repeat_until, agent_based, code, extract, classifier, iterate_over, aggregate, knowledge_base"
+  fr:
+    name: "Test de toutes les fonctionnalités du workflow"
+    description: "Test complet des nouvelles fonctionnalités — combine toutes les nouvelles fonctionnalités dans un seul workflow. Couvre : group_chat, repeat_until, agent_based, code, extract, classifier, iterate_over, aggregate, knowledge_base"
+  de:
+    name: "Workflow-Test aller Funktionen"
+    description: "Umfassender Test neuer Funktionen — kombiniert alle neuen Funktionen in einem einzigen Workflow. Abgedeckt: group_chat, repeat_until, agent_based, code, extract, classifier, iterate_over, aggregate, knowledge_base"
+  ar:
+    name: "اختبار جميع ميزات سير العمل"
+    description: "اختبار شامل للميزات الجديدة — يجمع جميع الميزات الجديدة في سير عمل واحد. يشمل: group_chat، repeat_until، agent_based، code، extract، classifier، iterate_over، aggregate، knowledge_base"
+  pt:
+    name: "Teste de todas as funcionalidades do fluxo de trabalho"
+    description: "Teste abrangente de novos recursos — combina todos os novos recursos em um único fluxo de trabalho. Cobre: group_chat, repeat_until, agent_based, code, extract, classifier, iterate_over, aggregate, knowledge_base"
+  vi:
+    name: "Kiểm thử tất cả tính năng workflow"
+    description: "Kiểm thử tính năng mới toàn diện — kết hợp tất cả tính năng mới trong một workflow duy nhất. Bao gồm: group_chat, repeat_until, agent_based, code, extract, classifier, iterate_over, aggregate, knowledge_base"
 variables:
   project_name: AllFeaturesTest
   requirement_text: We need a multi-language user authentication system supporting OAuth2 and traditional password login
@@ -122,7 +156,7 @@ workflow:
       Classify the following requirement by project type:
       {{var:requirement_text}}
 
-      Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/classify_project.md。
+      Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/classify_project.md.
     categories:
     - name: backend
       description: Backend service project, covering APIs, databases, and server-side logic
@@ -175,7 +209,7 @@ workflow:
     Previous quality score: {{var:quality_score}}
     Improve the design and output quality_score=N (N is 1-10).
 
-    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/design_iteration.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/design_iteration.md.
   repeat_until:
     condition: quality_score >= 7
     max_iterations: 3
@@ -210,7 +244,7 @@ workflow:
     Project: {{var:project_name}}
     Output a task-completion report.
 
-    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/execute_tasks.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/execute_tasks.md.
   iterate_over:
     source: "{{steps.generate_tasks.output}}"
     delimiter: "\n"
@@ -228,7 +262,7 @@ workflow:
     Design proposal: {{steps.design_iteration.output}}
     Development results: {{var:task_results}}
 
-    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/verify_security.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/verify_security.md.
   depends_on:
   - execute_tasks
 - step: verify_functionality
@@ -238,7 +272,7 @@ workflow:
     Design proposal: {{steps.design_iteration.output}}
     Development results: {{var:task_results}}
 
-    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/verify_functionality.md。
+    Demo constraint: if external dependencies are missing, produce a presentable demo result directly; when appropriate, also save it to {{var:output_dir}}/verify_functionality.md.
   depends_on:
   - execute_tasks
 - step: aggregate_results

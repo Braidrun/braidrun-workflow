@@ -2,6 +2,40 @@
 name: test-youtube-metadata
 version: 1.0.0
 description: Test youtube-metadata on a classic stable video.
+translations:
+  en:
+    name: "YouTube Metadata Test"
+    description: "Test youtube-metadata on a classic stable video."
+  zh:
+    name: "YouTube 元数据测试"
+    description: "在经典稳定视频上测试 youtube-metadata。"
+  zhHant:
+    name: "YouTube 中繼資料測試"
+    description: "在經典穩定影片上測試 youtube-metadata。"
+  ja:
+    name: "YouTube メタデータテスト"
+    description: "定番の安定した動画で youtube-metadata をテストします。"
+  ko:
+    name: "YouTube 메타데이터 테스트"
+    description: "클래식한 안정적 동영상에서 youtube-metadata를 테스트합니다."
+  es:
+    name: "Prueba de metadatos de YouTube"
+    description: "Prueba youtube-metadata en un video clásico estable."
+  fr:
+    name: "Test de métadonnées YouTube"
+    description: "Teste youtube-metadata sur une vidéo stable classique."
+  de:
+    name: "YouTube-Metadaten-Test"
+    description: "Testet youtube-metadata auf einem klassischen stabilen Video."
+  ar:
+    name: "اختبار بيانات YouTube الوصفية"
+    description: "اختبار youtube-metadata على فيديو كلاسيكي ثابت."
+  pt:
+    name: "Teste de metadados do YouTube"
+    description: "Testa youtube-metadata em um vídeo clássico estável."
+  vi:
+    name: "Kiểm thử siêu dữ liệu YouTube"
+    description: "Kiểm thử youtube-metadata trên một video ổn định cổ điển."
 tags:
   - code
   - extract

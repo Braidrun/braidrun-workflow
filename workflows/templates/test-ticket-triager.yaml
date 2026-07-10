@@ -2,6 +2,40 @@
 name: test-ticket-triager
 version: 1.0.0
 description: Test utility-module-ticket-triager (LLM, needs OPENROUTER_API_KEY).
+translations:
+  en:
+    name: "Ticket Triager Test"
+    description: "Test utility-module-ticket-triager (LLM, needs OPENROUTER_API_KEY)."
+  zh:
+    name: "工单分拣测试"
+    description: "测试 utility-module-ticket-triager（LLM，需要 OPENROUTER_API_KEY）。"
+  zhHant:
+    name: "工單分流測試"
+    description: "測試 utility-module-ticket-triager（LLM，需要 OPENROUTER_API_KEY）。"
+  ja:
+    name: "チケット振り分けテスト"
+    description: "utility-module-ticket-triager をテストします（LLM、OPENROUTER_API_KEY が必要）。"
+  ko:
+    name: "티켓 분류 테스트"
+    description: "utility-module-ticket-triager를 테스트합니다(LLM, OPENROUTER_API_KEY 필요)."
+  es:
+    name: "Prueba de triaje de tickets"
+    description: "Prueba utility-module-ticket-triager (LLM, requiere OPENROUTER_API_KEY)."
+  fr:
+    name: "Test de triage des tickets"
+    description: "Teste utility-module-ticket-triager (LLM, nécessite OPENROUTER_API_KEY)."
+  de:
+    name: "Ticket-Triage-Test"
+    description: "Testet utility-module-ticket-triager (LLM, benötigt OPENROUTER_API_KEY)."
+  ar:
+    name: "اختبار فرز التذاكر"
+    description: "اختبار utility-module-ticket-triager (LLM، يتطلب OPENROUTER_API_KEY)."
+  pt:
+    name: "Teste de triagem de tickets"
+    description: "Testa utility-module-ticket-triager (LLM, requer OPENROUTER_API_KEY)."
+  vi:
+    name: "Kiểm thử phân loại ticket"
+    description: "Kiểm thử utility-module-ticket-triager (LLM, cần OPENROUTER_API_KEY)."
 tags:
   - code
   - extract
