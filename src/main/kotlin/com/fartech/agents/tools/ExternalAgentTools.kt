@@ -31,6 +31,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import mu.KotlinLogging
 import java.io.File
+import java.nio.file.Files
 import java.util.UUID
 
 private val logger = KotlinLogging.logger {}
@@ -1603,9 +1604,7 @@ class ExternalAgentTools(
                 safePathSegment(invocationId)
             )
         }
-        if (!base.isDirectory && !base.mkdirs()) {
-            throw IllegalStateException("Unable to create Codex home dir: ${base.absolutePath}")
-        }
+        createDirectories(base, "Codex home")
         val authFile = File(base, "auth.json")
         authFile.writeText(authJson)
         applyCodexHomePermissions(base, authFile)
@@ -1665,9 +1664,7 @@ class ExternalAgentTools(
         val configured = parameters.parameter(CLAUDE_CONFIG_DIR_PARAMETER, "").trim()
         if (configured.isNotEmpty()) {
             val hostDir = File(configured)
-            if (!hostDir.isDirectory && !hostDir.mkdirs()) {
-                throw IllegalStateException("Unable to create Claude config dir: ${hostDir.absolutePath}")
-            }
+            createDirectories(hostDir, "Claude config")
             return ResolvedClaudeConfigDir(
                 hostDir = hostDir.takeIf { isDocker },
                 containerPath = hostDir.absolutePath
@@ -1678,14 +1675,30 @@ class ExternalAgentTools(
         val containerBase = if (isDocker) "/tmp/braidrun-claude" else hostBase.absolutePath
         val runId = context.executionId ?: context.sessionId ?: UUID.randomUUID().toString()
         val relative = File(safePathSegment(userId), safePathSegment(runId)).path
-        val hostDir = File(hostBase, relative)
-        if (!hostDir.isDirectory && !hostDir.mkdirs()) {
-            throw IllegalStateException("Unable to create Claude config dir: ${hostDir.absolutePath}")
-        }
+        val invocationSegment = context.executionId
+            ?.let { context.stepName }
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+            ?.let(::safePathSegment)
+        val hostDir = invocationSegment
+            ?.let { File(File(hostBase, relative), it) }
+            ?: File(hostBase, relative)
+        val containerDir = invocationSegment
+            ?.let { File(File(containerBase, relative), it) }
+            ?: File(containerBase, relative)
+        createDirectories(hostDir, "Claude config")
         return ResolvedClaudeConfigDir(
             hostDir = hostDir.takeIf { isDocker },
-            containerPath = File(containerBase, relative).absolutePath
+            containerPath = containerDir.absolutePath
         )
+    }
+
+    private fun createDirectories(directory: File, label: String) {
+        try {
+            Files.createDirectories(directory.toPath())
+        } catch (e: Exception) {
+            throw IllegalStateException("Unable to create $label dir: ${directory.absolutePath}", e)
+        }
     }
 
     private fun safePathSegment(value: String): String {

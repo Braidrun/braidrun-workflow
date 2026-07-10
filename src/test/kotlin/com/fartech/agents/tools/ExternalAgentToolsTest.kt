@@ -878,6 +878,30 @@ class ExternalAgentToolsTest {
     }
 
     @Test
+    fun `codex subscription creates a configured CODEX_HOME when it does not exist`() = runBlocking {
+        val parent = Files.createTempDirectory("codex-home-parent").toFile()
+        val codexHome = File(parent, "nested/configured-home")
+        try {
+            val executor = FakeSubprocessExecutor(ExecResult(0, """{"result":"ok"}""", "", 1))
+            val params = listOf(
+                ConfigurationParameter(ExternalAgentTools.CODEX_AUTH_MODE_PARAMETER, JsonPrimitive("subscription")),
+                ConfigurationParameter(ExternalAgentTools.CODEX_AUTH_JSON_PARAMETER, JsonPrimitive(fakeCodexAuthJson)),
+                ConfigurationParameter(ExternalAgentTools.CODEX_MODEL_PARAMETER, JsonPrimitive("gpt-5.5")),
+                ConfigurationParameter(ExternalAgentTools.CODEX_HOME_DIR_PARAMETER, JsonPrimitive(codexHome.absolutePath))
+            )
+            val (tools, _) = buildTools(executor, params)
+
+            tools.runCodexSubAgent(ExternalAgentContext(prompt = "x", name = "codex-sub"))
+
+            assertTrue(codexHome.isDirectory)
+            assertEquals(fakeCodexAuthJson, File(codexHome, "auth.json").readText())
+            assertEquals(codexHome.absolutePath, executor.lastRequest!!.env["CODEX_HOME"])
+        } finally {
+            parent.deleteRecursively()
+        }
+    }
+
+    @Test
     fun `codex subscription keeps default CODEX_HOME when subprocess context has a session id`() = runBlocking {
         val parent = File(
             File(File(System.getProperty("java.io.tmpdir"), "braidrun-codex"), "test-user"),
@@ -1042,6 +1066,56 @@ class ExternalAgentToolsTest {
             )
         } finally {
             configDir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `claude subscription default config dir is isolated per step invocation`() = runBlocking {
+        val executionId = "claude-config-isolation-${System.nanoTime()}"
+        val parent = File(
+            File(File(System.getProperty("java.io.tmpdir"), "braidrun-claude"), "test-user"),
+            executionId
+        )
+        try {
+            val params = listOf(
+                ConfigurationParameter(ExternalAgentTools.CLAUDE_AUTH_MODE_PARAMETER, JsonPrimitive("subscription")),
+                ConfigurationParameter(ExternalAgentTools.CLAUDE_OAUTH_TOKEN_PARAMETER, JsonPrimitive("oauth-token"))
+            )
+            val firstExecutor = FakeSubprocessExecutor(ExecResult(0, """{"result":"ok"}""", "", 1))
+            val secondExecutor = FakeSubprocessExecutor(ExecResult(0, """{"result":"ok"}""", "", 1))
+            val first = ExternalAgentTools(
+                executor = firstExecutor,
+                parameters = params,
+                userId = "test-user",
+                context = SubprocessToolContext(
+                    workspaceDir = File("."),
+                    executionId = executionId,
+                    stepName = "analyze_performance:iterate:0"
+                )
+            )
+            val second = ExternalAgentTools(
+                executor = secondExecutor,
+                parameters = params,
+                userId = "test-user",
+                context = SubprocessToolContext(
+                    workspaceDir = File("."),
+                    executionId = executionId,
+                    stepName = "orchestrate_account_analysis"
+                )
+            )
+
+            first.runClaudeCodeSubAgent(ExternalAgentContext(prompt = "x", name = "keyword-review"))
+            second.runClaudeCodeSubAgent(ExternalAgentContext(prompt = "x", name = "account-analysis"))
+
+            val firstConfig = firstExecutor.lastRequest!!.env["CLAUDE_CONFIG_DIR"]!!
+            val secondConfig = secondExecutor.lastRequest!!.env["CLAUDE_CONFIG_DIR"]!!
+            assertNotEquals(firstConfig, secondConfig)
+            assertTrue(firstConfig.endsWith("$executionId/analyze_performance_iterate_0"), firstConfig)
+            assertTrue(secondConfig.endsWith("$executionId/orchestrate_account_analysis"), secondConfig)
+            assertTrue(File(firstConfig).isDirectory)
+            assertTrue(File(secondConfig).isDirectory)
+        } finally {
+            parent.deleteRecursively()
         }
     }
 
