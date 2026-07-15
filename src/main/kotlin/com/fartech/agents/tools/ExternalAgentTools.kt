@@ -315,14 +315,15 @@ class ExternalAgentTools(
         onTextDelta: ((String) -> Unit)? = null
     ): ExternalAgentRunDetailedResult {
         val resolvedName = ctx.name.takeIf { it.isNotBlank() } ?: UUID.randomUUID().toString()
-        val invocationId = UUID.randomUUID().toString().take(8)
+        val invocationUuid = UUID.randomUUID().toString()
+        val invocationId = invocationUuid.take(8)
         val invocationLabel = invocationLabel(resolvedName, invocationId)
         val workDir = resolveWorkingDir(ctx.workingDir)
         val tempFiles = mutableListOf<File>()
 
         // Resolve authentication BEFORE building any subprocess so misconfiguration fails
         // with a clear error instead of leaving the LLM staring at a 401 from the SDK.
-        val auth = runCatching { resolveExternalAuth(engine, ctx) }.getOrElse { e ->
+        val auth = runCatching { resolveExternalAuth(engine, ctx, invocationUuid) }.getOrElse { e ->
             emit(
                 type = engine.failedEventType(),
                 summary = "❌ ${engine.displayName} Sub Agent 配置错误: $invocationLabel",
@@ -1468,7 +1469,11 @@ class ExternalAgentTools(
             .coerceAtMost(MAX_CLAUDE_PROGRESS_INTERVAL_SECONDS) * 1000).toLong()
     }
 
-    private fun resolveExternalAuth(engine: Engine, ctx: ExternalAgentContext): ResolvedExternalAuth {
+    private fun resolveExternalAuth(
+        engine: Engine,
+        ctx: ExternalAgentContext,
+        invocationId: String
+    ): ResolvedExternalAuth {
         val mode = ExternalAuthMode.parse(
             parameters.parameter(engine.authModeParameterKey, "api_key"),
             engine.authModeParameterKey
@@ -1477,7 +1482,7 @@ class ExternalAgentTools(
         if (mode == ExternalAuthMode.SUBSCRIPTION) {
             return when (engine) {
                 Engine.CLAUDE -> resolveClaudeSubscriptionAuth()
-                Engine.CODEX -> resolveCodexSubscriptionAuth(ctx)
+                Engine.CODEX -> resolveCodexSubscriptionAuth(ctx, invocationId)
             }
         }
 
@@ -1522,7 +1527,10 @@ class ExternalAgentTools(
      * accepted. The CLI may rewrite the file when it refreshes an access token; the
      * caller can persist that rotated JSON via [onCodexAuthJsonRotated].
      */
-    private fun resolveCodexSubscriptionAuth(ctx: ExternalAgentContext): ResolvedExternalAuth {
+    private fun resolveCodexSubscriptionAuth(
+        ctx: ExternalAgentContext,
+        invocationId: String
+    ): ResolvedExternalAuth {
         val authJson = resolveCodexAuthJson()
             ?: throw IllegalStateException(
                 "Missing Codex subscription credential. Create a credential with provider " +
@@ -1530,7 +1538,12 @@ class ExternalAgentTools(
                     "`codex login` ChatGPT session), or set workflow parameter " +
                     "'$CODEX_AUTH_JSON_PARAMETER'."
             )
-        val homeDir = materializeCodexHome(authJson)
+        val deleteHomeOnExit = shouldDeleteCodexHomeOnExit(ctx)
+        val homeDir = materializeCodexHome(
+            authJson = authJson,
+            invocationId = invocationId,
+            ephemeral = deleteHomeOnExit
+        )
         val codexHomeEnv = if (isDocker) CODEX_HOME_CONTAINER_PATH else homeDir.absolutePath
         // HOME (and an API-key-mode CODEX_HOME fallback) are set centrally for codex in
         // [buildEnvironment]; here we only pin CODEX_HOME to the materialised auth dir.
@@ -1539,7 +1552,7 @@ class ExternalAgentTools(
             env = mapOf("CODEX_HOME" to codexHomeEnv),
             codexHomeHostDir = homeDir,
             originalCodexAuthJson = authJson,
-            deleteCodexHomeOnExit = shouldDeleteCodexHomeOnExit(ctx)
+            deleteCodexHomeOnExit = deleteHomeOnExit
         )
     }
 
@@ -1586,23 +1599,34 @@ class ExternalAgentTools(
      * dir to [CODEX_HOME_CONTAINER_PATH]; in native mode `CODEX_HOME` points straight
      * at it.
      */
-    private fun materializeCodexHome(authJson: String): File {
+    private fun materializeCodexHome(
+        authJson: String,
+        invocationId: String,
+        ephemeral: Boolean
+    ): File {
         val configured = parameters.parameter(CODEX_HOME_DIR_PARAMETER, "").trim()
         val base = if (configured.isNotEmpty()) {
             File(configured)
         } else {
             val runId = context.executionId ?: context.sessionId ?: UUID.randomUUID().toString()
-            val invocationId = listOfNotNull(context.stepName, context.sessionId)
-                .joinToString("_")
-                .ifBlank { UUID.randomUUID().toString() }
             val userDir = File(
                 File(System.getProperty("java.io.tmpdir"), "braidrun-codex"),
                 safePathSegment(userId)
             )
-            File(
+            val invocationBase = File(
                 File(userDir, safePathSegment(runId)),
-                safePathSegment(invocationId)
+                safePathSegment(
+                    listOfNotNull(context.stepName, context.sessionId)
+                        .joinToString("_")
+                        .ifBlank { "external-agent" }
+                )
             )
+            // Ephemeral workflow calls can run concurrently from the same step. Each
+            // call deletes its CODEX_HOME in finally, so sharing invocationBase lets
+            // the first completed child remove auth/state underneath a sibling that
+            // is still starting. Add the real per-call id only for ephemeral homes;
+            // persistent conversation/resume homes must keep their stable path.
+            if (ephemeral) File(invocationBase, safePathSegment(invocationId)) else invocationBase
         }
         createDirectories(base, "Codex home")
         val authFile = File(base, "auth.json")

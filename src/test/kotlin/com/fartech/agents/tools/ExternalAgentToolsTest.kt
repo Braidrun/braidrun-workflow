@@ -5,6 +5,8 @@ import com.fartech.agents.tools.exec.SubprocessExecutor.ExecRequest
 import com.fartech.agents.tools.exec.SubprocessExecutor.ExecResult
 import com.fartech.agents.tools.exec.SubprocessToolContext
 import com.fartech.ftapp2.commonsKt.ConfigurationParameter
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonPrimitive
@@ -966,13 +968,72 @@ class ExternalAgentToolsTest {
             val secondHome = secondExecutor.lastRequest!!.env["CODEX_HOME"]!!
 
             assertNotEquals(firstHome, secondHome)
-            assertTrue(firstHome.endsWith("exec-1/step_iterate_0"), "unexpected first CODEX_HOME: $firstHome")
-            assertTrue(secondHome.endsWith("exec-1/step_iterate_1"), "unexpected second CODEX_HOME: $secondHome")
+            assertTrue(firstHome.contains("exec-1/step_iterate_0/"), "unexpected first CODEX_HOME: $firstHome")
+            assertTrue(secondHome.contains("exec-1/step_iterate_1/"), "unexpected second CODEX_HOME: $secondHome")
             assertEquals(fakeCodexAuthJson, firstExecutor.capturedCodexAuthJson)
             assertEquals(fakeCodexAuthJson, secondExecutor.capturedCodexAuthJson)
             assertFalse(File(firstHome).exists(), "first invocation CODEX_HOME should be removed after the run")
             assertFalse(File(secondHome).exists(), "second invocation CODEX_HOME should be removed after the run")
         } finally {
+            parent.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `concurrent codex calls from one step do not delete each others CODEX_HOME`() = runBlocking {
+        val executionId = "codex-concurrent-${System.nanoTime()}"
+        val parent = File(
+            File(File(System.getProperty("java.io.tmpdir"), "braidrun-codex"), "test-user"),
+            executionId
+        )
+        val firstStarted = CompletableDeferred<ExecRequest>()
+        val releaseFirst = CompletableDeferred<Unit>()
+        val firstExecutor = object : SubprocessExecutor {
+            override suspend fun execute(request: ExecRequest): ExecResult {
+                firstStarted.complete(request)
+                releaseFirst.await()
+                val home = request.env["CODEX_HOME"]!!
+                assertTrue(File(home).isDirectory, "first CODEX_HOME was deleted while its process was running")
+                assertEquals(fakeCodexAuthJson, File(home, "auth.json").readText())
+                return ExecResult(0, """{"result":"first-ok"}""", "", 1)
+            }
+        }
+        val secondExecutor = FakeSubprocessExecutor(ExecResult(0, """{"result":"second-ok"}""", "", 1))
+        val params = listOf(
+            ConfigurationParameter(ExternalAgentTools.CODEX_AUTH_MODE_PARAMETER, JsonPrimitive("subscription")),
+            ConfigurationParameter(ExternalAgentTools.CODEX_AUTH_JSON_PARAMETER, JsonPrimitive(fakeCodexAuthJson)),
+            ConfigurationParameter(ExternalAgentTools.CODEX_MODEL_PARAMETER, JsonPrimitive("gpt-5.5"))
+        )
+        val context = SubprocessToolContext(
+            workspaceDir = File("."),
+            executionId = executionId,
+            stepName = "research_website_market_context"
+        )
+        val first = ExternalAgentTools(firstExecutor, params, "test-user", context)
+        val second = ExternalAgentTools(secondExecutor, params, "test-user", context)
+
+        try {
+            val firstRun = async {
+                first.runCodexSubAgent(ExternalAgentContext(prompt = "x", name = "website-market-researcher"))
+            }
+            val firstRequest = firstStarted.await()
+            val firstHome = firstRequest.env["CODEX_HOME"]!!
+
+            assertEquals(
+                "second-ok",
+                second.runCodexSubAgent(ExternalAgentContext(prompt = "x", name = "website-market-planner"))
+            )
+            val secondHome = secondExecutor.lastRequest!!.env["CODEX_HOME"]!!
+
+            assertNotEquals(firstHome, secondHome)
+            assertTrue(File(firstHome).isDirectory, "sibling cleanup removed the running CODEX_HOME")
+            assertFalse(File(secondHome).exists(), "completed sibling CODEX_HOME should be removed")
+
+            releaseFirst.complete(Unit)
+            assertEquals("first-ok", firstRun.await())
+            assertFalse(File(firstHome).exists(), "first CODEX_HOME should be removed after it completes")
+        } finally {
+            releaseFirst.complete(Unit)
             parent.deleteRecursively()
         }
     }
