@@ -904,7 +904,7 @@ class ExternalAgentToolsTest {
     }
 
     @Test
-    fun `codex subscription keeps default CODEX_HOME when subprocess context has a session id`() = runBlocking {
+    fun `codex subscription keeps default CODEX_HOME for a chat session without a workflow execution`() = runBlocking {
         val parent = File(
             File(File(System.getProperty("java.io.tmpdir"), "braidrun-codex"), "test-user"),
             "chat-session-1"
@@ -928,6 +928,45 @@ class ExternalAgentToolsTest {
             val home = executor.lastRequest!!.env["CODEX_HOME"]!!
             assertTrue(home.contains("chat-session-1"), "unexpected CODEX_HOME: $home")
             assertTrue(File(home, "auth.json").exists(), "session CODEX_HOME should persist after the run")
+        } finally {
+            parent.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `workflow runtime session id does not disable per invocation CODEX_HOME isolation`() = runBlocking {
+        val executionId = "workflow-session-${System.nanoTime()}"
+        val parent = File(
+            File(File(System.getProperty("java.io.tmpdir"), "braidrun-codex"), "test-user"),
+            executionId
+        )
+        try {
+            val params = listOf(
+                ConfigurationParameter(ExternalAgentTools.CODEX_AUTH_MODE_PARAMETER, JsonPrimitive("subscription")),
+                ConfigurationParameter(ExternalAgentTools.CODEX_AUTH_JSON_PARAMETER, JsonPrimitive(fakeCodexAuthJson)),
+                ConfigurationParameter(ExternalAgentTools.CODEX_MODEL_PARAMETER, JsonPrimitive("gpt-5.5"))
+            )
+            val firstExecutor = FakeSubprocessExecutor(ExecResult(0, """{"result":"first"}""", "", 1))
+            val secondExecutor = FakeSubprocessExecutor(ExecResult(0, """{"result":"second"}""", "", 1))
+            val context = SubprocessToolContext(
+                workspaceDir = File("."),
+                executionId = executionId,
+                stepName = "analyze_performance_iterate_0",
+                sessionId = "$executionId:asa_keyword_review_agent:analyze_performance_iterate_0"
+            )
+
+            ExternalAgentTools(firstExecutor, params, "test-user", context)
+                .runCodexSubAgent(ExternalAgentContext(prompt = "x", name = "keyword-reviewer"))
+            ExternalAgentTools(secondExecutor, params, "test-user", context)
+                .runCodexSubAgent(ExternalAgentContext(prompt = "x", name = "keyword-reviewer"))
+
+            val firstHome = firstExecutor.lastRequest!!.env["CODEX_HOME"]!!
+            val secondHome = secondExecutor.lastRequest!!.env["CODEX_HOME"]!!
+            assertNotEquals(firstHome, secondHome)
+            assertTrue(firstHome.contains("$executionId/analyze_performance_iterate_0_"))
+            assertTrue(secondHome.contains("$executionId/analyze_performance_iterate_0_"))
+            assertFalse(File(firstHome).exists(), "completed workflow CODEX_HOME should be removed")
+            assertFalse(File(secondHome).exists(), "completed workflow CODEX_HOME should be removed")
         } finally {
             parent.deleteRecursively()
         }
@@ -1007,7 +1046,8 @@ class ExternalAgentToolsTest {
         val context = SubprocessToolContext(
             workspaceDir = File("."),
             executionId = executionId,
-            stepName = "research_website_market_context"
+            stepName = "research_website_market_context",
+            sessionId = "$executionId:website-market-agent:research_website_market_context"
         )
         val first = ExternalAgentTools(firstExecutor, params, "test-user", context)
         val second = ExternalAgentTools(secondExecutor, params, "test-user", context)

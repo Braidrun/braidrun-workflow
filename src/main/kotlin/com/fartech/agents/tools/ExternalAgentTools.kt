@@ -1560,6 +1560,12 @@ class ExternalAgentTools(
         val configuredHome = parameters.parameter(CODEX_HOME_DIR_PARAMETER, "").trim()
         if (configuredHome.isNotEmpty()) return false
         if (ctx.resumeSessionId.isNotBlank()) return false
+        // WorkflowExecutor injects a session_id into every workflow agent for
+        // Koog state/history namespacing, even when this external Codex call is
+        // a one-shot invocation. Treating that runtime id as a Codex
+        // conversation bypasses per-invocation CODEX_HOME isolation. Workflow
+        // executions stay ephemeral unless the caller explicitly resumes one.
+        if (!context.executionId.isNullOrBlank()) return true
         if (!context.sessionId.isNullOrBlank()) return false
         return true
     }
