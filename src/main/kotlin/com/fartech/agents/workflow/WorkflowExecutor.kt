@@ -6277,7 +6277,11 @@ IMPORTANT: You MUST respond with ONLY the category name (one of: ${config.catego
             onSkillEvent = skillEventCallback,
             onSubAgentEvent = subAgentEventCallback,
             onHookEvent = hookEventCallback,
-            userInteractionHandler = userInteractionHandler
+            userInteractionHandler = userInteractionHandler,
+            // Web injects one authoritative executor for the runtime. Reuse it for
+            // external Claude/Codex tools instead of letting the managed-agent path
+            // independently re-resolve subprocess_mode and silently fall back to native.
+            externalAgentExecutor = codeStepExecutor
         )
 
         return PreparedAgentRuntime(
@@ -6849,7 +6853,8 @@ IMPORTANT: You MUST respond with ONLY the category name (one of: ${config.catego
                 stepName = stepName,
                 sessionId = sessionId
             ),
-            onMonitorEvent = eventCallback
+            onMonitorEvent = eventCallback,
+            trustExecutorSandbox = isDockerSubprocessMode()
         )
 
         return claudeAgent.runClaudeCodeSubAgent(
@@ -6930,7 +6935,8 @@ IMPORTANT: You MUST respond with ONLY the category name (one of: ${config.catego
                 stepName = stepName,
                 sessionId = sessionId
             ),
-            onMonitorEvent = eventCallback
+            onMonitorEvent = eventCallback,
+            trustExecutorSandbox = isDockerSubprocessMode()
         )
 
         // Codex `exec` has no --append-system-prompt; fold the system prompt into the

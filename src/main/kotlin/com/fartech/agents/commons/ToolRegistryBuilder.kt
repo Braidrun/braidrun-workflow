@@ -12,6 +12,7 @@ import ai.koog.rag.base.files.FileSystemProvider
 import ai.koog.rag.base.files.JVMFileSystemProvider
 import com.fartech.agents.tools.*
 import com.fartech.agents.tools.FileReadGuard
+import com.fartech.agents.tools.exec.SubprocessExecutor
 import com.fartech.ftapp2.commonsKt.ConfigurationParameter
 import com.fartech.ftapp2.commonsKt.HttpAccess
 import com.fartech.ftapp2.commonsKt.parameter
@@ -109,6 +110,7 @@ fun parseToolSet(
     onSubAgentEvent: MonitoringEventCallback? = null,
     onHookEvent: MonitoringEventCallback? = null,
     userInteractionHandler: UserInteractionHandler? = null,
+    externalAgentExecutor: SubprocessExecutor? = null,
 ): ToolRegistry {
     val toolSet =
         parameters.parameter("tool_set", emptyList<String>().toMutableSet()).also { it.addAll(tools) }
@@ -123,7 +125,8 @@ fun parseToolSet(
         onSkillEvent = onSkillEvent,
         onSubAgentEvent = onSubAgentEvent,
         onHookEvent = onHookEvent,
-        userInteractionHandler = userInteractionHandler
+        userInteractionHandler = userInteractionHandler,
+        externalAgentExecutor = externalAgentExecutor
     )
 }
 
@@ -144,6 +147,7 @@ fun parseExactToolSet(
     onSubAgentEvent: MonitoringEventCallback? = null,
     onHookEvent: MonitoringEventCallback? = null,
     userInteractionHandler: UserInteractionHandler? = null,
+    externalAgentExecutor: SubprocessExecutor? = null,
 ): ToolRegistry = buildToolRegistry(
     parameters = parameters,
     httpAccess = httpAccess,
@@ -155,7 +159,8 @@ fun parseExactToolSet(
     onSkillEvent = onSkillEvent,
     onSubAgentEvent = onSubAgentEvent,
     onHookEvent = onHookEvent,
-    userInteractionHandler = userInteractionHandler
+    userInteractionHandler = userInteractionHandler,
+    externalAgentExecutor = externalAgentExecutor
 )
 
 /**
@@ -235,6 +240,7 @@ private fun buildToolRegistry(
     onSubAgentEvent: MonitoringEventCallback?,
     onHookEvent: MonitoringEventCallback?,
     userInteractionHandler: UserInteractionHandler?,
+    externalAgentExecutor: SubprocessExecutor?,
 ): ToolRegistry = ToolRegistry {
     val browserDisabled = browserToolsDisabled(parameters)
     val subprocessExecutor = createSubprocessExecutor(parameters)
@@ -268,11 +274,13 @@ private fun buildToolRegistry(
         // SubAgentTools so the UI's monitoring panel renders both kinds uniformly.
         tools(
             ExternalAgentTools(
-                executor = subprocessExecutor,
+                executor = externalAgentExecutor ?: subprocessExecutor,
                 parameters = parameters,
                 userId = userId,
                 context = subprocessContext,
-                onMonitorEvent = onSubAgentEvent
+                onMonitorEvent = onSubAgentEvent,
+                trustExecutorSandbox = parameters.parameter("subprocess_mode", "native")
+                    .equals("docker", ignoreCase = true)
             )
         )
     }
