@@ -5,6 +5,24 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.11]
+
+### Added
+
+- Added Kimi K3 model metadata, capabilities, and provider parameter support.
+
+### Fixed
+
+- Reused the injected workflow subprocess executor for external Claude/Codex
+  tools created by agent-based orchestrators and nested sub-agents.
+
+## [1.0.10]
+
+### Fixed
+
+- Reused the Web-injected subprocess executor for managed external Claude/Codex
+  agents so container mounts and host-to-container path rewriting remain active.
+
 ## [1.0.9]
 
 ### Fixed

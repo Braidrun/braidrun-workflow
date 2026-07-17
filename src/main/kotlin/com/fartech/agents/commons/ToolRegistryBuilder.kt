@@ -178,10 +178,11 @@ fun parseToolSet(
     onSkillEvent: MonitoringEventCallback? = null,
     onSubAgentEvent: MonitoringEventCallback? = null,
     onHookEvent: MonitoringEventCallback? = null,
+    externalAgentExecutor: SubprocessExecutor? = null,
 ): ToolRegistry = parseToolSet(
-    parameters,
-    httpAccess,
-    tools.map {
+    parameters = parameters,
+    httpAccess = httpAccess,
+    tools = tools.map {
         when (it) {
             AgentTools.INTERACTIVE -> "interactive"
             AgentTools.EXIT -> "exit"
@@ -215,12 +216,13 @@ fun parseToolSet(
             AgentTools.EXTERNAL_AGENT -> "external_agent"
         }
     },
-    customToolSets,
-    customTools,
-    skillManager,
-    onSkillEvent,
-    onSubAgentEvent,
-    onHookEvent
+    customToolSets = customToolSets,
+    customTools = customTools,
+    skillManager = skillManager,
+    onSkillEvent = onSkillEvent,
+    onSubAgentEvent = onSubAgentEvent,
+    onHookEvent = onHookEvent,
+    externalAgentExecutor = externalAgentExecutor
 )
 
 /**
@@ -265,7 +267,14 @@ private fun buildToolRegistry(
     }
 
     if (toolSet.contains("sub_agent")) {
-        tools(SubAgentTools(httpAccess, parameters, onMonitorEvent = onSubAgentEvent))
+        tools(
+            SubAgentTools(
+                httpAccess = httpAccess,
+                parameters = parameters,
+                onMonitorEvent = onSubAgentEvent,
+                externalAgentExecutor = externalAgentExecutor
+            )
+        )
     }
 
     if (toolSet.contains("external_agent")) {

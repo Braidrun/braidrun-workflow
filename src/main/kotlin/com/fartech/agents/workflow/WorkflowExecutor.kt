@@ -4768,7 +4768,11 @@ IMPORTANT: You MUST respond with ONLY the category name (one of: ${config.catego
             tools = orchestratorToolNames,
             customToolSets = orchestratorCustomToolSets,
             skillManager = orchestratorSkillManager,
-            onHookEvent = orchestratorHookCallback
+            onHookEvent = orchestratorHookCallback,
+            // Agent-based orchestrators must use the same runtime executor as
+            // direct agents and code steps. Otherwise external Claude/Codex
+            // tools silently fall back to a native executor in production.
+            externalAgentExecutor = codeStepExecutor
         )
 
         // 构建监控 Features

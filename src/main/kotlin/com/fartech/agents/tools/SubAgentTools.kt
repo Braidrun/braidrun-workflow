@@ -6,6 +6,7 @@ import ai.koog.agents.core.tools.annotations.Tool
 import ai.koog.agents.core.tools.reflect.ToolSet
 import ai.koog.prompt.llm.LLModel
 import com.fartech.agents.commons.*
+import com.fartech.agents.tools.exec.SubprocessExecutor
 import com.fartech.ftapp2.commonsKt.AnsiColor
 import com.fartech.ftapp2.commonsKt.ConfigurationParameter
 import com.fartech.ftapp2.commonsKt.HttpAccess
@@ -59,7 +60,8 @@ data class SubAgentContext(
 private suspend fun SubAgentContext.buildAgent(
     httpAccess: HttpAccess,
     parameters: List<ConfigurationParameter>,
-    llm: LLM
+    llm: LLM,
+    externalAgentExecutor: SubprocessExecutor?
 ): AIAgent<String, String> {
     // Build base system prompt
     val baseSystemPrompt = """
@@ -81,9 +83,10 @@ private suspend fun SubAgentContext.buildAgent(
         parameters = subAgentParameters,
         systemPrompt = baseSystemPrompt,
         toolRegistry = parseToolSet(
-            subAgentParameters,
-            httpAccess,
-            emptyList<AgentTools>()
+            parameters = subAgentParameters,
+            httpAccess = httpAccess,
+            tools = emptyList<AgentTools>(),
+            externalAgentExecutor = externalAgentExecutor
         ),
         strategyBuilder = { params, _, toolRegistry ->
             determineDefaultStrategy(
@@ -101,7 +104,8 @@ private suspend fun SubAgentContext.buildAgent(
 class SubAgentTools(
     val httpAccess: HttpAccess,
     val parameters: List<ConfigurationParameter>,
-    private val onMonitorEvent: MonitoringEventCallback? = null
+    private val onMonitorEvent: MonitoringEventCallback? = null,
+    internal val externalAgentExecutor: SubprocessExecutor? = null
 ) : ToolSet {
 
     val llmGroupConfig = parameters.getLLMGroupConfig()
@@ -134,7 +138,12 @@ class SubAgentTools(
         repeat(maxAttempts) { attemptIdx ->
             var agent: AIAgent<String, String>? = null
             try {
-                agent = agentContext.buildAgent(httpAccess, parameters, agentContext.llm)
+                agent = agentContext.buildAgent(
+                    httpAccess,
+                    parameters,
+                    agentContext.llm,
+                    externalAgentExecutor
+                )
                 val output = agent.run(agentContext.prompt)
                 emit(
                     "sub_agent_completed",
@@ -213,7 +222,12 @@ class SubAgentTools(
                     var lastError: Throwable? = null
                     repeat(maxAttempts) { retryIdx ->
                         try {
-                            agent = ctx.buildAgent(httpAccess, parameters, ctx.llm)
+                            agent = ctx.buildAgent(
+                                httpAccess,
+                                parameters,
+                                ctx.llm,
+                                externalAgentExecutor
+                            )
                             val output = agent!!.run(ctx.prompt)
                             consecutiveFailures = 0  // Reset on success
                             return@withTimeoutOrNull output
