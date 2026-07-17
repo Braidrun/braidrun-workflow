@@ -3,6 +3,11 @@ aliases:
 - moonshot
 models:
   # ===== Kimi =====
+  "kimi-k3":
+    id: "kimi-k3"
+    capabilities: json.basic, json, tools, tool_choice, vision, completion, thinking
+    context_length: 1048576
+    max_output_tokens: 1048576
   "kimi-k2.6":
     id: "kimi-k2.6"
     capabilities: multimodal

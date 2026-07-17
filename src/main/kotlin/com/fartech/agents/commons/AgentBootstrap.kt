@@ -46,6 +46,38 @@ import kotlinx.serialization.json.intOrNull
 import kotlin.uuid.ExperimentalUuidApi
 
 /**
+ * Resolve sampling temperature after applying model-specific wire constraints.
+ *
+ * Kimi K3 fixes temperature at 1.0 and recommends that clients omit the field.
+ * Workflow and preset defaults are commonly 0.5-0.8, so forwarding the configured
+ * value would make an otherwise valid K3 request fail with HTTP 400.
+ */
+@PublishedApi
+internal fun resolveModelTemperature(
+    model: LLModel,
+    configuredTemperature: Double?,
+    modelGroupConfig: LLModelGroupConfig? = null,
+): Double? {
+    val includesKimiK3 = model.provider == KIMI_LLM_PROVIDER &&
+        model.id.equals("kimi-k3", ignoreCase = true) ||
+        modelGroupConfig
+            ?.let { it.models + it.fallback + it.cascadeFallbacks }
+            .orEmpty()
+            .any {
+                val isKimiProvider =
+                    it.provider.equals("kimi", ignoreCase = true) ||
+                        it.provider.equals("moonshot", ignoreCase = true)
+                isKimiProvider && it.model.equals("kimi-k3", ignoreCase = true)
+            }
+
+    return if (includesKimiK3) {
+        null
+    } else {
+        configuredTemperature
+    }
+}
+
+/**
  * Agent lifecycle glue: construct a [GraphAIAgent] from workflow / preset
  * parameters, run it, hook in koog features (persistence, Langfuse tracing),
  * and invoke skill hooks at the right points.
@@ -168,7 +200,11 @@ suspend inline fun <Input, Output> buildAgent(
             prompt = prompt(
                 id = "chat",
                 params = LLMParams(
-                    temperature = llModelGroupConfig.temperature,
+                    temperature = resolveModelTemperature(
+                        model = llmModel,
+                        configuredTemperature = llModelGroupConfig.temperature,
+                        modelGroupConfig = llModelGroupConfig,
+                    ),
                     maxTokens = configuredMaxTokens,
                     numberOfChoices = parameters.parameter("num_choices", 1),
                     // Tier-2 (2026-04) — portable `tool_choice` forwarding.

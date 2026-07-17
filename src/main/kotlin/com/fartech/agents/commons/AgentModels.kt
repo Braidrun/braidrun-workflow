@@ -199,6 +199,7 @@ fun parseCapabilities(capabilityStrings: List<String>?): List<LLMCapability> {
             "toolchoice", "tool_choice" -> capabilities.add(LLMCapability.ToolChoice)
             "completion" -> capabilities.add(LLMCapability.Completion)
             "speculation" -> capabilities.add(LLMCapability.Speculation)
+            "thinking", "reasoning" -> capabilities.add(LLMCapability.Thinking)
             "vision", "vision.image", "image" -> capabilities.add(LLMCapability.Vision.Image)
             "vision.video", "video" -> capabilities.add(LLMCapability.Vision.Video)
             "audio" -> capabilities.add(LLMCapability.Audio)

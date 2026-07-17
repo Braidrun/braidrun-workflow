@@ -1,5 +1,6 @@
 package com.fartech.agents.commons
 
+import ai.koog.prompt.llm.LLMCapability
 import ai.koog.prompt.llm.LLMProvider
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Nested
@@ -329,6 +330,23 @@ class ModelRegistryTest {
             assertNotNull(model)
             assertEquals("x-ai/grok-4.20", model!!.id)
             assertEquals(LLMProvider.OpenRouter, model.provider)
+        }
+
+        @Test
+        fun `Kimi K3 metadata matches official API constraints`() {
+            val model = ModelRegistry.getModel("kimi", "kimi-k3")
+            assertNotNull(model)
+            assertEquals("kimi-k3", model!!.id)
+            assertEquals(KIMI_LLM_PROVIDER, model.provider)
+            assertEquals(1_048_576L, model.contextLength)
+            assertEquals(1_048_576L, model.maxOutputTokens)
+            assertTrue(model.supports(LLMCapability.Thinking))
+            assertTrue(model.supports(LLMCapability.Tools))
+            assertTrue(model.supports(LLMCapability.ToolChoice))
+            assertTrue(model.supports(LLMCapability.Schema.JSON.Standard))
+            assertTrue(model.supports(LLMCapability.Schema.JSON.Basic))
+            assertTrue(model.supports(LLMCapability.Vision.Image))
+            assertFalse(model.supports(LLMCapability.Temperature))
         }
 
         @Test

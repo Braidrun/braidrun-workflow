@@ -106,6 +106,14 @@ class AgentModelsTest {
         }
 
         @Test
+        fun `thinking and reasoning capabilities map to Thinking`() {
+            val thinking = parseCapabilities(listOf("thinking"))
+            val reasoning = parseCapabilities(listOf("reasoning"))
+            assertTrue(thinking.contains(LLMCapability.Thinking))
+            assertTrue(reasoning.contains(LLMCapability.Thinking))
+        }
+
+        @Test
         fun `multiplechoices and multiple_choices both parsed`() {
             val r1 = parseCapabilities(listOf("multiplechoices"))
             val r2 = parseCapabilities(listOf("multiple_choices"))
