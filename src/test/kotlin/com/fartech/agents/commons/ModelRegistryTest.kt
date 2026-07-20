@@ -346,7 +346,20 @@ class ModelRegistryTest {
             assertTrue(model.supports(LLMCapability.Schema.JSON.Standard))
             assertTrue(model.supports(LLMCapability.Schema.JSON.Basic))
             assertTrue(model.supports(LLMCapability.Vision.Image))
+            assertTrue(model.supports(LLMCapability.OpenAIEndpoint.Completions))
             assertFalse(model.supports(LLMCapability.Temperature))
+        }
+
+        @Test
+        fun `all direct Kimi models select OpenAI chat completions`() {
+            val models = requireNotNull(ModelRegistry.getProviderModels("kimi"))
+            assertTrue(models.isNotEmpty())
+            models.forEach { (name, model) ->
+                assertTrue(
+                    model.supports(LLMCapability.OpenAIEndpoint.Completions),
+                    "Kimi model '$name' must declare the OpenAI-compatible completions endpoint"
+                )
+            }
         }
 
         @Test

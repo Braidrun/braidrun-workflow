@@ -5,51 +5,51 @@ models:
   # ===== Kimi =====
   "kimi-k3":
     id: "kimi-k3"
-    capabilities: json.basic, json, tools, tool_choice, vision, completion, thinking
+    capabilities: json.basic, json, tools, tool_choice, vision, completion, thinking, openai.completions
     context_length: 1048576
     max_output_tokens: 1048576
   "kimi-k2.6":
     id: "kimi-k2.6"
-    capabilities: multimodal
+    capabilities: multimodal, openai.completions
     context_length: 256000
   "kimi-k2.5":
     id: "kimi-k2.5"
-    capabilities: multimodal
+    capabilities: multimodal, openai.completions
     context_length: 262144
   "kimi-k2":
     id: "kimi-k2"
-    capabilities: standard
+    capabilities: standard, openai.completions
     context_length: 131072
   "kimi-k2-0711":
     id: "kimi-k2-0711"
-    capabilities: standard
+    capabilities: standard, openai.completions
     context_length: 131072
   "kimi-latest":
     id: "kimi-latest"
-    capabilities: standard
+    capabilities: standard, openai.completions
     context_length: 131072
   "kimi-thinking":
     id: "kimi-thinking"
-    capabilities: standard
+    capabilities: standard, openai.completions
     context_length: 131072
   "kimi-vl":
     id: "kimi-vl"
-    capabilities: multimodal
+    capabilities: multimodal, openai.completions
     context_length: 131072
   # ===== Moonshot =====
   "moonshot-v1-auto":
     id: "moonshot-v1-auto"
-    capabilities: standard
+    capabilities: standard, openai.completions
     context_length: 131072
   "moonshot-v1-128k":
     id: "moonshot-v1-128k"
-    capabilities: standard
+    capabilities: standard, openai.completions
     context_length: 131072
   "moonshot-v1-32k":
     id: "moonshot-v1-32k"
-    capabilities: standard
+    capabilities: standard, openai.completions
     context_length: 32768
   "moonshot-v1-8k":
     id: "moonshot-v1-8k"
-    capabilities: standard
+    capabilities: standard, openai.completions
     context_length: 8192

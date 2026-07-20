@@ -5,6 +5,15 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.12]
+
+### Fixed
+
+- Made Docker-mounted Claude subscription config directories writable by the
+  fixed sandbox UID so session state and Bash setup no longer fail with EACCES.
+- Declared the OpenAI Chat Completions endpoint for direct Kimi/Moonshot
+  models so Koog can select request parameters for `kimi-k3` and related models.
+
 ## [1.0.11]
 
 ### Added

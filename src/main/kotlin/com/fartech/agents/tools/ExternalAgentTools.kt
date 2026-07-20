@@ -32,6 +32,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import mu.KotlinLogging
 import java.io.File
 import java.nio.file.Files
+import java.nio.file.attribute.PosixFilePermission
 import java.util.UUID
 
 private val logger = KotlinLogging.logger {}
@@ -1695,6 +1696,7 @@ class ExternalAgentTools(
         if (configured.isNotEmpty()) {
             val hostDir = File(configured)
             createDirectories(hostDir, "Claude config")
+            applyClaudeConfigPermissions(hostDir)
             return ResolvedClaudeConfigDir(
                 hostDir = hostDir.takeIf { isDocker },
                 containerPath = hostDir.absolutePath
@@ -1717,10 +1719,69 @@ class ExternalAgentTools(
             ?.let { File(File(containerBase, relative), it) }
             ?: File(containerBase, relative)
         createDirectories(hostDir, "Claude config")
+        applyClaudeConfigPermissions(hostDir)
         return ResolvedClaudeConfigDir(
             hostDir = hostDir.takeIf { isDocker },
             containerPath = containerDir.absolutePath
         )
+    }
+
+    /**
+     * The production executor runs Claude as uid:gid 2000:2000 while the host
+     * service commonly creates this bind-mounted directory as root. Claude
+     * creates session-env and other state below the mount, so a host-default
+     * 0755 directory makes Bash and session persistence fail with EACCES.
+     *
+     * Prefer transferring ownership to the sandbox uid and keeping mode 0700.
+     * Non-root development hosts cannot chown, so they fall back to a writable
+     * per-step directory; the execution/user-specific parent still limits path
+     * discovery.
+     */
+    private fun applyClaudeConfigPermissions(directory: File) {
+        if (!isDocker) return
+        val path = directory.toPath()
+        val sandboxOwned = runCatching {
+            Files.setPosixFilePermissions(
+                path,
+                setOf(
+                    PosixFilePermission.OWNER_READ,
+                    PosixFilePermission.OWNER_WRITE,
+                    PosixFilePermission.OWNER_EXECUTE
+                )
+            )
+            // Set gid first: after ownership moves away from a non-root host
+            // process, changing the remaining metadata may no longer be allowed.
+            Files.setAttribute(path, "unix:gid", DOCKER_SANDBOX_GID)
+            Files.setAttribute(path, "unix:uid", DOCKER_SANDBOX_UID)
+            (Files.getAttribute(path, "unix:uid") as Number).toInt() == DOCKER_SANDBOX_UID
+        }.getOrDefault(false)
+        if (sandboxOwned) return
+
+        val writableFallback = runCatching {
+            Files.setPosixFilePermissions(
+                path,
+                setOf(
+                    PosixFilePermission.OWNER_READ,
+                    PosixFilePermission.OWNER_WRITE,
+                    PosixFilePermission.OWNER_EXECUTE,
+                    PosixFilePermission.GROUP_READ,
+                    PosixFilePermission.GROUP_WRITE,
+                    PosixFilePermission.GROUP_EXECUTE,
+                    PosixFilePermission.OTHERS_READ,
+                    PosixFilePermission.OTHERS_WRITE,
+                    PosixFilePermission.OTHERS_EXECUTE
+                )
+            )
+            true
+        }.getOrElse {
+            directory.setReadable(true, false) &&
+                directory.setWritable(true, false) &&
+                directory.setExecutable(true, false)
+        }
+        check(writableFallback) {
+            "Unable to make Claude config dir writable by Docker sandbox uid 2000: " +
+                directory.absolutePath
+        }
     }
 
     private fun createDirectories(directory: File, label: String) {
@@ -1957,6 +2018,8 @@ class ExternalAgentTools(
     class ExternalAgentExecutionException(message: String) : RuntimeException(message)
 
     companion object {
+        private const val DOCKER_SANDBOX_UID = 2000
+        private const val DOCKER_SANDBOX_GID = 2000
         const val MIN_TIMEOUT_SECONDS = 10
         const val MAX_TIMEOUT_SECONDS = 3600
         const val CLAUDE_AUTH_MODE_PARAMETER = "external_agent_claude_auth_mode"

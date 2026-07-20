@@ -14,6 +14,7 @@ import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 import java.io.File
 import java.nio.file.Files
+import java.nio.file.attribute.PosixFilePermission
 
 /**
  * Unit tests for [ExternalAgentTools]. The strategy is to inject a [FakeSubprocessExecutor]
@@ -1157,6 +1158,19 @@ class ExternalAgentToolsTest {
 
             val req = executor.lastRequest!!
             assertEquals(configDir.absolutePath, req.env["CLAUDE_CONFIG_DIR"])
+            val permissions = Files.getPosixFilePermissions(configDir.toPath())
+            val ownerUid = (Files.getAttribute(configDir.toPath(), "unix:uid") as Number).toInt()
+            val sandboxOwned =
+                ownerUid == 2000 &&
+                    PosixFilePermission.OWNER_WRITE in permissions &&
+                    PosixFilePermission.OWNER_EXECUTE in permissions
+            val writableFallback =
+                PosixFilePermission.OTHERS_WRITE in permissions &&
+                    PosixFilePermission.OTHERS_EXECUTE in permissions
+            assertTrue(
+                sandboxOwned || writableFallback,
+                "Claude config dir must be writable by Docker uid 2000: uid=$ownerUid permissions=$permissions"
+            )
             assertTrue(
                 req.mounts.any {
                     it.hostPath.absolutePath == configDir.canonicalPath &&
