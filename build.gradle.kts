@@ -102,15 +102,10 @@ val vertxVersion = "4.5.18"
 dependencies {
     // Kotlinx Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3")
-    // kotlinx-datetime: pinned to 0.4.0 because KotlinxDateTimeModule uses kotlinx.datetime.Instant
-    // which was removed in 0.7.x (replaced by kotlin.time.Instant in Kotlin 2.1+).
-    // Koog transitively requests ≥0.7.1 via aws.smithy.kotlin, but at runtime the
-    // APIs it exercises are still present in 0.4.0.
-    implementation("org.jetbrains.kotlinx:kotlinx-datetime") {
-        version {
-            strictly("0.4.0")
-        }
-    }
+    // Keep this aligned with Koog/AWS Smithy. kotlinx-datetime 0.7 migrated
+    // Instant to kotlin.time.Instant; using the old 0.4 binary API here causes
+    // NoClassDefFoundError when a consuming application resolves 0.7.x.
+    implementation("org.jetbrains.kotlinx:kotlinx-datetime:0.7.1")
 
     // Kotlinx Serialization
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
@@ -156,11 +151,6 @@ dependencies {
     // Testing
     testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")
     testImplementation(kotlin("test"))
-    testRuntimeOnly("org.jetbrains.kotlinx:kotlinx-datetime") {
-        version {
-            strictly("0.4.0")
-        }
-    }
     // Logging
     implementation("org.slf4j:slf4j-api:2.0.9")
     implementation("io.github.microutils:kotlin-logging:3.0.5")
@@ -328,7 +318,7 @@ dependencies {
 }
 
 group = "com.fartech.braidrun"
-version = "1.0.12"
+version = "1.0.13"
 description = "braidrun-workflow"
 
 tasks.named<Jar>("jar") {

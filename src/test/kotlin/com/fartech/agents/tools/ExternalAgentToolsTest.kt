@@ -558,14 +558,21 @@ class ExternalAgentToolsTest {
         val (tools, _) = buildTools(executor)
 
         tools.runCodexSubAgent(
-            ExternalAgentContext(prompt = "continue", model = "gpt-5-codex", resumeSessionId = "thread-123")
+            ExternalAgentContext(
+                prompt = "continue",
+                model = "gpt-5-codex",
+                resumeSessionId = "thread-123",
+                codexSandboxMode = "read-only"
+            )
         )
 
         val cmd = executor.lastRequest!!.command
         assertEquals("codex", cmd[0])
         assertEquals("exec", cmd[1])
         assertEquals("resume", cmd[2])
-        assertEquals("thread-123", cmd[3])
+        assertFalse(cmd.contains("--sandbox"))
+        assertTrue(cmd.containsInOrder("-c", "sandbox_mode=\"read-only\""))
+        assertTrue(cmd.indexOf("thread-123") > cmd.indexOf("--json"))
         assertTrue(cmd.containsInOrder("--model", "gpt-5-codex"))
         assertEquals("continue", cmd.last())
         assertEquals("--", cmd[cmd.size - 2])

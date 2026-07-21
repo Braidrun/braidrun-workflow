@@ -1211,10 +1211,10 @@ class ExternalAgentTools(
         model: String,
         subscription: Boolean
     ): List<String> = buildList {
+        val resumeSessionId = ctx.resumeSessionId.trim().takeIf { it.isNotEmpty() }
         add("exec")
-        ctx.resumeSessionId.trim().takeIf { it.isNotEmpty() }?.let { sessionId ->
+        if (resumeSessionId != null) {
             add("resume")
-            add(sessionId)
         }
         // Allow running outside a git repo — the bind-mounted workspace is usually
         // not a git checkout, and `codex exec` otherwise refuses to start.
@@ -1231,8 +1231,16 @@ class ExternalAgentTools(
             // wedge waiting for an operator inside a headless subprocess.
             add("--dangerously-bypass-approvals-and-sandbox")
         } else if (codexSandboxMode != null) {
-            add("--sandbox")
-            add(codexSandboxMode)
+            if (resumeSessionId == null) {
+                add("--sandbox")
+                add(codexSandboxMode)
+            } else {
+                // `codex exec resume` does not expose the parent command's
+                // --sandbox option. Its equivalent is the config override,
+                // and resume options must precede the positional session id.
+                add("-c")
+                add("sandbox_mode=${tomlString(codexSandboxMode)}")
+            }
             // `codex exec` has no interactive terminal to answer an approval prompt, and
             // this build has no --ask-for-approval flag (verified against codex-cli
             // 0.142.5's `codex exec --help`) — only `-c key=value` TOML overrides reach
@@ -1287,6 +1295,7 @@ class ExternalAgentTools(
         // remains version-dependent; operators can still append flags through
         // external_agent_codex_extra_args.
         add("--json")
+        resumeSessionId?.let(::add)
         //
         // Pass the prompt as a POSITIONAL argument (`codex exec [OPTIONS] [PROMPT]`),
         // not via stdin. The Docker executor keeps stdin open (OpenStdin), so a

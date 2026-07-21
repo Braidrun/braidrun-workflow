@@ -7,7 +7,7 @@ import com.fasterxml.jackson.databind.JsonDeserializer
 import com.fasterxml.jackson.databind.JsonSerializer
 import com.fasterxml.jackson.databind.SerializerProvider
 import com.fasterxml.jackson.databind.module.SimpleModule
-import kotlinx.datetime.Instant
+import kotlin.time.Instant
 
 class KotlinxDateTimeModule : SimpleModule() {
     init {
