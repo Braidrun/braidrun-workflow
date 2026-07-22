@@ -111,6 +111,7 @@ fun parseToolSet(
     onHookEvent: MonitoringEventCallback? = null,
     userInteractionHandler: UserInteractionHandler? = null,
     externalAgentExecutor: SubprocessExecutor? = null,
+    claudeCredentialProvider: ClaudeCredentialProvider? = null,
 ): ToolRegistry {
     val toolSet =
         parameters.parameter("tool_set", emptyList<String>().toMutableSet()).also { it.addAll(tools) }
@@ -126,7 +127,8 @@ fun parseToolSet(
         onSubAgentEvent = onSubAgentEvent,
         onHookEvent = onHookEvent,
         userInteractionHandler = userInteractionHandler,
-        externalAgentExecutor = externalAgentExecutor
+        externalAgentExecutor = externalAgentExecutor,
+        claudeCredentialProvider = claudeCredentialProvider
     )
 }
 
@@ -148,6 +150,7 @@ fun parseExactToolSet(
     onHookEvent: MonitoringEventCallback? = null,
     userInteractionHandler: UserInteractionHandler? = null,
     externalAgentExecutor: SubprocessExecutor? = null,
+    claudeCredentialProvider: ClaudeCredentialProvider? = null,
 ): ToolRegistry = buildToolRegistry(
     parameters = parameters,
     httpAccess = httpAccess,
@@ -160,7 +163,8 @@ fun parseExactToolSet(
     onSubAgentEvent = onSubAgentEvent,
     onHookEvent = onHookEvent,
     userInteractionHandler = userInteractionHandler,
-    externalAgentExecutor = externalAgentExecutor
+    externalAgentExecutor = externalAgentExecutor,
+    claudeCredentialProvider = claudeCredentialProvider
 )
 
 /**
@@ -243,6 +247,7 @@ private fun buildToolRegistry(
     onHookEvent: MonitoringEventCallback?,
     userInteractionHandler: UserInteractionHandler?,
     externalAgentExecutor: SubprocessExecutor?,
+    claudeCredentialProvider: ClaudeCredentialProvider?,
 ): ToolRegistry = ToolRegistry {
     val browserDisabled = browserToolsDisabled(parameters)
     val subprocessExecutor = createSubprocessExecutor(parameters)
@@ -288,6 +293,7 @@ private fun buildToolRegistry(
                 userId = userId,
                 context = subprocessContext,
                 onMonitorEvent = onSubAgentEvent,
+                claudeCredentialProvider = claudeCredentialProvider,
                 trustExecutorSandbox = parameters.parameter("subprocess_mode", "native")
                     .equals("docker", ignoreCase = true)
             )

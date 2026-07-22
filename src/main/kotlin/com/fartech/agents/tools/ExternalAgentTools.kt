@@ -164,6 +164,7 @@ class ExternalAgentTools(
     private val context: SubprocessToolContext = SubprocessToolContext(),
     private val onMonitorEvent: MonitoringEventCallback? = null,
     private val onCodexAuthJsonRotated: ((String) -> Unit)? = null,
+    private val claudeCredentialProvider: ClaudeCredentialProvider? = null,
     private val trustExecutorSandbox: Boolean = executor is DockerSubprocessExecutor
 ) : ToolSet {
 
@@ -288,6 +289,9 @@ class ExternalAgentTools(
     private data class ResolvedExternalAuth(
         val mode: ExternalAuthMode,
         val env: Map<String, String>,
+        val claudeCredentialId: String? = null,
+        val claudeCredentialLabel: String? = null,
+        val claudeCredential: ClaudeCredentialProvider.Credential? = null,
         /**
          * Codex subscription mode only: the host directory we materialised the
          * tenant's `auth.json` into. [buildMounts] bind-mounts it into the
@@ -313,7 +317,8 @@ class ExternalAgentTools(
     private suspend fun runExternalDetailed(
         engine: Engine,
         ctx: ExternalAgentContext,
-        onTextDelta: ((String) -> Unit)? = null
+        onTextDelta: ((String) -> Unit)? = null,
+        attemptedClaudeCredentialIds: Set<String> = emptySet()
     ): ExternalAgentRunDetailedResult {
         val resolvedName = ctx.name.takeIf { it.isNotBlank() } ?: UUID.randomUUID().toString()
         val invocationUuid = UUID.randomUUID().toString()
@@ -324,7 +329,9 @@ class ExternalAgentTools(
 
         // Resolve authentication BEFORE building any subprocess so misconfiguration fails
         // with a clear error instead of leaving the LLM staring at a 401 from the SDK.
-        val auth = runCatching { resolveExternalAuth(engine, ctx, invocationUuid) }.getOrElse { e ->
+        val auth = runCatching {
+            resolveExternalAuth(engine, ctx, invocationUuid, attemptedClaudeCredentialIds)
+        }.getOrElse { e ->
             emit(
                 type = engine.failedEventType(),
                 summary = "❌ ${engine.displayName} Sub Agent 配置错误: $invocationLabel",
@@ -447,6 +454,37 @@ class ExternalAgentTools(
 
         if (result.exitCode != 0) {
             val tail = result.stderr.takeLast(2000).ifBlank { result.stdout.takeLast(2000) }
+            if (
+                engine == Engine.CLAUDE &&
+                auth.mode == ExternalAuthMode.SUBSCRIPTION &&
+                auth.claudeCredentialId != null &&
+                safeClaudeSubscriptionRateLimit("${result.stderr}\n${result.stdout}")
+            ) {
+                val resetAtMillis = claudeRateLimitResetAtMillis("${result.stderr}\n${result.stdout}")
+                    ?: (System.currentTimeMillis() + DEFAULT_CLAUDE_RATE_LIMIT_COOLDOWN_MS)
+                val credential = requireNotNull(auth.claudeCredential)
+                runCatching {
+                    claudeCredentialProvider?.markRateLimited(credential, resetAtMillis)
+                }.onFailure { error ->
+                    logger.warn(error) { "[ExternalAgent] Failed to persist Claude credential cooldown" }
+                }
+                emit(
+                    type = CLAUDE_SUBSCRIPTION_RATE_LIMIT_EVENT,
+                    summary = "🔄 Claude 订阅凭据已限额，正在切换备用凭据: $invocationLabel",
+                    detail = buildString {
+                        append("invocation_id=$invocationId, credential_id=${auth.claudeCredentialId}")
+                        auth.claudeCredentialLabel?.let { append(", credential_label=$it") }
+                        append(", resets_at_ms=$resetAtMillis")
+                    }
+                )
+                val attempted = attemptedClaudeCredentialIds + credential.id
+                if (attempted.size >= MAX_CLAUDE_CREDENTIAL_ATTEMPTS) {
+                    throw ExternalAgentExecutionException(
+                        "Claude subscription failover exhausted $MAX_CLAUDE_CREDENTIAL_ATTEMPTS credential attempts"
+                    )
+                }
+                return runExternalDetailed(engine, ctx, onTextDelta, attempted)
+            }
             // Codex subscription credentials are short-lived OAuth tokens. When the
             // access token can no longer be refreshed (revoked / refresh token expired)
             // codex returns a 401. Surface that as a distinct, actionable alert so the
@@ -484,6 +522,17 @@ class ExternalAgentTools(
         // The text the parent LLM sees is just the final assistant message — including
         // raw JSON or usage stats in the return value would pollute the parent's context.
         val parsed = parseSdkOutput(engine, result.stdout)
+        auth.claudeCredential?.let { credential ->
+            runCatching {
+                claudeCredentialProvider?.markSucceeded(
+                    credential,
+                    context.executionId,
+                    context.stepName
+                )
+            }.onFailure { error ->
+                logger.warn(error) { "[ExternalAgent] Failed to record Claude credential usage" }
+            }
+        }
 
         logger.info {
             "[ExternalAgent] ${engine.displayName} sub-agent '$resolvedName' completed in ${result.durationMs}ms. " +
@@ -1479,10 +1528,11 @@ class ExternalAgentTools(
             .coerceAtMost(MAX_CLAUDE_PROGRESS_INTERVAL_SECONDS) * 1000).toLong()
     }
 
-    private fun resolveExternalAuth(
+    private suspend fun resolveExternalAuth(
         engine: Engine,
         ctx: ExternalAgentContext,
-        invocationId: String
+        invocationId: String,
+        attemptedClaudeCredentialIds: Set<String>
     ): ResolvedExternalAuth {
         val mode = ExternalAuthMode.parse(
             parameters.parameter(engine.authModeParameterKey, "api_key"),
@@ -1491,7 +1541,7 @@ class ExternalAgentTools(
 
         if (mode == ExternalAuthMode.SUBSCRIPTION) {
             return when (engine) {
-                Engine.CLAUDE -> resolveClaudeSubscriptionAuth()
+                Engine.CLAUDE -> resolveClaudeSubscriptionAuth(attemptedClaudeCredentialIds)
                 Engine.CODEX -> resolveCodexSubscriptionAuth(ctx, invocationId)
             }
         }
@@ -1509,8 +1559,19 @@ class ExternalAgentTools(
         )
     }
 
-    private fun resolveClaudeSubscriptionAuth(): ResolvedExternalAuth {
-        val token = resolveClaudeCodeOAuthToken()
+    private suspend fun resolveClaudeSubscriptionAuth(
+        attemptedCredentialIds: Set<String>
+    ): ResolvedExternalAuth {
+        val candidate = claudeCredentialProvider?.acquire(attemptedCredentialIds)
+        if (claudeCredentialProvider != null && candidate == null) {
+            throw ExternalAgentExecutionException("All accessible Claude subscription credentials are unavailable")
+        }
+        if (candidate?.id in attemptedCredentialIds) {
+            throw ExternalAgentExecutionException(
+                "Claude credential provider returned an already-attempted credential"
+            )
+        }
+        val token = candidate?.token?.let(::normalizeOAuthToken) ?: resolveClaudeCodeOAuthToken()
             ?: throw IllegalStateException(
                 "Missing Claude subscription OAuth token. Create a credential with provider " +
                     "'$CLAUDE_CODE_OAUTH_PROVIDER', or set workflow parameter " +
@@ -1524,6 +1585,9 @@ class ExternalAgentTools(
                 put("CLAUDE_CONFIG_DIR", configDir.containerPath)
                 put("DISABLE_AUTOUPDATER", "1")
             },
+            claudeCredentialId = candidate?.id,
+            claudeCredentialLabel = candidate?.label,
+            claudeCredential = candidate,
             claudeConfigHostDir = configDir.hostDir,
             claudeConfigContainerPath = configDir.containerPath
         )
@@ -2069,6 +2133,50 @@ class ExternalAgentTools(
 
         /** Monitoring event emitted when a Codex subscription credential is rejected (expired/revoked). */
         const val CODEX_SUBSCRIPTION_EXPIRED_EVENT = "codex_subscription_expired"
+        const val CLAUDE_SUBSCRIPTION_RATE_LIMIT_EVENT = "claude_subscription_rate_limited"
+        private const val DEFAULT_CLAUDE_RATE_LIMIT_COOLDOWN_MS = 15 * 60 * 1000L
+        private const val MAX_CLAUDE_CREDENTIAL_ATTEMPTS = 8
+        private val CLAUDE_RATE_LIMIT_RESET_REGEX = Regex("""\"resetsAt\"\s*:\s*(\d+)""")
+
+        private fun safeClaudeSubscriptionRateLimit(output: String): Boolean {
+            val objects = output.lineSequence().mapNotNull { line ->
+                runCatching { permissiveJson.parseToJsonElement(line.trim()) as? JsonObject }.getOrNull()
+            }.toList()
+            val hasRejectedEvent = objects.any { obj ->
+                obj["type"]?.jsonPrimitive?.contentOrNull == "rate_limit_event" &&
+                    (obj["rate_limit_info"] as? JsonObject)
+                        ?.get("status")?.jsonPrimitive?.contentOrNull == "rejected"
+            }
+            val result = objects.lastOrNull { obj -> obj["type"]?.jsonPrimitive?.contentOrNull == "result" }
+                ?: return false
+            val usage = result["usage"] as? JsonObject
+            val hasTokens = listOf(
+                "input_tokens",
+                "output_tokens",
+                "cache_creation_input_tokens",
+                "cache_read_input_tokens"
+            ).any { key ->
+                usage?.get(key)?.jsonPrimitive?.contentOrNull?.toLongOrNull()?.let { it > 0 } == true
+            } == true
+            val permissionDenials = result["permission_denials"] as? JsonArray
+            return hasRejectedEvent &&
+                result["api_error_status"]?.jsonPrimitive?.contentOrNull == "429" &&
+                result["is_error"]?.jsonPrimitive?.contentOrNull == "true" &&
+                result["terminal_reason"]?.jsonPrimitive?.contentOrNull == "api_error" &&
+                (result["num_turns"]?.jsonPrimitive?.contentOrNull?.toIntOrNull() ?: Int.MAX_VALUE) <= 1 &&
+                !hasTokens &&
+                permissionDenials.orEmpty().isEmpty()
+        }
+
+        private fun claudeRateLimitResetAtMillis(output: String): Long? {
+            val raw = CLAUDE_RATE_LIMIT_RESET_REGEX.find(output)
+                ?.groupValues
+                ?.getOrNull(1)
+                ?.toLongOrNull()
+                ?: return null
+            // Claude CLI currently emits Unix seconds; tolerate milliseconds too.
+            return if (raw < 100_000_000_000L) raw * 1_000L else raw
+        }
 
         /**
          * Lowercased substrings that mark an auth failure from `codex exec` in

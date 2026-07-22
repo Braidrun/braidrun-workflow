@@ -10,6 +10,7 @@ import ai.koog.prompt.message.MessagePart
 import com.fartech.agents.commons.*
 import com.fartech.agents.tools.ExternalAgentContext
 import com.fartech.agents.tools.ExternalAgentTools
+import com.fartech.agents.tools.ClaudeCredentialProvider
 import com.fartech.agents.tools.RAGTools
 import com.fartech.agents.tools.exec.SubprocessExecutor
 import com.fartech.agents.tools.exec.SubprocessToolContext
@@ -751,7 +752,8 @@ class WorkflowExecutor(
      *
      * 默认空映射，向后兼容 CLI 与现有 web 调用。
      */
-    private val extraCodeStepEnv: Map<String, String> = emptyMap()
+    private val extraCodeStepEnv: Map<String, String> = emptyMap(),
+    private val claudeCredentialProvider: ClaudeCredentialProvider? = null
 ) {
 
     /**
@@ -4772,7 +4774,8 @@ IMPORTANT: You MUST respond with ONLY the category name (one of: ${config.catego
             // Agent-based orchestrators must use the same runtime executor as
             // direct agents and code steps. Otherwise external Claude/Codex
             // tools silently fall back to a native executor in production.
-            externalAgentExecutor = codeStepExecutor
+            externalAgentExecutor = codeStepExecutor,
+            claudeCredentialProvider = claudeCredentialProvider
         )
 
         // 构建监控 Features
@@ -6285,7 +6288,8 @@ IMPORTANT: You MUST respond with ONLY the category name (one of: ${config.catego
             // Web injects one authoritative executor for the runtime. Reuse it for
             // external Claude/Codex tools instead of letting the managed-agent path
             // independently re-resolve subprocess_mode and silently fall back to native.
-            externalAgentExecutor = codeStepExecutor
+            externalAgentExecutor = codeStepExecutor,
+            claudeCredentialProvider = claudeCredentialProvider
         )
 
         return PreparedAgentRuntime(
@@ -6858,6 +6862,7 @@ IMPORTANT: You MUST respond with ONLY the category name (one of: ${config.catego
                 sessionId = sessionId
             ),
             onMonitorEvent = eventCallback,
+            claudeCredentialProvider = claudeCredentialProvider,
             trustExecutorSandbox = isDockerSubprocessMode()
         )
 

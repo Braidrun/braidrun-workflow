@@ -661,6 +661,100 @@ class ExternalAgentToolsTest {
     }
 
     @Test
+    fun `claude subscription 429 switches to next credential`() = runBlocking {
+        val usedTokens = mutableListOf<String>()
+        val candidates = listOf(
+            ClaudeCredentialProvider.Credential("credential-a", "token-a", "Personal A", "user"),
+            ClaudeCredentialProvider.Credential("credential-b", "token-b", "Team B", "team")
+        )
+        val limited = mutableSetOf<String>()
+        val resetTimes = mutableListOf<Long>()
+        val succeeded = mutableListOf<String>()
+        val provider = object : ClaudeCredentialProvider {
+            override suspend fun acquire(excludedCredentialIds: Set<String>) =
+                candidates.firstOrNull { it.id !in excludedCredentialIds && it.id !in limited }
+
+            override suspend fun markRateLimited(
+                credential: ClaudeCredentialProvider.Credential,
+                resetAtMillis: Long
+            ) {
+                limited += credential.id
+                resetTimes += resetAtMillis
+            }
+
+            override suspend fun markSucceeded(
+                credential: ClaudeCredentialProvider.Credential,
+                executionId: String?,
+                stepName: String?
+            ) {
+                succeeded += credential.id
+            }
+        }
+        val rateLimit = """{"type":"rate_limit_event","rate_limit_info":{"status":"rejected","resetsAt":4102444800,"rateLimitType":"seven_day"}}
+            {"type":"result","is_error":true,"api_error_status":429,"num_turns":1,"terminal_reason":"api_error","usage":{"input_tokens":0,"output_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0},"permission_denials":[]}"""
+        val executor = FakeSubprocessExecutor(resultForRequest = { request ->
+            val token = request.env["CLAUDE_CODE_OAUTH_TOKEN"].orEmpty()
+            usedTokens += token
+            if (token == "token-a") {
+                ExecResult(1, "", rateLimit, 10)
+            } else {
+                ExecResult(0, """{"type":"result","result":"fallback ok"}""", "", 10)
+            }
+        })
+        val parameters = listOf(
+            ConfigurationParameter(ExternalAgentTools.CLAUDE_AUTH_MODE_PARAMETER, JsonPrimitive("subscription"))
+        )
+        val events = mutableListOf<CapturedEvent>()
+        val tools = ExternalAgentTools(
+            executor = executor,
+            parameters = parameters,
+            userId = "test-user",
+            context = SubprocessToolContext(workspaceDir = File("."), executionId = "exec-1", stepName = "step-1"),
+            onMonitorEvent = { type, summary, detail -> events += CapturedEvent(type, summary, detail) },
+            claudeCredentialProvider = provider
+        )
+
+        val output = tools.runClaudeCodeSubAgent(ExternalAgentContext(prompt = "x", name = "failover"))
+
+        assertEquals("fallback ok", output)
+        assertEquals(listOf("token-a", "token-b"), usedTokens)
+        assertEquals(listOf(4_102_444_800_000L), resetTimes)
+        assertEquals(listOf("credential-b"), succeeded)
+        assertTrue(events.any { it.type == ExternalAgentTools.CLAUDE_SUBSCRIPTION_RATE_LIMIT_EVENT })
+    }
+
+    @Test
+    fun `claude subscription 429 after token usage is not replayed`() {
+        val provider = object : ClaudeCredentialProvider {
+            override suspend fun acquire(excludedCredentialIds: Set<String>) =
+                ClaudeCredentialProvider.Credential("credential-a", "token-a")
+            override suspend fun markRateLimited(
+                credential: ClaudeCredentialProvider.Credential,
+                resetAtMillis: Long
+            ) = error("must not cool down an unsafe retry")
+            override suspend fun markSucceeded(
+                credential: ClaudeCredentialProvider.Credential,
+                executionId: String?,
+                stepName: String?
+            ) = Unit
+        }
+        val output = """{"type":"rate_limit_event","rate_limit_info":{"status":"rejected","resetsAt":4102444800}}
+            {"type":"result","is_error":true,"api_error_status":429,"num_turns":2,"terminal_reason":"api_error","usage":{"input_tokens":10,"output_tokens":2},"permission_denials":[]}"""
+        val executor = FakeSubprocessExecutor(ExecResult(1, "", output, 10))
+        val tools = ExternalAgentTools(
+            executor = executor,
+            parameters = listOf(
+                ConfigurationParameter(ExternalAgentTools.CLAUDE_AUTH_MODE_PARAMETER, JsonPrimitive("subscription"))
+            ),
+            claudeCredentialProvider = provider
+        )
+
+        assertThrows(ExternalAgentTools.ExternalAgentExecutionException::class.java) {
+            runBlocking { tools.runClaudeCodeSubAgent(ExternalAgentContext(prompt = "x")) }
+        }
+    }
+
+    @Test
     fun `timeout sentinel maps to TimeoutException with structured event`() {
         // The subprocess executors signal timeout via exit=-1 + stderr containing
         // "TIMED OUT" — see NativeSubprocessExecutor.kt:108 and DockerSubprocessExecutor's

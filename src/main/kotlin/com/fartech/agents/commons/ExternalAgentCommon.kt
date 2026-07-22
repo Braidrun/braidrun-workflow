@@ -2,6 +2,7 @@ package com.fartech.agents.commons
 
 import com.fartech.agents.tools.ExternalAgentContext
 import com.fartech.agents.tools.ExternalAgentTools
+import com.fartech.agents.tools.ClaudeCredentialProvider
 import com.fartech.ftapp2.commonsKt.ConfigurationParameter
 import com.fartech.ftapp2.commonsKt.parameter
 
@@ -24,7 +25,8 @@ suspend fun buildAndRunExternalAgent(
     agentContext: ExternalAgentContext,
     onEvent: MonitoringEventCallback? = null,
     onTextDelta: ((String) -> Unit)? = null,
-    onCodexAuthJsonRotated: ((String) -> Unit)? = null
+    onCodexAuthJsonRotated: ((String) -> Unit)? = null,
+    claudeCredentialProvider: ClaudeCredentialProvider? = null
 ): ExternalAgentRunResult {
     val executor = createSubprocessExecutor(parameters)
     val toolContext = SubprocessExecutorFactory.buildToolContext(parameters)
@@ -35,7 +37,8 @@ suspend fun buildAndRunExternalAgent(
         userId = userId,
         context = toolContext,
         onMonitorEvent = onEvent,
-        onCodexAuthJsonRotated = onCodexAuthJsonRotated
+        onCodexAuthJsonRotated = onCodexAuthJsonRotated,
+        claudeCredentialProvider = claudeCredentialProvider
     )
     val detailed = tools.runConversation(
         engine = when (engine) {
