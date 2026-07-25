@@ -454,12 +454,16 @@ class ExternalAgentTools(
 
         if (result.exitCode != 0) {
             val tail = result.stderr.takeLast(2000).ifBlank { result.stdout.takeLast(2000) }
-            if (
+            val claudeRateLimit = if (
                 engine == Engine.CLAUDE &&
                 auth.mode == ExternalAuthMode.SUBSCRIPTION &&
-                auth.claudeCredentialId != null &&
-                safeClaudeSubscriptionRateLimit("${result.stderr}\n${result.stdout}")
+                auth.claudeCredentialId != null
             ) {
+                confirmedClaudeSubscriptionRateLimit("${result.stderr}\n${result.stdout}")
+            } else {
+                null
+            }
+            if (claudeRateLimit != null) {
                 val resetAtMillis = claudeRateLimitResetAtMillis("${result.stderr}\n${result.stdout}")
                     ?: (System.currentTimeMillis() + DEFAULT_CLAUDE_RATE_LIMIT_COOLDOWN_MS)
                 val credential = requireNotNull(auth.claudeCredential)
@@ -468,22 +472,38 @@ class ExternalAgentTools(
                 }.onFailure { error ->
                     logger.warn(error) { "[ExternalAgent] Failed to persist Claude credential cooldown" }
                 }
+                val partialReplayEnabled =
+                    parameters.parameter(CLAUDE_PARTIAL_RATE_LIMIT_REPLAY_SAFE_PARAMETER, false)
+                val shouldReplay = claudeRateLimit.safeWithoutExplicitReplay || partialReplayEnabled
                 emit(
                     type = CLAUDE_SUBSCRIPTION_RATE_LIMIT_EVENT,
-                    summary = "🔄 Claude 订阅凭据已限额，正在切换备用凭据: $invocationLabel",
+                    summary = if (shouldReplay) {
+                        "🔄 Claude 订阅凭据已限额，正在切换备用凭据: $invocationLabel"
+                    } else {
+                        "⏸️ Claude 订阅凭据已限额，已冷却但未自动重放: $invocationLabel"
+                    },
                     detail = buildString {
                         append("invocation_id=$invocationId, credential_id=${auth.claudeCredentialId}")
                         auth.claudeCredentialLabel?.let { append(", credential_label=$it") }
                         append(", resets_at_ms=$resetAtMillis")
+                        append(", partial_progress=${!claudeRateLimit.safeWithoutExplicitReplay}")
+                        append(", replay_enabled=$shouldReplay")
                     }
                 )
-                val attempted = attemptedClaudeCredentialIds + credential.id
-                if (attempted.size >= MAX_CLAUDE_CREDENTIAL_ATTEMPTS) {
-                    throw ExternalAgentExecutionException(
-                        "Claude subscription failover exhausted $MAX_CLAUDE_CREDENTIAL_ATTEMPTS credential attempts"
-                    )
+                if (shouldReplay) {
+                    val attempted = attemptedClaudeCredentialIds + credential.id
+                    if (attempted.size >= MAX_CLAUDE_CREDENTIAL_ATTEMPTS) {
+                        throw ExternalAgentExecutionException(
+                            "Claude subscription failover exhausted $MAX_CLAUDE_CREDENTIAL_ATTEMPTS credential attempts"
+                        )
+                    }
+                    val replayContext = if (claudeRateLimit.safeWithoutExplicitReplay) {
+                        ctx
+                    } else {
+                        ctx.withClaudePartialRateLimitReplayInstruction()
+                    }
+                    return runExternalDetailed(engine, replayContext, onTextDelta, attempted)
                 }
-                return runExternalDetailed(engine, ctx, onTextDelta, attempted)
             }
             // Codex subscription credentials are short-lived OAuth tokens. When the
             // access token can no longer be refreshed (revoked / refresh token expired)
@@ -1088,6 +1108,13 @@ class ExternalAgentTools(
     }
 
     private fun invocationLabel(name: String, invocationId: String): String = "$name#$invocationId"
+
+    private fun ExternalAgentContext.withClaudePartialRateLimitReplayInstruction(): ExternalAgentContext {
+        if (prompt.startsWith(CLAUDE_PARTIAL_RATE_LIMIT_REPLAY_INSTRUCTION)) return this
+        return copy(
+            prompt = "$CLAUDE_PARTIAL_RATE_LIMIT_REPLAY_INSTRUCTION\n\n$prompt"
+        )
+    }
 
     private fun buildCommand(
         engine: Engine,
@@ -2101,6 +2128,16 @@ class ExternalAgentTools(
         const val CLAUDE_CONFIG_DIR_PARAMETER = "external_agent_claude_config_dir"
         const val CLAUDE_APPEND_SYSTEM_PROMPT_PARAMETER = "external_agent_claude_append_system_prompt"
         const val CLAUDE_PROGRESS_INTERVAL_SECONDS_PARAMETER = "external_agent_claude_progress_interval_seconds"
+        /**
+         * Enables replay on a different Claude subscription credential when a confirmed
+         * rate-limit result arrives after the agent has already made progress. Keep this
+         * false unless the workflow step is idempotent and safe to execute from the start.
+         */
+        const val CLAUDE_PARTIAL_RATE_LIMIT_REPLAY_SAFE_PARAMETER =
+            "external_agent_claude_partial_rate_limit_replay_safe"
+        private const val CLAUDE_PARTIAL_RATE_LIMIT_REPLAY_INSTRUCTION =
+            "[系统重试说明] 上一次执行因订阅限额中途停止。请从头重新读取和验证输入，" +
+                "不要把当前工作目录中已有的本步骤输出视为完整结果，并覆盖本步骤负责的输出文件。"
         const val CLAUDE_CODE_OAUTH_PROVIDER = "claude_code_oauth"
         const val CODEX_AUTH_MODE_PARAMETER = "external_agent_codex_auth_mode"
         const val CODEX_MODEL_PARAMETER = "external_agent_codex_model"
@@ -2138,7 +2175,16 @@ class ExternalAgentTools(
         private const val MAX_CLAUDE_CREDENTIAL_ATTEMPTS = 8
         private val CLAUDE_RATE_LIMIT_RESET_REGEX = Regex("""\"resetsAt\"\s*:\s*(\d+)""")
 
-        private fun safeClaudeSubscriptionRateLimit(output: String): Boolean {
+        private data class ClaudeSubscriptionRateLimit(
+            val safeWithoutExplicitReplay: Boolean
+        )
+
+        /**
+         * Identifies a structured Claude subscription 429 independently from whether
+         * replay is safe. Confirmed credentials are cooled down even when a partial run
+         * is not replayed, so later workflow invocations can select another credential.
+         */
+        private fun confirmedClaudeSubscriptionRateLimit(output: String): ClaudeSubscriptionRateLimit? {
             val objects = output.lineSequence().mapNotNull { line ->
                 runCatching { permissiveJson.parseToJsonElement(line.trim()) as? JsonObject }.getOrNull()
             }.toList()
@@ -2148,7 +2194,7 @@ class ExternalAgentTools(
                         ?.get("status")?.jsonPrimitive?.contentOrNull == "rejected"
             }
             val result = objects.lastOrNull { obj -> obj["type"]?.jsonPrimitive?.contentOrNull == "result" }
-                ?: return false
+                ?: return null
             val usage = result["usage"] as? JsonObject
             val hasTokens = listOf(
                 "input_tokens",
@@ -2159,13 +2205,17 @@ class ExternalAgentTools(
                 usage?.get(key)?.jsonPrimitive?.contentOrNull?.toLongOrNull()?.let { it > 0 } == true
             } == true
             val permissionDenials = result["permission_denials"] as? JsonArray
-            return hasRejectedEvent &&
+            val confirmed = hasRejectedEvent &&
                 result["api_error_status"]?.jsonPrimitive?.contentOrNull == "429" &&
                 result["is_error"]?.jsonPrimitive?.contentOrNull == "true" &&
-                result["terminal_reason"]?.jsonPrimitive?.contentOrNull == "api_error" &&
+                result["terminal_reason"]?.jsonPrimitive?.contentOrNull == "api_error"
+            if (!confirmed) return null
+
+            val safeWithoutExplicitReplay =
                 (result["num_turns"]?.jsonPrimitive?.contentOrNull?.toIntOrNull() ?: Int.MAX_VALUE) <= 1 &&
-                !hasTokens &&
-                permissionDenials.orEmpty().isEmpty()
+                    !hasTokens &&
+                    permissionDenials.orEmpty().isEmpty()
+            return ClaudeSubscriptionRateLimit(safeWithoutExplicitReplay)
         }
 
         private fun claudeRateLimitResetAtMillis(output: String): Long? {

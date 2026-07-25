@@ -724,14 +724,18 @@ class ExternalAgentToolsTest {
     }
 
     @Test
-    fun `claude subscription 429 after token usage is not replayed`() {
+    fun `claude subscription 429 after token usage cools credential without replay by default`() {
+        val cooled = mutableListOf<String>()
+        var executions = 0
         val provider = object : ClaudeCredentialProvider {
             override suspend fun acquire(excludedCredentialIds: Set<String>) =
                 ClaudeCredentialProvider.Credential("credential-a", "token-a")
             override suspend fun markRateLimited(
                 credential: ClaudeCredentialProvider.Credential,
                 resetAtMillis: Long
-            ) = error("must not cool down an unsafe retry")
+            ) {
+                cooled += credential.id
+            }
             override suspend fun markSucceeded(
                 credential: ClaudeCredentialProvider.Credential,
                 executionId: String?,
@@ -740,18 +744,149 @@ class ExternalAgentToolsTest {
         }
         val output = """{"type":"rate_limit_event","rate_limit_info":{"status":"rejected","resetsAt":4102444800}}
             {"type":"result","is_error":true,"api_error_status":429,"num_turns":2,"terminal_reason":"api_error","usage":{"input_tokens":10,"output_tokens":2},"permission_denials":[]}"""
-        val executor = FakeSubprocessExecutor(ExecResult(1, "", output, 10))
+        val executor = FakeSubprocessExecutor(resultForRequest = {
+            executions += 1
+            ExecResult(1, "", output, 10)
+        })
+        val events = mutableListOf<CapturedEvent>()
         val tools = ExternalAgentTools(
             executor = executor,
             parameters = listOf(
                 ConfigurationParameter(ExternalAgentTools.CLAUDE_AUTH_MODE_PARAMETER, JsonPrimitive("subscription"))
             ),
+            onMonitorEvent = { type, summary, detail -> events += CapturedEvent(type, summary, detail) },
             claudeCredentialProvider = provider
         )
 
         assertThrows(ExternalAgentTools.ExternalAgentExecutionException::class.java) {
             runBlocking { tools.runClaudeCodeSubAgent(ExternalAgentContext(prompt = "x")) }
         }
+        assertEquals(1, executions)
+        assertEquals(listOf("credential-a"), cooled)
+        val rateLimited = events.single { it.type == ExternalAgentTools.CLAUDE_SUBSCRIPTION_RATE_LIMIT_EVENT }
+        assertTrue(rateLimited.summary.contains("未自动重放"))
+        assertTrue(rateLimited.detail!!.contains("partial_progress=true"))
+        assertTrue(rateLimited.detail.contains("replay_enabled=false"))
+    }
+
+    @Test
+    fun `claude subscription 429 after partial progress switches when replay is explicitly safe`() = runBlocking {
+        val usedTokens = mutableListOf<String>()
+        val usedPrompts = mutableListOf<String>()
+        val candidates = listOf(
+            ClaudeCredentialProvider.Credential("credential-a", "token-a", "Personal A", "user"),
+            ClaudeCredentialProvider.Credential("credential-b", "token-b", "Personal B", "user"),
+            ClaudeCredentialProvider.Credential("credential-c", "token-c", "Team C", "team"),
+            ClaudeCredentialProvider.Credential("credential-d", "token-d", "Team D", "team")
+        )
+        val limited = mutableSetOf<String>()
+        val succeeded = mutableListOf<String>()
+        val provider = object : ClaudeCredentialProvider {
+            override suspend fun acquire(excludedCredentialIds: Set<String>) =
+                candidates.firstOrNull { it.id !in excludedCredentialIds && it.id !in limited }
+
+            override suspend fun markRateLimited(
+                credential: ClaudeCredentialProvider.Credential,
+                resetAtMillis: Long
+            ) {
+                limited += credential.id
+            }
+
+            override suspend fun markSucceeded(
+                credential: ClaudeCredentialProvider.Credential,
+                executionId: String?,
+                stepName: String?
+            ) {
+                succeeded += credential.id
+            }
+        }
+        // Mirrors the production failure shape: several turns and non-zero cache/token usage
+        // before Claude reports the structured session-limit 429.
+        val rateLimit = """{"type":"rate_limit_event","rate_limit_info":{"status":"rejected","resetsAt":4102444800,"rateLimitType":"five_hour"}}
+            {"type":"result","subtype":"error_during_execution","is_error":true,"api_error_status":429,"num_turns":4,"terminal_reason":"api_error","result":"You've hit your session limit","usage":{"input_tokens":8,"output_tokens":3,"cache_creation_input_tokens":120,"cache_read_input_tokens":240},"permission_denials":[]}"""
+        val executor = FakeSubprocessExecutor(resultForRequest = { request ->
+            val token = request.env["CLAUDE_CODE_OAUTH_TOKEN"].orEmpty()
+            usedTokens += token
+            usedPrompts += request.command.last()
+            if (token != "token-d") {
+                ExecResult(1, "", rateLimit, 10)
+            } else {
+                ExecResult(0, """{"type":"result","result":"fallback after partial progress"}""", "", 10)
+            }
+        })
+        val events = mutableListOf<CapturedEvent>()
+        val tools = ExternalAgentTools(
+            executor = executor,
+            parameters = listOf(
+                ConfigurationParameter(ExternalAgentTools.CLAUDE_AUTH_MODE_PARAMETER, JsonPrimitive("subscription")),
+                ConfigurationParameter(
+                    ExternalAgentTools.CLAUDE_PARTIAL_RATE_LIMIT_REPLAY_SAFE_PARAMETER,
+                    JsonPrimitive(true)
+                )
+            ),
+            userId = "test-user",
+            context = SubprocessToolContext(workspaceDir = File("."), executionId = "exec-1", stepName = "safe-step"),
+            onMonitorEvent = { type, summary, detail -> events += CapturedEvent(type, summary, detail) },
+            claudeCredentialProvider = provider
+        )
+
+        val output = tools.runClaudeCodeSubAgent(ExternalAgentContext(prompt = "x", name = "partial-failover"))
+
+        assertEquals("fallback after partial progress", output)
+        assertEquals(listOf("token-a", "token-b", "token-c", "token-d"), usedTokens)
+        assertEquals("x", usedPrompts.first())
+        assertTrue(usedPrompts.drop(1).all { it.startsWith("[系统重试说明]") })
+        assertTrue(usedPrompts.drop(1).all { it.count { char -> char == '[' } == 1 })
+        assertEquals(setOf("credential-a", "credential-b", "credential-c"), limited)
+        assertEquals(listOf("credential-d"), succeeded)
+        val rateLimited = events.filter { it.type == ExternalAgentTools.CLAUDE_SUBSCRIPTION_RATE_LIMIT_EVENT }
+        assertEquals(3, rateLimited.size)
+        assertTrue(rateLimited.all { it.summary.contains("正在切换备用凭据") })
+        assertTrue(rateLimited.all { it.detail!!.contains("partial_progress=true") })
+        assertTrue(rateLimited.all { it.detail!!.contains("replay_enabled=true") })
+    }
+
+    @Test
+    fun `unstructured 429 does not cool or switch even when partial replay is enabled`() {
+        var executions = 0
+        val provider = object : ClaudeCredentialProvider {
+            override suspend fun acquire(excludedCredentialIds: Set<String>) =
+                ClaudeCredentialProvider.Credential("credential-a", "token-a")
+            override suspend fun markRateLimited(
+                credential: ClaudeCredentialProvider.Credential,
+                resetAtMillis: Long
+            ) = error("unconfirmed 429 must not cool a credential")
+            override suspend fun markSucceeded(
+                credential: ClaudeCredentialProvider.Credential,
+                executionId: String?,
+                stepName: String?
+            ) = Unit
+        }
+        val output =
+            """{"type":"result","is_error":true,"api_error_status":429,"num_turns":3,"terminal_reason":"api_error","usage":{"input_tokens":10,"output_tokens":2}}"""
+        val executor = FakeSubprocessExecutor(resultForRequest = {
+            executions += 1
+            ExecResult(1, "", output, 10)
+        })
+        val events = mutableListOf<CapturedEvent>()
+        val tools = ExternalAgentTools(
+            executor = executor,
+            parameters = listOf(
+                ConfigurationParameter(ExternalAgentTools.CLAUDE_AUTH_MODE_PARAMETER, JsonPrimitive("subscription")),
+                ConfigurationParameter(
+                    ExternalAgentTools.CLAUDE_PARTIAL_RATE_LIMIT_REPLAY_SAFE_PARAMETER,
+                    JsonPrimitive(true)
+                )
+            ),
+            onMonitorEvent = { type, summary, detail -> events += CapturedEvent(type, summary, detail) },
+            claudeCredentialProvider = provider
+        )
+
+        assertThrows(ExternalAgentTools.ExternalAgentExecutionException::class.java) {
+            runBlocking { tools.runClaudeCodeSubAgent(ExternalAgentContext(prompt = "x")) }
+        }
+        assertEquals(1, executions)
+        assertFalse(events.any { it.type == ExternalAgentTools.CLAUDE_SUBSCRIPTION_RATE_LIMIT_EVENT })
     }
 
     @Test
