@@ -4054,6 +4054,11 @@ IMPORTANT: You MUST respond with ONLY the category name (one of: ${config.catego
                 effectiveItems.mapIndexed { index, item ->
                     async {
                         semaphore.withPermit {
+                            // 和串行分支同样的 item 边界预算检查。放在 withPermit 内部
+                            // 而不是 async 入口:所有 item 会在 t=0 一次性排队,只有拿到
+                            // 许可、真正要开跑的那次检查才有意义。已在跑的迭代不会被打断,
+                            // 但预算耗尽后不会再有新迭代启动 —— 与串行分支语义一致。
+                            checkWorkflowDeadline(context.executionId, workflow)
                             executeSingleIteration(step, workflow, context, item, index, effectiveItems.size)
                         }
                     }

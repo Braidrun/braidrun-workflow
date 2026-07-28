@@ -5,6 +5,19 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.17]
+
+### Fixed
+
+- Enforced the `timeout.total` budget in the parallel `iterate_over` branch.
+  Only the sequential branch checked the deadline between items, so a
+  `parallel: true` fan-out ran unbounded past the workflow budget — and when
+  such a step was the last one there was no later step boundary to catch the
+  overrun either, leaving the budget unenforced entirely. Iterations already
+  running are not interrupted; once the budget is spent no further iteration
+  starts, matching the sequential branch. Manual-approval wait stays excluded
+  from the budget as before.
+
 ## [1.0.12]
 
 ### Fixed

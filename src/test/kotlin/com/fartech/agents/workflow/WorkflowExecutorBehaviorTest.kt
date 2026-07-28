@@ -951,6 +951,67 @@ class WorkflowExecutorBehaviorTest {
     }
 
     @Test
+    fun `parallel iteration stops launching items once the workflow budget is spent`() = runBlocking {
+        // iterate_over never enters executeStepOnce (executeWithIteration is
+        // dispatched ahead of it), so timeout.per_step does not bound a chunked
+        // fan-out at all — the per-item deadline check is the only budget
+        // protection it has. The sequential branch always had that check; the
+        // parallel branch did not, so a `parallel: true` step ran arbitrarily
+        // far past workflow.total. When such a step is the last one there is no
+        // later boundary to catch the overrun either: pre-fix this workflow ran
+        // all 6 items for ~6s on a 2s budget and still reported success, so the
+        // budget was not enforced late — it was not enforced at all. Both the
+        // failure and the item count below regress if the check is removed.
+        val executor = WorkflowExecutor(
+            httpAccess = HttpAccess(),
+            baseParameters = emptyList(),
+            enableMonitoring = false
+        )
+        val tempDir = Files.createTempDirectory("workflow-parallel-deadline")
+        try {
+            val markerFile = tempDir.resolve("iterations.log").toAbsolutePath()
+            Files.createFile(markerFile)
+            val workflow = WorkflowDefinition(
+                name = "parallel-iteration-deadline",
+                agents = emptyMap(),
+                timeout = TimeoutConfig(total = "2s", perStep = "30s"),
+                workflow = listOf(
+                    WorkflowStep(
+                        step = "fan_out",
+                        code = CodeStepConfig(
+                            language = "bash",
+                            script = "echo ran >> '$markerFile' && sleep 1"
+                        ),
+                        // max_parallel=1 serializes the fan-out so the item count
+                        // below is deterministic; the branch under test is still
+                        // the parallel one.
+                        iterateOver = IterateOverConfig(
+                            source = "a\nb\nc\nd\ne\nf",
+                            parallel = true,
+                            maxParallel = 1
+                        )
+                    )
+                )
+            )
+
+            val result = executor.execute(workflow)
+
+            assertFalse(result.success)
+            assertTrue(
+                result.error?.contains("timed out") == true,
+                "expected timeout error, was: ${result.error}"
+            )
+            val ranCount = Files.readAllLines(markerFile).size
+            assertTrue(
+                ranCount < 6,
+                "deadline must stop later iterations; all 6 of 6 ran (ranCount=$ranCount)"
+            )
+        } finally {
+            tempDir.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
     fun `manual approval wait does not count against workflow total timeout`() = runBlocking {
         // Regression for execution-process-dd0198c2: a workflow with total=2h and
         // a manual_approval step would die at 2h even though the user had 19h
