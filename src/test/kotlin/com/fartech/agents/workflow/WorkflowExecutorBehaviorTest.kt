@@ -278,6 +278,49 @@ class WorkflowExecutorBehaviorTest {
         assertEquals("approved", result.stepResults.getValue("deploy").output?.trim())
     }
 
+    @Test
+    fun `manual approval resolves runtime variables before sending the request`() = runBlocking {
+        val executor = WorkflowExecutor(
+            httpAccess = HttpAccess(),
+            baseParameters = emptyList(),
+            enableMonitoring = false
+        )
+        val workflow = WorkflowDefinition(
+            name = "localized-manual-approval",
+            variables = mapOf(
+                "approval_message" to "Review the localized optimization plan"
+            ),
+            agents = emptyMap(),
+            workflow = listOf(
+                WorkflowStep(
+                    step = "approve",
+                    code = CodeStepConfig(
+                        language = "bash",
+                        script = "echo approved"
+                    ),
+                    manualApproval = ManualApprovalConfig(
+                        enabled = true,
+                        timeout = 5,
+                        approvalMessage = "{{var:approval_message}}"
+                    )
+                )
+            )
+        )
+
+        val resultDeferred = async { executor.execute(workflow) }
+
+        var pollsRemaining = 20
+        while (executor.getPendingApprovals().isEmpty() && pollsRemaining-- > 0) {
+            delay(50)
+        }
+
+        val pendingApproval = executor.getPendingApprovals().singleOrNull()
+        assertNotNull(pendingApproval)
+        assertEquals("Review the localized optimization plan", pendingApproval.message)
+        assertTrue(executor.approveStep(pendingApproval.approvalId))
+        assertTrue(resultDeferred.await().success)
+    }
+
     /**
      * Phase 10 (2026-05-08) audit fix: rejection now mirrors the variables that the
      * approved branch sets via [WorkflowExecutor.applyApprovedReviewableActions], so

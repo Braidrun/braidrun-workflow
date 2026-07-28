@@ -8544,7 +8544,9 @@ IMPORTANT: You MUST respond with ONLY the category name (one of: ${config.catego
             workflowName = context.workflowName,
             executionId = context.executionId,
             stepName = step.step,
-            message = approvalConfig.approvalMessage ?: "Approval required for step '${step.step}'",
+            message = approvalConfig.approvalMessage
+                ?.let { resolveTemplate(it, context) }
+                ?: "Approval required for step '${step.step}'",
             approvers = approvalConfig.approvers,
             requestedAt = System.currentTimeMillis(),
             timeout = approvalConfig.timeout.toString(),
