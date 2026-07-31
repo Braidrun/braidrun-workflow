@@ -123,6 +123,21 @@ class SubWorkflowTest {
     }
 
     @Test
+    fun `ModuleInputSpec accepts credential provider types`() {
+        ModuleInputSpec(name = "connection", type = "credential:google_marketing")
+        ModuleInputSpec(name = "connection", type = "credential:z-ai")
+    }
+
+    @Test
+    fun `ModuleInputSpec rejects malformed credential provider types`() {
+        listOf("credential:", "credential:provider name", "credential:/provider").forEach { type ->
+            assertThrows<IllegalArgumentException> {
+                ModuleInputSpec(name = "connection", type = type)
+            }
+        }
+    }
+
+    @Test
     fun `ModuleInputSpec mapsToVariable defaults to name`() {
         val spec = ModuleInputSpec(name = "topic")
         assertEquals("topic", spec.variableKey())

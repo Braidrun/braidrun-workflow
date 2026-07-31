@@ -143,7 +143,7 @@ data class ModuleInputSpec(
     @SerialName("name")
     val name: String,
 
-    /** 类型: string / number / boolean / path / json / list / enum */
+    /** 类型: string / number / boolean / path / json / list / enum / credential:<provider> */
     @SerialName("type")
     val type: String = "string",
 
@@ -184,8 +184,8 @@ data class ModuleInputSpec(
 ) {
     init {
         require(name.isNotBlank()) { "ModuleInputSpec name cannot be blank" }
-        require(type in SUPPORTED_TYPES) {
-            "ModuleInputSpec type must be one of: $SUPPORTED_TYPES. Got: '$type'"
+        require(type in SUPPORTED_TYPES || CREDENTIAL_TYPE.matches(type)) {
+            "ModuleInputSpec type must be one of: $SUPPORTED_TYPES or credential:<provider>. Got: '$type'"
         }
         if (required) {
             require(default.isNullOrBlank()) {
@@ -221,6 +221,10 @@ data class ModuleInputSpec(
 
     companion object {
         val SUPPORTED_TYPES = setOf("string", "number", "boolean", "path", "json", "list", "enum")
+        private val CREDENTIAL_TYPE = Regex(
+            pattern = """credential:[a-z0-9][a-z0-9._-]*""",
+            option = RegexOption.IGNORE_CASE
+        )
     }
 }
 
