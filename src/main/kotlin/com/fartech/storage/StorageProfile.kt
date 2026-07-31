@@ -5,13 +5,16 @@ import kotlinx.serialization.Serializable
 /**
  * Document store backend selector.
  *
- * ## 多用户改造（M1.5）后保留的两个后端
+ * ## 多用户改造（M1.5）后的后端
  *
  * - [MEMORY]：进程内 [java.util.concurrent.ConcurrentHashMap]，无持久化。
  *   仅用于**单元测试**和**临时占位**——不要在任何会被多用户共享的代码路径上使用。
  *
- * - [MONGODB]：MongoDB 后端，是 Braidrun 项目的**唯一生产存储**。所有 braidrun-web
- *   的部署（dev / staging / production）都必须配置成这个。
+ * - [MONGODB]：MongoDB 后端，是 braidrun-web SaaS 部署的**唯一生产存储**。
+ *   所有 dev / staging / production SaaS 环境都必须配置成这个。
+ *
+ * - [SQLITE]：单文件 SQLite 后端，仅用于 Braidrun Desktop 的 LOCAL profile。
+ *   它不改变现有 SaaS 环境的默认值或存储选择。
  *
  * ## 历史
  *
@@ -29,7 +32,8 @@ import kotlinx.serialization.Serializable
 @Serializable
 enum class StorageBackend {
     MEMORY,
-    MONGODB
+    MONGODB,
+    SQLITE
 }
 
 @Serializable
@@ -43,13 +47,15 @@ data class MongoStoreConfig(
 data class StorageProfile(
     val backend: StorageBackend = StorageBackend.MONGODB,
     val namespace: String = "default",
-    val mongodb: MongoStoreConfig = MongoStoreConfig()
+    val mongodb: MongoStoreConfig = MongoStoreConfig(),
+    val sqlitePath: String = "braidrun.db"
 ) {
     fun normalized(defaultNamespace: String = namespace): StorageProfile {
         val normalizedNamespace = namespace.ifBlank { defaultNamespace.ifBlank { "default" } }
         return copy(
             namespace = normalizedNamespace,
-            mongodb = mongodb.copy(collectionName = mongodb.collectionName.ifBlank { "dy_documents" })
+            mongodb = mongodb.copy(collectionName = mongodb.collectionName.ifBlank { "dy_documents" }),
+            sqlitePath = sqlitePath.ifBlank { "braidrun.db" }
         )
     }
 }
