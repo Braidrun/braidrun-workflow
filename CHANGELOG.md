@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.0.19]
 
+### Added
+
+- Added a SQLite-backed `DocumentStore` implementation and `sqlite` storage
+  profile for embedded and desktop deployments that do not need MongoDB.
+
 ### Fixed
 
 - Send Claude Code and Codex prompts through bounded subprocess stdin instead
@@ -152,6 +157,8 @@ The runtime library provides:
 - LLM provider integration via the Koog AI Agents framework, including
   Anthropic, OpenAI, DeepSeek, OpenRouter, Z.ai, and NVIDIA model registries.
 
+[1.0.19]: https://github.com/Braidrun/braidrun-workflow/releases/tag/1.0.19
+[1.0.17]: https://github.com/Braidrun/braidrun-workflow/releases/tag/1.0.17
 [1.0.9]: https://github.com/Braidrun/braidrun-workflow/releases/tag/1.0.9
 [1.0.8]: https://github.com/Braidrun/braidrun-workflow/releases/tag/1.0.8
 [1.0.7]: https://github.com/Braidrun/braidrun-workflow/releases/tag/1.0.7
