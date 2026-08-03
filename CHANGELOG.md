@@ -5,6 +5,19 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.19]
+
+### Fixed
+
+- Send Claude Code and Codex prompts through bounded subprocess stdin instead
+  of positional command-line arguments, preventing Linux `MAX_ARG_STRLEN` /
+  `E2BIG` failures for large workflow and execution context. Docker delivery
+  uses the existing one-shot stdin attach so both CLIs receive EOF reliably.
+- Bound every remaining external-agent argv entry and total argv size before
+  spawning. Oversized Claude system prompts retain their beginning and end;
+  invalid oversized CLI configuration now fails with an explicit diagnostic
+  instead of the operating system's opaque `argument list too long` error.
+
 ## [1.0.17]
 
 ### Fixed

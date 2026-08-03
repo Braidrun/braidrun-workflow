@@ -297,7 +297,7 @@ class ExternalAgentToolsTest {
     fun `history replay prompt carries prior turn into the next external invocation`() = runBlocking {
         val executor = FakeSubprocessExecutor(
             resultForRequest = { request ->
-                val prompt = request.command.last()
+                val prompt = request.stdin.orEmpty()
                 val answer = if ("上一轮我说" in prompt && "42" in prompt) {
                     "你让我记的数字是 42。"
                 } else if ("请记住数字 42" in prompt) {
@@ -334,7 +334,7 @@ class ExternalAgentToolsTest {
     // ------------------------------------------------------------------------
 
     @Test
-    fun `claude command uses -p and passes prompt as a positional arg`() = runBlocking {
+    fun `claude command uses -p and passes prompt through stdin`() = runBlocking {
         val executor = FakeSubprocessExecutor(ExecResult(0, """{"result":"ok"}""", "", 1))
         val (tools, _) = buildTools(executor)
 
@@ -356,11 +356,8 @@ class ExternalAgentToolsTest {
         assertTrue(req.command.contains("--include-hook-events"))
         assertTrue(req.command.containsInOrder("--model", "claude-sonnet-4-5"))
         assertTrue(req.command.containsInOrder("--max-turns", "16"))
-        // Prompt is the positional arg (last element), not stdin: the Docker
-        // executor attaches stdin only after the container starts, so a
-        // stdin-reading `claude -p` would see EOF and abort.
-        assertEquals("very long prompt", req.command.last())
-        assertNull(req.stdin)
+        assertFalse(req.command.contains("very long prompt"))
+        assertEquals("very long prompt", req.stdin)
     }
 
     @Test
@@ -372,9 +369,10 @@ class ExternalAgentToolsTest {
             ExternalAgentContext(prompt = "continue", resumeSessionId = "claude-session-123")
         )
 
-        val command = executor.lastRequest!!.command
+        val request = executor.lastRequest!!
+        val command = request.command
         assertTrue(command.containsInOrder("--resume", "claude-session-123"))
-        assertEquals("continue", command.last())
+        assertEquals("continue", request.stdin)
     }
 
     @Test
@@ -476,15 +474,8 @@ class ExternalAgentToolsTest {
         val req = executor.lastRequest!!
         assertTrue(req.command.containsInOrder("--allowedTools", "Read,Edit,Bash"))
         assertTrue(req.command.containsInOrder("--disallowedTools", "WebFetch"))
-        // Regression: claude's variadic --allowedTools/--disallowedTools must not swallow
-        // the positional prompt — a `--` terminator must sit immediately before it, and the
-        // prompt stays last. Without this claude aborts: "Input must be provided ...".
-        assertEquals("x", req.command.last())
-        assertEquals("--", req.command[req.command.size - 2])
-        assertTrue(
-            req.command.indexOf("--allowedTools") < req.command.indexOf("--"),
-            "the -- terminator must come after the tool flags"
-        )
+        assertFalse(req.command.contains("x"))
+        assertEquals("x", req.stdin)
     }
 
     @Test
@@ -545,11 +536,10 @@ class ExternalAgentToolsTest {
         assertEquals("codex", cmd[0])
         assertEquals("exec", cmd[1])
         assertTrue(cmd.containsInOrder("--model", "gpt-5-codex"))
-        // Prompt goes as a positional arg after a `--` terminator, NOT via stdin —
-        // the Docker executor keeps stdin open so a stdin-reading codex would hang.
-        assertEquals("x", cmd.last())
+        // A literal `-` selects stdin; the real prompt never enters argv.
+        assertEquals("-", cmd.last())
         assertEquals("--", cmd[cmd.size - 2])
-        assertNull(req.stdin)
+        assertEquals("x", req.stdin)
     }
 
     @Test
@@ -566,7 +556,8 @@ class ExternalAgentToolsTest {
             )
         )
 
-        val cmd = executor.lastRequest!!.command
+        val request = executor.lastRequest!!
+        val cmd = request.command
         assertEquals("codex", cmd[0])
         assertEquals("exec", cmd[1])
         assertEquals("resume", cmd[2])
@@ -574,8 +565,78 @@ class ExternalAgentToolsTest {
         assertTrue(cmd.containsInOrder("-c", "sandbox_mode=\"read-only\""))
         assertTrue(cmd.indexOf("thread-123") > cmd.indexOf("--json"))
         assertTrue(cmd.containsInOrder("--model", "gpt-5-codex"))
-        assertEquals("continue", cmd.last())
+        assertEquals("-", cmd.last())
         assertEquals("--", cmd[cmd.size - 2])
+        assertEquals("continue", request.stdin)
+    }
+
+    @Test
+    fun `large multibyte prompts stay out of argv for both engines`() = runBlocking {
+        val hugePrompt = "执行记录".repeat(100_000)
+        val executor = FakeSubprocessExecutor(ExecResult(0, """{"result":"ok"}""", "", 1))
+        val (tools, _) = buildTools(executor)
+
+        tools.runClaudeCodeSubAgent(ExternalAgentContext(prompt = hugePrompt))
+        val claudeRequest = executor.lastRequest!!
+        assertEquals(hugePrompt, claudeRequest.stdin)
+        assertFalse(claudeRequest.command.any { hugePrompt in it })
+        assertTrue(
+            claudeRequest.command.all {
+                it.toByteArray(Charsets.UTF_8).size <= ExternalAgentTools.MAX_COMMAND_ARGUMENT_BYTES
+            }
+        )
+
+        tools.runCodexSubAgent(ExternalAgentContext(prompt = hugePrompt, model = "gpt-5-codex"))
+        val codexRequest = executor.lastRequest!!
+        assertEquals(hugePrompt, codexRequest.stdin)
+        assertEquals("-", codexRequest.command.last())
+        assertFalse(codexRequest.command.any { hugePrompt in it })
+    }
+
+    @Test
+    fun `claude composed system prompt is utf8 bounded before argv`() = runBlocking {
+        val executor = FakeSubprocessExecutor(ExecResult(0, """{"result":"ok"}""", "", 1))
+        val params = parametersWithKey("anthropic", "sk-test") + listOf(
+            ConfigurationParameter(
+                ExternalAgentTools.CLAUDE_APPEND_SYSTEM_PROMPT_PARAMETER,
+                JsonPrimitive("配置尾部".repeat(40_000))
+            )
+        )
+        val (tools, _) = buildTools(executor, params)
+
+        tools.runClaudeCodeSubAgent(
+            ExternalAgentContext(
+                prompt = "x",
+                systemPrompt = "SYSTEM-BEGIN-" + "系统".repeat(40_000)
+            )
+        )
+
+        val command = executor.lastRequest!!.command
+        val systemPrompt = command[command.indexOf("--append-system-prompt") + 1]
+        assertTrue(systemPrompt.toByteArray(Charsets.UTF_8).size <= ExternalAgentTools.MAX_COMMAND_ARGUMENT_BYTES)
+        assertTrue(systemPrompt.startsWith("SYSTEM-BEGIN-"))
+        assertTrue(systemPrompt.contains("truncated to fit external-agent command argument"))
+        assertTrue(systemPrompt.contains("始终使用简体中文"))
+    }
+
+    @Test
+    fun `oversized non-prompt argv fails clearly before subprocess spawn`() {
+        val executor = FakeSubprocessExecutor(ExecResult(0, """{"result":"ok"}""", "", 1))
+        val (tools, _) = buildTools(executor)
+
+        val error = assertThrows(IllegalArgumentException::class.java) {
+            runBlocking {
+                tools.runClaudeCodeSubAgent(
+                    ExternalAgentContext(
+                        prompt = "x",
+                        allowedTools = listOf("T".repeat(ExternalAgentTools.MAX_COMMAND_ARGUMENT_BYTES + 1))
+                    )
+                )
+            }
+        }
+
+        assertTrue(error.message.orEmpty().contains("command argument"))
+        assertNull(executor.lastRequest)
     }
 
     @Test
@@ -807,7 +868,7 @@ class ExternalAgentToolsTest {
         val executor = FakeSubprocessExecutor(resultForRequest = { request ->
             val token = request.env["CLAUDE_CODE_OAUTH_TOKEN"].orEmpty()
             usedTokens += token
-            usedPrompts += request.command.last()
+            usedPrompts += request.stdin.orEmpty()
             if (token != "token-d") {
                 ExecResult(1, "", rateLimit, 10)
             } else {

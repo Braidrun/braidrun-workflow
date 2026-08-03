@@ -401,12 +401,12 @@ class ExternalAgentTools(
         val request = ExecRequest(
             command = command,
             workingDir = workDir,
-            // BOTH engines take the prompt as a positional argv argument (see
-            // buildClaudeFlags / buildCodexFlags). We deliberately never use stdin:
-            // the Docker executor keeps stdin open (OpenStdin), so a stdin-reading
-            // `claude -p` / `codex exec` blocks forever waiting for an EOF that never
-            // comes (the "runs 20+ min with no output" hang).
-            stdin = null,
+            // Prompts can contain complete workflow/execution context and easily
+            // exceed Linux's per-argument MAX_ARG_STRLEN. Both CLIs support stdin;
+            // DockerSubprocessExecutor uses StdinOnce and closes the attach after
+            // writing, so the child reliably receives EOF without putting the
+            // payload in execve argv.
+            stdin = ctx.prompt,
             timeoutSeconds = timeoutSeconds.toLong(),
             env = buildEnvironment(engine, auth, ctx),
             mounts = buildMounts(auth),
@@ -1147,7 +1147,7 @@ class ExternalAgentTools(
             add(baseCommand)
             addAll(extraArgs)
             addAll(cliFlags)
-        }
+        }.also(::validateCommandArguments)
     }
 
     private fun buildClaudeFlags(
@@ -1156,13 +1156,9 @@ class ExternalAgentTools(
         workDir: File,
         tempFiles: MutableList<File>
     ): List<String> = buildList {
-        // `-p` (= --print) runs Claude non-interactively. The prompt is passed as
-        // the positional argument at the end rather than via stdin: the Docker
-        // subprocess executor attaches stdin only after the container has already
-        // started, so `claude -p` reading from stdin sees EOF and aborts with
-        // "Input must be provided either through stdin or as a prompt argument".
-        // Passing it as argv sidesteps that; per-arg length limits (ARG_MAX) are
-        // not a concern for the prompt sizes we send.
+        // `-p` (= --print) runs Claude non-interactively. With no positional
+        // prompt Claude reads text from stdin; the executor closes stdin after
+        // writing so even multi-megabyte prompts avoid execve argv limits.
         add("-p")
         ctx.resumeSessionId.trim().takeIf { it.isNotEmpty() }?.let { sessionId ->
             add("--resume")
@@ -1231,15 +1227,8 @@ class ExternalAgentTools(
             add("--disallowedTools")
             add(ctx.disallowedTools.joinToString(","))
         }
-        // `--` terminates option parsing. Without it, claude's *variadic* flags
-        // (--allowedTools / --disallowedTools / --add-dir) swallow the trailing
-        // positional prompt, so claude aborts with
-        // "Error: Input must be provided either through stdin or as a prompt argument
-        // when using --print". Verified against claude 2.1.x. Must stay immediately
-        // before the positional prompt.
-        add("--")
-        // Positional prompt — must come after the flags.
-        add(ctx.prompt)
+        // No positional prompt: Claude reads ExecRequest.stdin. Keeping the
+        // payload out of this list is the hard guarantee against E2BIG.
     }
 
     private data class ClaudeMcpConfigFile(
@@ -1373,14 +1362,26 @@ class ExternalAgentTools(
         add("--json")
         resumeSessionId?.let(::add)
         //
-        // Pass the prompt as a POSITIONAL argument (`codex exec [OPTIONS] [PROMPT]`),
-        // not via stdin. The Docker executor keeps stdin open (OpenStdin), so a
-        // stdin-reading `codex exec` blocks forever waiting for an EOF that never
-        // comes — the cause of the "runs for 20+ min, no output" hang. `--`
-        // terminates option parsing so the prompt can't be taken as a subcommand
-        // (resume / review) or swallowed by a flag.
+        // `-` explicitly tells both `codex exec` and `codex exec resume` to read
+        // the prompt from stdin. `--` prevents it from being interpreted as an
+        // option or subcommand. The actual prompt never enters argv.
         add("--")
-        add(ctx.prompt)
+        add("-")
+    }
+
+    private fun validateCommandArguments(command: List<String>) {
+        command.forEachIndexed { index, argument ->
+            val bytes = argument.toByteArray(Charsets.UTF_8).size
+            require(bytes <= MAX_COMMAND_ARGUMENT_BYTES) {
+                "External-agent command argument[$index] is $bytes bytes; maximum is " +
+                    "$MAX_COMMAND_ARGUMENT_BYTES bytes. Move large payloads to stdin or a file."
+            }
+        }
+        val totalBytes = command.sumOf { it.toByteArray(Charsets.UTF_8).size + 1 }
+        require(totalBytes <= MAX_COMMAND_TOTAL_BYTES) {
+            "External-agent command argv is $totalBytes bytes; maximum is $MAX_COMMAND_TOTAL_BYTES bytes. " +
+                "Reduce CLI flags or materialize configuration in a file."
+        }
     }
 
     private fun tomlString(value: String): String =
@@ -1518,13 +1519,56 @@ class ExternalAgentTools(
     private fun claudeAppendSystemPrompt(ctx: ExternalAgentContext): String {
         val workflowPrompt = ctx.systemPrompt.trim()
         val configuredPrompt = parameters.parameter(CLAUDE_APPEND_SYSTEM_PROMPT_PARAMETER, "").trim()
-        return listOf(
+        val combined = listOf(
             workflowPrompt,
             configuredPrompt,
             DEFAULT_CLAUDE_CHINESE_SYSTEM_PROMPT
         )
             .filter { it.isNotBlank() }
             .joinToString("\n\n")
+        return combined.boundUtf8Argument(MAX_COMMAND_ARGUMENT_BYTES)
+    }
+
+    private fun String.boundUtf8Argument(maxBytes: Int): String {
+        if (toByteArray(Charsets.UTF_8).size <= maxBytes) return this
+        val markerBytes = COMMAND_ARGUMENT_TRUNCATION_MARKER.toByteArray(Charsets.UTF_8).size
+        val contentBytes = maxBytes - markerBytes
+        val prefixBytes = contentBytes / 2
+        val suffixBytes = contentBytes - prefixBytes
+        return takeUtf8Prefix(prefixBytes) + COMMAND_ARGUMENT_TRUNCATION_MARKER + takeUtf8Suffix(suffixBytes)
+    }
+
+    private fun String.takeUtf8Prefix(maxBytes: Int): String {
+        var index = 0
+        var used = 0
+        while (index < length) {
+            val codePoint = Character.codePointAt(this, index)
+            val width = codePoint.utf8Width()
+            if (used + width > maxBytes) break
+            used += width
+            index += Character.charCount(codePoint)
+        }
+        return substring(0, index)
+    }
+
+    private fun String.takeUtf8Suffix(maxBytes: Int): String {
+        var index = length
+        var used = 0
+        while (index > 0) {
+            val codePoint = Character.codePointBefore(this, index)
+            val width = codePoint.utf8Width()
+            if (used + width > maxBytes) break
+            used += width
+            index -= Character.charCount(codePoint)
+        }
+        return substring(index)
+    }
+
+    private fun Int.utf8Width(): Int = when {
+        this <= 0x7f -> 1
+        this <= 0x7ff -> 2
+        this <= 0xffff -> 3
+        else -> 4
     }
 
     private fun resolveApiKey(engine: Engine): String? {
@@ -2122,6 +2166,10 @@ class ExternalAgentTools(
         private const val DOCKER_SANDBOX_GID = 2000
         const val MIN_TIMEOUT_SECONDS = 10
         const val MAX_TIMEOUT_SECONDS = 3600
+        internal const val MAX_COMMAND_ARGUMENT_BYTES = 96 * 1024
+        internal const val MAX_COMMAND_TOTAL_BYTES = 512 * 1024
+        private const val COMMAND_ARGUMENT_TRUNCATION_MARKER =
+            "\n…(truncated to fit external-agent command argument)…\n"
         const val CLAUDE_AUTH_MODE_PARAMETER = "external_agent_claude_auth_mode"
         const val CLAUDE_MODEL_PARAMETER = "external_agent_claude_model"
         const val CLAUDE_OAUTH_TOKEN_PARAMETER = "external_agent_claude_oauth_token"
@@ -2337,7 +2385,7 @@ data class ExternalMcpServerConfig(
 @Serializable
 @LLMDescription("Context for spawning an external Claude Code or Codex sub-agent")
 data class ExternalAgentContext(
-    @property:LLMDescription("The prompt the external sub-agent should work on (passed via argv for Claude, stdin for Codex)")
+    @property:LLMDescription("The prompt the external sub-agent should work on (passed through bounded subprocess stdin)")
     val prompt: String,
     @property:LLMDescription("Human-readable name for the sub-agent (used in logs and monitoring events)")
     val name: String = "",
