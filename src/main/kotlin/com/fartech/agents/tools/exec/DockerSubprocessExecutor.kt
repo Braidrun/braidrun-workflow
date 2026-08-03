@@ -49,9 +49,9 @@ class DockerSubprocessExecutor(
         val imageTag = imageRegistry[request.imageHint ?: "shell"]
             ?: error("Unknown image hint: '${request.imageHint}'. Available: ${imageRegistry.keys}")
 
-        // Reject oversized stdin before we spawn the container — a multi-GB
-        // string copied into the docker stdin pipe wedges this coroutine and
-        // pins the bytes in heap. Cap matches the native executor.
+        // Reject oversized stdin before we spawn the container. The payload is
+        // materialized below, so the cap prevents both excessive heap retention
+        // and an unexpectedly large workspace file. Cap matches the native executor.
         request.stdin?.let { stdin ->
             val byteCount = stdin.toByteArray(Charsets.UTF_8).size
             require(byteCount <= SubprocessExecutor.MAX_STDIN_BYTES) {
@@ -97,88 +97,110 @@ class DockerSubprocessExecutor(
                     "braidrun.created_at" to System.currentTimeMillis().toString()
                 )
             )
-            .withAttachStdin(request.stdin != null)
-            .withStdinOpen(request.stdin != null)
-            // StdinOnce: after the one-shot attach below finishes writing the input and
-            // disconnects, Docker CLOSES the container's stdin (delivers EOF). Without
-            // it, OpenStdin keeps stdin open forever and a stdin-reading child (e.g.
-            // `codex exec`) blocks indefinitely waiting for an EOF that never comes —
-            // the "runs 20+ min with no output" hang.
-            .withStdInOnce(request.stdin != null)
+            // Do not use Docker's attach API for stdin. Starting the container and
+            // attaching are separate requests, so fast stdin readers can time out or
+            // exit before docker-java establishes the hijacked connection. A closed
+            // attach also does not reliably deliver EOF across daemon versions.
+            .withAttachStdin(false)
+            .withStdinOpen(false)
+            .withStdInOnce(false)
 
-        // Override the Dockerfile entrypoint: first element is the interpreter,
-        // remaining elements are arguments. This allows running both inline code
-        // (e.g. bash -c "cmd") and file-based execution (e.g. python3 code.py).
-        if (request.command.size > 1) {
-            createCmd.withEntrypoint(request.command.first())
-            createCmd.withCmd(request.command.drop(1))
-        } else {
-            createCmd.withCmd(request.command)
-        }
+        val stdinFile = request.stdin?.let { materializeStdinFile(request.workingDir, it) }
 
-        val container = createCmd.exec()
-        val containerId = container.id
-        logger.info { "[DockerExec] Created container $containerId (image=$imageTag, user=${request.userId})" }
-
-        try {
-            dockerClient.startContainerCmd(containerId).exec()
-
-            val stdoutCapture = LogCaptureCallback(request.stdoutLineCallback)
-            val stderrCapture = LogCaptureCallback()
-            dockerClient.logContainerCmd(containerId)
-                .withStdOut(true)
-                .withStdErr(false)
-                .withFollowStream(true)
-                .exec(stdoutCapture)
-            dockerClient.logContainerCmd(containerId)
-                .withStdOut(false)
-                .withStdErr(true)
-                .withFollowStream(true)
-                .exec(stderrCapture)
-
-            // Pipe stdin if provided, then explicitly close the attach so the StdinOnce
-            // session ends and Docker delivers EOF to the child. Leaving the attach open
-            // would keep the single stdin session alive and the child would never see EOF.
-            if (request.stdin != null) {
-                val stdinAttach = dockerClient.attachContainerCmd(containerId)
-                    .withStdIn(request.stdin.byteInputStream())
-                    .exec(object : ResultCallback.Adapter<Frame>() {})
-                stdinAttach.awaitCompletion(30, TimeUnit.SECONDS)
-                runCatching { stdinAttach.close() }
+        return try {
+            val containerCommand = if (stdinFile != null) {
+                buildStdinRedirectCommand(request.command, "/workspace/${stdinFile.name}")
+            } else {
+                request.command
             }
 
-            val exitCode = dockerClient.waitContainerCmd(containerId)
-                .exec(WaitContainerResultCallback())
-                .awaitStatusCode(request.timeoutSeconds, TimeUnit.SECONDS)
+            // Override the Dockerfile entrypoint: first element is the interpreter,
+            // remaining elements are arguments. This allows running both inline code
+            // (e.g. bash -c "cmd") and file-based execution (e.g. python3 code.py).
+            if (containerCommand.size > 1) {
+                createCmd.withEntrypoint(containerCommand.first())
+                createCmd.withCmd(containerCommand.drop(1))
+            } else {
+                createCmd.withCmd(containerCommand)
+            }
 
-            stdoutCapture.awaitCompletion(10, TimeUnit.SECONDS)
-            stderrCapture.awaitCompletion(10, TimeUnit.SECONDS)
+            val container = createCmd.exec()
+            val containerId = container.id
+            logger.info { "[DockerExec] Created container $containerId (image=$imageTag, user=${request.userId})" }
 
-            return ExecResult(
-                exitCode = exitCode,
-                stdout = stdoutCapture.text(),
-                stderr = stderrCapture.text(),
-                durationMs = System.currentTimeMillis() - startMs
-            )
-        } catch (e: Exception) {
-            // Timeout or other failure — try to kill the container
-            logger.warn(e) { "[DockerExec] Container $containerId failed or timed out" }
-            runCatching { dockerClient.killContainerCmd(containerId).exec() }
+            try {
+                dockerClient.startContainerCmd(containerId).exec()
 
-            val stdout = runCatching { collectLogs(containerId, stdOut = true) }.getOrDefault("")
-            val stderr = runCatching { collectLogs(containerId, stdOut = false) }.getOrDefault("")
+                val stdoutCapture = LogCaptureCallback(request.stdoutLineCallback)
+                val stderrCapture = LogCaptureCallback()
+                dockerClient.logContainerCmd(containerId)
+                    .withStdOut(true)
+                    .withStdErr(false)
+                    .withFollowStream(true)
+                    .exec(stdoutCapture)
+                dockerClient.logContainerCmd(containerId)
+                    .withStdOut(false)
+                    .withStdErr(true)
+                    .withFollowStream(true)
+                    .exec(stderrCapture)
 
-            return ExecResult(
-                exitCode = -1,
-                stdout = stdout,
-                stderr = "$stderr\n[Container error: ${e.message}]",
-                durationMs = System.currentTimeMillis() - startMs
-            )
+                val exitCode = dockerClient.waitContainerCmd(containerId)
+                    .exec(WaitContainerResultCallback())
+                    .awaitStatusCode(request.timeoutSeconds, TimeUnit.SECONDS)
+
+                stdoutCapture.awaitCompletion(10, TimeUnit.SECONDS)
+                stderrCapture.awaitCompletion(10, TimeUnit.SECONDS)
+
+                ExecResult(
+                    exitCode = exitCode,
+                    stdout = stdoutCapture.text(),
+                    stderr = stderrCapture.text(),
+                    durationMs = System.currentTimeMillis() - startMs
+                )
+            } catch (e: Exception) {
+                // Timeout or other failure — try to kill the container
+                logger.warn(e) { "[DockerExec] Container $containerId failed or timed out" }
+                runCatching { dockerClient.killContainerCmd(containerId).exec() }
+
+                val stdout = runCatching { collectLogs(containerId, stdOut = true) }.getOrDefault("")
+                val stderr = runCatching { collectLogs(containerId, stdOut = false) }.getOrDefault("")
+
+                ExecResult(
+                    exitCode = -1,
+                    stdout = stdout,
+                    stderr = "$stderr\n[Container error: ${e.message}]",
+                    durationMs = System.currentTimeMillis() - startMs
+                )
+            } finally {
+                runCatching {
+                    dockerClient.removeContainerCmd(containerId).withForce(true).exec()
+                    logger.debug { "[DockerExec] Removed container $containerId" }
+                }
+            }
         } finally {
-            runCatching {
-                dockerClient.removeContainerCmd(containerId).withForce(true).exec()
-                logger.debug { "[DockerExec] Removed container $containerId" }
+            stdinFile?.let { file ->
+                if (file.exists() && !file.delete()) {
+                    logger.warn { "[DockerExec] Failed to delete temporary stdin file ${file.absolutePath}" }
+                }
             }
+        }
+    }
+
+    private fun materializeStdinFile(workingDir: File, stdin: String): File {
+        val file = File.createTempFile(".braidrun-stdin-", ".tmp", workingDir)
+        return try {
+            file.writeText(stdin, Charsets.UTF_8)
+            // The container runs as uid 2000, which may differ from the host JVM
+            // user. The per-execution workspace directory provides isolation; make
+            // only this short-lived file readable across the bind-mount boundary.
+            check(file.setReadable(true, false) || file.canRead()) {
+                "Unable to make Docker stdin file readable: ${file.absolutePath}"
+            }
+            file.setWritable(false, false)
+            file
+        } catch (e: Exception) {
+            runCatching { file.delete() }
+            throw e
         }
     }
 
@@ -371,6 +393,29 @@ class DockerSubprocessExecutor(
 
     companion object {
         const val DEFAULT_EGRESS_NETWORK = "workflow-egress-only"
+
+        private const val STDIN_REDIRECT_SCRIPT =
+            "stdin_file=\"\$1\"; shift; exec \"\$@\" < \"\$stdin_file\""
+
+        /**
+         * Feed stdin from a file that already exists in the workspace when the
+         * container starts. Arguments remain separate shell positional parameters,
+         * so neither the command nor the prompt is interpolated into shell source.
+         */
+        internal fun buildStdinRedirectCommand(
+            command: List<String>,
+            containerStdinPath: String
+        ): List<String> {
+            require(command.isNotEmpty()) { "command must not be empty" }
+            require(containerStdinPath.isNotBlank()) { "containerStdinPath must not be blank" }
+            return listOf(
+                "sh",
+                "-c",
+                STDIN_REDIRECT_SCRIPT,
+                "braidrun-stdin-wrapper",
+                containerStdinPath
+            ) + command
+        }
 
         /**
          * Cap on processes per container — prevents fork bombs from exhausting

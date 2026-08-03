@@ -1,6 +1,7 @@
 package com.fartech.agents.tools.exec
 
 import java.io.File
+import java.nio.file.Files
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.condition.EnabledIf
@@ -115,6 +116,37 @@ class DockerSubprocessExecutorTest {
             ),
             env
         )
+    }
+
+    @Test
+    fun `stdin redirect wrapper provides input at process start and preserves arguments`() {
+        val dir = Files.createTempDirectory("docker-stdin-wrapper ").toFile()
+        val stdinFile = File(dir, "prompt with spaces.txt")
+        stdinFile.writeText("hello from file")
+        try {
+            val command = listOf(
+                "sh",
+                "-c",
+                "cat; printf '\\nARG=%s' \"\$1\"",
+                "inner-command",
+                "value with spaces; \$(not-executed)"
+            )
+            val wrapped = DockerSubprocessExecutor.buildStdinRedirectCommand(
+                command,
+                stdinFile.absolutePath
+            )
+
+            val process = ProcessBuilder(wrapped).start()
+            val stdout = process.inputStream.bufferedReader().readText()
+            val stderr = process.errorStream.bufferedReader().readText()
+
+            assertEquals(0, process.waitFor(), stderr)
+            assertEquals("hello from file\nARG=value with spaces; \$(not-executed)", stdout)
+            assertFalse(wrapped.any { it.contains("hello from file") })
+        } finally {
+            stdinFile.delete()
+            dir.delete()
+        }
     }
 
     @Test

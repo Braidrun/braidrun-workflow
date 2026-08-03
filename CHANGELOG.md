@@ -5,6 +5,17 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.20]
+
+### Fixed
+
+- Make Docker subprocess stdin available before the container process starts by
+  redirecting from a bounded, short-lived workspace file. This removes the
+  docker-java attach race that could close the hijacked connection before
+  Claude Code or Codex received their prompt, causing `no stdin data received`
+  and `Input must be provided` failures. Command arguments remain separate from
+  shell source, and the temporary input file is deleted after every execution.
+
 ## [1.0.19]
 
 ### Added
@@ -17,7 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Send Claude Code and Codex prompts through bounded subprocess stdin instead
   of positional command-line arguments, preventing Linux `MAX_ARG_STRLEN` /
   `E2BIG` failures for large workflow and execution context. Docker delivery
-  uses the existing one-shot stdin attach so both CLIs receive EOF reliably.
+  used the existing one-shot stdin attach.
 - Bound every remaining external-agent argv entry and total argv size before
   spawning. Oversized Claude system prompts retain their beginning and end;
   invalid oversized CLI configuration now fails with an explicit diagnostic
@@ -157,6 +168,7 @@ The runtime library provides:
 - LLM provider integration via the Koog AI Agents framework, including
   Anthropic, OpenAI, DeepSeek, OpenRouter, Z.ai, and NVIDIA model registries.
 
+[1.0.20]: https://github.com/Braidrun/braidrun-workflow/releases/tag/1.0.20
 [1.0.19]: https://github.com/Braidrun/braidrun-workflow/releases/tag/1.0.19
 [1.0.17]: https://github.com/Braidrun/braidrun-workflow/releases/tag/1.0.17
 [1.0.9]: https://github.com/Braidrun/braidrun-workflow/releases/tag/1.0.9
