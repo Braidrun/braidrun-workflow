@@ -9,6 +9,7 @@ import java.lang.reflect.Proxy
 import com.github.dockerjava.api.DockerClient
 import com.github.dockerjava.api.model.Frame
 import com.github.dockerjava.api.model.StreamType
+import kotlinx.coroutines.runBlocking
 
 /**
  * Unit tests for [DockerSubprocessExecutor] static utilities.
@@ -180,6 +181,37 @@ class DockerSubprocessExecutorTest {
         val client = DockerSubprocessExecutor.buildDockerClient(dockerHost)
         assertFalse(DockerSubprocessExecutor.imageExists(client, "braidrun/nonexistent:99.99"))
         client.close()
+    }
+
+    @Test
+    @EnabledIf("dockerAvailable")
+    fun `docker executor delivers stdin and eof before command timeout`() = runBlocking {
+        val dockerHost = System.getenv("DOCKER_HOST") ?: "unix:///var/run/docker.sock"
+        val client = DockerSubprocessExecutor.buildDockerClient(dockerHost)
+        val workspace = Files.createTempDirectory("docker-stdin-integration-").toFile()
+        val prompt = "prompt-start\n" + "x".repeat(512 * 1024) + "\nprompt-end"
+        try {
+            val executor = DockerSubprocessExecutor(client)
+            val result = executor.execute(
+                SubprocessExecutor.ExecRequest(
+                    command = listOf("sh", "-c", "cat"),
+                    workingDir = workspace,
+                    stdin = prompt,
+                    timeoutSeconds = 10,
+                    imageHint = "shell"
+                )
+            )
+
+            assertEquals(0, result.exitCode, result.stderr)
+            assertEquals(prompt, result.stdout)
+            assertFalse(
+                workspace.listFiles().orEmpty().any { it.name.startsWith(".braidrun-stdin-") },
+                "temporary stdin file should be deleted after the container exits"
+            )
+        } finally {
+            client.close()
+            workspace.deleteRecursively()
+        }
     }
 
     private fun dummyDockerClient(): DockerClient {

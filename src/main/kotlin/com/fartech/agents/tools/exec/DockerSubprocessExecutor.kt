@@ -84,32 +84,32 @@ class DockerSubprocessExecutor(
             // external-agent authoring MCP bridge to reach workflow-web on the
             // same node while preserving the per-process authoring session.
             .withExtraHosts("host.docker.internal:host-gateway")
-            .withBinds(buildBinds(request))
-
-        val createCmd = dockerClient.createContainerCmd(imageTag)
-            .withUser("2000:2000")
-            .withWorkingDir("/workspace")
-            .withHostConfig(hostConfig)
-            .withEnv(buildContainerEnv(request))
-            .withLabels(
-                mapOf(
-                    "braidrun.user" to request.userId,
-                    "braidrun.created_at" to System.currentTimeMillis().toString()
-                )
-            )
-            // Do not use Docker's attach API for stdin. Starting the container and
-            // attaching are separate requests, so fast stdin readers can time out or
-            // exit before docker-java establishes the hijacked connection. A closed
-            // attach also does not reliably deliver EOF across daemon versions.
-            .withAttachStdin(false)
-            .withStdinOpen(false)
-            .withStdInOnce(false)
 
         val stdinFile = request.stdin?.let { materializeStdinFile(request.workingDir, it) }
-
         return try {
+            hostConfig.withBinds(buildBinds(request, stdinFile))
+
+            val createCmd = dockerClient.createContainerCmd(imageTag)
+                .withUser("2000:2000")
+                .withWorkingDir("/workspace")
+                .withHostConfig(hostConfig)
+                .withEnv(buildContainerEnv(request))
+                .withLabels(
+                    mapOf(
+                        "braidrun.user" to request.userId,
+                        "braidrun.created_at" to System.currentTimeMillis().toString()
+                    )
+                )
+                // Do not use Docker's attach API for stdin. Starting the container and
+                // attaching are separate requests, so fast stdin readers can time out or
+                // exit before docker-java establishes the hijacked connection. A closed
+                // attach also does not reliably deliver EOF across daemon versions.
+                .withAttachStdin(false)
+                .withStdinOpen(false)
+                .withStdInOnce(false)
+
             val containerCommand = if (stdinFile != null) {
-                buildStdinRedirectCommand(request.command, "/workspace/${stdinFile.name}")
+                buildStdinRedirectCommand(request.command, CONTAINER_STDIN_PATH)
             } else {
                 request.command
             }
@@ -188,6 +188,7 @@ class DockerSubprocessExecutor(
 
     private fun materializeStdinFile(workingDir: File, stdin: String): File {
         val file = File.createTempFile(".braidrun-stdin-", ".tmp", workingDir)
+        file.deleteOnExit()
         return try {
             file.writeText(stdin, Charsets.UTF_8)
             // The container runs as uid 2000, which may differ from the host JVM
@@ -298,7 +299,7 @@ class DockerSubprocessExecutor(
             if (truncated) SubprocessExecutor.STREAM_TRUNCATION_MARKER else ""
     }
 
-    private fun buildBinds(request: ExecRequest): Binds {
+    private fun buildBinds(request: ExecRequest, stdinFile: File? = null): Binds {
         val binds = mutableListOf<Bind>()
 
         // Standard RW mount: workspace. Canonicalize + check against the sensitive-host
@@ -316,6 +317,21 @@ class DockerSubprocessExecutor(
                 AccessMode.rw
             )
         )
+
+        // Mount stdin as an individual read-only file. Do not make the child
+        // traverse the host workspace path: per-execution directories may be
+        // mode 0700 and owned by the host service user while the container runs
+        // as uid 2000. Docker can mount the file through the daemon regardless
+        // of the container user's ability to traverse its host parent.
+        stdinFile?.let { file ->
+            binds.add(
+                Bind(
+                    canonicalizeAndValidateHostPath(file, role = "stdin"),
+                    Volume(CONTAINER_STDIN_PATH),
+                    AccessMode.ro
+                )
+            )
+        }
 
         // Extra mounts from request
         request.mounts.forEach { mount ->
@@ -393,6 +409,7 @@ class DockerSubprocessExecutor(
 
     companion object {
         const val DEFAULT_EGRESS_NETWORK = "workflow-egress-only"
+        private const val CONTAINER_STDIN_PATH = "/tmp/braidrun-stdin"
 
         private const val STDIN_REDIRECT_SCRIPT =
             "stdin_file=\"\$1\"; shift; exec \"\$@\" < \"\$stdin_file\""

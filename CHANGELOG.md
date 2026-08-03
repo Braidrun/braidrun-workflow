@@ -10,11 +10,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Make Docker subprocess stdin available before the container process starts by
-  redirecting from a bounded, short-lived workspace file. This removes the
-  docker-java attach race that could close the hijacked connection before
-  Claude Code or Codex received their prompt, causing `no stdin data received`
-  and `Input must be provided` failures. Command arguments remain separate from
-  shell source, and the temporary input file is deleted after every execution.
+  redirecting from a bounded, short-lived file bind-mounted read-only at a fixed
+  container path. This removes the docker-java attach race that could close the
+  hijacked connection before Claude Code or Codex received their prompt, causing
+  `no stdin data received` and `Input must be provided` failures. The independent
+  mount also works when the host workspace is not traversable by container uid
+  2000. Command arguments remain separate from shell source, and the temporary
+  input file is deleted after every execution.
 
 ## [1.0.19]
 
