@@ -5,6 +5,16 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.21]
+
+### Fixed
+
+- Emit Claude Code usage after every assistant turn and Codex usage when a turn
+  completes, so long-running external-agent steps expose token consumption
+  before the subprocess exits.
+- Preserve the final token aggregate when Claude Code or Codex exits with an
+  error, including Claude's maximum-turns termination.
+
 ## [1.0.20]
 
 ### Fixed
