@@ -179,9 +179,9 @@ class ExternalAgentToolsTest {
     fun `claude sub-agent emits stream json events and returns final result`() = runBlocking {
         val streamJson = """
             {"type":"system","model":"sonnet","session_id":"abc123","cwd":"/workspace"}
-            {"type":"assistant","message":{"content":[{"type":"text","text":"正在分析关键词"},{"type":"tool_use","id":"toolu_1","name":"Read","input":{"file_path":"keywords.csv"}}]}}
+            {"type":"assistant","message":{"id":"msg_1","usage":{"input_tokens":7,"output_tokens":3},"content":[{"type":"text","text":"正在分析关键词"},{"type":"tool_use","id":"toolu_1","name":"Read","input":{"file_path":"keywords.csv"}}]}}
             {"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"file contents"}]}}
-            {"type":"assistant","message":{"content":[{"type":"text","text":"正在分析关键词，已经找到问题"}]}}
+            {"type":"assistant","message":{"id":"msg_2","usage":{"input_tokens":3,"output_tokens":17},"content":[{"type":"text","text":"正在分析关键词，已经找到问题"}]}}
             {"type":"result","subtype":"success","result":"最终答案","session_id":"abc123","cost_usd":0.001,"usage":{"input_tokens":10,"output_tokens":20}}
         """.trimIndent()
         val executor = FakeSubprocessExecutor(ExecResult(0, streamJson, "", 500))
@@ -194,9 +194,35 @@ class ExternalAgentToolsTest {
         assertTrue(events.any { it.type == "claude_code_stream_text_delta" && it.summary.contains("正在分析关键词") })
         assertTrue(events.any { it.type == "claude_code_stream_tool_call" && it.summary.contains("Read") })
         assertTrue(events.any { it.type == "claude_code_stream_tool_result" && it.summary.contains("file contents") })
+        val liveUsage = events.filter { it.type == "claude_code_sub_agent_usage" }
+        assertEquals(2, liveUsage.size)
+        assertTrue(liveUsage[0].detail!!.contains("input_tokens=7"))
+        assertTrue(liveUsage[0].detail!!.contains("output_tokens=3"))
+        assertTrue(liveUsage[1].detail!!.contains("input_tokens=3"))
+        assertTrue(liveUsage[1].detail!!.contains("output_tokens=17"))
         val completed = events.first { it.type == "claude_code_sub_agent_completed" }
         assertTrue(completed.detail!!.contains("input_tokens=10"))
         assertTrue(completed.detail.contains("output_tokens=20"))
+    }
+
+    @Test
+    fun `codex emits usage as soon as turn completes`() = runBlocking {
+        val streamJson = """
+            {"type":"thread.started","thread_id":"thread-1"}
+            {"type":"turn.started"}
+            {"type":"item.completed","item":{"type":"agent_message","text":"done"}}
+            {"type":"turn.completed","usage":{"input_tokens":12,"output_tokens":5,"cached_input_tokens":4}}
+        """.trimIndent()
+        val executor = FakeSubprocessExecutor(ExecResult(0, streamJson, "", 500))
+        val (tools, events) = buildTools(executor)
+
+        tools.runCodexSubAgent(ExternalAgentContext(prompt = "x", name = "codex-stream"))
+
+        val liveUsage = events.single { it.type == "codex_sub_agent_usage" }
+        val detail = requireNotNull(liveUsage.detail)
+        assertTrue(detail.contains("input_tokens=12"))
+        assertTrue(detail.contains("output_tokens=5"))
+        assertTrue(detail.contains("total_tokens=17"))
     }
 
     @Test
@@ -718,6 +744,30 @@ class ExternalAgentToolsTest {
         }
         assertTrue(ex.message!!.contains("OOM killed"))
         // A failed event must surface with the right type so the UI can render it as a failure.
+        assertTrue(events.any { it.type == "claude_code_sub_agent_failed" })
+    }
+
+    @Test
+    fun `claude non-zero result preserves final token usage`() {
+        val failedResult = """
+            {"type":"result","subtype":"error_max_turns","result":"Max turns reached","total_cost_usd":2.273578,"usage":{"input_tokens":61,"output_tokens":23392,"cache_creation_input_tokens":71431,"cache_read_input_tokens":1944026}}
+        """.trimIndent()
+        val executor = FakeSubprocessExecutor(
+            ExecResult(exitCode = 1, stdout = failedResult, stderr = "max turns", durationMs = 500)
+        )
+        val (tools, events) = buildTools(executor)
+
+        assertThrows(ExternalAgentTools.ExternalAgentExecutionException::class.java) {
+            runBlocking {
+                tools.runClaudeCodeSubAgent(ExternalAgentContext(prompt = "x", name = "claude-max-turns"))
+            }
+        }
+
+        val usage = events.single { it.type == "claude_code_sub_agent_usage_final" }
+        val detail = requireNotNull(usage.detail)
+        assertTrue(detail.contains("input_tokens=61"))
+        assertTrue(detail.contains("output_tokens=23392"))
+        assertTrue(detail.contains("cache_read=1944026"))
         assertTrue(events.any { it.type == "claude_code_sub_agent_failed" })
     }
 

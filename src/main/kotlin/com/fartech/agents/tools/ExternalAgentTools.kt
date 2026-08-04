@@ -453,6 +453,32 @@ class ExternalAgentTools(
         }
 
         if (result.exitCode != 0) {
+            // Claude and Codex can return a perfectly valid final usage envelope
+            // together with a non-zero exit (for example Claude's
+            // `error_max_turns`). Parse and publish that aggregate before the
+            // error branches throw; otherwise every token consumed by a failed
+            // invocation disappears from execution metering. The web layer
+            // treats this as a final aggregate and ignores it when per-turn live
+            // usage for the same invocation is already available.
+            val failedParsed = sequenceOf(result.stdout, result.stderr)
+                .filter { it.isNotBlank() }
+                .map { parseSdkOutput(engine, it) }
+                .firstOrNull { it.usage != null }
+            failedParsed?.usage?.let { usage ->
+                emit(
+                    type = engine.finalUsageEventType(),
+                    summary = "🔤 ${engine.displayName} 最终 Token 用量: $invocationLabel",
+                    detail = buildString {
+                        append("invocation_id=$invocationId")
+                        append(", input_tokens=${usage.inputTokens ?: 0L}")
+                        append(", output_tokens=${usage.outputTokens ?: 0L}")
+                        append(", total_tokens=${(usage.inputTokens ?: 0L) + (usage.outputTokens ?: 0L)}")
+                        usage.cacheReadInputTokens?.let { append(", cache_read=$it") }
+                        usage.cacheCreationInputTokens?.let { append(", cache_creation=$it") }
+                        failedParsed.costUsd?.let { append(", cost_usd=${formatCost(it)}") }
+                    }
+                )
+            }
             val tail = result.stderr.takeLast(2000).ifBlank { result.stdout.takeLast(2000) }
             val claudeRateLimit = if (
                 engine == Engine.CLAUDE &&
@@ -670,6 +696,7 @@ class ExternalAgentTools(
         private var lastAssistantText = ""
         private val seenToolCalls = linkedSetOf<String>()
         private val seenToolResults = linkedSetOf<String>()
+        private val seenUsageMessages = linkedSetOf<String>()
         private var systemEventEmitted = false
         // Set once real token streaming (`--include-partial-messages` →
         // `stream_event`/`content_block_delta`) has begun, so the COMPLETE
@@ -712,6 +739,7 @@ class ExternalAgentTools(
 
         private fun handleAssistant(obj: JsonObject) {
             val message = (obj["message"] as? JsonObject) ?: obj
+            emitAssistantUsage(obj, message)
             val content = message["content"] as? JsonArray ?: obj["content"] as? JsonArray ?: return
             val textParts = mutableListOf<String>()
 
@@ -728,6 +756,43 @@ class ExternalAgentTools(
             // token-by-token, the complete assistant message is a duplicate —
             // only its tool_use / reasoning parts (handled above) still matter.
             if (text.isNotBlank() && !partialStreamActive) emitAssistantDelta(text)
+        }
+
+        /**
+         * Claude's final `result` envelope only arrives when the whole sub-agent
+         * exits, but every completed assistant turn already carries its own usage.
+         * Surface those per-turn deltas so long-running tool loops expose token
+         * consumption while they are still running. The web layer prefers these
+         * invocation-scoped deltas over the final aggregate to avoid double count.
+         */
+        private fun emitAssistantUsage(obj: JsonObject, message: JsonObject) {
+            val usage = (message["usage"] as? JsonObject)
+                ?: (obj["usage"] as? JsonObject)
+                ?: return
+            val inputTokens = usage.longField("input_tokens")
+            val outputTokens = usage.longField("output_tokens")
+            if (inputTokens == null && outputTokens == null) return
+
+            val messageId = message.stringField("id")
+                ?: obj.stringField("uuid")
+                ?: obj.stringField("message_id")
+            if (messageId != null && !seenUsageMessages.add(messageId)) return
+
+            val input = inputTokens?.coerceAtLeast(0L) ?: 0L
+            val output = outputTokens?.coerceAtLeast(0L) ?: 0L
+            emit(
+                type = "claude_code_sub_agent_usage",
+                summary = "🔤 Claude Code Token 用量: $label (+${input + output})",
+                detail = buildString {
+                    append("invocation_id=$invocationId")
+                    messageId?.let { append(", message_id=${it.take(32)}") }
+                    append(", input_tokens=$input")
+                    append(", output_tokens=$output")
+                    append(", total_tokens=${input + output}")
+                    usage.longField("cache_read_input_tokens")?.let { append(", cache_read=$it") }
+                    usage.longField("cache_creation_input_tokens")?.let { append(", cache_creation=$it") }
+                }
+            )
         }
 
         /**
@@ -911,12 +976,30 @@ class ExternalAgentTools(
                 "item.completed" -> (obj["item"] as? JsonObject)?.let { handleItem(it, CodexItemPhase.COMPLETED) }
                 "turn.failed" -> emitError((obj["error"] as? JsonObject)?.stringField("message") ?: compactJson(obj, 800))
                 "error" -> emitError(obj.stringField("message") ?: compactJson(obj, 800))
-                // thread.started / turn.started / turn.completed are lifecycle markers;
-                // usage is recovered post-hoc by parseCodexOutput, so they add no signal here.
-                "thread.started", "turn.started", "turn.completed" -> Unit
+                "turn.completed" -> emitTurnUsage(obj)
+                // thread.started / turn.started are lifecycle markers.
+                "thread.started", "turn.started" -> Unit
                 // Unknown / legacy envelope: surface raw rather than silently dropping it.
                 else -> emitGeneric(obj)
             }
+        }
+
+        private fun emitTurnUsage(obj: JsonObject) {
+            val usage = obj["usage"] as? JsonObject ?: return
+            val input = usage.longField("input_tokens")?.coerceAtLeast(0L) ?: 0L
+            val output = usage.longField("output_tokens")?.coerceAtLeast(0L) ?: 0L
+            if (input <= 0L && output <= 0L) return
+            emit(
+                type = "codex_sub_agent_usage",
+                summary = "🔤 Codex Token 用量: $label (+${input + output})",
+                detail = buildString {
+                    append("invocation_id=$invocationId")
+                    append(", input_tokens=$input")
+                    append(", output_tokens=$output")
+                    append(", total_tokens=${input + output}")
+                    usage.longField("cached_input_tokens")?.let { append(", cache_read=$it") }
+                }
+            )
         }
 
         private fun handleItem(item: JsonObject, phase: CodexItemPhase) {
@@ -2331,6 +2414,11 @@ class ExternalAgentTools(
         private fun Engine.completedEventType(): String = when (this) {
             Engine.CLAUDE -> "claude_code_sub_agent_completed"
             Engine.CODEX -> "codex_sub_agent_completed"
+        }
+
+        private fun Engine.finalUsageEventType(): String = when (this) {
+            Engine.CLAUDE -> "claude_code_sub_agent_usage_final"
+            Engine.CODEX -> "codex_sub_agent_usage_final"
         }
 
         private fun Engine.failedEventType(): String = when (this) {
