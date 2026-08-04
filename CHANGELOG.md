@@ -5,6 +5,30 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.22]
+
+### Fixed
+
+- Recognise the Claude subscription session-limit shape (`is_error` + HTTP 429
+  carrying the CLI's own limit sentence, with no `rate_limit_event` and no
+  `terminal_reason`), so an exhausted credential is cooled down and failover can
+  pick another one. A bare 429 with no corroboration still does not cool a
+  credential.
+- Derive the cooldown deadline from the CLI's `resets <time> (UTC)` text when no
+  machine-readable `resetsAt` is present, instead of falling back to the 15
+  minute default and re-selecting a still-limited credential.
+- Lead external-agent failure excerpts with the decoded terminal fields
+  (`subtype` / `is_error` / `api_error_status` / `result`, and Codex's
+  `turn.failed` error message) instead of the last 2000 characters of output,
+  which truncated the reason away.
+
+### Added
+
+- Classify ChatGPT subscription quota stops from Codex's error channel and
+  report them through a `codex_subscription_rate_limited` event. Codex runs on a
+  single `auth.json`, so this classifies and reports only — there is no
+  credential failover.
+
 ## [1.0.21]
 
 ### Fixed

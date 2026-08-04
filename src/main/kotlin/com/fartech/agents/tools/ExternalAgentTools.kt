@@ -479,7 +479,7 @@ class ExternalAgentTools(
                     }
                 )
             }
-            val tail = result.stderr.takeLast(2000).ifBlank { result.stdout.takeLast(2000) }
+            val tail = externalAgentFailureExcerpt(engine, result.stdout, result.stderr)
             val claudeRateLimit = if (
                 engine == Engine.CLAUDE &&
                 auth.mode == ExternalAuthMode.SUBSCRIPTION &&
@@ -530,6 +530,27 @@ class ExternalAgentTools(
                     }
                     return runExternalDetailed(engine, replayContext, onTextDelta, attempted)
                 }
+            }
+            // ChatGPT subscription quota. Unlike Claude there is no credential
+            // pool to fail over to (Codex auth is a single auth.json), so this
+            // only classifies and reports — but an operator seeing "quota, wait
+            // until it resets" beats a generic non-zero exit. Checked before the
+            // auth branch: a 429 is a quota answer, not an expired credential.
+            if (engine == Engine.CODEX &&
+                auth.mode == ExternalAuthMode.SUBSCRIPTION &&
+                isCodexRateLimitFailure(result.stdout, result.stderr)
+            ) {
+                emit(
+                    type = CODEX_SUBSCRIPTION_RATE_LIMIT_EVENT,
+                    summary = "⏸️ Codex 订阅额度用尽: $invocationLabel",
+                    detail = "invocation_id=$invocationId, 该 ChatGPT 订阅已达用量上限。" +
+                        "Codex 目前仅支持单条订阅凭据，无法自动切换。stderr_tail=$tail"
+                )
+                throw ExternalAgentExecutionException(
+                    "Codex sub-agent '$resolvedName' stopped on a ChatGPT subscription usage limit " +
+                        "(the account is out of quota, not misconfigured). Codex runs on a single " +
+                        "auth.json, so no automatic credential switch is possible. stderr: $tail"
+                )
             }
             // Codex subscription credentials are short-lived OAuth tokens. When the
             // access token can no longer be refreshed (revoked / refresh token expired)
@@ -2301,12 +2322,32 @@ class ExternalAgentTools(
 
         /** Monitoring event emitted when a Codex subscription credential is rejected (expired/revoked). */
         const val CODEX_SUBSCRIPTION_EXPIRED_EVENT = "codex_subscription_expired"
+
+        /** ChatGPT subscription out of quota. Classification only — Codex has no credential pool. */
+        const val CODEX_SUBSCRIPTION_RATE_LIMIT_EVENT = "codex_subscription_rate_limited"
         const val CLAUDE_SUBSCRIPTION_RATE_LIMIT_EVENT = "claude_subscription_rate_limited"
         private const val DEFAULT_CLAUDE_RATE_LIMIT_COOLDOWN_MS = 15 * 60 * 1000L
         private const val MAX_CLAUDE_CREDENTIAL_ATTEMPTS = 8
         private val CLAUDE_RATE_LIMIT_RESET_REGEX = Regex("""\"resetsAt\"\s*:\s*(\d+)""")
 
-        private data class ClaudeSubscriptionRateLimit(
+        /**
+         * Lowercased markers Claude uses in the terminal `result` text for a quota
+         * stop. Only consulted alongside an HTTP 429 — never on their own.
+         */
+        private val CLAUDE_RATE_LIMIT_TEXT_MARKERS = listOf(
+            "session limit",
+            "usage limit",
+            "rate limit",
+            "hit your limit"
+        )
+
+        /** `resets 12:10pm (UTC)` / `resets 5am (UTC)` — UTC-stamped only, see below. */
+        private val CLAUDE_RATE_LIMIT_RESET_TEXT_REGEX = Regex(
+            """resets\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)\s*\(\s*UTC\s*\)""",
+            RegexOption.IGNORE_CASE
+        )
+
+        internal data class ClaudeSubscriptionRateLimit(
             val safeWithoutExplicitReplay: Boolean
         )
 
@@ -2315,7 +2356,7 @@ class ExternalAgentTools(
          * replay is safe. Confirmed credentials are cooled down even when a partial run
          * is not replayed, so later workflow invocations can select another credential.
          */
-        private fun confirmedClaudeSubscriptionRateLimit(output: String): ClaudeSubscriptionRateLimit? {
+        internal fun confirmedClaudeSubscriptionRateLimit(output: String): ClaudeSubscriptionRateLimit? {
             val objects = output.lineSequence().mapNotNull { line ->
                 runCatching { permissiveJson.parseToJsonElement(line.trim()) as? JsonObject }.getOrNull()
             }.toList()
@@ -2336,10 +2377,29 @@ class ExternalAgentTools(
                 usage?.get(key)?.jsonPrimitive?.contentOrNull?.toLongOrNull()?.let { it > 0 } == true
             } == true
             val permissionDenials = result["permission_denials"] as? JsonArray
-            val confirmed = hasRejectedEvent &&
-                result["api_error_status"]?.jsonPrimitive?.contentOrNull == "429" &&
-                result["is_error"]?.jsonPrimitive?.contentOrNull == "true" &&
-                result["terminal_reason"]?.jsonPrimitive?.contentOrNull == "api_error"
+            // The CLI reports a subscription 429 in more than one shape. The
+            // original one carried `terminal_reason=api_error` plus a preceding
+            // `rate_limit_event`; observed 2026-08-04 in production, a session
+            // limit instead arrives as `subtype=success`, `is_error=true`,
+            // `api_error_status=429` and the limit text in `result`, with no
+            // rate_limit_event and no terminal_reason. Requiring all four
+            // markers made that variant fall through to the generic failure
+            // branch, so the credential was never cooled down.
+            //
+            // An HTTP 429 stays a NECESSARY condition, so a bare 429 with no
+            // further evidence still does not cool a credential (an upstream
+            // burst limit is not an exhausted subscription — see the
+            // "unstructured 429" test). What changed is what counts as
+            // corroboration: either the structured rejection event, or the
+            // CLI's own limit sentence. The text is never a trigger on its
+            // own — a run that merely talks about rate limits carries no 429,
+            // so it can't cool anything.
+            val isError = result["is_error"]?.jsonPrimitive?.contentOrNull == "true"
+            val http429 = result["api_error_status"]?.jsonPrimitive?.contentOrNull == "429"
+            val limitText = result["result"]?.jsonPrimitive?.contentOrNull
+                ?.lowercase()
+                ?.let { text -> CLAUDE_RATE_LIMIT_TEXT_MARKERS.any { it in text } } == true
+            val confirmed = isError && http429 && (hasRejectedEvent || limitText)
             if (!confirmed) return null
 
             val safeWithoutExplicitReplay =
@@ -2349,14 +2409,46 @@ class ExternalAgentTools(
             return ClaudeSubscriptionRateLimit(safeWithoutExplicitReplay)
         }
 
-        private fun claudeRateLimitResetAtMillis(output: String): Long? {
+        internal fun claudeRateLimitResetAtMillis(output: String): Long? {
             val raw = CLAUDE_RATE_LIMIT_RESET_REGEX.find(output)
                 ?.groupValues
                 ?.getOrNull(1)
                 ?.toLongOrNull()
-                ?: return null
+                ?: return claudeRateLimitResetFromText(output)
             // Claude CLI currently emits Unix seconds; tolerate milliseconds too.
             return if (raw < 100_000_000_000L) raw * 1_000L else raw
+        }
+
+        /**
+         * A session-limit stop carries no machine-readable `resetsAt`; the only
+         * hint is the human text ("You've hit your session limit · resets
+         * 12:10pm (UTC)"). Without parsing it the credential is cooled down for
+         * the 15-minute default and then picked again while still limited.
+         * Only wall-clock times explicitly stamped UTC are honoured — anything
+         * else would be a timezone guess.
+         */
+        private fun claudeRateLimitResetFromText(output: String): Long? {
+            val match = CLAUDE_RATE_LIMIT_RESET_TEXT_REGEX.find(output) ?: return null
+            val hour12 = match.groupValues[1].toIntOrNull() ?: return null
+            if (hour12 !in 1..12) return null
+            val minute = match.groupValues[2].toIntOrNull() ?: 0
+            if (minute !in 0..59) return null
+            val hour = when (match.groupValues[3].lowercase()) {
+                "pm" -> if (hour12 == 12) 12 else hour12 + 12
+                else -> if (hour12 == 12) 0 else hour12
+            }
+            val now = java.time.Instant.now().atZone(java.time.ZoneOffset.UTC)
+            val candidate = now.toLocalDate()
+                .atTime(hour, minute)
+                .atZone(java.time.ZoneOffset.UTC)
+            // "resets 12:10pm" after the current UTC time means today; otherwise
+            // the CLI is pointing at tomorrow's window.
+            val resolved = if (candidate.toInstant() > now.toInstant()) {
+                candidate
+            } else {
+                candidate.plusDays(1)
+            }
+            return resolved.toInstant().toEpochMilli()
         }
 
         /**
@@ -2384,6 +2476,118 @@ class ExternalAgentTools(
             val lower = output.lowercase()
             return CODEX_AUTH_FAILURE_MARKERS.any { it in lower }
         }
+
+        /**
+         * Lowercased quota markers for `codex exec`. Conservative on purpose:
+         * this classification is best-effort until a real production sample is
+         * captured, so it is only ever matched against the CLI's own *error*
+         * channels (a `turn.failed` / `error` event message, or stderr) — never
+         * against `agent_message` text, which is the model talking and may well
+         * discuss rate limits without any of them applying.
+         */
+        private val CODEX_RATE_LIMIT_MARKERS = listOf(
+            "429",
+            "usage limit",
+            "rate limit",
+            "rate_limit",
+            "quota exceeded",
+            "insufficient_quota",
+            "too many requests"
+        )
+
+        internal fun isCodexRateLimitFailure(stdout: String, stderr: String): Boolean {
+            val errorTexts = buildList {
+                stderr.takeIf { it.isNotBlank() }?.let(::add)
+                stdout.lineSequence()
+                    .mapNotNull { parseJsonObjectOrNullStatic(it.trim()) }
+                    .forEach { obj ->
+                        when (obj.stringField("type")) {
+                            "turn.failed" -> (obj["error"] as? JsonObject)?.stringField("message")?.let(::add)
+                            "error" -> obj.stringField("message")?.let(::add)
+                            else -> (obj["item"] as? JsonObject)
+                                ?.takeIf { it.stringField("type") == "error" }
+                                ?.stringField("message")
+                                ?.let(::add)
+                        }
+                    }
+            }
+            if (errorTexts.isEmpty()) return false
+            return errorTexts.any { text ->
+                val lower = text.lowercase()
+                CODEX_RATE_LIMIT_MARKERS.any { it in lower }
+            }
+        }
+
+        /**
+         * Build the excerpt that goes into the thrown message and the failure event.
+         *
+         * The previous `stderr.takeLast(2000).ifBlank { stdout.takeLast(2000) }`
+         * lost the actual reason whenever the CLI failed quietly on stdout: both
+         * CLIs put the reason at the START of their terminal record, so keeping
+         * only the last 2000 characters left operators (and the web layer's
+         * detectors) with a mid-object fragment like `web_search_requests":0,…`.
+         * Lead with the decoded terminal fields, then append raw output.
+         */
+        internal fun externalAgentFailureExcerpt(engine: Engine, stdout: String, stderr: String): String {
+            val decoded = when (engine) {
+                Engine.CLAUDE -> claudeFailureSummary(stdout)
+                Engine.CODEX -> codexFailureSummary(stdout)
+            }?.takeIf { it.isNotBlank() }
+            val raw = stderr.takeLast(1200).ifBlank { stdout.takeLast(1200) }
+            return listOfNotNull(decoded, raw.takeIf { it.isNotBlank() }).joinToString(" | ")
+        }
+
+        /** Claude's `type=result` record — the whole object for `--output-format json`, last line for `stream-json`. */
+        private fun claudeFailureSummary(stdout: String): String? {
+            val trimmed = stdout.trim().takeIf { it.isNotEmpty() } ?: return null
+            val obj = parseJsonObjectOrNullStatic(trimmed)
+                ?: trimmed.lineSequence()
+                    .mapNotNull { parseJsonObjectOrNullStatic(it.trim()) }
+                    .lastOrNull { it.stringField("type") == "result" }
+                ?: return null
+            return buildString {
+                obj.stringField("subtype")?.let { append("subtype=$it, ") }
+                obj["is_error"]?.jsonPrimitive?.contentOrNull?.let { append("is_error=$it, ") }
+                obj["api_error_status"]?.jsonPrimitive?.contentOrNull?.let { append("api_error_status=$it, ") }
+                obj.stringField("terminal_reason")?.let { append("terminal_reason=$it, ") }
+                obj.stringField("stop_reason")?.let { append("stop_reason=$it, ") }
+                obj.stringField("result")
+                    ?.replace('\n', ' ')
+                    ?.trim()
+                    ?.takeIf { it.isNotEmpty() }
+                    ?.let { append("result=${it.take(400)}") }
+            }.trim().trimEnd(',')
+        }
+
+        /**
+         * Codex has no `result` envelope. A failed run reports through
+         * `turn.failed` (`error.message`), a top-level `error` event, or an
+         * `item` of type `error` — the same shapes the stream emitter handles.
+         * Take the last one: that is the terminal reason.
+         */
+        private fun codexFailureSummary(stdout: String): String? {
+            val trimmed = stdout.trim().takeIf { it.isNotEmpty() } ?: return null
+            val message = trimmed.lineSequence()
+                .mapNotNull { parseJsonObjectOrNullStatic(it.trim()) }
+                .mapNotNull { obj ->
+                    when (obj.stringField("type")) {
+                        "turn.failed" -> (obj["error"] as? JsonObject)?.stringField("message")
+                        "error" -> obj.stringField("message")
+                        else -> (obj["item"] as? JsonObject)
+                            ?.takeIf { it.stringField("type") == "error" }
+                            ?.stringField("message")
+                    }
+                }
+                .lastOrNull()
+                ?.replace('\n', ' ')
+                ?.trim()
+                ?.takeIf { it.isNotEmpty() }
+                ?: return null
+            return "codex_error=${message.take(400)}"
+        }
+
+        private fun parseJsonObjectOrNullStatic(text: String): JsonObject? =
+            runCatching { permissiveJson.parseToJsonElement(text).jsonObject }.getOrNull()
 
         internal val permissiveJson = Json {
             ignoreUnknownKeys = true
