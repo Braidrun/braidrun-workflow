@@ -126,4 +126,31 @@ class ExternalAgentToolsSubscriptionLimitTest {
         assertTrue(ExternalAgentTools.isCodexRateLimitFailure("", "Error: usage limit reached for this account"))
         assertFalse(ExternalAgentTools.isCodexRateLimitFailure("", "Error: command not found: codex"))
     }
+
+    @Test
+    fun `stream-json output is decoded from the last result line`() {
+        // Real runs emit one JSON object per line; the reason lives in the final
+        // `type=result` record, which the old takeLast(2000) truncated away.
+        val stdout = listOf(
+            """{"type":"system","subtype":"init","session_id":"s1"}""",
+            """{"type":"assistant","message":{"content":[{"type":"text","text":"working"}]}}""",
+            sessionLimitResult
+        ).joinToString("\n")
+        val excerpt = ExternalAgentTools.externalAgentFailureExcerpt(
+            ExternalAgentTools.Engine.CLAUDE,
+            stdout,
+            ""
+        )
+        assertTrue(excerpt.startsWith("subtype=success, is_error=true, api_error_status=429"), excerpt)
+    }
+
+    @Test
+    fun `stderr still wins over stdout for the raw portion`() {
+        val excerpt = ExternalAgentTools.externalAgentFailureExcerpt(
+            ExternalAgentTools.Engine.CLAUDE,
+            sessionLimitResult,
+            "codex: command not found"
+        )
+        assertTrue(excerpt.endsWith("codex: command not found"), excerpt)
+    }
 }
