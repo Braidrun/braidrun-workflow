@@ -163,8 +163,21 @@ class ExternalAgentTools(
     private val userId: String = "local-user",
     private val context: SubprocessToolContext = SubprocessToolContext(),
     private val onMonitorEvent: MonitoringEventCallback? = null,
-    private val onCodexAuthJsonRotated: ((String) -> Unit)? = null,
+    /**
+     * Persist an `auth.json` the Codex CLI refreshed in place. The credential id
+     * is the one this invocation actually ran on — with a credential pool the
+     * run may be on the second or third candidate, and writing the rotated JSON
+     * onto whichever credential the caller happened to resolve first would
+     * overwrite one account's login with another's.
+     */
+    private val onCodexAuthJsonRotated: ((credentialId: String?, authJson: String) -> Unit)? = null,
     private val claudeCredentialProvider: ClaudeCredentialProvider? = null,
+    /**
+     * Codex's own pool. Deliberately a separate instance from
+     * [claudeCredentialProvider]: failover picks another credential *of the same
+     * vendor*, never a ChatGPT subscription for an exhausted Claude one.
+     */
+    private val codexCredentialProvider: ClaudeCredentialProvider? = null,
     private val trustExecutorSandbox: Boolean = executor is DockerSubprocessExecutor
 ) : ToolSet {
 
@@ -289,9 +302,14 @@ class ExternalAgentTools(
     private data class ResolvedExternalAuth(
         val mode: ExternalAuthMode,
         val env: Map<String, String>,
-        val claudeCredentialId: String? = null,
-        val claudeCredentialLabel: String? = null,
-        val claudeCredential: ClaudeCredentialProvider.Credential? = null,
+        /**
+         * Which credential out of the engine's pool this invocation is running
+         * on. Named for the mode rather than the vendor because both
+         * subscription engines now draw from a pool — each from its own.
+         */
+        val subscriptionCredentialId: String? = null,
+        val subscriptionCredentialLabel: String? = null,
+        val subscriptionCredential: ClaudeCredentialProvider.Credential? = null,
         /**
          * Codex subscription mode only: the host directory we materialised the
          * tenant's `auth.json` into. [buildMounts] bind-mounts it into the
@@ -318,7 +336,12 @@ class ExternalAgentTools(
         engine: Engine,
         ctx: ExternalAgentContext,
         onTextDelta: ((String) -> Unit)? = null,
-        attemptedClaudeCredentialIds: Set<String> = emptySet()
+        /**
+         * Credentials this invocation already burned through, within one
+         * engine's pool. Failover walks a single vendor's candidates; the set is
+         * never carried across engines because a run only ever uses one.
+         */
+        attemptedCredentialIds: Set<String> = emptySet()
     ): ExternalAgentRunDetailedResult {
         val resolvedName = ctx.name.takeIf { it.isNotBlank() } ?: UUID.randomUUID().toString()
         val invocationUuid = UUID.randomUUID().toString()
@@ -330,7 +353,7 @@ class ExternalAgentTools(
         // Resolve authentication BEFORE building any subprocess so misconfiguration fails
         // with a clear error instead of leaving the LLM staring at a 401 from the SDK.
         val auth = runCatching {
-            resolveExternalAuth(engine, ctx, invocationUuid, attemptedClaudeCredentialIds)
+            resolveExternalAuth(engine, ctx, invocationUuid, attemptedCredentialIds)
         }.getOrElse { e ->
             emit(
                 type = engine.failedEventType(),
@@ -483,7 +506,7 @@ class ExternalAgentTools(
             val claudeRateLimit = if (
                 engine == Engine.CLAUDE &&
                 auth.mode == ExternalAuthMode.SUBSCRIPTION &&
-                auth.claudeCredentialId != null
+                auth.subscriptionCredentialId != null
             ) {
                 confirmedClaudeSubscriptionRateLimit("${result.stderr}\n${result.stdout}")
             } else {
@@ -491,8 +514,8 @@ class ExternalAgentTools(
             }
             if (claudeRateLimit != null) {
                 val resetAtMillis = claudeRateLimitResetAtMillis("${result.stderr}\n${result.stdout}")
-                    ?: (System.currentTimeMillis() + DEFAULT_CLAUDE_RATE_LIMIT_COOLDOWN_MS)
-                val credential = requireNotNull(auth.claudeCredential)
+                    ?: (System.currentTimeMillis() + DEFAULT_SUBSCRIPTION_RATE_LIMIT_COOLDOWN_MS)
+                val credential = requireNotNull(auth.subscriptionCredential)
                 runCatching {
                     claudeCredentialProvider?.markRateLimited(credential, resetAtMillis)
                 }.onFailure { error ->
@@ -509,18 +532,18 @@ class ExternalAgentTools(
                         "⏸️ Claude 订阅凭据已限额，已冷却但未自动重放: $invocationLabel"
                     },
                     detail = buildString {
-                        append("invocation_id=$invocationId, credential_id=${auth.claudeCredentialId}")
-                        auth.claudeCredentialLabel?.let { append(", credential_label=$it") }
+                        append("invocation_id=$invocationId, credential_id=${auth.subscriptionCredentialId}")
+                        auth.subscriptionCredentialLabel?.let { append(", credential_label=$it") }
                         append(", resets_at_ms=$resetAtMillis")
                         append(", partial_progress=${!claudeRateLimit.safeWithoutExplicitReplay}")
                         append(", replay_enabled=$shouldReplay")
                     }
                 )
                 if (shouldReplay) {
-                    val attempted = attemptedClaudeCredentialIds + credential.id
-                    if (attempted.size >= MAX_CLAUDE_CREDENTIAL_ATTEMPTS) {
+                    val attempted = attemptedCredentialIds + credential.id
+                    if (attempted.size >= MAX_SUBSCRIPTION_CREDENTIAL_ATTEMPTS) {
                         throw ExternalAgentExecutionException(
-                            "Claude subscription failover exhausted $MAX_CLAUDE_CREDENTIAL_ATTEMPTS credential attempts"
+                            "Claude subscription failover exhausted $MAX_SUBSCRIPTION_CREDENTIAL_ATTEMPTS credential attempts"
                         )
                     }
                     val replayContext = if (claudeRateLimit.safeWithoutExplicitReplay) {
@@ -531,43 +554,95 @@ class ExternalAgentTools(
                     return runExternalDetailed(engine, replayContext, onTextDelta, attempted)
                 }
             }
-            // ChatGPT subscription quota. Unlike Claude there is no credential
-            // pool to fail over to (Codex auth is a single auth.json), so this
-            // only classifies and reports — but an operator seeing "quota, wait
-            // until it resets" beats a generic non-zero exit. Checked before the
-            // auth branch: a 429 is a quota answer, not an expired credential.
+            // ChatGPT subscription quota. Checked before the auth branch: a 429
+            // is a quota answer, not an expired credential.
             if (engine == Engine.CODEX &&
                 auth.mode == ExternalAuthMode.SUBSCRIPTION &&
                 isCodexRateLimitFailure(result.stdout, result.stderr)
             ) {
+                val credential = auth.subscriptionCredential
+                val resetAtMillis = System.currentTimeMillis() + DEFAULT_SUBSCRIPTION_RATE_LIMIT_COOLDOWN_MS
+                if (credential != null) {
+                    runCatching {
+                        codexCredentialProvider?.markRateLimited(credential, resetAtMillis)
+                    }.onFailure { error ->
+                        logger.warn(error) { "[ExternalAgent] Failed to persist Codex credential cooldown" }
+                    }
+                }
+                // Same rule as Claude: replaying re-runs the whole invocation, so
+                // it is only safe while the run has produced nothing outside its
+                // own transcript.
+                val replaySafe = codexRunReplaySafe(result.stdout)
+                val partialReplayEnabled =
+                    parameters.parameter(CLAUDE_PARTIAL_RATE_LIMIT_REPLAY_SAFE_PARAMETER, false)
+                val attempted = attemptedCredentialIds + setOfNotNull(credential?.id)
+                val shouldReplay = credential != null &&
+                    (replaySafe || partialReplayEnabled) &&
+                    attempted.size < MAX_SUBSCRIPTION_CREDENTIAL_ATTEMPTS
                 emit(
                     type = CODEX_SUBSCRIPTION_RATE_LIMIT_EVENT,
-                    summary = "⏸️ Codex 订阅额度用尽: $invocationLabel",
-                    detail = "invocation_id=$invocationId, 该 ChatGPT 订阅已达用量上限。" +
-                        "Codex 目前仅支持单条订阅凭据，无法自动切换。stderr_tail=$tail"
+                    summary = if (shouldReplay) {
+                        "🔄 Codex 订阅凭据已限额，正在切换备用凭据: $invocationLabel"
+                    } else {
+                        "⏸️ Codex 订阅额度用尽: $invocationLabel"
+                    },
+                    detail = buildString {
+                        append("invocation_id=$invocationId, credential_id=${auth.subscriptionCredentialId}")
+                        auth.subscriptionCredentialLabel?.let { append(", credential_label=$it") }
+                        append(", resets_at_ms=$resetAtMillis")
+                        append(", partial_progress=${!replaySafe}")
+                        append(", replay_enabled=$shouldReplay")
+                        append(", stderr_tail=$tail")
+                    }
                 )
+                if (shouldReplay) {
+                    // Only ever another codex_subscription credential — the pool
+                    // is this engine's own, so a spent ChatGPT quota can never
+                    // land the run on a Claude subscription.
+                    return runExternalDetailed(engine, ctx, onTextDelta, attempted)
+                }
                 throw ExternalAgentExecutionException(
                     "Codex sub-agent '$resolvedName' stopped on a ChatGPT subscription usage limit " +
-                        "(the account is out of quota, not misconfigured). Codex runs on a single " +
-                        "auth.json, so no automatic credential switch is possible. stderr: $tail"
+                        "(the account is out of quota, not misconfigured)" +
+                        if (credential == null) {
+                            ", and no credential pool is wired to fail over to"
+                        } else {
+                            ", and no other ChatGPT subscription credential was available"
+                        } +
+                        ". stderr: $tail"
                 )
             }
             // Codex subscription credentials are short-lived OAuth tokens. When the
             // access token can no longer be refreshed (revoked / refresh token expired)
-            // codex returns a 401. Surface that as a distinct, actionable alert so the
-            // operator knows the fix is "re-run codex login + update the credential",
-            // not "retry" or "check the prompt".
+            // codex returns a 401. With a pool, move to the next credential; only
+            // when none is left does the operator hear "re-run codex login".
             if (engine == Engine.CODEX &&
                 auth.mode == ExternalAuthMode.SUBSCRIPTION &&
                 isCodexAuthFailure("${result.stderr}\n${result.stdout}")
             ) {
+                val credential = auth.subscriptionCredential
+                // A dead login usually fails before the agent does anything, but
+                // a token can also die mid-run — check rather than assume.
+                val replaySafe = codexRunReplaySafe(result.stdout)
+                val attempted = attemptedCredentialIds + setOfNotNull(credential?.id)
+                val shouldReplay = credential != null &&
+                    replaySafe &&
+                    attempted.size < MAX_SUBSCRIPTION_CREDENTIAL_ATTEMPTS
                 emit(
                     type = CODEX_SUBSCRIPTION_EXPIRED_EVENT,
-                    summary = "🔑 Codex 订阅凭据失效: $invocationLabel",
-                    detail = "invocation_id=$invocationId, 该 ChatGPT 订阅凭据已过期或被吊销," +
+                    summary = if (shouldReplay) {
+                        "🔑 Codex 订阅凭据失效，正在切换备用凭据: $invocationLabel"
+                    } else {
+                        "🔑 Codex 订阅凭据失效: $invocationLabel"
+                    },
+                    detail = "invocation_id=$invocationId, credential_id=${auth.subscriptionCredentialId}, " +
+                        "replay_enabled=$shouldReplay, 该 ChatGPT 订阅凭据已过期或被吊销," +
                         "需重新执行 `codex login` 并更新凭据中心 provider=$CODEX_SUBSCRIPTION_PROVIDER 的 auth.json。" +
                         "stderr_tail=$tail"
                 )
+                if (shouldReplay) {
+                    return runExternalDetailed(engine, ctx, onTextDelta, attempted)
+                }
                 throw ExternalAgentExecutionException(
                     "Codex sub-agent '$resolvedName' failed authentication — the ChatGPT subscription " +
                         "credential ('$CODEX_SUBSCRIPTION_PROVIDER') has expired or been revoked. The user must " +
@@ -589,15 +664,17 @@ class ExternalAgentTools(
         // The text the parent LLM sees is just the final assistant message — including
         // raw JSON or usage stats in the return value would pollute the parent's context.
         val parsed = parseSdkOutput(engine, result.stdout)
-        auth.claudeCredential?.let { credential ->
+        auth.subscriptionCredential?.let { credential ->
             runCatching {
-                claudeCredentialProvider?.markSucceeded(
+                subscriptionCredentialProvider(engine)?.markSucceeded(
                     credential,
                     context.executionId,
                     context.stepName
                 )
             }.onFailure { error ->
-                logger.warn(error) { "[ExternalAgent] Failed to record Claude credential usage" }
+                logger.warn(error) {
+                    "[ExternalAgent] Failed to record ${engine.displayName} credential usage"
+                }
             }
         }
 
@@ -655,7 +732,10 @@ class ExternalAgentTools(
         if (current == original) return
         runCatching { normalizeCodexAuthJson(current) ?: return }
             .onSuccess { normalized ->
-                runCatching { callback(normalized) }
+                // Pass the credential this run actually used: with a pool the
+                // rotated auth.json belongs to whichever candidate failover
+                // landed on, not to the first one the caller resolved.
+                runCatching { callback(auth.subscriptionCredentialId, normalized) }
                     .onFailure { e -> logger.warn(e) { "[ExternalAgent] Failed to publish rotated Codex auth.json" } }
             }
             .onFailure { e -> logger.warn(e) { "[ExternalAgent] Ignoring invalid rotated Codex auth.json" } }
@@ -1703,11 +1783,17 @@ class ExternalAgentTools(
             .coerceAtMost(MAX_CLAUDE_PROGRESS_INTERVAL_SECONDS) * 1000).toLong()
     }
 
+    /** The pool for [engine], or null when the caller wired none. Never crosses engines. */
+    private fun subscriptionCredentialProvider(engine: Engine): ClaudeCredentialProvider? = when (engine) {
+        Engine.CLAUDE -> claudeCredentialProvider
+        Engine.CODEX -> codexCredentialProvider
+    }
+
     private suspend fun resolveExternalAuth(
         engine: Engine,
         ctx: ExternalAgentContext,
         invocationId: String,
-        attemptedClaudeCredentialIds: Set<String>
+        attemptedCredentialIds: Set<String>
     ): ResolvedExternalAuth {
         val mode = ExternalAuthMode.parse(
             parameters.parameter(engine.authModeParameterKey, "api_key"),
@@ -1716,8 +1802,8 @@ class ExternalAgentTools(
 
         if (mode == ExternalAuthMode.SUBSCRIPTION) {
             return when (engine) {
-                Engine.CLAUDE -> resolveClaudeSubscriptionAuth(attemptedClaudeCredentialIds)
-                Engine.CODEX -> resolveCodexSubscriptionAuth(ctx, invocationId)
+                Engine.CLAUDE -> resolveClaudeSubscriptionAuth(attemptedCredentialIds)
+                Engine.CODEX -> resolveCodexSubscriptionAuth(ctx, invocationId, attemptedCredentialIds)
             }
         }
 
@@ -1760,9 +1846,9 @@ class ExternalAgentTools(
                 put("CLAUDE_CONFIG_DIR", configDir.containerPath)
                 put("DISABLE_AUTOUPDATER", "1")
             },
-            claudeCredentialId = candidate?.id,
-            claudeCredentialLabel = candidate?.label,
-            claudeCredential = candidate,
+            subscriptionCredentialId = candidate?.id,
+            subscriptionCredentialLabel = candidate?.label,
+            subscriptionCredential = candidate,
             claudeConfigHostDir = configDir.hostDir,
             claudeConfigContainerPath = configDir.containerPath
         )
@@ -1776,11 +1862,22 @@ class ExternalAgentTools(
      * accepted. The CLI may rewrite the file when it refreshes an access token; the
      * caller can persist that rotated JSON via [onCodexAuthJsonRotated].
      */
-    private fun resolveCodexSubscriptionAuth(
+    private suspend fun resolveCodexSubscriptionAuth(
         ctx: ExternalAgentContext,
-        invocationId: String
+        invocationId: String,
+        attemptedCredentialIds: Set<String>
     ): ResolvedExternalAuth {
-        val authJson = resolveCodexAuthJson()
+        val candidate = codexCredentialProvider?.acquire(attemptedCredentialIds)
+        if (codexCredentialProvider != null && candidate == null) {
+            throw ExternalAgentExecutionException("All accessible Codex subscription credentials are unavailable")
+        }
+        if (candidate?.id in attemptedCredentialIds) {
+            throw ExternalAgentExecutionException(
+                "Codex credential provider returned an already-attempted credential"
+            )
+        }
+        val authJson = candidate?.token?.let(::normalizeCodexAuthJson)
+            ?: resolveCodexAuthJson()
             ?: throw IllegalStateException(
                 "Missing Codex subscription credential. Create a credential with provider " +
                     "'$CODEX_SUBSCRIPTION_PROVIDER' (the contents of ~/.codex/auth.json from a " +
@@ -1799,6 +1896,9 @@ class ExternalAgentTools(
         return ResolvedExternalAuth(
             mode = ExternalAuthMode.SUBSCRIPTION,
             env = mapOf("CODEX_HOME" to codexHomeEnv),
+            subscriptionCredentialId = candidate?.id,
+            subscriptionCredentialLabel = candidate?.label,
+            subscriptionCredential = candidate,
             codexHomeHostDir = homeDir,
             originalCodexAuthJson = authJson,
             deleteCodexHomeOnExit = deleteHomeOnExit
@@ -2323,11 +2423,51 @@ class ExternalAgentTools(
         /** Monitoring event emitted when a Codex subscription credential is rejected (expired/revoked). */
         const val CODEX_SUBSCRIPTION_EXPIRED_EVENT = "codex_subscription_expired"
 
-        /** ChatGPT subscription out of quota. Classification only — Codex has no credential pool. */
+        /** ChatGPT subscription out of quota; carries whether failover took over. */
         const val CODEX_SUBSCRIPTION_RATE_LIMIT_EVENT = "codex_subscription_rate_limited"
         const val CLAUDE_SUBSCRIPTION_RATE_LIMIT_EVENT = "claude_subscription_rate_limited"
-        private const val DEFAULT_CLAUDE_RATE_LIMIT_COOLDOWN_MS = 15 * 60 * 1000L
-        private const val MAX_CLAUDE_CREDENTIAL_ATTEMPTS = 8
+        private const val DEFAULT_SUBSCRIPTION_RATE_LIMIT_COOLDOWN_MS = 15 * 60 * 1000L
+
+        /**
+         * Cap on credentials one invocation may burn through, per engine. The
+         * pools are separate, so this bounds a single vendor's chain — a run can
+         * never walk from Claude's pool into Codex's.
+         */
+        private const val MAX_SUBSCRIPTION_CREDENTIAL_ATTEMPTS = 8
+
+        /**
+         * Item types in `codex exec --json` that mean the run touched something
+         * outside its own transcript. Replaying after any of these repeats the
+         * side effect on the next credential, so failover stops instead.
+         *
+         * Reasoning and assistant messages are deliberately absent: they cost
+         * tokens, not state.
+         */
+        private val CODEX_SIDE_EFFECT_ITEM_TYPES = setOf(
+            "command_execution",
+            "file_change",
+            "patch_apply",
+            "mcp_tool_call",
+            "web_search"
+        )
+
+        /**
+         * True when nothing in the Codex stream shows a side effect, so the whole
+         * invocation can be replayed on another credential.
+         *
+         * Unparseable or empty output counts as safe: `codex exec` that dies on a
+         * 401 before emitting a single item has done nothing, and that is the
+         * most common failover case by far.
+         */
+        internal fun codexRunReplaySafe(stdout: String): Boolean {
+            return stdout.lineSequence()
+                .mapNotNull { parseJsonObjectOrNullStatic(it.trim()) }
+                .none { obj ->
+                    val itemType = (obj["item"] as? JsonObject)?.stringField("type")
+                        ?: obj.stringField("type")
+                    itemType in CODEX_SIDE_EFFECT_ITEM_TYPES
+                }
+        }
         private val CLAUDE_RATE_LIMIT_RESET_REGEX = Regex("""\"resetsAt\"\s*:\s*(\d+)""")
 
         /**

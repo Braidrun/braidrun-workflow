@@ -1458,6 +1458,183 @@ class ExternalAgentToolsTest {
         assertTrue(events.any { it.type == "codex_sub_agent_failed" })
     }
 
+    /**
+     * Codex failover, mirroring the Claude pool. The credential a run lands on
+     * is only visible through the materialised `CODEX_HOME/auth.json`, so the
+     * fake executor reads it back to say which one was used.
+     */
+    private fun codexAuthJson(account: String) =
+        """{"OPENAI_API_KEY":null,"auth_mode":"chatgpt","tokens":{"access_token":"$account","refresh_token":"r","account_id":"$account"}}"""
+
+    private class RecordingCredentialPool(
+        private val candidates: List<ClaudeCredentialProvider.Credential>
+    ) : ClaudeCredentialProvider {
+        val limited = mutableSetOf<String>()
+        val resetTimes = mutableListOf<Long>()
+        val succeeded = mutableListOf<String>()
+
+        override suspend fun acquire(excludedCredentialIds: Set<String>) =
+            candidates.firstOrNull { it.id !in excludedCredentialIds && it.id !in limited }
+
+        override suspend fun markRateLimited(
+            credential: ClaudeCredentialProvider.Credential,
+            resetAtMillis: Long
+        ) {
+            limited += credential.id
+            resetTimes += resetAtMillis
+        }
+
+        override suspend fun markSucceeded(
+            credential: ClaudeCredentialProvider.Credential,
+            executionId: String?,
+            stepName: String?
+        ) {
+            succeeded += credential.id
+        }
+    }
+
+    private fun codexSubscriptionParams() = listOf(
+        ConfigurationParameter(ExternalAgentTools.CODEX_AUTH_MODE_PARAMETER, JsonPrimitive("subscription")),
+        ConfigurationParameter(ExternalAgentTools.CODEX_MODEL_PARAMETER, JsonPrimitive("gpt-5.5"))
+    )
+
+    @Test
+    fun `codex subscription quota switches to the next codex credential`() = runBlocking {
+        val pool = RecordingCredentialPool(
+            listOf(
+                ClaudeCredentialProvider.Credential("codex-a", codexAuthJson("acct-a"), "Codex A", "user"),
+                ClaudeCredentialProvider.Credential("codex-b", codexAuthJson("acct-b"), "Codex B", "team")
+            )
+        )
+        val usedAccounts = mutableListOf<String>()
+        val executor = FakeSubprocessExecutor(resultForRequest = { request ->
+            val authJson = File(request.env["CODEX_HOME"]!!, "auth.json").readText()
+            usedAccounts += if ("acct-a" in authJson) "acct-a" else "acct-b"
+            if ("acct-a" in authJson) {
+                ExecResult(1, "", "stream error: 429 Too Many Requests (usage limit reached)", 10)
+            } else {
+                ExecResult(0, """{"type":"item.completed","item":{"type":"agent_message","text":"fallback ok"}}""", "", 10)
+            }
+        })
+        val events = mutableListOf<CapturedEvent>()
+        val tools = ExternalAgentTools(
+            executor = executor,
+            parameters = codexSubscriptionParams(),
+            userId = "test-user",
+            context = SubprocessToolContext(workspaceDir = File("."), executionId = "exec-1", stepName = "step-1"),
+            onMonitorEvent = { type, summary, detail -> events += CapturedEvent(type, summary, detail) },
+            codexCredentialProvider = pool
+        )
+
+        val output = tools.runCodexSubAgent(ExternalAgentContext(prompt = "x", name = "codex-failover"))
+
+        assertEquals("fallback ok", output)
+        assertEquals(listOf("acct-a", "acct-b"), usedAccounts)
+        assertEquals(setOf("codex-a"), pool.limited)
+        assertEquals(listOf("codex-b"), pool.succeeded)
+        val rateLimited = events.single { it.type == ExternalAgentTools.CODEX_SUBSCRIPTION_RATE_LIMIT_EVENT }
+        assertTrue(rateLimited.summary.contains("正在切换备用凭据"))
+        assertTrue(rateLimited.detail!!.contains("credential_id=codex-a"))
+    }
+
+    @Test
+    fun `codex quota after a shell command cools the credential without replaying it`() {
+        val pool = RecordingCredentialPool(
+            listOf(
+                ClaudeCredentialProvider.Credential("codex-a", codexAuthJson("acct-a")),
+                ClaudeCredentialProvider.Credential("codex-b", codexAuthJson("acct-b"))
+            )
+        )
+        var executions = 0
+        // The run already shelled out: replaying it on the next credential would
+        // run that command a second time.
+        val partialRun = """{"type":"item.completed","item":{"type":"command_execution","command":"rm -rf build"}}
+            {"type":"turn.failed","error":{"message":"429 usage limit reached"}}"""
+        val executor = FakeSubprocessExecutor(resultForRequest = {
+            executions += 1
+            ExecResult(1, partialRun, "", 10)
+        })
+        val events = mutableListOf<CapturedEvent>()
+        val tools = ExternalAgentTools(
+            executor = executor,
+            parameters = codexSubscriptionParams(),
+            onMonitorEvent = { type, summary, detail -> events += CapturedEvent(type, summary, detail) },
+            codexCredentialProvider = pool
+        )
+
+        assertThrows(ExternalAgentTools.ExternalAgentExecutionException::class.java) {
+            runBlocking { tools.runCodexSubAgent(ExternalAgentContext(prompt = "x")) }
+        }
+        assertEquals(1, executions)
+        assertEquals(setOf("codex-a"), pool.limited)
+        val rateLimited = events.single { it.type == ExternalAgentTools.CODEX_SUBSCRIPTION_RATE_LIMIT_EVENT }
+        assertTrue(rateLimited.detail!!.contains("partial_progress=true"))
+        assertTrue(rateLimited.detail.contains("replay_enabled=false"))
+    }
+
+    @Test
+    fun `codex auth failure moves to the next credential instead of failing the run`() = runBlocking {
+        val pool = RecordingCredentialPool(
+            listOf(
+                ClaudeCredentialProvider.Credential("codex-dead", codexAuthJson("acct-dead")),
+                ClaudeCredentialProvider.Credential("codex-live", codexAuthJson("acct-live"))
+            )
+        )
+        val executor = FakeSubprocessExecutor(resultForRequest = { request ->
+            val authJson = File(request.env["CODEX_HOME"]!!, "auth.json").readText()
+            if ("acct-dead" in authJson) {
+                ExecResult(1, "", "ERROR: 401 Unauthorized — please run codex login", 10)
+            } else {
+                ExecResult(0, """{"type":"item.completed","item":{"type":"agent_message","text":"live ok"}}""", "", 10)
+            }
+        })
+        val events = mutableListOf<CapturedEvent>()
+        val tools = ExternalAgentTools(
+            executor = executor,
+            parameters = codexSubscriptionParams(),
+            onMonitorEvent = { type, summary, detail -> events += CapturedEvent(type, summary, detail) },
+            codexCredentialProvider = pool
+        )
+
+        assertEquals("live ok", tools.runCodexSubAgent(ExternalAgentContext(prompt = "x")))
+        assertEquals(listOf("codex-live"), pool.succeeded)
+        // A dead login is not a quota problem — it must not be cooled down.
+        assertTrue(pool.limited.isEmpty())
+        assertTrue(events.any { it.type == ExternalAgentTools.CODEX_SUBSCRIPTION_EXPIRED_EVENT })
+    }
+
+    @Test
+    fun `an exhausted codex pool never borrows the claude pool`() {
+        val claudePool = RecordingCredentialPool(
+            listOf(ClaudeCredentialProvider.Credential("claude-a", "sk-ant-oat-claude"))
+        )
+        val codexPool = RecordingCredentialPool(
+            listOf(ClaudeCredentialProvider.Credential("codex-a", codexAuthJson("acct-a")))
+        )
+        var executions = 0
+        val executor = FakeSubprocessExecutor(resultForRequest = {
+            executions += 1
+            ExecResult(1, "", "stream error: 429 usage limit reached", 10)
+        })
+        val tools = ExternalAgentTools(
+            executor = executor,
+            parameters = codexSubscriptionParams(),
+            claudeCredentialProvider = claudePool,
+            codexCredentialProvider = codexPool
+        )
+
+        val ex = assertThrows(ExternalAgentTools.ExternalAgentExecutionException::class.java) {
+            runBlocking { tools.runCodexSubAgent(ExternalAgentContext(prompt = "x")) }
+        }
+        // One attempt on the only ChatGPT credential, then a hard stop: the
+        // Claude subscription in the other pool is a different vendor and a
+        // different billing subject, so it is not a substitute.
+        assertEquals(1, executions)
+        assertTrue(ex.message!!.contains("Codex subscription credentials are unavailable"))
+        assertTrue(claudePool.succeeded.isEmpty())
+        assertTrue(claudePool.limited.isEmpty())
+    }
+
     @Test
     fun `codex subscription rejects a non-json credential (eg an api key pasted by mistake)`() {
         val executor = FakeSubprocessExecutor(ExecResult(0, "", "", 1))

@@ -753,7 +753,13 @@ class WorkflowExecutor(
      * 默认空映射，向后兼容 CLI 与现有 web 调用。
      */
     private val extraCodeStepEnv: Map<String, String> = emptyMap(),
-    private val claudeCredentialProvider: ClaudeCredentialProvider? = null
+    private val claudeCredentialProvider: ClaudeCredentialProvider? = null,
+    /**
+     * Codex's own credential pool. Separate from [claudeCredentialProvider] on
+     * purpose: failover picks another credential of the same vendor, never a
+     * ChatGPT subscription to cover an exhausted Claude one.
+     */
+    private val codexCredentialProvider: ClaudeCredentialProvider? = null
 ) {
 
     /**
@@ -4780,7 +4786,8 @@ IMPORTANT: You MUST respond with ONLY the category name (one of: ${config.catego
             // direct agents and code steps. Otherwise external Claude/Codex
             // tools silently fall back to a native executor in production.
             externalAgentExecutor = codeStepExecutor,
-            claudeCredentialProvider = claudeCredentialProvider
+            claudeCredentialProvider = claudeCredentialProvider,
+            codexCredentialProvider = codexCredentialProvider
         )
 
         // 构建监控 Features
@@ -6294,7 +6301,8 @@ IMPORTANT: You MUST respond with ONLY the category name (one of: ${config.catego
             // external Claude/Codex tools instead of letting the managed-agent path
             // independently re-resolve subprocess_mode and silently fall back to native.
             externalAgentExecutor = codeStepExecutor,
-            claudeCredentialProvider = claudeCredentialProvider
+            claudeCredentialProvider = claudeCredentialProvider,
+            codexCredentialProvider = codexCredentialProvider
         )
 
         return PreparedAgentRuntime(
@@ -6868,6 +6876,7 @@ IMPORTANT: You MUST respond with ONLY the category name (one of: ${config.catego
             ),
             onMonitorEvent = eventCallback,
             claudeCredentialProvider = claudeCredentialProvider,
+            codexCredentialProvider = codexCredentialProvider,
             trustExecutorSandbox = isDockerSubprocessMode()
         )
 

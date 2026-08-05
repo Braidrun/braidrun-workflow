@@ -25,8 +25,10 @@ suspend fun buildAndRunExternalAgent(
     agentContext: ExternalAgentContext,
     onEvent: MonitoringEventCallback? = null,
     onTextDelta: ((String) -> Unit)? = null,
-    onCodexAuthJsonRotated: ((String) -> Unit)? = null,
-    claudeCredentialProvider: ClaudeCredentialProvider? = null
+    onCodexAuthJsonRotated: ((credentialId: String?, authJson: String) -> Unit)? = null,
+    claudeCredentialProvider: ClaudeCredentialProvider? = null,
+    /** Codex's own pool — failover never crosses vendors. */
+    codexCredentialProvider: ClaudeCredentialProvider? = null
 ): ExternalAgentRunResult {
     val executor = createSubprocessExecutor(parameters)
     val toolContext = SubprocessExecutorFactory.buildToolContext(parameters)
@@ -38,7 +40,8 @@ suspend fun buildAndRunExternalAgent(
         context = toolContext,
         onMonitorEvent = onEvent,
         onCodexAuthJsonRotated = onCodexAuthJsonRotated,
-        claudeCredentialProvider = claudeCredentialProvider
+        claudeCredentialProvider = claudeCredentialProvider,
+        codexCredentialProvider = codexCredentialProvider
     )
     val detailed = tools.runConversation(
         engine = when (engine) {
