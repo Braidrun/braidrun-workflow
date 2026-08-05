@@ -5,6 +5,30 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.23]
+
+### Added
+
+- Fail over between Codex subscription credentials, matching the Claude pool:
+  `ExternalAgentTools` takes a `codexCredentialProvider`, cools a credential
+  down on a ChatGPT quota stop, and moves to the next candidate on a quota stop
+  or on a login the provider has rejected. Supersedes 1.0.22's classify-only
+  behaviour.
+- Pools are strictly per vendor. Each engine draws from its own provider, so an
+  exhausted Claude subscription is never covered by a ChatGPT one, and the other
+  way round — different vendor, different account, different billing subject.
+
+### Changed
+
+- Codex failover replays the invocation only while the run shows no side effect
+  in its JSON stream (`command_execution`, `file_change`, `patch_apply`,
+  `mcp_tool_call`, `web_search`); a run that already acted is cooled down but
+  not replayed. Same rule Claude has followed since the pool landed.
+- **Breaking:** `onCodexAuthJsonRotated` now receives `(credentialId, authJson)`
+  instead of `(authJson)`. With a pool, the rotated `auth.json` belongs to the
+  credential the run actually used; writing it back to whichever credential the
+  caller resolved first would overwrite a different ChatGPT account's login.
+
 ## [1.0.22]
 
 ### Fixed
