@@ -5,11 +5,7 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.0.24]
-
-Released as 1.0.24 because the 1.0.23 tag's JitPack build failed on a
-transient plugin-resolution error there and JitPack caches build results per
-version. No artifact was ever published for 1.0.23.
+## [1.0.23]
 
 ### Added
 
