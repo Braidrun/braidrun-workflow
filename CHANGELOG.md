@@ -5,6 +5,20 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.24]
+
+### Fixed
+
+- Per-turn token usage is reported as an increment instead of only the first
+  sighting of a turn. Claude reports one assistant turn under the same
+  `message.id` more than once and the numbers grow as the turn proceeds: the
+  message-start snapshot carries the real input and cache counts but a
+  placeholder `output_tokens`, and the completed message carries the real
+  output. Keeping the first sighting froze the placeholder, so a turn that
+  generated 5,704 tokens was published as 2. Summing
+  `claude_code_sub_agent_usage` events now yields the turn's real usage;
+  prompt-cache counters are reported once rather than on every event.
+
 ## [1.0.23]
 
 ### Added
