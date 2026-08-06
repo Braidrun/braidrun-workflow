@@ -205,6 +205,47 @@ class ExternalAgentToolsTest {
         assertTrue(completed.detail.contains("output_tokens=20"))
     }
 
+    /**
+     * Claude reports the same `message.id` twice as a turn progresses: the
+     * message-start snapshot carries the real input and cache counts but a
+     * placeholder `output_tokens`, and the completed message carries the real
+     * output. Deduplicating on first sighting froze the placeholder, so a turn
+     * that produced thousands of tokens was reported as a handful.
+     */
+    @Test
+    fun `claude usage reports the increment when a turn is seen twice`() = runBlocking {
+        val streamJson = """
+            {"type":"system","model":"opus","session_id":"abc123","cwd":"/workspace"}
+            {"type":"assistant","message":{"id":"msg_1","usage":{"input_tokens":2,"output_tokens":1,"cache_read_input_tokens":15277,"cache_creation_input_tokens":9098},"content":[{"type":"text","text":""}]}}
+            {"type":"assistant","message":{"id":"msg_1","usage":{"input_tokens":2,"output_tokens":5704,"cache_read_input_tokens":15277,"cache_creation_input_tokens":9098},"content":[{"type":"text","text":"最终答案"}]}}
+            {"type":"result","subtype":"success","result":"最终答案","session_id":"abc123","usage":{"input_tokens":2,"output_tokens":5704}}
+        """.trimIndent()
+        val executor = FakeSubprocessExecutor(ExecResult(0, streamJson, "", 500))
+        val (tools, events) = buildTools(executor)
+
+        tools.runClaudeCodeSubAgent(ExternalAgentContext(prompt = "x", name = "claude-stream"))
+
+        val liveUsage = events.filter { it.type == "claude_code_sub_agent_usage" }
+        assertEquals(2, liveUsage.size)
+        // First sighting: the full prompt, including the cached prefix.
+        assertTrue(liveUsage[0].detail!!.contains("input_tokens=2"))
+        assertTrue(liveUsage[0].detail!!.contains("output_tokens=1"))
+        assertTrue(liveUsage[0].detail!!.contains("cache_read=15277"))
+        assertTrue(liveUsage[0].detail!!.contains("cache_creation=9098"))
+        // Second sighting: only the newly generated output — the cache counters
+        // are unchanged, so they must not be reported again.
+        assertTrue(liveUsage[1].detail!!.contains("input_tokens=0"))
+        assertTrue(liveUsage[1].detail!!.contains("output_tokens=5703"))
+        assertTrue(!liveUsage[1].detail!!.contains("cache_read="))
+        assertTrue(!liveUsage[1].detail!!.contains("cache_creation="))
+        // Summing the live events reproduces the turn's real usage.
+        assertEquals(5704L, liveUsage.sumOf { tokenField(it.detail!!, "output_tokens") })
+        assertEquals(2L, liveUsage.sumOf { tokenField(it.detail!!, "input_tokens") })
+    }
+
+    private fun tokenField(detail: String, key: String): Long =
+        Regex("(?:^|[,\\s])$key=(\\d+)").find(detail)?.groupValues?.get(1)?.toLong() ?: 0L
+
     @Test
     fun `codex emits usage as soon as turn completes`() = runBlocking {
         val streamJson = """

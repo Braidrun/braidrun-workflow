@@ -788,6 +788,30 @@ class ExternalAgentTools(
         fun handleLine(line: String)
     }
 
+    /**
+     * One assistant turn's token counts as most recently reported by the CLI.
+     * Anthropic splits the prompt into uncached [inputTokens] plus the cache
+     * counters, so all four fields are needed to describe a turn.
+     */
+    private data class ClaudeTurnUsage(
+        val inputTokens: Long = 0,
+        val outputTokens: Long = 0,
+        val cacheReadTokens: Long = 0,
+        val cacheCreationTokens: Long = 0
+    ) {
+        /** Field-wise difference, floored at zero so a shrinking count never
+         *  subtracts from what was already reported. */
+        operator fun minus(other: ClaudeTurnUsage) = ClaudeTurnUsage(
+            inputTokens = (inputTokens - other.inputTokens).coerceAtLeast(0L),
+            outputTokens = (outputTokens - other.outputTokens).coerceAtLeast(0L),
+            cacheReadTokens = (cacheReadTokens - other.cacheReadTokens).coerceAtLeast(0L),
+            cacheCreationTokens = (cacheCreationTokens - other.cacheCreationTokens).coerceAtLeast(0L)
+        )
+
+        fun isEmpty(): Boolean =
+            inputTokens == 0L && outputTokens == 0L && cacheReadTokens == 0L && cacheCreationTokens == 0L
+    }
+
     private inner class ClaudeStreamEventEmitter(
         private val resolvedName: String,
         private val invocationId: String,
@@ -797,7 +821,15 @@ class ExternalAgentTools(
         private var lastAssistantText = ""
         private val seenToolCalls = linkedSetOf<String>()
         private val seenToolResults = linkedSetOf<String>()
-        private val seenUsageMessages = linkedSetOf<String>()
+        /**
+         * Per-message running totals we have already published, so a message
+         * seen more than once contributes only what is new. Claude reports the
+         * same `message.id` several times as a turn progresses — first from the
+         * message-start snapshot, where `output_tokens` is a placeholder, and
+         * again once the turn is complete. Deduplicating on first sighting would
+         * freeze the placeholder as the turn's usage.
+         */
+        private val emittedUsage = linkedMapOf<String, ClaudeTurnUsage>()
         private var systemEventEmitted = false
         // Set once real token streaming (`--include-partial-messages` →
         // `stream_event`/`content_block_delta`) has begun, so the COMPLETE
@@ -863,8 +895,15 @@ class ExternalAgentTools(
          * Claude's final `result` envelope only arrives when the whole sub-agent
          * exits, but every completed assistant turn already carries its own usage.
          * Surface those per-turn deltas so long-running tool loops expose token
-         * consumption while they are still running. The web layer prefers these
-         * invocation-scoped deltas over the final aggregate to avoid double count.
+         * consumption while they are still running.
+         *
+         * A turn's usage is reported more than once under the same `message.id`
+         * and grows as the turn proceeds: the message-start snapshot carries the
+         * real (uncached) input and cache counts but only a placeholder
+         * `output_tokens`, and the completed message carries the real output.
+         * Every event therefore reports the **increment** since the last one for
+         * that message, so consumers can sum events without double counting and
+         * without freezing the placeholder as the turn's output.
          */
         private fun emitAssistantUsage(obj: JsonObject, message: JsonObject) {
             val usage = (message["usage"] as? JsonObject)
@@ -877,21 +916,31 @@ class ExternalAgentTools(
             val messageId = message.stringField("id")
                 ?: obj.stringField("uuid")
                 ?: obj.stringField("message_id")
-            if (messageId != null && !seenUsageMessages.add(messageId)) return
 
-            val input = inputTokens?.coerceAtLeast(0L) ?: 0L
-            val output = outputTokens?.coerceAtLeast(0L) ?: 0L
+            val running = ClaudeTurnUsage(
+                inputTokens = inputTokens?.coerceAtLeast(0L) ?: 0L,
+                outputTokens = outputTokens?.coerceAtLeast(0L) ?: 0L,
+                cacheReadTokens = usage.longField("cache_read_input_tokens")?.coerceAtLeast(0L) ?: 0L,
+                cacheCreationTokens = usage.longField("cache_creation_input_tokens")?.coerceAtLeast(0L) ?: 0L
+            )
+            // A message with no id can't be correlated across sightings; treat it
+            // as its own turn rather than silently folding it into the previous one.
+            val alreadyEmitted = messageId?.let { emittedUsage[it] } ?: ClaudeTurnUsage()
+            val delta = running - alreadyEmitted
+            if (delta.isEmpty()) return
+            messageId?.let { emittedUsage[it] = running }
+
             emit(
                 type = "claude_code_sub_agent_usage",
-                summary = "🔤 Claude Code Token 用量: $label (+${input + output})",
+                summary = "🔤 Claude Code Token 用量: $label (+${delta.inputTokens + delta.outputTokens})",
                 detail = buildString {
                     append("invocation_id=$invocationId")
                     messageId?.let { append(", message_id=${it.take(32)}") }
-                    append(", input_tokens=$input")
-                    append(", output_tokens=$output")
-                    append(", total_tokens=${input + output}")
-                    usage.longField("cache_read_input_tokens")?.let { append(", cache_read=$it") }
-                    usage.longField("cache_creation_input_tokens")?.let { append(", cache_creation=$it") }
+                    append(", input_tokens=${delta.inputTokens}")
+                    append(", output_tokens=${delta.outputTokens}")
+                    append(", total_tokens=${delta.inputTokens + delta.outputTokens}")
+                    if (delta.cacheReadTokens > 0L) append(", cache_read=${delta.cacheReadTokens}")
+                    if (delta.cacheCreationTokens > 0L) append(", cache_creation=${delta.cacheCreationTokens}")
                 }
             )
         }
