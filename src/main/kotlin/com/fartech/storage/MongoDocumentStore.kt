@@ -1,7 +1,9 @@
 package com.fartech.storage
 
 import com.mongodb.MongoException
+import com.mongodb.MongoWriteException
 import com.mongodb.client.MongoCollection
+import com.mongodb.client.model.Filters
 import com.mongodb.client.model.Projections
 import com.mongodb.client.model.ReplaceOptions
 import mu.KotlinLogging
@@ -55,6 +57,53 @@ class MongoDocumentStore(
             ReplaceOptions().upsert(true)
         )
     }
+
+    override fun putFenced(document: StoredDocument, fence: Long): Boolean {
+        val stamped = document.copy(namespace = namespace, fence = fence)
+        // Two attempts: the second only runs when the row was absent and our
+        // insert lost a duplicate-key race — the winner's row then gets one
+        // gated-replace evaluation against our fence.
+        repeat(2) {
+            val replaced = collection.replaceOne(
+                and(
+                    namespaceFilter(stamped.collection, stamped.id),
+                    fenceGate(fence)
+                ),
+                stamped.toBson()
+            )
+            if (replaced.matchedCount > 0) return true
+            val existing = collection.find(namespaceFilter(stamped.collection, stamped.id))
+                .projection(Projections.include("fence"))
+                .firstOrNull()
+            if (existing != null) {
+                // Row exists but the gate rejected it: a newer fence owns it.
+                return false
+            }
+            // Row absent — first fenced write for this id. A concurrent
+            // first-writer surfaces as a duplicate-key error IF the unique
+            // envelope index on (namespace, collection, id) exists (created
+            // by the host application; without it this degrades to put()'s
+            // pre-existing concurrent-insert exposure).
+            try {
+                collection.insertOne(stamped.toBson())
+                return true
+            } catch (dup: MongoWriteException) {
+                if (dup.error.code != 11000) throw dup
+                // Lost the insert race — loop once to gate against the winner.
+            }
+        }
+        return false
+    }
+
+    /**
+     * Fence admission: absent / null fence (legacy rows, [put]-written rows)
+     * or an existing fence not newer than ours.
+     */
+    private fun fenceGate(fence: Long): Bson = Filters.or(
+        Filters.exists("fence", false),
+        Filters.eq("fence", null),
+        Filters.lte("fence", fence)
+    )
 
     override fun get(collection: String, id: String): StoredDocument? {
         return this.collection.find(namespaceFilter(collection, id)).firstOrNull()?.toStoredDocument()
@@ -140,7 +189,8 @@ class MongoDocumentStore(
                 "status" to status,
                 "createdAt" to createdAt,
                 "updatedAt" to updatedAt,
-                "payload" to payload
+                "payload" to payload,
+                "fence" to fence
             )
         )
     }
@@ -167,7 +217,8 @@ class MongoDocumentStore(
             status = getString("status"),
             createdAt = createdAt,
             updatedAt = updatedAt,
-            payload = payload
+            payload = payload,
+            fence = coerceLong(get("fence"))
         )
     }
 }

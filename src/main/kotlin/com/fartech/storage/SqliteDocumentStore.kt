@@ -69,6 +69,16 @@ class SqliteDocumentStore(
                         ON documents(namespace, collection, status)
                         """.trimIndent()
                     )
+                    // Fencing column (1.1.0). SQLite has no ADD COLUMN IF NOT
+                    // EXISTS, so guard the ALTER by inspecting the live schema
+                    // — existing desktop databases migrate in place on open.
+                    val hasFence = statement.executeQuery("PRAGMA table_info(documents)").use { columns ->
+                        generateSequence { if (columns.next()) columns.getString("name") else null }
+                            .any { it == "fence" }
+                    }
+                    if (!hasFence) {
+                        statement.execute("ALTER TABLE documents ADD COLUMN fence INTEGER")
+                    }
                 }
             }
         } catch (failure: Throwable) {
@@ -83,8 +93,8 @@ class SqliteDocumentStore(
                 """
                 INSERT INTO documents (
                     id, collection, namespace, owner_id, parent_id, secondary_id,
-                    status, created_at, updated_at, payload
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    status, created_at, updated_at, payload, fence
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(namespace, collection, id) DO UPDATE SET
                     owner_id = excluded.owner_id,
                     parent_id = excluded.parent_id,
@@ -92,21 +102,40 @@ class SqliteDocumentStore(
                     status = excluded.status,
                     created_at = excluded.created_at,
                     updated_at = excluded.updated_at,
-                    payload = excluded.payload
+                    payload = excluded.payload,
+                    fence = excluded.fence
                 """.trimIndent()
             ).use { statement ->
-                statement.setString(1, document.id)
-                statement.setString(2, document.collection)
-                statement.setString(3, namespace)
-                statement.setString(4, document.ownerId)
-                statement.setString(5, document.parentId)
-                statement.setString(6, document.secondaryId)
-                statement.setString(7, document.status)
-                statement.setLong(8, document.createdAt)
-                statement.setLong(9, document.updatedAt)
-                statement.setString(10, document.payload)
+                statement.bindDocument(document, namespace)
                 statement.executeUpdate()
             }
+        }
+    }
+
+    override fun putFenced(document: StoredDocument, fence: Long): Boolean = lock.withLock {
+        // Single-statement atomic check-and-write: the DO UPDATE ... WHERE
+        // clause rejects the write when a NEWER fence owns the row (0 rows
+        // changed); an absent row takes the plain INSERT arm.
+        connection.prepareStatement(
+            """
+            INSERT INTO documents (
+                id, collection, namespace, owner_id, parent_id, secondary_id,
+                status, created_at, updated_at, payload, fence
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(namespace, collection, id) DO UPDATE SET
+                owner_id = excluded.owner_id,
+                parent_id = excluded.parent_id,
+                secondary_id = excluded.secondary_id,
+                status = excluded.status,
+                created_at = excluded.created_at,
+                updated_at = excluded.updated_at,
+                payload = excluded.payload,
+                fence = excluded.fence
+            WHERE documents.fence IS NULL OR documents.fence <= excluded.fence
+            """.trimIndent()
+        ).use { statement ->
+            statement.bindDocument(document.copy(fence = fence), namespace)
+            statement.executeUpdate() > 0
         }
     }
 
@@ -114,7 +143,7 @@ class SqliteDocumentStore(
         connection.prepareStatement(
             """
             SELECT id, collection, namespace, owner_id, parent_id, secondary_id,
-                   status, created_at, updated_at, payload
+                   status, created_at, updated_at, payload, fence
             FROM documents
             WHERE namespace = ? AND collection = ? AND id = ?
             """.trimIndent()
@@ -179,13 +208,13 @@ class SqliteDocumentStore(
                 query.excludePayload ->
                     """
                     SELECT id, collection, namespace, owner_id, parent_id, secondary_id,
-                           status, created_at, updated_at, '' AS payload
+                           status, created_at, updated_at, '' AS payload, fence
                     FROM documents
                     """.trimIndent()
                 else ->
                     """
                     SELECT id, collection, namespace, owner_id, parent_id, secondary_id,
-                           status, created_at, updated_at, payload
+                           status, created_at, updated_at, payload, fence
                     FROM documents
                     """.trimIndent()
             }
@@ -281,6 +310,21 @@ class SqliteDocumentStore(
             }
         }
 
+        /** Shared 11-column binding for the [put] / [putFenced] upsert statements. */
+        fun PreparedStatement.bindDocument(document: StoredDocument, namespace: String) {
+            setString(1, document.id)
+            setString(2, document.collection)
+            setString(3, namespace)
+            setString(4, document.ownerId)
+            setString(5, document.parentId)
+            setString(6, document.secondaryId)
+            setString(7, document.status)
+            setLong(8, document.createdAt)
+            setLong(9, document.updatedAt)
+            setString(10, document.payload)
+            document.fence?.let { setLong(11, it) } ?: setNull(11, java.sql.Types.INTEGER)
+        }
+
         fun ResultSet.toStoredDocument(): StoredDocument = StoredDocument(
             id = getString("id"),
             collection = getString("collection"),
@@ -291,7 +335,8 @@ class SqliteDocumentStore(
             status = getString("status"),
             createdAt = getLong("created_at"),
             updatedAt = getLong("updated_at"),
-            payload = getString("payload")
+            payload = getString("payload"),
+            fence = getLong("fence").let { value -> if (wasNull()) null else value }
         )
     }
 }

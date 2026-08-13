@@ -16,21 +16,30 @@ class TypedDocumentCollection<T>(
     private val namespace: String = ""
 ) {
     fun save(entity: T) {
-        store.put(
-            StoredDocument(
-                id = idSelector(entity),
-                collection = collection,
-                namespace = namespace,
-                ownerId = ownerIdSelector(entity),
-                parentId = parentIdSelector(entity),
-                secondaryId = secondaryIdSelector(entity),
-                status = statusSelector(entity),
-                createdAt = createdAtSelector(entity),
-                updatedAt = updatedAtSelector(entity),
-                payload = StorageJson.json.encodeToString(serializer, entity)
-            )
-        )
+        store.put(envelope(entity))
     }
+
+    /**
+     * Fenced save — see [DocumentStore.putFenced]. Returns false when a newer
+     * fence already owns the row; the caller's write was discarded and its
+     * ownership lease must be considered lost.
+     */
+    fun saveFenced(entity: T, fence: Long): Boolean {
+        return store.putFenced(envelope(entity), fence)
+    }
+
+    private fun envelope(entity: T): StoredDocument = StoredDocument(
+        id = idSelector(entity),
+        collection = collection,
+        namespace = namespace,
+        ownerId = ownerIdSelector(entity),
+        parentId = parentIdSelector(entity),
+        secondaryId = secondaryIdSelector(entity),
+        status = statusSelector(entity),
+        createdAt = createdAtSelector(entity),
+        updatedAt = updatedAtSelector(entity),
+        payload = StorageJson.json.encodeToString(serializer, entity)
+    )
 
     fun get(id: String): T? {
         val document = store.get(collection, id) ?: return null

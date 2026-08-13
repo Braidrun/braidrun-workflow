@@ -35,6 +35,22 @@ class InMemoryDocumentStore(
         documents[key(document.collection, document.id)] = document.copy(namespace = namespace)
     }
 
+    override fun putFenced(document: StoredDocument, fence: Long): Boolean {
+        val stamped = document.copy(namespace = namespace, fence = fence)
+        var accepted = false
+        // `compute` gives per-key atomicity for the whole check-and-write.
+        documents.compute(key(document.collection, document.id)) { _, existing ->
+            val existingFence = existing?.fence
+            if (existing == null || existingFence == null || existingFence <= fence) {
+                accepted = true
+                stamped
+            } else {
+                existing
+            }
+        }
+        return accepted
+    }
+
     override fun get(collection: String, id: String): StoredDocument? {
         return documents[key(collection, id)]
     }

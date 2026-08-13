@@ -5,6 +5,32 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0]
+
+### Added
+
+- Fenced conditional writes for multi-writer coordination:
+  `DocumentStore.putFenced(document, fence)` and
+  `TypedDocumentCollection.saveFenced(entity, fence)`. A fenced write records
+  a monotonic token on the stored row (`StoredDocument.fence`, new optional
+  envelope column) and is rejected when a NEWER token already owns the row —
+  the primitive a host application needs to stop a writer whose ownership
+  lease silently expired (e.g. a node resuming a workflow execution after a
+  GC pause outlived its distributed lock) from clobbering the new owner's
+  state. Plain `put` still replaces unconditionally and clears the fence, so
+  unfenced writers and pre-upgrade rows keep today's semantics.
+  - Mongo: gated `replaceOne` with an insert fallback; a concurrent
+    first-insert race is resolved via the host's unique envelope index on
+    `(namespace, collection, id)`.
+  - SQLite: single-statement upsert with a `DO UPDATE ... WHERE` fence gate;
+    existing databases gain the `fence` column via an in-place guarded
+    `ALTER TABLE` on open.
+  - In-memory: per-key atomic `compute`.
+- Breaking for custom `DocumentStore` implementations only: the interface
+  gained the abstract `putFenced` member (hence the minor version bump). The
+  three shipped stores all implement it; downstream code that merely USES a
+  store is source- and binary-compatible.
+
 ## [1.0.24]
 
 ### Fixed

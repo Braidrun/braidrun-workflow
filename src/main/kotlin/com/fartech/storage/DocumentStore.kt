@@ -22,7 +22,16 @@ data class StoredDocument(
     val status: String? = null,
     val createdAt: Long,
     val updatedAt: Long,
-    val payload: String
+    val payload: String,
+    /**
+     * Monotonic fencing token for [DocumentStore.putFenced]. Null on rows
+     * written by [DocumentStore.put] and on all pre-fencing data. A fenced
+     * write records its token here; a later fenced write with a SMALLER
+     * token is rejected, which is what protects a document against a writer
+     * whose ownership lease has silently expired (e.g. a node resuming a
+     * workflow execution after a GC pause outlived its distributed lock).
+     */
+    val fence: Long? = null
 )
 
 enum class DocumentSortField {
@@ -103,6 +112,32 @@ data class DocumentQuery(
 
 interface DocumentStore : AutoCloseable {
     fun put(document: StoredDocument)
+
+    /**
+     * Fenced conditional replace-or-insert.
+     *
+     * Writes [document] with its fence column set to [fence], but ONLY when
+     * the stored row either does not exist, carries no fence (null — legacy
+     * data or [put]-written rows), or carries a fence `<=` [fence]. Returns
+     * false when a NEWER fence already owns the row — the caller's ownership
+     * lease has been superseded and its write must be discarded.
+     *
+     * Intended for multi-writer coordination such as workflow-execution
+     * ownership epochs: each takeover increments the epoch under a
+     * distributed lock, every subsequent write carries that epoch, and a
+     * writer whose lock silently expired can no longer clobber the new
+     * owner's state.
+     *
+     * Contract notes:
+     *  - Same-fence writes succeed (last-write-wins within one epoch, which
+     *    matches [put] semantics for a single logical owner).
+     *  - A plain [put] on a fenced row REPLACES it and clears the fence —
+     *    unfenced writers deliberately bypass fencing so mixed-version
+     *    deployments degrade to today's behavior instead of failing.
+     *  - The check-and-write must be atomic per document in every
+     *    implementation.
+     */
+    fun putFenced(document: StoredDocument, fence: Long): Boolean
 
     fun get(collection: String, id: String): StoredDocument?
 
