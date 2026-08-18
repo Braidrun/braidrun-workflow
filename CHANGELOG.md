@@ -5,6 +5,31 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.1]
+
+### Fixed
+
+- The strict read guard's extension whitelist covered no Apple text format, so
+  an agent working on an iOS or macOS project could write `ContentView.swift`
+  and then be denied when it read the same file back — a `SecurityException`
+  through `SandboxedFileSystemProvider`, a security-error string through
+  `SafeFileTools.readFile`. Metadata operations (`exists`, `list`, `metadata`,
+  `size`) deliberately bypass the guard, so such a file existed and listed but
+  could never be read, and `copy`/`move` run the guard on their source, so
+  renaming to an allowed extension was no way around it. The guard is only
+  active under `strict_sandbox`, so this surfaced in hardened deployments
+  rather than in local development.
+  Both whitelists now accept the formats a Swift project is made of: `swift`,
+  `m`, `mm`, `h`, `modulemap`, `podspec`, `plist`, `xcprivacy`, `xcstrings`,
+  `strings`, `stringsdict`, `pbxproj`, `xcconfig`, `entitlements`, `xcscheme`,
+  `xcworkspacedata`, `resolved`, `storyboard`, and `xib`. No binary format was
+  added — `ipa`, `dylib`, `xcarchive`, `car`, and `nib` remain blocked, and the
+  new tests assert that they stay blocked.
+  `FileReadGuard.DEFAULT_READ_EXTENSION_WHITELIST` and
+  `SafeFileTools.ALLOWED_TEXT_EXTENSIONS` still differ on purpose: the former
+  gates reading content and continues to exclude secret-bearing config formats
+  that the latter allows on write.
+
 ## [1.1.0]
 
 ### Added
@@ -268,6 +293,7 @@ The runtime library provides:
 - LLM provider integration via the Koog AI Agents framework, including
   Anthropic, OpenAI, DeepSeek, OpenRouter, Z.ai, and NVIDIA model registries.
 
+[1.1.1]: https://github.com/Braidrun/braidrun-workflow/releases/tag/1.1.1
 [1.0.20]: https://github.com/Braidrun/braidrun-workflow/releases/tag/1.0.20
 [1.0.19]: https://github.com/Braidrun/braidrun-workflow/releases/tag/1.0.19
 [1.0.17]: https://github.com/Braidrun/braidrun-workflow/releases/tag/1.0.17
