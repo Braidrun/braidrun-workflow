@@ -93,6 +93,14 @@ class FileReadGuard(
             "html", "htm", "css", "scss", "sass", "less", "sql", "log",
             // Modern web frontends (component / framework files; plain text)
             "vue", "svelte", "astro",
+            // Apple / iOS toolchain (all plain text: Swift + Objective-C sources,
+            // XML/JSON-shaped project & resource files). Without these an agent could
+            // write `Foo.swift` but not read it back, leaving every coder / reviewer /
+            // auditor step half-blind on iOS pipelines.
+            "swift", "m", "mm", "h", "modulemap", "podspec",
+            "plist", "xcprivacy", "xcstrings", "strings", "stringsdict",
+            "pbxproj", "xcconfig", "entitlements", "xcscheme", "xcworkspacedata", "resolved",
+            "storyboard", "xib",
             // Web manifests (PWA / browser config — JSON-shaped, W3C-blessed
             // extensions). 2026-04-26: `.webmanifest` was the literal cause
             // of execution-process-868c6031-...-failed.yaml (PWA build agent

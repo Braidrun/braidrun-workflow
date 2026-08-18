@@ -49,6 +49,49 @@ class FileReadGuardTest {
     }
 
     @Test
+    fun `allows Apple and iOS source extensions`(@TempDir dir: File) {
+        // Regression: the pipeline's coder / reviewer / auditor agents run under a
+        // strict guard. Before this list existed they could WRITE Foo.swift but not
+        // READ it back, so every review step was half-blind on iOS projects.
+        val appleExtensions = listOf(
+            "swift", "m", "mm", "h", "modulemap", "podspec",
+            "plist", "xcprivacy", "xcstrings", "strings", "stringsdict",
+            "pbxproj", "xcconfig", "entitlements", "xcscheme", "xcworkspacedata", "resolved",
+            "storyboard", "xib"
+        )
+        for (ext in appleExtensions) {
+            val file = File(dir, "Sample.$ext").also { it.createNewFile() }
+            assertDoesNotThrow(
+                { enabledGuard.validateReadFile(file) },
+                "`.$ext` must be readable under the strict guard"
+            )
+            assertTrue(
+                ext in FileReadGuard.DEFAULT_READ_EXTENSION_WHITELIST,
+                ".$ext must remain in the default read whitelist (iOS pipeline depends on it)"
+            )
+        }
+    }
+
+    @Test
+    fun `reads back a swift file written under the strict guard`(@TempDir dir: File) {
+        val source = File(dir, "ContentView.swift").also { it.writeText("import SwiftUI\n") }
+        assertDoesNotThrow { enabledGuard.validateReadFile(source) }
+        assertEquals("import SwiftUI\n", source.readText())
+    }
+
+    @Test
+    fun `still blocks binary Apple artifacts that are not source`(@TempDir dir: File) {
+        // Widening the whitelist must not open compiled / packaged Apple output.
+        for (ext in listOf("ipa", "dylib", "xcarchive", "dSYM", "car", "nib", "o")) {
+            val file = File(dir, "Build.$ext").also { it.createNewFile() }
+            val ex = assertThrows(SecurityException::class.java) {
+                enabledGuard.validateReadFile(file)
+            }
+            assertTrue(ex.message!!.contains("not in the read whitelist"))
+        }
+    }
+
+    @Test
     fun `blocks non-whitelisted extensions`(@TempDir dir: File) {
         for (ext in listOf("exe", "dll", "so", "class", "jar", "db", "sqlite")) {
             val file = File(dir, "test.$ext").also { it.createNewFile() }

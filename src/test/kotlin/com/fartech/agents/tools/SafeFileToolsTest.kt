@@ -157,4 +157,54 @@ class SafeFileToolsTest {
         assertTrue(result.contains("Security Error"))
         assertTrue(result.contains("blacklisted"))
     }
+
+    @Test
+    fun `writeFile then readFile round-trips swift sources when read guard enabled`() {
+        // Regression: an iOS coder agent writes Foo.swift and a reviewer agent
+        // reads it back. Pre-fix neither side worked — `swift` was in neither
+        // ALLOWED_TEXT_EXTENSIONS nor the read guard's whitelist — leaving every
+        // coder / reviewer / auditor step half-blind on iOS projects.
+        val workingDir = createTempDirectory("safe-tools-working").toFile().also { tempDirs.add(it.toPath()) }
+        val tool = SafeFileTools.createFromParameters(
+            parameters = listOf(
+                ConfigurationParameter("working_dir", JsonPrimitive(workingDir.absolutePath))
+            ),
+            readGuard = FileReadGuard(enabled = true)
+        )
+
+        val appleFiles = listOf(
+            "ContentView.swift", "Bridge.m", "Bridge.mm", "Bridge.h",
+            "Info.plist", "PrivacyInfo.xcprivacy", "Localizable.xcstrings",
+            "Localizable.strings", "Plurals.stringsdict", "project.pbxproj",
+            "Release.xcconfig", "App.entitlements", "App.xcscheme",
+            "contents.xcworkspacedata", "Package.resolved", "Main.storyboard",
+            "Launch.xib", "module.modulemap", "App.podspec"
+        )
+
+        for (name in appleFiles) {
+            val target = File(workingDir, name)
+            val written = tool.writeFile(target.absolutePath, "// $name")
+            assertTrue(written.contains("Successfully wrote"), "write of $name failed: $written")
+
+            val read = tool.readFile(target.absolutePath)
+            assertTrue(read == "// $name", "read of $name returned: $read")
+        }
+    }
+
+    @Test
+    fun `readFile still denies binary build artifacts when read guard enabled`() {
+        val workingDir = createTempDirectory("safe-tools-working").toFile().also { tempDirs.add(it.toPath()) }
+        val artifact = File(workingDir, "App.ipa").apply { writeText("PK") }
+        val tool = SafeFileTools.createFromParameters(
+            parameters = listOf(
+                ConfigurationParameter("working_dir", JsonPrimitive(workingDir.absolutePath))
+            ),
+            readGuard = FileReadGuard(enabled = true)
+        )
+
+        val result = tool.readFile(artifact.absolutePath)
+
+        assertTrue(result.contains("Security Error"))
+        assertTrue(result.contains("not allowed"))
+    }
 }

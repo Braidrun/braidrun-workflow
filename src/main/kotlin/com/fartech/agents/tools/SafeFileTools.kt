@@ -78,7 +78,13 @@ class SafeFileTools(
         "html", "css", "js", "ts", "jsx", "tsx",
         "java", "kt", "kts", "scala", "py", "rb", "go", "rs", "c", "cpp", "h", "hpp",
         "sh", "bash", "zsh", "fish", "ps1", "bat", "cmd",
-        "sql", "graphql", "proto", "thrift"
+        "sql", "graphql", "proto", "thrift",
+        // Apple / iOS toolchain (plain text: Swift + Objective-C sources,
+        // XML/JSON-shaped project, resource and localization files)
+        "swift", "m", "mm", "modulemap", "podspec",
+        "plist", "xcprivacy", "xcstrings", "strings", "stringsdict",
+        "pbxproj", "xcconfig", "entitlements", "xcscheme", "xcworkspacedata", "resolved",
+        "storyboard", "xib"
     )
 
     private val ALLOWED_BINARY_EXTENSIONS = setOf(

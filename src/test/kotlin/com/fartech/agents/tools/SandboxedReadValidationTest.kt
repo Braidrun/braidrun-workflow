@@ -196,6 +196,52 @@ class SandboxedReadValidationTest {
     }
 
     @Test
+    fun `readBytes returns swift source under the strict guard`(@TempDir dir: File) {
+        // Regression for the iOS pipeline: agents write Foo.swift through the
+        // sandbox and then read it back for review / audit steps. Pre-fix the
+        // whitelist had no Apple source types, so readBytes threw
+        // SecurityException on the very file the same agent had just written.
+        val swiftFile = File(dir, "ContentView.swift").also { it.writeText("import SwiftUI") }
+        val sandbox = SandboxedFileSystemProvider(
+            allowedDirectories = listOf(dir.toPath()),
+            readGuard = FileReadGuard(enabled = true)
+        )
+
+        val bytes = runBlocking { sandbox.readBytes(swiftFile.toPath()) }
+        assertEquals("import SwiftUI", String(bytes))
+
+        // A genuinely disallowed binary artifact is still blocked.
+        val binary = File(dir, "App.ipa").also { it.writeText("PK") }
+        assertThrows(SecurityException::class.java) {
+            runBlocking { sandbox.readBytes(binary.toPath()) }
+        }
+    }
+
+    @Test
+    fun `apple source extensions are in the default read whitelist (regression)`() {
+        // Prevents anyone from dropping the iOS formats while tightening the
+        // whitelist later — every coder / reviewer / auditor step depends on them.
+        listOf(
+            "swift", "m", "mm", "h", "modulemap", "podspec",
+            "plist", "xcprivacy", "xcstrings", "strings", "stringsdict",
+            "pbxproj", "xcconfig", "entitlements", "xcscheme", "xcworkspacedata", "resolved",
+            "storyboard", "xib"
+        ).forEach {
+            assertTrue(
+                it in FileReadGuard.DEFAULT_READ_EXTENSION_WHITELIST,
+                ".$it must be in the default whitelist (Apple/iOS text formats)"
+            )
+        }
+        // Compiled / packaged Apple output stays out.
+        listOf("ipa", "dylib", "xcarchive", "nib", "car").forEach {
+            assertFalse(
+                it in FileReadGuard.DEFAULT_READ_EXTENSION_WHITELIST,
+                ".$it is a binary build artifact and must NOT be whitelisted"
+            )
+        }
+    }
+
+    @Test
     fun `metadata still blocks files outside allowed sandbox`(@TempDir dir: File) {
         // The sandbox-dir check is the absolute boundary that ALL ops must
         // pass. Make sure we didn't accidentally relax it.
