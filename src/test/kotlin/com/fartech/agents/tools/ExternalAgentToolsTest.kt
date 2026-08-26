@@ -876,6 +876,63 @@ class ExternalAgentToolsTest {
     }
 
     @Test
+    fun `claude organization-disabled subscription switches to team credential`() = runBlocking {
+        val usedTokens = mutableListOf<String>()
+        val cooled = mutableListOf<String>()
+        val succeeded = mutableListOf<String>()
+        val candidates = listOf(
+            ClaudeCredentialProvider.Credential("credential-personal", "token-personal", "Personal", "user"),
+            ClaudeCredentialProvider.Credential("credential-team", "token-team", "Team", "team")
+        )
+        val provider = object : ClaudeCredentialProvider {
+            override suspend fun acquire(excludedCredentialIds: Set<String>) =
+                candidates.firstOrNull { it.id !in excludedCredentialIds }
+
+            override suspend fun markRateLimited(
+                credential: ClaudeCredentialProvider.Credential,
+                resetAtMillis: Long
+            ) {
+                cooled += credential.id
+            }
+
+            override suspend fun markSucceeded(
+                credential: ClaudeCredentialProvider.Credential,
+                executionId: String?,
+                stepName: String?
+            ) {
+                succeeded += credential.id
+            }
+        }
+        val unavailable = """{"type":"result","subtype":"success","is_error":true,"api_error_status":403,"num_turns":1,"terminal_reason":"api_error","result":"Your organization has disabled Claude subscription access for Claude Code","error":"oauth_org_not_allowed","usage":{"input_tokens":0,"output_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}"""
+        val executor = FakeSubprocessExecutor(resultForRequest = { request ->
+            val token = request.env["CLAUDE_CODE_OAUTH_TOKEN"].orEmpty()
+            usedTokens += token
+            if (token == "token-personal") {
+                ExecResult(1, "", unavailable, 10)
+            } else {
+                ExecResult(0, """{"type":"result","result":"team fallback ok"}""", "", 10)
+            }
+        })
+        val events = mutableListOf<CapturedEvent>()
+        val tools = ExternalAgentTools(
+            executor = executor,
+            parameters = listOf(
+                ConfigurationParameter(ExternalAgentTools.CLAUDE_AUTH_MODE_PARAMETER, JsonPrimitive("subscription"))
+            ),
+            onMonitorEvent = { type, summary, detail -> events += CapturedEvent(type, summary, detail) },
+            claudeCredentialProvider = provider
+        )
+
+        val output = tools.runClaudeCodeSubAgent(ExternalAgentContext(prompt = "x", name = "org-failover"))
+
+        assertEquals("team fallback ok", output)
+        assertEquals(listOf("token-personal", "token-team"), usedTokens)
+        assertEquals(listOf("credential-personal"), cooled)
+        assertEquals(listOf("credential-team"), succeeded)
+        assertTrue(events.any { it.type == ExternalAgentTools.CLAUDE_SUBSCRIPTION_UNAVAILABLE_EVENT })
+    }
+
+    @Test
     fun `claude subscription 429 after token usage cools credential without replay by default`() {
         val cooled = mutableListOf<String>()
         var executions = 0

@@ -503,6 +503,35 @@ class ExternalAgentTools(
                 )
             }
             val tail = externalAgentFailureExcerpt(engine, result.stdout, result.stderr)
+            val claudeUnavailable = engine == Engine.CLAUDE &&
+                auth.mode == ExternalAuthMode.SUBSCRIPTION &&
+                auth.subscriptionCredentialId != null &&
+                confirmedClaudeSubscriptionCredentialUnavailable("${result.stderr}\n${result.stdout}")
+            if (claudeUnavailable) {
+                val credential = requireNotNull(auth.subscriptionCredential)
+                val resetAtMillis = System.currentTimeMillis() + SUBSCRIPTION_AUTH_FAILURE_COOLDOWN_MS
+                runCatching {
+                    claudeCredentialProvider?.markRateLimited(credential, resetAtMillis)
+                }.onFailure { error ->
+                    logger.warn(error) { "[ExternalAgent] Failed to persist unavailable Claude credential cooldown" }
+                }
+                emit(
+                    type = CLAUDE_SUBSCRIPTION_UNAVAILABLE_EVENT,
+                    summary = "🔄 Claude 订阅凭据不可用，正在切换备用凭据: $invocationLabel",
+                    detail = buildString {
+                        append("invocation_id=$invocationId, credential_id=${credential.id}")
+                        auth.subscriptionCredentialLabel?.let { append(", credential_label=$it") }
+                        append(", reason=oauth_org_not_allowed, resets_at_ms=$resetAtMillis")
+                    }
+                )
+                val attempted = attemptedCredentialIds + credential.id
+                if (attempted.size >= MAX_SUBSCRIPTION_CREDENTIAL_ATTEMPTS) {
+                    throw ExternalAgentExecutionException(
+                        "Claude subscription failover exhausted $MAX_SUBSCRIPTION_CREDENTIAL_ATTEMPTS credential attempts"
+                    )
+                }
+                return runExternalDetailed(engine, ctx, onTextDelta, attempted)
+            }
             val claudeRateLimit = if (
                 engine == Engine.CLAUDE &&
                 auth.mode == ExternalAuthMode.SUBSCRIPTION &&
@@ -2475,7 +2504,9 @@ class ExternalAgentTools(
         /** ChatGPT subscription out of quota; carries whether failover took over. */
         const val CODEX_SUBSCRIPTION_RATE_LIMIT_EVENT = "codex_subscription_rate_limited"
         const val CLAUDE_SUBSCRIPTION_RATE_LIMIT_EVENT = "claude_subscription_rate_limited"
+        const val CLAUDE_SUBSCRIPTION_UNAVAILABLE_EVENT = "claude_subscription_unavailable"
         private const val DEFAULT_SUBSCRIPTION_RATE_LIMIT_COOLDOWN_MS = 15 * 60 * 1000L
+        private const val SUBSCRIPTION_AUTH_FAILURE_COOLDOWN_MS = 24 * 60 * 60 * 1000L
 
         /**
          * Cap on credentials one invocation may burn through, per engine. The
@@ -2539,6 +2570,39 @@ class ExternalAgentTools(
         internal data class ClaudeSubscriptionRateLimit(
             val safeWithoutExplicitReplay: Boolean
         )
+
+        /**
+         * Claude can reject one OAuth subscription because its organization
+         * disabled Claude Code while another personal/team credential remains
+         * usable. This is a credential-scoped auth failure, not a workflow
+         * failure. Failover is safe only for the observed zero-token, one-turn
+         * 403 shape so a partially executed agent is never replayed silently.
+         */
+        internal fun confirmedClaudeSubscriptionCredentialUnavailable(output: String): Boolean {
+            val objects = output.lineSequence().mapNotNull { line ->
+                runCatching { permissiveJson.parseToJsonElement(line.trim()) as? JsonObject }.getOrNull()
+            }.toList()
+            val result = objects.lastOrNull { obj -> obj["type"]?.jsonPrimitive?.contentOrNull == "result" }
+                ?: return false
+            val usage = result["usage"] as? JsonObject
+            val hasTokens = listOf(
+                "input_tokens",
+                "output_tokens",
+                "cache_creation_input_tokens",
+                "cache_read_input_tokens"
+            ).any { key ->
+                usage?.get(key)?.jsonPrimitive?.contentOrNull?.toLongOrNull()?.let { it > 0 } == true
+            }
+            val marker = output.lowercase().let { text ->
+                "oauth_org_not_allowed" in text ||
+                    "organization has disabled claude subscription access" in text
+            }
+            return result["is_error"]?.jsonPrimitive?.contentOrNull == "true" &&
+                result["api_error_status"]?.jsonPrimitive?.contentOrNull == "403" &&
+                (result["num_turns"]?.jsonPrimitive?.contentOrNull?.toIntOrNull() ?: Int.MAX_VALUE) <= 1 &&
+                !hasTokens &&
+                marker
+        }
 
         /**
          * Identifies a structured Claude subscription 429 independently from whether
