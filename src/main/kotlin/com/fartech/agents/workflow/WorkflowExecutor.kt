@@ -759,7 +759,16 @@ class WorkflowExecutor(
      * purpose: failover picks another credential of the same vendor, never a
      * ChatGPT subscription to cover an exhausted Claude one.
      */
-    private val codexCredentialProvider: ClaudeCredentialProvider? = null
+    private val codexCredentialProvider: ClaudeCredentialProvider? = null,
+    /**
+     * Receives the rotated `auth.json` when a Codex run refreshed its ChatGPT
+     * tokens inside the per-run `CODEX_HOME`, so the host can write it back to
+     * the credential store before that directory is deleted. Without it every
+     * in-sandbox refresh is lost and the stored refresh token goes stale while
+     * the run itself succeeds. First argument is the credential the run
+     * actually used (null when the auth.json came from a workflow parameter).
+     */
+    private val onCodexAuthJsonRotated: ((credentialId: String?, authJson: String) -> Unit)? = null
 ) {
 
     /**
@@ -4787,7 +4796,8 @@ IMPORTANT: You MUST respond with ONLY the category name (one of: ${config.catego
             // tools silently fall back to a native executor in production.
             externalAgentExecutor = codeStepExecutor,
             claudeCredentialProvider = claudeCredentialProvider,
-            codexCredentialProvider = codexCredentialProvider
+            codexCredentialProvider = codexCredentialProvider,
+            onCodexAuthJsonRotated = onCodexAuthJsonRotated
         )
 
         // 构建监控 Features
@@ -6302,7 +6312,8 @@ IMPORTANT: You MUST respond with ONLY the category name (one of: ${config.catego
             // independently re-resolve subprocess_mode and silently fall back to native.
             externalAgentExecutor = codeStepExecutor,
             claudeCredentialProvider = claudeCredentialProvider,
-            codexCredentialProvider = codexCredentialProvider
+            codexCredentialProvider = codexCredentialProvider,
+            onCodexAuthJsonRotated = onCodexAuthJsonRotated
         )
 
         return PreparedAgentRuntime(
@@ -6959,6 +6970,13 @@ IMPORTANT: You MUST respond with ONLY the category name (one of: ${config.catego
                 sessionId = sessionId
             ),
             onMonitorEvent = eventCallback,
+            // The same pool the `external_agent` tool group already draws from:
+            // ordered candidates, cooldowns and pinning apply to a Codex Agent
+            // step too, and the pool is what names the credential a rotated
+            // auth.json belongs to. `external_agent_codex_auth_json` stays the
+            // fallback when the host supplies no pool.
+            codexCredentialProvider = codexCredentialProvider,
+            onCodexAuthJsonRotated = onCodexAuthJsonRotated,
             trustExecutorSandbox = isDockerSubprocessMode()
         )
 

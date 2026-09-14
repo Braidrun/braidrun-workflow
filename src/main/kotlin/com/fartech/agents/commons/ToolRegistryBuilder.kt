@@ -113,6 +113,8 @@ fun parseToolSet(
     externalAgentExecutor: SubprocessExecutor? = null,
     claudeCredentialProvider: ClaudeCredentialProvider? = null,
     codexCredentialProvider: ClaudeCredentialProvider? = null,
+    /** See [ExternalAgentTools]: rotated Codex `auth.json` hand-back for the host. */
+    onCodexAuthJsonRotated: ((credentialId: String?, authJson: String) -> Unit)? = null,
 ): ToolRegistry {
     val toolSet =
         parameters.parameter("tool_set", emptyList<String>().toMutableSet()).also { it.addAll(tools) }
@@ -130,7 +132,8 @@ fun parseToolSet(
         userInteractionHandler = userInteractionHandler,
         externalAgentExecutor = externalAgentExecutor,
         claudeCredentialProvider = claudeCredentialProvider,
-        codexCredentialProvider = codexCredentialProvider
+        codexCredentialProvider = codexCredentialProvider,
+        onCodexAuthJsonRotated = onCodexAuthJsonRotated
     )
 }
 
@@ -154,6 +157,8 @@ fun parseExactToolSet(
     externalAgentExecutor: SubprocessExecutor? = null,
     claudeCredentialProvider: ClaudeCredentialProvider? = null,
     codexCredentialProvider: ClaudeCredentialProvider? = null,
+    /** See [ExternalAgentTools]: rotated Codex `auth.json` hand-back for the host. */
+    onCodexAuthJsonRotated: ((credentialId: String?, authJson: String) -> Unit)? = null,
 ): ToolRegistry = buildToolRegistry(
     parameters = parameters,
     httpAccess = httpAccess,
@@ -168,7 +173,8 @@ fun parseExactToolSet(
     userInteractionHandler = userInteractionHandler,
     externalAgentExecutor = externalAgentExecutor,
     claudeCredentialProvider = claudeCredentialProvider,
-    codexCredentialProvider = codexCredentialProvider
+    codexCredentialProvider = codexCredentialProvider,
+    onCodexAuthJsonRotated = onCodexAuthJsonRotated
 )
 
 /**
@@ -253,6 +259,7 @@ private fun buildToolRegistry(
     externalAgentExecutor: SubprocessExecutor?,
     claudeCredentialProvider: ClaudeCredentialProvider?,
     codexCredentialProvider: ClaudeCredentialProvider?,
+    onCodexAuthJsonRotated: ((credentialId: String?, authJson: String) -> Unit)?,
 ): ToolRegistry = ToolRegistry {
     val browserDisabled = browserToolsDisabled(parameters)
     val subprocessExecutor = createSubprocessExecutor(parameters)
@@ -300,6 +307,7 @@ private fun buildToolRegistry(
                 onMonitorEvent = onSubAgentEvent,
                 claudeCredentialProvider = claudeCredentialProvider,
                 codexCredentialProvider = codexCredentialProvider,
+                onCodexAuthJsonRotated = onCodexAuthJsonRotated,
                 trustExecutorSandbox = parameters.parameter("subprocess_mode", "native")
                     .equals("docker", ignoreCase = true)
             )

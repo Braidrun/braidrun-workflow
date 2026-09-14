@@ -5,6 +5,28 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.3]
+
+### Added
+
+- `WorkflowExecutor` accepts `onCodexAuthJsonRotated` and threads it, together
+  with the Codex credential pool, into every `ExternalAgentTools` it builds:
+  the Codex Agent step and the `external_agent` tool group of managed agents
+  and orchestrators. When the Codex CLI refreshes its ChatGPT tokens inside the
+  per-run `CODEX_HOME`, the host now receives the rotated `auth.json` and the
+  id of the credential that produced it before the directory is removed.
+  Without the hook the workflow path discarded every in-sandbox refresh, so
+  the stored refresh token went stale while the run itself succeeded —
+  observed in production as `invalid_refresh_token` on credentials still in
+  daily use.
+
+### Changed
+
+- The Codex Agent step draws its login from the runtime's Codex credential
+  pool (ordered candidates, cooldowns, pinning) like the `external_agent` tool
+  group already did, instead of only the `external_agent_codex_auth_json`
+  parameter. The parameter remains the fallback when no pool is supplied.
+
 ## [1.1.1]
 
 ### Fixed
