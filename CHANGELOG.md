@@ -5,6 +5,25 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.4]
+
+### Fixed
+
+- `WorkflowExecutor.processExtract` now maps a `/output` or `/output/...` value
+  extracted from a step's output back to the execution's host output directory
+  when the workflow runs in Docker subprocess mode. Agents and code steps see
+  the output directory as `/output` and echo that path in their `key=value`
+  lines; host-side consumers of the extracted variable resolved the literal
+  container path and silently read nothing (the ASA keyword optimizer dropped
+  every AI open-keyword review this way). Templates no longer need per-step
+  translation. `remapContainerOutputPath` is the pure helper behind it.
+- `WorkflowExecutor.executeWithRetry` records attempts that return
+  `success=false` without throwing. Previously such an attempt fell through the
+  loop unrecorded, so a step whose final attempt failed validation was reported
+  with an earlier attempt's stale exception (or a generic message), and the
+  monitor's final `completeStep` carried the wrong error. The last attempt's
+  own `StepExecutionResult` is now returned, with its error and output intact.
+
 ## [1.1.3]
 
 ### Added

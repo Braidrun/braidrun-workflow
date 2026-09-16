@@ -788,6 +788,21 @@ class WorkflowExecutor(
         private const val HOST_OUTPUT_DIR_RUNTIME_KEY = "__braidrun_host_output_dir"
         private const val CONTAINER_OUTPUT_DIR = "/output"
 
+        /**
+         * `/output` or `/output/<rest>` → `<hostOutputDir>/<rest>`; anything else
+         * (including paths that merely contain the substring) is left alone and
+         * reported as null so callers do not rewrite the variable.
+         */
+        internal fun remapContainerOutputPath(value: String, hostOutputDir: String): String? {
+            val trimmed = value.trim()
+            val host = hostOutputDir.trimEnd('/')
+            return when {
+                trimmed == CONTAINER_OUTPUT_DIR -> host
+                trimmed.startsWith("$CONTAINER_OUTPUT_DIR/") -> host + trimmed.removePrefix(CONTAINER_OUTPUT_DIR)
+                else -> null
+            }
+        }
+
         /** Pre-compiled regex for sanitizing env var keys. */
         private val ENV_KEY_SANITIZE_REGEX = Regex("[^A-Z0-9_]")
 
@@ -1208,7 +1223,7 @@ class WorkflowExecutor(
                 context.setStepOutput(step.step, output)
                 restoreResumedStepVariables(step, output, context)
                 autoIndexStepOutput(workflow, context, step.step, output)
-                processExtract(step, output, context)
+                processExtract(step, output, context, workflow)
             }
         }
 
@@ -2084,7 +2099,7 @@ class WorkflowExecutor(
                     // 自动索引步骤输出到共享知识库
                     autoIndexStepOutput(workflow, context, step.step, result.output)
                     // 通用结构化输出提取
-                    processExtract(step, result.output, context)
+                    processExtract(step, result.output, context, workflow)
                 }
                 if (result.success && step.publishOutputs.isNotEmpty()) {
                     publishStepOutputs(step, workflow, context)
@@ -2537,7 +2552,7 @@ class WorkflowExecutor(
             val result = executeStepByType(stateStep, workflow, context, directoryIsolation)
             result.output?.let { output ->
                 context.setStepOutput("${outerStep.step}.$stateName", output)
-                processExtract(stateStep, output, context)
+                processExtract(stateStep, output, context, workflow)
             }
 
             if (enableMonitoring) {
@@ -3603,9 +3618,11 @@ IMPORTANT: You MUST respond with ONLY the category name (one of: ${config.catego
     private fun processExtract(
         step: WorkflowStep,
         output: String,
-        context: WorkflowExecutionContext
+        context: WorkflowExecutionContext,
+        workflow: WorkflowDefinition? = null
     ) {
         val extracts = step.extract ?: return
+        val hostOutputDir = workflow?.let { resolveHostOutputDirForExtract(it, step, context) }
 
         for (config in extracts) {
             try {
@@ -3616,10 +3633,56 @@ IMPORTANT: You MUST respond with ONLY the category name (one of: ${config.catego
                     // JSON path 提取
                     extractJsonPath(config.jsonPath, config.variable, output, context)
                 }
+                remapExtractedContainerOutputPath(step, config.variable, hostOutputDir, context)
             } catch (e: Exception) {
                 logger.error(e) { "[Extract] Step '${step.step}': failed to extract variable '${config.variable}': ${e.message}" }
             }
         }
+    }
+
+    /**
+     * In Docker subprocess mode an agent or code step sees the execution output
+     * directory as [CONTAINER_OUTPUT_DIR] and echoes that path in its
+     * `key=value` lines. The extracted variable is then consumed by host-side
+     * code steps, which resolved the literal `/output/...` against the host
+     * filesystem, found nothing and silently fell back to empty data — the ASA
+     * optimizer dropped every AI open-keyword review this way on every run.
+     * Map the container prefix back to the host directory once, at extraction
+     * time, instead of asking every consuming step to translate it.
+     */
+    private fun resolveHostOutputDirForExtract(
+        workflow: WorkflowDefinition,
+        step: WorkflowStep,
+        context: WorkflowExecutionContext
+    ): String? {
+        if (!isDockerSubprocessMode()) return null
+        val isolation = workflow.directoryIsolation
+        if (!isolation.enabled) return null
+        val agentLabel: String? = step.displayAgentName
+        return runCatching {
+            File(
+                isolation.getOutputDir(
+                    context.executionId,
+                    step.step.ifBlank { "default" },
+                    agentLabel?.ifBlank { "default" } ?: "default",
+                    context.workflowName.ifBlank { "default" },
+                    baseParameters.parameter("user_id", "default")
+                )
+            ).canonicalPath
+        }.getOrNull()
+    }
+
+    private fun remapExtractedContainerOutputPath(
+        step: WorkflowStep,
+        variableName: String,
+        hostOutputDir: String?,
+        context: WorkflowExecutionContext
+    ) {
+        if (hostOutputDir.isNullOrBlank()) return
+        val value = context.variables[variableName] as? String ?: return
+        val remapped = remapContainerOutputPath(value, hostOutputDir) ?: return
+        context.setVariable(variableName, remapped)
+        logger.info { "[Extract] Step '${step.step}': remapped container output path in '$variableName' -> '$remapped'" }
     }
 
     private suspend fun publishStepOutputs(
@@ -4127,7 +4190,7 @@ IMPORTANT: You MUST respond with ONLY the category name (one of: ${config.catego
         context.setStepOutput(step.step, aggregatedOutput)
 
         // 通用输出提取
-        processExtract(step, aggregatedOutput, context)
+        processExtract(step, aggregatedOutput, context, workflow)
 
         if (enableMonitoring) {
             WorkflowMonitor.completeStep(context.executionId, step.step, success = true, output = aggregatedOutput)
@@ -5454,6 +5517,7 @@ IMPORTANT: You MUST respond with ONLY the category name (one of: ${config.catego
         val retry = step.retry
             ?: throw WorkflowExecutionException("retry configuration missing for step '${step.step}'")
         var lastError: Throwable? = null
+        var lastFailedResult: StepExecutionResult? = null
         val monitoringEnabled = enableMonitoring && manageMonitoring
 
         if (monitoringEnabled) {
@@ -5492,8 +5556,39 @@ IMPORTANT: You MUST respond with ONLY the category name (one of: ${config.catego
                     return result.copy(retryCount = attempt)
                 }
 
+                // A step can report failure without throwing — validation of its
+                // outputs, or an external agent that completed but whose result
+                // failed a check. This branch used to fall through silently: the
+                // attempt was neither recorded nor surfaced, so an execution whose
+                // second attempt succeeded on the agent side was still reported
+                // with the first attempt's (stale) exception. Treat it like a
+                // thrown failure and, on the last attempt, hand back the step's own
+                // result so the error the user sees is the one that actually ended
+                // the step.
+                lastFailedResult = result
+                lastError = WorkflowExecutionException(
+                    result.error ?: "Step '${step.step}' reported failure without an error message"
+                )
+                if (attempt < retry.maxAttempts - 1) {
+                    val backoffDelay = calculateBackoffDelay(retry, attempt)
+                    logger.warn { "[Workflow:${workflow.name}] Step '${step.step}' reported failure, retrying after ${backoffDelay}ms..." }
+                    if (enableMonitoring) {
+                        WorkflowMonitor.addEvent(
+                            context.executionId, step.step, AgentEvent(
+                                type = "retry_backoff",
+                                category = "agent",
+                                subCategory = "retry",
+                                summary = "⏳ ${backoffDelay}ms 后重试",
+                                detail = result.error
+                            )
+                        )
+                    }
+                    delay(backoffDelay.milliseconds)
+                }
+
             } catch (e: Exception) {
                 lastError = e
+                lastFailedResult = null
 
                 if (attempt < retry.maxAttempts - 1) {
                     val backoffDelay = calculateBackoffDelay(retry, attempt)
@@ -5512,6 +5607,19 @@ IMPORTANT: You MUST respond with ONLY the category name (one of: ${config.catego
                     delay(backoffDelay.milliseconds)
                 }
             }
+        }
+
+        lastFailedResult?.let { failed ->
+            if (monitoringEnabled) {
+                WorkflowMonitor.completeStep(
+                    context.executionId,
+                    step.step,
+                    success = false,
+                    error = failed.error,
+                    output = failed.output
+                )
+            }
+            return failed.copy(retryCount = retry.maxAttempts - 1)
         }
 
         if (monitoringEnabled) {
