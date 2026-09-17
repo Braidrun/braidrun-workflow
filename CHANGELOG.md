@@ -5,6 +5,18 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.5]
+
+### Added
+
+- `WorkflowStep.idempotent` (YAML `idempotent: true`). The engine does not read
+  it; it is metadata the host reads to decide whether a step may be replayed
+  during crash recovery or a rolling-deploy handoff. Until now the field
+  existed only in the host's own model, so a step loaded from a template YAML
+  could never be marked replay-safe and every handoff of a workflow parked on
+  an approval was refused. Defaults to `false`, so existing workflows keep the
+  conservative behaviour.
+
 ## [1.1.4]
 
 ### Fixed

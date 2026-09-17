@@ -1297,6 +1297,19 @@ data class WorkflowStep(
     @SerialName("priority")
     val priority: Int = 0,
 
+    /**
+     * 该步骤重跑一次是否安全（对外部世界没有额外副作用）。
+     *
+     * 只有标注为 `true` 的步骤，宿主平台才允许在崩溃自动恢复或滚动发布交接时
+     * 重放它。默认 `false`：任何会写外部系统、发通知、扣费或产生审批记录的步骤
+     * 都必须保持默认值。纯断言、纯报告生成、把已有产物重新整理成文件这类步骤
+     * 可以安全地标注为 `true`。
+     *
+     * 引擎自身不读这个标志，它是给宿主的恢复策略用的元数据。
+     */
+    @SerialName("idempotent")
+    val idempotent: Boolean = false,
+
     @SerialName("timeout_seconds")
     val timeoutSeconds: Int? = null,
 
