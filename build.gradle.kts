@@ -318,7 +318,7 @@ dependencies {
 }
 
 group = "com.fartech.braidrun"
-version = "1.1.5"
+version = "1.1.6"
 description = "braidrun-workflow"
 
 tasks.named<Jar>("jar") {

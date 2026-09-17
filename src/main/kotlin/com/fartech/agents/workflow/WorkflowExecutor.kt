@@ -194,7 +194,7 @@ private val SHELL_SPILLED_ENV_BRIDGE = """
     # Braidrun: restore spilled workflow env values as shell variables.
     # Values stay non-exported to avoid reintroducing ARG_MAX failures for child processes.
     _braidrun_restore_spilled_env() {
-      local _braidrun_file_key _braidrun_var _braidrun_file
+      local _braidrun_file_key _braidrun_var _braidrun_file _braidrun_value
       while IFS='=' read -r _braidrun_file_key _; do
         case "${'$'}_braidrun_file_key" in
           *__FILE) ;;
@@ -206,7 +206,12 @@ private val SHELL_SPILLED_ENV_BRIDGE = """
         esac
         _braidrun_file="${'$'}{!_braidrun_file_key:-}"
         if [ -r "${'$'}_braidrun_file" ]; then
-          IFS= read -r -d '' "${'$'}_braidrun_var" < "${'$'}_braidrun_file" || true
+          # cat + printf -v restores the value at C speed and keeps trailing newlines.
+          # bash's own `read -d ''` walks the file byte by byte: an 8 MiB spilled agent
+          # output took ~4 s per variable, and with several spilled variables the
+          # prelude alone outlived 60-120 s step timeouts (App Factory, 2026-09-17).
+          _braidrun_value="${'$'}(cat "${'$'}_braidrun_file" 2>/dev/null; printf x)"
+          printf -v "${'$'}_braidrun_var" '%s' "${'$'}{_braidrun_value%x}"
         fi
       done < <(env)
     }

@@ -390,8 +390,33 @@ class WorkflowExecutorCodeStepSandboxTest {
         assertEquals("/workspace/.wf_env/WF_VAR_LARGE_PAYLOAD.txt", request.env["WF_VAR_LARGE_PAYLOAD__FILE"])
         val script = assertNotNull(capture.lastScriptText)
         assertTrue("_braidrun_restore_spilled_env" in script)
-        assertTrue("read -r -d ''" in script)
+        assertTrue("printf -v \"${'$'}_braidrun_var\"" in script)
+        assertFalse("read -r -d ''" in script, "the bridge must not read spilled files with bash's byte-by-byte read builtin")
         assertTrue("printf '%s' \"${'$'}WF_VAR_LARGE_PAYLOAD\"" in script)
+
+        // Functional check with a real shell: a multi-MiB spilled value must come back
+        // byte for byte (trailing newline included) and quickly.
+        val bash = java.io.File("/bin/bash")
+        if (bash.canExecute()) {
+            val dir = java.nio.file.Files.createTempDirectory("spilled-env-bridge").toFile()
+            try {
+                val payload = buildString { repeat(120_000) { append("line ").append(it).append(": value=x\n") } }
+                val spilled = java.io.File(dir, "WF_VAR_LARGE_PAYLOAD.txt").apply { writeText(payload) }
+                val scriptFile = java.io.File(dir, "step.sh").apply { writeText(script) }
+                val started = System.nanoTime()
+                val process = ProcessBuilder(bash.path, scriptFile.path)
+                    .redirectErrorStream(false)
+                    .apply { environment()["WF_VAR_LARGE_PAYLOAD__FILE"] = spilled.path }
+                    .start()
+                val stdout = process.inputStream.readBytes().toString(Charsets.UTF_8)
+                assertTrue(process.waitFor(60, java.util.concurrent.TimeUnit.SECONDS), "bridge script did not finish")
+                val elapsedMs = (System.nanoTime() - started) / 1_000_000
+                assertEquals(payload, stdout, "spilled value must be restored byte for byte")
+                assertTrue(elapsedMs < 15_000, "bridge took ${'$'}{elapsedMs}ms for ${'$'}{payload.length} bytes")
+            } finally {
+                dir.deleteRecursively()
+            }
+        }
     }
 
     @Test

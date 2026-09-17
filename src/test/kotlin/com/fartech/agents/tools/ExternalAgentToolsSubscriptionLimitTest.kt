@@ -42,6 +42,44 @@ class ExternalAgentToolsSubscriptionLimitTest {
     }
 
     @Test
+    fun `a weekly allowed_warning never sets the cooldown when the five hour window rejected`() {
+        // Verbatim shape from 2026-09-02: Claude streams the seven-day window's
+        // warning (reset a week out) before the five-hour window rejects. The
+        // old first-match regex cooled the credential for 6.5 days.
+        val stdout = listOf(
+            """{"type":"rate_limit_event","rate_limit_info":{"status":"allowed_warning","resetsAt":4102444800,"rateLimitType":"seven_day","utilization":0.82}}""",
+            """{"type":"assistant","message":{"content":[{"type":"text","text":"working"}]}}""",
+            """{"type":"rate_limit_event","rate_limit_info":{"status":"rejected","resetsAt":1785900000,"rateLimitType":"five_hour"}}""",
+            """{"type":"result","is_error":true,"api_error_status":429,"num_turns":4,"result":"You've hit your session limit · resets 2:40pm (UTC)"}"""
+        ).joinToString("\n")
+        assertEquals(1785900000_000L, ExternalAgentTools.claudeRateLimitResetAtMillis(stdout))
+    }
+
+    @Test
+    fun `warning-only events fall through to the human text`() {
+        val stdout = listOf(
+            """{"type":"rate_limit_event","rate_limit_info":{"status":"allowed_warning","resetsAt":4102444800,"rateLimitType":"seven_day"}}""",
+            sessionLimitResult
+        ).joinToString("\n")
+        val resetAt = ExternalAgentTools.claudeRateLimitResetAtMillis(stdout)
+        assertNotNull(resetAt)
+        assertTrue(resetAt!! < 4102444800_000L, "a warning's reset must never be used as the cooldown")
+        val zoned = java.time.Instant.ofEpochMilli(resetAt).atZone(java.time.ZoneOffset.UTC)
+        assertEquals(12, zoned.hour)
+        assertEquals(10, zoned.minute)
+    }
+
+    @Test
+    fun `when several windows reject the latest reset is binding`() {
+        val stdout = listOf(
+            """{"type":"rate_limit_event","rate_limit_info":{"status":"rejected","resetsAt":1785900000,"rateLimitType":"five_hour"}}""",
+            """{"type":"rate_limit_event","rate_limit_info":{"status":"rejected","resetsAt":1786000000,"rateLimitType":"seven_day"}}""",
+            """{"type":"result","is_error":true,"api_error_status":429}"""
+        ).joinToString("\n")
+        assertEquals(1786000000_000L, ExternalAgentTools.claudeRateLimitResetAtMillis(stdout))
+    }
+
+    @Test
     fun `talking about a rate limit is not a rate limit`() {
         // Text alone must never cool a credential: without an HTTP 429 this is
         // just a failed run whose output mentions limits.

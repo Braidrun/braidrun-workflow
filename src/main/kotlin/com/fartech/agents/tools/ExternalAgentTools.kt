@@ -31,9 +31,17 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import mu.KotlinLogging
 import java.io.File
+import java.nio.channels.FileChannel
 import java.nio.file.Files
+import java.nio.file.LinkOption.NOFOLLOW_LINKS
+import java.nio.file.Path
+import java.nio.file.StandardCopyOption
+import java.nio.file.StandardOpenOption
 import java.nio.file.attribute.PosixFilePermission
+import java.nio.file.attribute.PosixFilePermissions
+import java.security.MessageDigest
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 
 private val logger = KotlinLogging.logger {}
 
@@ -317,10 +325,14 @@ class ExternalAgentTools(
          */
         val codexHomeHostDir: File? = null,
         val originalCodexAuthJson: String? = null,
+        val codexAuthFileSource: CodexAuthFileSource? = null,
         val deleteCodexHomeOnExit: Boolean = true,
         val claudeConfigHostDir: File? = null,
         val claudeConfigContainerPath: String? = null
     )
+
+    /** The digest is a compare-and-swap baseline, never a logged credential. */
+    private data class CodexAuthFileSource(val path: Path, val originalDigest: ByteArray)
 
     private suspend fun runExternal(engine: Engine, ctx: ExternalAgentContext): String =
         runExternalDetailed(engine, ctx).text
@@ -747,7 +759,8 @@ class ExternalAgentTools(
     }
 
     private fun maybePublishRotatedCodexAuthJson(auth: ResolvedExternalAuth) {
-        val callback = onCodexAuthJsonRotated ?: return
+        val callback = onCodexAuthJsonRotated
+        if (callback == null && auth.codexAuthFileSource == null) return
         if (auth.mode != ExternalAuthMode.SUBSCRIPTION) return
         val dir = auth.codexHomeHostDir ?: return
         val original = auth.originalCodexAuthJson?.trim() ?: return
@@ -761,10 +774,15 @@ class ExternalAgentTools(
         if (current == original) return
         runCatching { normalizeCodexAuthJson(current) ?: return }
             .onSuccess { normalized ->
+                auth.codexAuthFileSource?.let { source ->
+                    runCatching { persistRotatedCodexAuthFile(source, normalized) }
+                        .onFailure { logger.warn { "[ExternalAgent] Could not persist refreshed local Codex authentication" } }
+                    return@onSuccess
+                }
                 // Pass the credential this run actually used: with a pool the
                 // rotated auth.json belongs to whichever candidate failover
                 // landed on, not to the first one the caller resolved.
-                runCatching { callback(auth.subscriptionCredentialId, normalized) }
+                runCatching { callback?.invoke(auth.subscriptionCredentialId, normalized) }
                     .onFailure { e -> logger.warn(e) { "[ExternalAgent] Failed to publish rotated Codex auth.json" } }
             }
             .onFailure { e -> logger.warn(e) { "[ExternalAgent] Ignoring invalid rotated Codex auth.json" } }
@@ -1878,6 +1896,18 @@ class ExternalAgentTools(
             engine.authModeParameterKey
         )
 
+        if (engine == Engine.CODEX && parameters.parameter(CODEX_AUTH_FILE_PARAMETER, "").isNotBlank()) {
+            require(!isDocker && executor !is DockerSubprocessExecutor) {
+                "$CODEX_AUTH_FILE_PARAMETER is available only in native mode"
+            }
+            require(mode == ExternalAuthMode.SUBSCRIPTION) {
+                "$CODEX_AUTH_FILE_PARAMETER requires subscription authentication"
+            }
+            require(parameters.parameter(CODEX_HOME_DIR_PARAMETER, "").isBlank() && ctx.resumeSessionId.isBlank()) {
+                "$CODEX_AUTH_FILE_PARAMETER requires an isolated, non-resumed Codex invocation"
+            }
+        }
+
         if (mode == ExternalAuthMode.SUBSCRIPTION) {
             return when (engine) {
                 Engine.CLAUDE -> resolveClaudeSubscriptionAuth(attemptedCredentialIds)
@@ -1945,8 +1975,9 @@ class ExternalAgentTools(
         invocationId: String,
         attemptedCredentialIds: Set<String>
     ): ResolvedExternalAuth {
-        val candidate = codexCredentialProvider?.acquire(attemptedCredentialIds)
-        if (codexCredentialProvider != null && candidate == null) {
+        val authFile = loadCodexAuthFile()
+        val candidate = if (authFile == null) codexCredentialProvider?.acquire(attemptedCredentialIds) else null
+        if (authFile == null && codexCredentialProvider != null && candidate == null) {
             throw ExternalAgentExecutionException("All accessible Codex subscription credentials are unavailable")
         }
         if (candidate?.id in attemptedCredentialIds) {
@@ -1954,7 +1985,7 @@ class ExternalAgentTools(
                 "Codex credential provider returned an already-attempted credential"
             )
         }
-        val authJson = candidate?.token?.let(::normalizeCodexAuthJson)
+        val authJson = authFile?.second ?: candidate?.token?.let(::normalizeCodexAuthJson)
             ?: resolveCodexAuthJson()
             ?: throw IllegalStateException(
                 "Missing Codex subscription credential. Create a credential with provider " +
@@ -1962,7 +1993,7 @@ class ExternalAgentTools(
                     "`codex login` ChatGPT session), or set workflow parameter " +
                     "'$CODEX_AUTH_JSON_PARAMETER'."
             )
-        val deleteHomeOnExit = shouldDeleteCodexHomeOnExit(ctx)
+        val deleteHomeOnExit = authFile != null || shouldDeleteCodexHomeOnExit(ctx)
         val homeDir = materializeCodexHome(
             authJson = authJson,
             invocationId = invocationId,
@@ -1979,8 +2010,97 @@ class ExternalAgentTools(
             subscriptionCredential = candidate,
             codexHomeHostDir = homeDir,
             originalCodexAuthJson = authJson,
+            codexAuthFileSource = authFile?.first,
             deleteCodexHomeOnExit = deleteHomeOnExit
         )
+    }
+
+    /**
+     * Native CLI integration: pass only a private file's absolute path through runtime
+     * parameters. Never materialize its contents in workflow definitions or argv.
+     * Existing inline/provider credential paths are unchanged when this is absent.
+     */
+    private fun loadCodexAuthFile(): Pair<CodexAuthFileSource, String>? {
+        val configured = parameters.parameter(CODEX_AUTH_FILE_PARAMETER, "").trim()
+        if (configured.isEmpty()) return null
+        require(!isDocker && executor !is DockerSubprocessExecutor) {
+            "$CODEX_AUTH_FILE_PARAMETER is available only in native mode"
+        }
+        val path = Path.of(configured)
+        require(path.isAbsolute) { "$CODEX_AUTH_FILE_PARAMETER must be an absolute path" }
+        val normalized = path.normalize()
+        validatePrivateCodexAuthFile(normalized)
+        val canonical = normalized.toRealPath()
+        listOfNotNull(context.workspaceDir, context.outputDir).forEach { directory ->
+            val root = directory.canonicalFile.toPath()
+            require(!canonical.startsWith(root)) {
+                "$CODEX_AUTH_FILE_PARAMETER must be outside the workflow workspace and output directory"
+            }
+        }
+        val bytes = readBoundedCodexAuthFile(normalized)
+        val authJson = normalizeCodexAuthJson(bytes.toString(Charsets.UTF_8))
+            ?: throw IllegalArgumentException("Local Codex authentication file is empty")
+        return CodexAuthFileSource(canonical, sha256(bytes)) to authJson
+    }
+
+    private fun validatePrivateCodexAuthFile(path: Path) {
+        require(!Files.isSymbolicLink(path) && Files.isRegularFile(path, NOFOLLOW_LINKS)) {
+            "Local Codex authentication file must be an existing regular file, not a symbolic link"
+        }
+        val owner = path.fileSystem.userPrincipalLookupService
+            .lookupPrincipalByName(System.getProperty("user.name"))
+        require(Files.getOwner(path, NOFOLLOW_LINKS) == owner) {
+            "Local Codex authentication file must belong to the current operating-system user"
+        }
+        val permissions = Files.getPosixFilePermissions(path, NOFOLLOW_LINKS)
+        require(permissions == CODEX_AUTH_FILE_PERMISSIONS) {
+            "Local Codex authentication file must have owner-only read/write permissions (0600)"
+        }
+    }
+
+    private fun readBoundedCodexAuthFile(path: Path): ByteArray =
+        Files.newInputStream(path, NOFOLLOW_LINKS).use { input ->
+            val bytes = input.readNBytes(MAX_CODEX_AUTH_FILE_BYTES + 1)
+            require(bytes.size <= MAX_CODEX_AUTH_FILE_BYTES) { "Local Codex authentication file exceeds the size limit" }
+            bytes
+        }
+
+    private fun sha256(bytes: ByteArray): ByteArray = MessageDigest.getInstance("SHA-256").digest(bytes)
+
+    /**
+     * Serialize Braidrun writers across threads/processes, compare the original bytes,
+     * and atomically replace only an unchanged source. A newer login/refresh wins.
+     * The lock file is deliberately retained so concurrent writers share one inode.
+     */
+    private fun persistRotatedCodexAuthFile(source: CodexAuthFileSource, authJson: String) {
+        val lock = CODEX_AUTH_FILE_LOCKS.computeIfAbsent(source.path.toString()) { Any() }
+        synchronized(lock) {
+            validatePrivateCodexAuthFile(source.path)
+            val lockPath = source.path.resolveSibling(".${source.path.fileName}.braidrun.lock")
+            val options = setOf(StandardOpenOption.CREATE, StandardOpenOption.WRITE, NOFOLLOW_LINKS)
+            FileChannel.open(lockPath, options, PosixFilePermissions.asFileAttribute(CODEX_AUTH_FILE_PERMISSIONS)).use { channel ->
+                channel.lock().use {
+                    validatePrivateCodexAuthFile(source.path)
+                    if (!sha256(readBoundedCodexAuthFile(source.path)).contentEquals(source.originalDigest)) {
+                        logger.info { "[ExternalAgent] Local Codex authentication changed during execution; keeping the newer source" }
+                        return
+                    }
+                    val temporary = Files.createTempFile(
+                        source.path.parent, ".braidrun-auth-", ".tmp",
+                        PosixFilePermissions.asFileAttribute(CODEX_AUTH_FILE_PERMISSIONS)
+                    )
+                    try {
+                        Files.writeString(temporary, authJson)
+                        // Recheck immediately before rename, including changes from another login.
+                        validatePrivateCodexAuthFile(source.path)
+                        if (!sha256(readBoundedCodexAuthFile(source.path)).contentEquals(source.originalDigest)) return
+                        Files.move(temporary, source.path, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
+                    } finally {
+                        Files.deleteIfExists(temporary)
+                    }
+                }
+            }
+        }
     }
 
     private fun shouldDeleteCodexHomeOnExit(ctx: ExternalAgentContext): Boolean {
@@ -2472,6 +2592,10 @@ class ExternalAgentTools(
         const val CODEX_AUTH_MODE_PARAMETER = "external_agent_codex_auth_mode"
         const val CODEX_MODEL_PARAMETER = "external_agent_codex_model"
         const val CODEX_AUTH_JSON_PARAMETER = "external_agent_codex_auth_json"
+        const val CODEX_AUTH_FILE_PARAMETER = "external_agent_codex_auth_file"
+        private const val MAX_CODEX_AUTH_FILE_BYTES = 1024 * 1024
+        private val CODEX_AUTH_FILE_PERMISSIONS = setOf(PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE)
+        private val CODEX_AUTH_FILE_LOCKS = ConcurrentHashMap<String, Any>()
         const val CODEX_HOME_DIR_PARAMETER = "external_agent_codex_home_dir"
         const val CODEX_SUBSCRIPTION_PROVIDER = "codex_subscription"
 
@@ -2548,8 +2672,6 @@ class ExternalAgentTools(
                     itemType in CODEX_SIDE_EFFECT_ITEM_TYPES
                 }
         }
-        private val CLAUDE_RATE_LIMIT_RESET_REGEX = Regex("""\"resetsAt\"\s*:\s*(\d+)""")
-
         /**
          * Lowercased markers Claude uses in the terminal `result` text for a quota
          * stop. Only consulted alongside an HTTP 429 — never on their own.
@@ -2662,15 +2784,44 @@ class ExternalAgentTools(
             return ClaudeSubscriptionRateLimit(safeWithoutExplicitReplay)
         }
 
+        /**
+         * When the credential may be picked again.
+         *
+         * Only a `rate_limit_event` whose `status` is `rejected` describes the
+         * window that actually stopped the run. Claude Code also streams
+         * `allowed_warning` events for the *other* window — typically the
+         * seven-day one, carrying a reset up to a week away — before the
+         * five-hour window rejects. The previous implementation grabbed the
+         * first `"resetsAt"` in the output regardless of which event it came
+         * from; observed 2026-09-02 in production, a session limit that reset
+         * at 14:40 UTC the same day cooled the credential until 2026-09-09,
+         * stranding the whole pool on the remaining card. Never take a reset
+         * from a non-rejected event.
+         *
+         * Precedence: rejected event(s) — several windows can reject at once
+         * and the latest reset is the binding one — then a `resetsAt` on the
+         * terminal `result` record, then the human text.
+         */
         internal fun claudeRateLimitResetAtMillis(output: String): Long? {
-            val raw = CLAUDE_RATE_LIMIT_RESET_REGEX.find(output)
-                ?.groupValues
-                ?.getOrNull(1)
-                ?.toLongOrNull()
-                ?: return claudeRateLimitResetFromText(output)
-            // Claude CLI currently emits Unix seconds; tolerate milliseconds too.
-            return if (raw < 100_000_000_000L) raw * 1_000L else raw
+            val objects = output.lineSequence().mapNotNull { line ->
+                runCatching { permissiveJson.parseToJsonElement(line.trim()) as? JsonObject }.getOrNull()
+            }.toList()
+            val rejectedReset = objects
+                .filter { obj -> obj["type"]?.jsonPrimitive?.contentOrNull == "rate_limit_event" }
+                .mapNotNull { obj -> obj["rate_limit_info"] as? JsonObject }
+                .filter { info -> info["status"]?.jsonPrimitive?.contentOrNull == "rejected" }
+                .mapNotNull { info -> info["resetsAt"]?.jsonPrimitive?.contentOrNull?.toLongOrNull() }
+                .maxOrNull()
+            if (rejectedReset != null) return epochToMillis(rejectedReset)
+            val resultReset = objects
+                .lastOrNull { obj -> obj["type"]?.jsonPrimitive?.contentOrNull == "result" }
+                ?.get("resetsAt")?.jsonPrimitive?.contentOrNull?.toLongOrNull()
+            if (resultReset != null) return epochToMillis(resultReset)
+            return claudeRateLimitResetFromText(output)
         }
+
+        /** Claude reports `resetsAt` in epoch seconds; tolerate millis too. */
+        private fun epochToMillis(raw: Long): Long = if (raw < 100_000_000_000L) raw * 1_000L else raw
 
         /**
          * A session-limit stop carries no machine-readable `resetsAt`; the only

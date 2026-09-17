@@ -5,6 +5,40 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.6]
+
+### Added
+
+- `braidrun-workflow run --approval-dir <dir>` (`FileApprovalHandler`): headless
+  manual approvals for runs without the web platform. Each request is written to
+  `<dir>/requests/<id>.json`; a decision file in `<dir>/decisions/<id>.json`
+  resolves it (the handler renames consumed decisions), and
+  `<dir>/policy.json` can auto-approve named steps after a delay (soft gates).
+  Used by the App Factory Mac runner (2026-09-16).
+- `external_agent_codex_auth_file`: native (non-Docker) subscription runs can
+  hand Codex an owner-only `auth.json` from outside the workspace instead of an
+  inline credential. The file never appears in argv, events or artifacts; a
+  token the CLI refreshes is written back atomically with private permissions
+  and a compare-and-swap baseline, so concurrent runs and a changed source never
+  overwrite each other.
+
+### Fixed
+
+- The bash prelude that restores spilled workflow variables
+  (`SHELL_SPILLED_ENV_BRIDGE`) read each spilled file with bash's own
+  `read -d ''`, which walks the file byte by byte. Once agent step outputs
+  reached the 8 MiB stream cap, every bash code step spent ~4 s per spilled
+  variable before its first command ran; with several spilled variables the
+  prelude alone outlived 60–120 s step timeouts and the step failed as
+  `[TIMED OUT]` with no output (App Factory, 2026-09-17). Values are now
+  restored with `cat` + `printf -v` (trailing newlines preserved,
+  bash 3.2 compatible); the sandbox test restores a multi-MiB value through a
+  real shell.
+- Claude subscription rate-limit cool-downs are taken only from
+  `rate_limit_event` entries whose status is `rejected`. Claude Code also
+  streams warning events for windows that are merely filling up; reading their
+  `resetsAt` parked a healthy credential for hours.
+
 ## [1.1.5]
 
 ### Added
@@ -57,6 +91,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   pool (ordered candidates, cooldowns, pinning) like the `external_agent` tool
   group already did, instead of only the `external_agent_codex_auth_json`
   parameter. The parameter remains the fallback when no pool is supplied.
+
+### Fixed
+
+- A Claude subscription five-hour session limit could cool the credential down
+  for a week. Claude Code streams a `rate_limit_event` for the *other* window
+  too — typically the seven-day one as `allowed_warning`, carrying a reset up
+  to a week away — before the five-hour window rejects, and
+  `claudeRateLimitResetAtMillis` took the first `"resetsAt"` it found in the
+  output regardless of which event it belonged to. Observed 2026-09-02 in
+  production: `You've hit your session limit · resets 2:40pm (UTC)` cooled the
+  card until 2026-09-09, the pool fell back to its one remaining card, that
+  card hit its own five-hour limit, and every Claude step failed with
+  `All accessible Claude subscription credentials are unavailable`.
+  The reset is now taken only from `rate_limit_event`s whose `status` is
+  `rejected` (the latest reset when several windows reject at once), then from
+  a `resetsAt` on the terminal `result` record, then from the human text.
+  Warnings never set a cooldown.
 
 ## [1.1.1]
 

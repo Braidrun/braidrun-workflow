@@ -5,6 +5,9 @@ import com.fartech.agents.mcp.getSupportedAgentMcpToolGroups
 import com.fartech.agents.mcp.startAgentMcpServer
 import com.fartech.agents.workflow.AgentDefinition
 import com.fartech.agents.workflow.AgentPresetRegistry
+import com.fartech.agents.workflow.ApprovalDecision
+import com.fartech.agents.workflow.ApprovalHandler
+import com.fartech.agents.workflow.ApprovalRequest
 import com.fartech.agents.workflow.FileSystemWorkflowResolver
 import com.fartech.agents.workflow.WorkflowDefinition
 import com.fartech.agents.workflow.WorkflowExecutionResult
@@ -13,10 +16,17 @@ import com.fartech.agents.workflow.WorkflowParser
 import com.fartech.agents.workflow.WorkflowStep
 import com.fartech.ftapp2.commonsKt.ConfigurationParameter
 import com.fartech.ftapp2.commonsKt.HttpAccess
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
 import java.io.File
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 import kotlin.system.exitProcess
 
 fun main(args: Array<String>) {
@@ -32,7 +42,11 @@ fun main(args: Array<String>) {
     exitProcess(code)
 }
 
-private class BraidrunWorkflowCli {
+internal class BraidrunWorkflowCli(
+    private val fileApprovalHandlerFactory: (File) -> ApprovalHandler = { FileApprovalHandler(it) },
+    // Last parameter on purpose: callers pass the interactive factory as a trailing lambda.
+    private val interactiveApprovalHandlerFactory: () -> ApprovalHandler = ::systemInteractiveApprovalHandler
+) {
     suspend fun run(args: List<String>): Int {
         if (args.isEmpty() || args.first() in setOf("-h", "--help", "help")) {
             println(HELP)
@@ -58,6 +72,15 @@ private class BraidrunWorkflowCli {
 
     private suspend fun runWorkflow(args: List<String>): Int {
         val options = parseExecutionOptions(args, requirePath = true)
+        // Fail before starting work when interactive approvals cannot be answered.
+        if (options.interactiveApprovals && options.approvalDir != null) {
+            throw CliException("Use either --interactive-approvals or --approval-dir, not both")
+        }
+        val approvalHandler = when {
+            options.interactiveApprovals -> interactiveApprovalHandlerFactory()
+            options.approvalDir != null -> fileApprovalHandlerFactory(options.approvalDir.absoluteFile)
+            else -> null
+        }
         val workflowFile = File(options.path!!).absoluteFile
         val resolver = resolverFor(workflowFile)
         val workflow = WorkflowParser.parseFile(workflowFile.absolutePath, resolver)
@@ -65,6 +88,7 @@ private class BraidrunWorkflowCli {
         val executor = WorkflowExecutor(
             httpAccess = HttpAccess(),
             baseParameters = parameters,
+            approvalHandler = approvalHandler,
             workflowResolver = resolver,
             codeStepExecutor = SubprocessExecutorFactory.create(parameters)
         )
@@ -181,6 +205,8 @@ private class BraidrunWorkflowCli {
         var executionId: String? = null
         var output: File? = null
         var quiet = false
+        var interactiveApprovals = false
+        var approvalDir: File? = null
 
         var i = 0
         while (i < args.size) {
@@ -215,6 +241,16 @@ private class BraidrunWorkflowCli {
                     i += 1
                 }
 
+                "--interactive-approvals" -> {
+                    interactiveApprovals = true
+                    i += 1
+                }
+
+                "--approval-dir" -> {
+                    approvalDir = File(args.valueAfter(i, arg))
+                    i += 2
+                }
+
                 else -> {
                     if (arg.startsWith("-")) throw CliException("Unknown option '$arg'")
                     if (path != null) throw CliException("Only one workflow path is allowed")
@@ -224,12 +260,12 @@ private class BraidrunWorkflowCli {
             }
         }
 
-        if (!allowExecutionOnly && (variables.isNotEmpty() || parameters.isNotEmpty() || executionId != null || output != null || quiet)) {
+        if (!allowExecutionOnly && (variables.isNotEmpty() || parameters.isNotEmpty() || executionId != null || output != null || quiet || interactiveApprovals || approvalDir != null)) {
             throw CliException("This command only accepts a workflow path and --subprocess-mode")
         }
         if (requirePath && path == null) throw CliException("Workflow path is required")
 
-        return ExecutionOptions(path, variables, parameters, subprocessMode, executionId, output, quiet)
+        return ExecutionOptions(path, variables, parameters, subprocessMode, executionId, output, quiet, interactiveApprovals, approvalDir)
     }
 
     private fun parseAgentOptions(args: List<String>): AgentOptions {
@@ -391,8 +427,124 @@ private data class ExecutionOptions(
     val subprocessMode: String,
     val executionId: String?,
     val output: File?,
-    val quiet: Boolean
+    val quiet: Boolean,
+    val interactiveApprovals: Boolean = false,
+    val approvalDir: File? = null
 )
+
+/** One terminal reader at a time, even when parallel workflow steps request approval. */
+internal class InteractiveApprovalHandler(
+    private val readLine: suspend () -> String?,
+    private val printLine: (String) -> Unit,
+    private val nowMillis: () -> Long = System::currentTimeMillis
+) : ApprovalHandler {
+    private val promptLock = Mutex()
+    private var inputUnavailable = false
+
+    override suspend fun requestApproval(request: ApprovalRequest): ApprovalDecision = promptLock.withLock {
+        if (inputUnavailable) {
+            return@withLock reject(request, "Interactive approval input is closed; restart with a fresh terminal.")
+        }
+        printLine("\n=== MANUAL APPROVAL REQUIRED ===")
+        printLine("Request ID: ${request.approvalId}")
+        printLine("Workflow: ${request.workflowName}; execution: ${request.executionId}; step: ${request.stepName}")
+        printLine("Review material:")
+        printLine(request.message)
+        for (group in request.reviewableGroups) {
+            printLine("Group: ${group.title ?: group.name} (${group.name}); ${group.items.size} item(s)")
+            group.sourcePath?.let { printLine("Source: $it") }
+            group.items.forEachIndexed { index, item -> printLine("${index + 1}. $item") }
+        }
+
+        // The executor wraps this handler in its own timeout. Finish just before
+        // that deadline so rejection and its explanation reach workflow variables.
+        val timeoutMillis = request.timeout?.toLongOrNull()?.takeIf { it > 0 }
+            ?.coerceAtMost(Long.MAX_VALUE / 1000)?.times(1000)
+        if (timeoutMillis == null) {
+            return@withLock reject(request, "Missing or invalid approval timeout; no approval granted.")
+        }
+        val elapsed = (nowMillis() - request.requestedAt).coerceAtLeast(0)
+        val margin = (timeoutMillis / 10).coerceIn(1, 1000)
+        val remaining = timeoutMillis - elapsed - margin
+        if (remaining <= 0) return@withLock reject(request, "Approval timed out; no approval granted.")
+        printLine("Response deadline: ${java.time.Instant.ofEpochMilli(nowMillis() + remaining)}")
+        printLine("Type approve [comment] or reject [comment], then Enter. Approval accepts every listed item unchanged.")
+        try {
+            val decision = withTimeoutOrNull(remaining) {
+                awaitExplicitDecision(request)
+            }
+            if (decision == null) {
+                // Console reads can survive interruption. Never let a late line
+                // from this expired prompt answer another approval in this run.
+                inputUnavailable = true
+                reject(request, "Approval timed out; no approval granted. Interactive input is now closed.")
+            } else {
+                decision
+            }
+        } catch (e: CancellationException) {
+            inputUnavailable = true
+            printLine("Approval wait cancelled or timed out for ${request.approvalId}; no approval granted. Interactive input is now closed.")
+            throw e
+        } catch (e: Exception) {
+            inputUnavailable = true
+            reject(request, "Approval input failed (${e::class.java.simpleName}); no approval granted.")
+        }
+    }
+
+    private suspend fun awaitExplicitDecision(request: ApprovalRequest): ApprovalDecision {
+        while (true) {
+            val line = readLine() ?: run {
+                inputUnavailable = true
+                return reject(request, "Approval input reached EOF; no approval granted.")
+            }
+            val match = Regex("^(approve|reject)(?:\\s+(.*))?$", RegexOption.IGNORE_CASE).matchEntire(line.trim())
+            if (match == null) {
+                printLine("No decision recorded. Enter approve [comment] or reject [comment].")
+                continue
+            }
+            val approved = match.groupValues[1].equals("approve", ignoreCase = true)
+            val comment = match.groupValues[2].trim().takeIf { it.isNotEmpty() }
+            printLine("Decision: ${if (approved) "APPROVED" else "REJECTED"}; request ID: ${request.approvalId}")
+            comment?.let { printLine("Comment: $it") }
+            return ApprovalDecision(approved = approved, comment = comment)
+        }
+    }
+
+    private fun reject(request: ApprovalRequest, reason: String): ApprovalDecision {
+        printLine("Decision: REJECTED; request ID: ${request.approvalId}; $reason")
+        return ApprovalDecision(approved = false, comment = reason)
+    }
+}
+
+internal fun systemInteractiveApprovalHandler(): ApprovalHandler {
+    val console = System.console() ?: throw CliException(
+        "--interactive-approvals requires an interactive TTY. No approvals were granted; rerun in a terminal."
+    )
+    return InteractiveApprovalHandler(
+        readLine = {
+            // Do not put a potentially uninterruptible terminal read inside a
+            // structured IO job: it would prevent the approval timeout exiting.
+            suspendCancellableCoroutine { continuation ->
+                val reader = Thread({
+                    try {
+                        val line = console.readLine()
+                        if (continuation.isActive) continuation.resume(line)
+                    } catch (e: Exception) {
+                        if (continuation.isActive) continuation.resumeWithException(e)
+                    }
+                }, "braidrun-interactive-approval").apply { isDaemon = true }
+                continuation.invokeOnCancellation { reader.interrupt() }
+                reader.start()
+            }
+        },
+        printLine = { line ->
+            // Console.readLine holds its writer lock while waiting for input.
+            // Use stderr so timeout/cancellation messages cannot block behind it.
+            System.err.println(line)
+            System.err.flush()
+        }
+    )
+}
 
 private data class AgentOptions(
     val preset: String,
@@ -436,6 +588,12 @@ private val HELP = """
       --subprocess-mode native|docker
                                     Command/code/tool subprocess mode. Default: native.
       --execution-id id             Reuse a caller-provided execution id.
+      --interactive-approvals       Run only: wait for explicit approve/reject in a TTY.
+                                    EOF or timeout never approves; there is no default answer.
+      --approval-dir dir            Run only: headless approvals. Each request is written to
+                                    dir/requests/<id>.json; answer by writing dir/decisions/<id>.json
+                                    ({"approved": true|false, "comment": "..."}). dir/policy.json may
+                                    mark soft gates that continue after auto_approve_after_seconds.
       -o, --output file             Write the execution summary to a file.
       --quiet                       Print only step outputs.
       -h, --help                    Show this help.
