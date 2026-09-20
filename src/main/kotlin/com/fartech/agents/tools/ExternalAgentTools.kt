@@ -476,7 +476,7 @@ class ExternalAgentTools(
         // marker in stderr (see NativeSubprocessExecutor.kt:108 and
         // DockerSubprocessExecutor's analogue). Surface a structured event so
         // the UI / monitoring layer can distinguish timeout from other failures.
-        if (result.exitCode == -1 && result.stderr.contains("TIMED OUT")) {
+        if (isSubprocessTimeout(result.exitCode, result.stderr)) {
             emit(
                 type = engine.timeoutEventType(),
                 summary = "⏱️ ${engine.displayName} Sub Agent 超时: $invocationLabel",
@@ -659,7 +659,7 @@ class ExternalAgentTools(
             // when none is left does the operator hear "re-run codex login".
             if (engine == Engine.CODEX &&
                 auth.mode == ExternalAuthMode.SUBSCRIPTION &&
-                isCodexAuthFailure("${result.stderr}\n${result.stdout}")
+                isCodexAuthFailure(result.stdout, result.stderr)
             ) {
                 val credential = auth.subscriptionCredential
                 // A dead login usually fails before the agent does anything, but
@@ -2876,9 +2876,32 @@ class ExternalAgentTools(
             "reauthenticate"
         )
 
-        private fun isCodexAuthFailure(output: String): Boolean {
-            val lower = output.lowercase()
-            return CODEX_AUTH_FAILURE_MARKERS.any { it in lower }
+        internal fun isSubprocessTimeout(exitCode: Int, stderr: String): Boolean =
+            exitCode == -1 && (stderr.contains("TIMED OUT") ||
+                stderr.contains("[Container error: Awaiting status code timeout.]"))
+
+        internal fun isCodexAuthFailure(stdout: String, stderr: String): Boolean =
+            codexErrorTexts(stdout, stderr).any { text ->
+                val lower = text.lowercase()
+                CODEX_AUTH_FAILURE_MARKERS.any { marker ->
+                    if (marker == "401") Regex("\\b401\\b").containsMatchIn(lower) else marker in lower
+                }
+            }
+
+        private fun codexErrorTexts(stdout: String, stderr: String): List<String> = buildList {
+            stderr.takeIf { it.isNotBlank() }?.let(::add)
+            stdout.lineSequence()
+                .mapNotNull { parseJsonObjectOrNullStatic(it.trim()) }
+                .forEach { obj ->
+                    when (obj.stringField("type")) {
+                        "turn.failed" -> (obj["error"] as? JsonObject)?.stringField("message")?.let(::add)
+                        "error" -> obj.stringField("message")?.let(::add)
+                        else -> (obj["item"] as? JsonObject)
+                            ?.takeIf { it.stringField("type") == "error" }
+                            ?.stringField("message")
+                            ?.let(::add)
+                    }
+                }
         }
 
         /**
@@ -2900,21 +2923,7 @@ class ExternalAgentTools(
         )
 
         internal fun isCodexRateLimitFailure(stdout: String, stderr: String): Boolean {
-            val errorTexts = buildList {
-                stderr.takeIf { it.isNotBlank() }?.let(::add)
-                stdout.lineSequence()
-                    .mapNotNull { parseJsonObjectOrNullStatic(it.trim()) }
-                    .forEach { obj ->
-                        when (obj.stringField("type")) {
-                            "turn.failed" -> (obj["error"] as? JsonObject)?.stringField("message")?.let(::add)
-                            "error" -> obj.stringField("message")?.let(::add)
-                            else -> (obj["item"] as? JsonObject)
-                                ?.takeIf { it.stringField("type") == "error" }
-                                ?.stringField("message")
-                                ?.let(::add)
-                        }
-                    }
-            }
+            val errorTexts = codexErrorTexts(stdout, stderr)
             if (errorTexts.isEmpty()) return false
             return errorTexts.any { text ->
                 val lower = text.lowercase()
