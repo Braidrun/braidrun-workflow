@@ -1,0 +1,25 @@
+Fix the real build/test failure for {{var:app_workspace}}.
+Read the latest logs and machine records under {{var:evidence_dir}};
+the last statuses are build={{var:build_status}}, test={{var:test_status}}.
+Also read VISUAL_REVIEW.md if present; fix actual visual/content issues
+against the approved preview without weakening tests or changing scope.
+Read USER_FEEDBACK.md and apply every revision frozen in
+{{var:evidence_dir}}/revision-approval.json (user feedback, gate comments and
+their attachments under .workflow-inputs); never edit those inputs.
+For missing visual evidence, add genuine XCTest screenshot attachments
+and meaningful UI checks to testVisualEvidence* or testF12* UI cases.
+The workflow capture node exports those passed cases as well as the
+walkthrough; do not leave requested evidence as a manual follow-up.
+Read affected files and dependency interfaces. Preserve the approved
+scope, actual SDK linkage, application behavior and meaningful assertions.
+Write to `{{var:app_workspace}}/REPAIR.md` a concise explanation of each change. Do not modify
+evidence. Approved materials (design assets, artwork) may change only when a
+frozen user revision asks for it: make the change, then declare it for the
+scope guard in the evidence directory's material updates declaration (JSON,
+file name material-updates with fields status=declared, revision_id equal to
+the current revision approval, reason, and files mapping each changed
+approved path to its new sha256). Never revert a user-requested change just
+to satisfy the guard. The workflow will build and test again.
+For newly added features, ensure testCompleteWalkthrough or DEMO_SCENARIOS.json demonstrates the feature,
+so the final video also demonstrates it. Do not leave new features only
+in test reports while the video still shows the previous product scope.
