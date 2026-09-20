@@ -360,7 +360,7 @@ private val promptPersistedFilePathPatterns = listOf(
     Regex("""(?:save|write)(?:\s+[A-Za-z0-9._-]+){0,4}\s+(?:to|at|into)\s*[:：]?\s*[`"'“”]?([^\n\r`"'“”]+)""", RegexOption.IGNORE_CASE),
     Regex("""(?:创建|生成|更新|修改)\s*[`"'“”]?([^\n\r`"'“”]*?[A-Za-z0-9_-]+\.[A-Za-z0-9._-]+[^\n\r`"'“”]*)"""),
     Regex(
-        """(?<![A-Za-z])(?:create|generate|update|modify)(?![A-Za-z])(?:\s+(?:the|a|an))?(?:\s+[A-Za-z0-9][A-Za-z0-9._-]*){0,3}\s*[`"'“”]?([^\n\r`"'“”]*?[A-Za-z0-9_-]+\.[A-Za-z0-9._-]+[^\n\r`"'“”]*)""",
+        """(?<![A-Za-z])(?:create|generate|update|modify)(?![A-Za-z])(?:\s+(?:the|a|an))?(?:\s+[A-Za-z0-9][A-Za-z0-9._-]*){0,3}\s*[`"'“”]?(?<![A-Za-z0-9._-])([^\n\r`"'“”]*?[A-Za-z0-9_-]+\.[A-Za-z0-9._-]+[^\n\r`"'“”]*)""",
         RegexOption.IGNORE_CASE
     )
 )

@@ -5,6 +5,14 @@ import kotlin.test.assertEquals
 
 class AppFactoryRepairPersistenceTest {
     @Test
+    fun `filename must not be truncated by backtracking through optional words`() {
+        assertEquals(setOf("/tmp/workspace/DEMO_SCENARIOS.json"),
+            extractRequiredPersistedFilePathsFromPrompt("Update DEMO_SCENARIOS.json", "/tmp/workspace"))
+        assertEquals(setOf("/tmp/workspace/REPORT.md"),
+            extractRequiredPersistedFilePathsFromPrompt("Create REPORT.md", "/tmp/workspace"))
+    }
+
+    @Test
     fun `explicit repair target does not create a suffix file requirement`() {
         val prompt = checkNotNull(javaClass.getResource("/app-factory-repair-prompt.txt")).readText()
         val candidates = extractRequiredPersistedFilePathCandidatesFromPrompt(prompt)
