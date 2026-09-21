@@ -1,3 +1,7 @@
+# 1.1.8
+
+- Allow trusted runtimes to issue fresh scoped callback credentials before each code step, including steps after long approval waits. Refuse execution if renewal fails.
+
 # Changelog
 
 All notable changes to this project are documented in this file.

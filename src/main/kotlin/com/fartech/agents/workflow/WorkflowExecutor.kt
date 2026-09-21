@@ -773,7 +773,10 @@ class WorkflowExecutor(
      * the run itself succeeds. First argument is the credential the run
      * actually used (null when the auth.json came from a workflow parameter).
      */
-    private val onCodexAuthJsonRotated: ((credentialId: String?, authJson: String) -> Unit)? = null
+    private val onCodexAuthJsonRotated: ((credentialId: String?, authJson: String) -> Unit)? = null,
+    /** Trusted host callback; mint immediately before each code step, after approvals.
+     * Receives that step's execution budget in seconds. Never serialized into workflow state. */
+    private val executionApiTokenProvider: ((Long) -> String)? = null
 ) {
 
     /**
@@ -2674,7 +2677,12 @@ class WorkflowExecutor(
         // 构建环境变量。code step 也需要拿到 directory_isolation 注入的
         // working_dir / output_dir / skills_dir 等变量，避免与 agent step 语义漂移。
         val templateContext = createStepTemplateContext(context, step.step, step.agent, directoryIsolation)
-        val env = buildCodeStepEnvironment(templateContext)
+        val env = buildCodeStepEnvironment(templateContext).toMutableMap()
+        executionApiTokenProvider?.let { provider ->
+            val fresh = provider(config.timeout.toLong())
+            require(fresh.isNotBlank()) { "Execution callback credential unavailable" }
+            env["WF_API_TOKEN"] = fresh
+        }
 
         // 执行 (沙箱路径 或 旧路径)
         val rawOutput: String
