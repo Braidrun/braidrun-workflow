@@ -1,3 +1,11 @@
+# 1.1.9
+
+- Exclude resource admission waits from execution budgets without restarting an executing body.
+- Renew scoped code-step callback credentials only at actual process launch, after admission.
+- Route subprocess tools through the host-provided executor and classify direct code-step requests.
+- Confirm process/container settlement before releasing host reservations; make native cancellation waits interruptible.
+- Give admitted Docker containers stable reservation names and reconcile stopped/absent containers without killing running work.
+
 # 1.1.8
 
 - Allow trusted runtimes to issue fresh scoped callback credentials before each code step, including steps after long approval waits. Refuse execution if renewal fails.

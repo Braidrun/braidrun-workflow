@@ -2877,6 +2877,7 @@ class WorkflowExecutor(
                     mounts = mounts,
                     imageHint = resolveCodeStepImageHint(config.language),
                     userId = baseParameters.parameter("user_id", "local-user"),
+                    admissionKind = "CODE_STEP",
                     environmentAtStart = executionApiTokenProvider?.let {
                         { freshCodeStepCallbackEnvironment(config.timeout.toLong()) }
                     }

@@ -111,6 +111,11 @@ class DockerSubprocessExecutor(
                 .withStdinOpen(false)
                 .withStdInOnce(false)
 
+            request.env["BRAIDRUN_RESOURCE_TICKET_ID"]?.let { ticket ->
+                require(ticket.matches(Regex("[0-9a-f-]{36}")))
+                createCmd.withName("braidrun-resource-$ticket")
+            }
+
             val containerCommand = if (stdinFile != null) {
                 buildStdinRedirectCommand(request.command, CONTAINER_STDIN_PATH)
             } else {
@@ -416,6 +421,39 @@ class DockerSubprocessExecutor(
     }
 
     companion object {
+        /** Reconcile ONLY the named reservation after its owner finished or died.
+         * Removing stopped containers without force races safely with pending start requests.
+         * An absent container is fenced by reserving its name with a NEVER-started tombstone;
+         * a delayed create from the dead owner can no longer launch under that reservation.
+         * True proves released capacity, NOT that external effects can be replayed.
+         */
+        fun recoverResourceReservation(ticket: String, dockerHost: String): Boolean {
+            require(ticket.matches(Regex("[0-9a-f-]{36}")))
+            return buildDockerClient(dockerHost).use { client ->
+                val name = "braidrun-resource-$ticket"
+                val existing = try { client.inspectContainerCmd(name).exec() }
+                catch (_: com.github.dockerjava.api.exception.NotFoundException) { null }
+                if (existing != null) {
+                    if (existing.state?.running == true || existing.state?.paused == true || existing.state?.restarting == true) return@use false
+                    if (existing.config?.labels?.get("braidrun.resource_recovery_fence") == ticket) return@use true
+                    // No force: if start won the race, this fails rather than stopping live work.
+                    client.removeContainerCmd(existing.id).withForce(false).exec()
+                }
+                // Even after a stopped container was removed, reserve the name against a delayed create.
+                val image = client.listImagesCmd().exec().firstOrNull()?.id ?: return@use false
+                try {
+                    client.createContainerCmd(image).withName(name)
+                        .withLabels(mapOf("braidrun.resource_recovery_fence" to ticket))
+                        .withHostConfig(com.github.dockerjava.api.model.HostConfig.newHostConfig().withNetworkMode("none").withReadonlyRootfs(true))
+                        .withEntrypoint("/bin/true").exec()
+                    true
+                } catch (_: com.github.dockerjava.api.exception.ConflictException) {
+                    // Another reconciliation or the delayed original create won. Inspect on the next sweep.
+                    false
+                }
+            }
+        }
+
         const val DEFAULT_EGRESS_NETWORK = "workflow-egress-only"
         private const val CONTAINER_STDIN_PATH = "/tmp/braidrun-stdin"
 

@@ -22,7 +22,7 @@ class ResourceDockerLifecycleTest {
         workspace.toFile().setExecutable(true, false)
     }
 
-    @Test fun `container enforces limits and confirms settlement only after removal`() = runBlocking {
+    @Test fun `container enforces limits and confirms settlement only after removal`(): Unit = runBlocking {
         DockerSubprocessExecutor.buildDockerClient(System.getenv("DOCKER_HOST")).use { client ->
             val identity = "resource-test-${UUID.randomUUID()}"
             val ready = CompletableDeferred<Unit>()
@@ -51,7 +51,7 @@ class ResourceDockerLifecycleTest {
         }
     }
 
-    @Test fun `lost create acknowledgement does not falsely confirm process termination`() = runBlocking {
+    @Test fun `lost create acknowledgement does not falsely confirm process termination`(): Unit = runBlocking {
         DockerSubprocessExecutor.buildDockerClient(System.getenv("DOCKER_HOST")).use { real ->
             var createdId: String? = null
             val client = Proxy.newProxyInstance(DockerClient::class.java.classLoader, arrayOf(DockerClient::class.java)) { _, method, arguments ->
@@ -81,4 +81,35 @@ class ResourceDockerLifecycleTest {
             } finally { createdId?.let { real.removeContainerCmd(it).withForce(true).exec() } }
         }
     }
+    @Test fun `recovery leaves a running container untouched and seals a finished reservation`(): Unit = runBlocking {
+        val host = System.getenv("DOCKER_HOST")
+        DockerSubprocessExecutor.buildDockerClient(host).use { client ->
+            val ticket = UUID.randomUUID().toString()
+            val name = "braidrun-resource-$ticket"
+            val image = System.getenv("RESOURCE_TEST_DOCKER_IMAGE")
+            val ready = CompletableDeferred<Unit>()
+            try {
+                val executor = DockerSubprocessExecutor(client, mapOf("shell" to image))
+                val run = async(Dispatchers.IO) { executor.execute(SubprocessExecutor.ExecRequest(
+                    command = listOf("/bin/sh", "-c", "echo ready; sleep 2; echo finished"), workingDir = workspace.toFile(),
+                    env = mapOf("BRAIDRUN_RESOURCE_TICKET_ID" to ticket), networkPolicy = SubprocessExecutor.NetworkPolicy.NONE,
+                    stdoutLineCallback = { if (it == "ready") ready.complete(Unit) }, timeoutSeconds = 10
+                )) }
+                withTimeout(5000) { ready.await() }
+                assertFalse(DockerSubprocessExecutor.recoverResourceReservation(ticket, host))
+                assertEquals(0, withTimeout(10_000) { run.await() }.exitCode)
+                assertTrue(DockerSubprocessExecutor.recoverResourceReservation(ticket, host))
+                val fence = client.inspectContainerCmd(name).exec()
+                assertFalse(fence.state.running == true)
+                assertEquals(ticket, fence.config.labels?.get("braidrun.resource_recovery_fence"))
+                assertTrue(DockerSubprocessExecutor.recoverResourceReservation(ticket, host))
+                assertFailsWith<com.github.dockerjava.api.exception.ConflictException> {
+                    client.createContainerCmd(image).withName(name).exec()
+                }
+            } finally {
+                runCatching { client.removeContainerCmd(name).withForce(false).exec() }
+            }
+        }
+    }
+
 }

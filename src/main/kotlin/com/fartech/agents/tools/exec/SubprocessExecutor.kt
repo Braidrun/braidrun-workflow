@@ -58,7 +58,9 @@ interface SubprocessExecutor {
         val environmentAtStart: (() -> Map<String, String>)? = null,
         /** Concrete executor confirms termination before a host may release its resource reservation.
          * An uncertain Docker create/remove acknowledgement must NOT invoke this callback. */
-        val onSettled: (() -> Unit)? = null
+        val onSettled: (() -> Unit)? = null,
+        /** Trusted runtime classification used to prove that a queued code step never started. */
+        val admissionKind: String = "SUBPROCESS"
     )
 
     /** Resolve short-lived credentials immediately before the actual process is created. */
