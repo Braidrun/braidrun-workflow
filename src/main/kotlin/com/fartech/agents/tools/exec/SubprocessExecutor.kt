@@ -18,6 +18,8 @@ import java.io.File
  * behaviour with zero Docker dependency (constraint C1).
  */
 interface SubprocessExecutor {
+    /** Transport capability survives host admission/credential/artifact decorators. */
+    val isDocker: Boolean get() = false
 
     suspend fun execute(request: ExecRequest): ExecResult
 

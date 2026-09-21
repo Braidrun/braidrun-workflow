@@ -43,6 +43,7 @@ class DockerSubprocessExecutor(
     private val imageRegistry: Map<String, String> = DEFAULT_IMAGE_REGISTRY,
     private val egressNetworkName: String = DEFAULT_EGRESS_NETWORK
 ) : SubprocessExecutor {
+    override val isDocker: Boolean get() = true
 
     override suspend fun execute(request: ExecRequest): ExecResult {
         var creationAttempted = false

@@ -186,7 +186,7 @@ class ExternalAgentTools(
      * vendor*, never a ChatGPT subscription for an exhausted Claude one.
      */
     private val codexCredentialProvider: ClaudeCredentialProvider? = null,
-    private val trustExecutorSandbox: Boolean = executor is DockerSubprocessExecutor
+    private val trustExecutorSandbox: Boolean = executor.isDocker
 ) : ToolSet {
 
     private val isDocker: Boolean = trustExecutorSandbox
@@ -1897,7 +1897,7 @@ class ExternalAgentTools(
         )
 
         if (engine == Engine.CODEX && parameters.parameter(CODEX_AUTH_FILE_PARAMETER, "").isNotBlank()) {
-            require(!isDocker && executor !is DockerSubprocessExecutor) {
+            require(!isDocker && !executor.isDocker) {
                 "$CODEX_AUTH_FILE_PARAMETER is available only in native mode"
             }
             require(mode == ExternalAuthMode.SUBSCRIPTION) {
@@ -2023,7 +2023,7 @@ class ExternalAgentTools(
     private fun loadCodexAuthFile(): Pair<CodexAuthFileSource, String>? {
         val configured = parameters.parameter(CODEX_AUTH_FILE_PARAMETER, "").trim()
         if (configured.isEmpty()) return null
-        require(!isDocker && executor !is DockerSubprocessExecutor) {
+        require(!isDocker && !executor.isDocker) {
             "$CODEX_AUTH_FILE_PARAMETER is available only in native mode"
         }
         val path = Path.of(configured)
