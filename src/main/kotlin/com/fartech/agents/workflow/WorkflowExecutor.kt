@@ -12,6 +12,9 @@ import com.fartech.agents.tools.ExternalAgentContext
 import com.fartech.agents.tools.ExternalAgentTools
 import com.fartech.agents.tools.ClaudeCredentialProvider
 import com.fartech.agents.tools.RAGTools
+import com.fartech.agents.tools.exec.ResourceWaitClock
+import com.fartech.agents.tools.exec.withResourceWaitClock
+import com.fartech.agents.tools.exec.withResourceAwareTimeout
 import com.fartech.agents.tools.exec.SubprocessExecutor
 import com.fartech.agents.tools.exec.SubprocessToolContext
 import com.fartech.agents.tools.exec.DockerSubprocessExecutor
@@ -933,6 +936,7 @@ class WorkflowExecutor(
         val totalTimeoutMs: Long
     ) {
         val approvalWaitMs: AtomicLong = AtomicLong(0L)
+        val resourceWaitClock = ResourceWaitClock()
     }
     private val executionDeadlines = ConcurrentHashMap<String, ExecutionDeadline>()
 
@@ -1053,7 +1057,9 @@ class WorkflowExecutor(
                 executionDeadlines[executionId] = ExecutionDeadline(startTime, workflowTotalTimeoutMs)
             }
             try {
-                runWorkflowBody()
+                val deadline = executionDeadlines[executionId]
+                if (deadline != null) withResourceWaitClock(deadline.resourceWaitClock) { runWorkflowBody() }
+                else runWorkflowBody()
             } finally {
                 executionDeadlines.remove(executionId)
             }
@@ -1632,7 +1638,7 @@ class WorkflowExecutor(
     private fun checkWorkflowDeadline(executionId: String, workflow: WorkflowDefinition) {
         val deadline = executionDeadlines[executionId] ?: return
         val approvalWait = deadline.approvalWaitMs.get()
-        val effectiveElapsed = System.currentTimeMillis() - deadline.startTime - approvalWait
+        val effectiveElapsed = System.currentTimeMillis() - deadline.startTime - approvalWait - deadline.resourceWaitClock.waitedMillis()
         if (effectiveElapsed > deadline.totalTimeoutMs) {
             val configured = workflow.timeout?.total ?: "${deadline.totalTimeoutMs}ms"
             val approvalNote = if (approvalWait > 0L) {
@@ -2061,7 +2067,7 @@ class WorkflowExecutor(
 
             // 支持步骤超时
             val result = if (stepTimeoutMs != null) {
-                withTimeout(stepTimeoutMs.milliseconds) {
+                withResourceAwareTimeout(stepTimeoutMs) {
                     executeStepByType(step, workflow, context, dirIsolation)
                 }
             } else {
@@ -2678,10 +2684,11 @@ class WorkflowExecutor(
         // working_dir / output_dir / skills_dir 等变量，避免与 agent step 语义漂移。
         val templateContext = createStepTemplateContext(context, step.step, step.agent, directoryIsolation)
         val env = buildCodeStepEnvironment(templateContext).toMutableMap()
-        executionApiTokenProvider?.let { provider ->
-            val fresh = provider(config.timeout.toLong())
-            require(fresh.isNotBlank()) { "Execution callback credential unavailable" }
-            env["WF_API_TOKEN"] = fresh
+        // Sandboxed/native SubprocessExecutor requests renew only AFTER the host grants resources.
+        // Keep the token out of env spill files so a script cannot overwrite the fresh value.
+        if (executionApiTokenProvider != null) {
+            env.remove("WF_API_TOKEN")
+            if (codeStepExecutor == null) env.putAll(freshCodeStepCallbackEnvironment(config.timeout.toLong()))
         }
 
         // 执行 (沙箱路径 或 旧路径)
@@ -2734,6 +2741,13 @@ class WorkflowExecutor(
     }
 
     // ── Code step: 沙箱执行路径 ─────────────────────────────────────
+
+    private fun freshCodeStepCallbackEnvironment(timeoutSeconds: Long): Map<String, String> {
+        val provider = executionApiTokenProvider ?: return emptyMap()
+        val fresh = provider(timeoutSeconds)
+        require(fresh.isNotBlank()) { "Execution callback credential unavailable" }
+        return mapOf("WF_API_TOKEN" to fresh)
+    }
 
     private suspend fun executeCodeStepSandboxed(
         step: WorkflowStep,
@@ -2862,7 +2876,10 @@ class WorkflowExecutor(
                     env = sandboxEnv,
                     mounts = mounts,
                     imageHint = resolveCodeStepImageHint(config.language),
-                    userId = baseParameters.parameter("user_id", "local-user")
+                    userId = baseParameters.parameter("user_id", "local-user"),
+                    environmentAtStart = executionApiTokenProvider?.let {
+                        { freshCodeStepCallbackEnvironment(config.timeout.toLong()) }
+                    }
                 )
             )
         } finally {
@@ -5431,7 +5448,9 @@ IMPORTANT: You MUST respond with ONLY the category name (one of: ${config.catego
                     ExecutionDeadline(startTime, workflowTotalTimeoutMs)
             }
             try {
-                runBody()
+                val deadline = executionDeadlines[derivedExecutionId]
+                if (deadline != null) withResourceWaitClock(deadline.resourceWaitClock) { runBody() }
+                else runBody()
             } finally {
                 executionDeadlines.remove(derivedExecutionId)
             }

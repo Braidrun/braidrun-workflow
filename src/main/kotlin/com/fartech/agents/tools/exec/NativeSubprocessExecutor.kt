@@ -4,6 +4,7 @@ import com.fartech.agents.tools.exec.SubprocessExecutor.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.runInterruptible
 import mu.KotlinLogging
 import java.io.File
 import java.util.concurrent.CompletableFuture
@@ -36,6 +37,7 @@ private val logger = KotlinLogging.logger {}
 class NativeSubprocessExecutor : SubprocessExecutor {
 
     override suspend fun execute(request: ExecRequest): ExecResult = withContext(Dispatchers.IO) {
+        val request = request.preparedForStart()
         val startMs = System.currentTimeMillis()
 
         // Reject oversized stdin before spawning. An unbounded string written
@@ -95,10 +97,10 @@ class NativeSubprocessExecutor : SubprocessExecutor {
                 readBoundedStream(proc.errorStream)
             }
 
-            val completed = proc.waitFor(request.timeoutSeconds, TimeUnit.SECONDS)
+            val completed = runInterruptible { proc.waitFor(request.timeoutSeconds, TimeUnit.SECONDS) }
 
             if (!completed) {
-                destroyProcessTree(proc)
+                if (destroyProcessTree(proc)) request.confirmSettled()
                 val stdout = runCatching { stdoutFuture.get(TIMEOUT_STREAM_DRAIN_SECONDS, TimeUnit.SECONDS) }.getOrDefault("")
                 val stderr = runCatching { stderrFuture.get(TIMEOUT_STREAM_DRAIN_SECONDS, TimeUnit.SECONDS) }.getOrDefault("")
                 logger.warn { "[NativeExec] Process timed out after ${request.timeoutSeconds}s: ${request.command}" }
@@ -111,6 +113,7 @@ class NativeSubprocessExecutor : SubprocessExecutor {
             } else {
                 val stdout = stdoutFuture.get(5, TimeUnit.SECONDS)
                 val stderr = stderrFuture.get(5, TimeUnit.SECONDS)
+                request.confirmSettled()
                 ExecResult(
                     exitCode = proc.exitValue(),
                     stdout = stdout,
@@ -127,15 +130,15 @@ class NativeSubprocessExecutor : SubprocessExecutor {
             // NonCancellable ensures destroyForcibly() actually runs; otherwise the cleanup
             // itself would be a no-op on an already-cancelled job.
             if (e is kotlinx.coroutines.CancellationException) {
-                process?.takeIf { it.isAlive }?.let { p ->
-                    withContext(NonCancellable) { runCatching { p.destroyForcibly() } }
+                withContext(NonCancellable) {
+                    if (process == null || destroyProcessTree(process)) request.confirmSettled()
                 }
                 throw e
             }
             logger.error(e) { "[NativeExec] Failed to execute: ${request.command}" }
             // Make sure we don't leak a half-started process if start() succeeded but a
             // later step threw (e.g. the stream-reader future timeout).
-            process?.takeIf { it.isAlive }?.let { runCatching { it.destroyForcibly() } }
+            if (process == null || destroyProcessTree(process)) request.confirmSettled()
             ExecResult(
                 exitCode = -1,
                 stdout = "",
@@ -241,13 +244,15 @@ class NativeSubprocessExecutor : SubprocessExecutor {
         return if (truncated) text + SubprocessExecutor.STREAM_TRUNCATION_MARKER else text
     }
 
-    private fun destroyProcessTree(process: Process) {
-        val handle = process.toHandle()
-        handle.descendants().forEach { child ->
-            runCatching { child.destroyForcibly() }
-        }
+    private fun destroyProcessTree(process: Process): Boolean {
+        val descendants = process.toHandle().descendants().toList()
+        descendants.forEach { child -> runCatching { child.destroyForcibly() } }
         runCatching { process.destroyForcibly() }
         runCatching { process.waitFor(TIMEOUT_PROCESS_DESTROY_SECONDS, TimeUnit.SECONDS) }
+        descendants.forEach { child ->
+            if (child.isAlive) runCatching { child.onExit().get(TIMEOUT_PROCESS_DESTROY_SECONDS, TimeUnit.SECONDS) }
+        }
+        return !process.isAlive && descendants.none { it.isAlive }
     }
 
     companion object {

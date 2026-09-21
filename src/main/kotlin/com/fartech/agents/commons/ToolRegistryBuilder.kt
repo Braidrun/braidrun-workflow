@@ -262,7 +262,7 @@ private fun buildToolRegistry(
     onCodexAuthJsonRotated: ((credentialId: String?, authJson: String) -> Unit)?,
 ): ToolRegistry = ToolRegistry {
     val browserDisabled = browserToolsDisabled(parameters)
-    val subprocessExecutor = createSubprocessExecutor(parameters)
+    val subprocessExecutor = externalAgentExecutor ?: createSubprocessExecutor(parameters)
     val userId = parameters.parameter("user_id", "local-user")
     val strictSandbox = parameters.parameter(SandboxedFileSystemProvider.STRICT_SANDBOX_PARAMETER, "false")
         .equals("true", ignoreCase = true)

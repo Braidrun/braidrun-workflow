@@ -45,6 +45,9 @@ class DockerSubprocessExecutor(
 ) : SubprocessExecutor {
 
     override suspend fun execute(request: ExecRequest): ExecResult {
+        var creationAttempted = false
+        try {
+        val request = request.preparedForStart()
         val startMs = System.currentTimeMillis()
         val imageTag = imageRegistry[request.imageHint ?: "shell"]
             ?: error("Unknown image hint: '${request.imageHint}'. Available: ${imageRegistry.keys}")
@@ -124,6 +127,7 @@ class DockerSubprocessExecutor(
                 createCmd.withCmd(containerCommand)
             }
 
+            creationAttempted = true
             val container = createCmd.exec()
             val containerId = container.id
             logger.info { "[DockerExec] Created container $containerId (image=$imageTag, user=${request.userId})" }
@@ -174,6 +178,7 @@ class DockerSubprocessExecutor(
             } finally {
                 runCatching {
                     dockerClient.removeContainerCmd(containerId).withForce(true).exec()
+                    request.confirmSettled()
                     logger.debug { "[DockerExec] Removed container $containerId" }
                 }
             }
@@ -183,6 +188,9 @@ class DockerSubprocessExecutor(
                     logger.warn { "[DockerExec] Failed to delete temporary stdin file ${file.absolutePath}" }
                 }
             }
+        }
+        } finally {
+            if (!creationAttempted) request.confirmSettled()
         }
     }
 
