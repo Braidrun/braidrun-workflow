@@ -416,7 +416,7 @@ internal class BraidrunWorkflowCli(
         getOrNull(index + 1) ?: throw CliException("$option requires a value")
 
     private fun readStdin(): String =
-        generateSequence(::readLine).joinToString("\n").takeIf { it.isNotBlank() }
+        generateSequence(::readlnOrNull).joinToString("\n").takeIf { it.isNotBlank() }
             ?: throw CliException("stdin was empty")
 }
 

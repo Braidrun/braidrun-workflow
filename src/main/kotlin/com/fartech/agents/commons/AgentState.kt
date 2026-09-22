@@ -303,7 +303,6 @@ private suspend fun saveHistoryToMongoDB(
                         content = content
                     )
                 )
-                Unit
             }
         }
     } catch (e: Exception) {
@@ -573,7 +572,6 @@ class MongoDbCustomStorageProvider<T : JsonElement>(
                     collectionName = agentMongoCollection(parameters, "checkpoint", AgentMongoTargets.AGENT_SNAPSHOTS_COLLECTION)
                 ) {
                     insertOne(document)
-                    Unit
                 }
             }
 

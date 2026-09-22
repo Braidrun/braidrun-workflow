@@ -70,7 +70,7 @@ class FileApprovalHandler(
                 return decision
             }
             if (autoAfterMillis != null && nowMillis() - started >= autoAfterMillis) {
-                val comment = policy?.comment
+                val comment = policy.comment
                     ?: "No decision within ${autoAfterMillis / 1_000}s; continued automatically by approval policy."
                 withContext(Dispatchers.IO) {
                     File(decisionFile.parentFile, "$id.consumed-${nowMillis()}.json").writeText(
