@@ -17,6 +17,94 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0]
+
+### Added
+
+- TypeSafe Jev decisions. Jev is a decision model: it returns typed answers
+  with calibrated probabilities instead of text. See "Jev (TypeSafe) Decisions"
+  in `docs/WORKFLOW_GUIDE.md`.
+  - `classifier.jev`: Jev answers the classifier instead of an LLM agent.
+    - One request covers the main choice over `categories`, optional extra
+      `questions` (`choice` / `score` / `noul`) and weighted `composites`.
+    - Besides `output_variable`, it writes `<out>_confidence`,
+      `<out>_probabilities` and per-question variables such as `<id>_yes`,
+      `<id>_level` and `<id>_normalized`.
+    - `jev.min_confidence` sends uncertain answers to `default_category`.
+    - Works in top-level steps and `state_machine` states.
+  - `repeat_until.jev`: typed Jev questions grade each iteration instead of
+    an `evaluate_agent` plus regex extraction. It writes variables and
+    composites, and stores a deterministic critique (weakest dimension first)
+    in `{{steps.<step>:evaluate.output}}`.
+  - Configuration errors fail the step and never fall back to a default:
+    missing key, HTTP 401/403 and HTTP 400/404/422. In a loop no further
+    iterations run.
+  - Transient errors fall back after retries: HTTP 429, 529 and 5xx, network
+    errors and invalid responses. The classifier uses `default_category`, the
+    loop writes empty fallback values, and a `jev_call_failed` warning event is
+    recorded. Fallback values always overwrite values from earlier runs.
+  - Each Jev call records one `llm_call_completed` event with token counts
+    and the detail `model=<id>, provider=TypeSafe; input=N, output=M`.
+    `classifier_completed` / `repeat_until_evaluate` carry a JSON decision
+    payload. Jev is never called again when an execution resumes.
+  - New package `com.fartech.agents.jev`:
+    - typed wire DTOs;
+    - `JevClient` / `HttpJevClient`: retries with backoff, honors
+      `retry-after`, and sends requests through the executor's `HttpAccess`
+      client, so the egress proxy and SSRF guard apply;
+    - `JevClientFactory`, `JevCredentials` and `JevApiException`.
+  - New `WorkflowExecutor` constructor parameters, defaulted and appended
+    last: `jevCredentials`, `jevClientFactory` and `jevEnvKeyFallback`.
+  - Key resolution: host `JevCredentials`, then parameters `typesafe_api_key`
+    / `typesafe_ai_api_key` / `jev_api_key` / `llm_provider_keys[typesafe]`,
+    then env `TYPESAFE_API_KEY` (only when `jevEnvKeyFallback` is true, the
+    default).
+  - Model resolution: `jev.model`, then the host default, `typesafe_model`,
+    `TYPESAFE_DEFAULT_MODEL` and finally `jev-latest`.
+  - Base URL comes only from `TYPESAFE_BASE_URL`. The key never appears in
+    variables, outputs, events or logs.
+- `classifier.instructions`, optional, for both engines. It is the Jev
+  question text, or a `TASK:` section in the LLM classifier prompt. Without
+  it the LLM prompt is unchanged.
+- `JevVariableNames`: the naming rules for derived Jev variables, over plain
+  `(id, type)` pairs so host-side lint can reuse them.
+- Examples `examples/workflows/jev-support-triage.yaml` (Jev only, no chat
+  model) and `examples/workflows/jev-quality-loop.yaml`, run in tests against a
+  fake Jev client.
+
+### Changed
+
+- `ClassifierConfig.agent` is now `String?` and defaults to `null`, because a
+  Jev classifier has no agent.
+  - This is source-incompatible for Kotlin code that reads `agent` as
+    non-null.
+  - YAML without `jev` still needs a non-blank `agent`, with the same
+    validation message.
+  - `referencedAgents` ignores blank classifier agents.
+- The provider ids `typesafe`, `typesafe_ai` and `jev` are no longer accepted
+  as chat-model providers.
+  - `createLLMClient`, `determineLLMModel` and `ModelRegistry` throw
+    `TypeSafe Jev is a decision model, not a chat model...`.
+  - Before, they fell back to OpenRouter and would have sent the key to
+    openrouter.ai.
+  - Key lookup knows `TYPESAFE_API_KEY` and the aliases.
+    `llm_provider_keys[typesafe|typesafe_ai|jev]` maps to `typesafe_api_key`.
+- Classifiers inside `state_machine` states now also reject duplicate
+  category names.
+- `dry-run` labels Jev classifiers `classifier(jev)`. The monitor shows
+  `classifier(jev)` or `classifier(jev:<model>)`. The workflow summary marks
+  Jev-evaluated `repeat_until` steps.
+
+Deferred to later releases:
+
+- AI-evaluated `condition:` expressions. Conditions stay synchronous,
+  injection-safe comparisons: decide in a Jev step and branch on its
+  variables.
+- A dedicated Jev step type.
+- Jev for `group_chat` termination or speaker selection, `iterate_over`
+  filters, aggregate pick-best, extract candidate picking and manual-approval
+  auto-decisions.
+
 ## [1.1.7]
 
 ### Fixed

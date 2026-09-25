@@ -31,6 +31,7 @@ object WorkflowAnalyzer {
      *
      * 引用来源:
      * - 步骤 input / group_chat.initial_message / agent_based.goal / classifier.input 中的 `{{var:xxx}}` 与 `{{xxx}}`
+     * - classifier.instructions / Jev 问题 instructions / repeat_until.jev.state
      * - condition 表达式
      * - iterate_over.source
      * - aggregate.sources
@@ -44,6 +45,7 @@ object WorkflowAnalyzer {
             step.groupChat?.initialMessage?.let { result += referencesIn(it) }
             step.agentBased?.goal?.let { result += referencesIn(it) }
             step.classifier?.input?.let { result += referencesIn(it) }
+            jevTemplateFields(step).forEach { result += referencesIn(it) }
             step.iterateOver?.source?.let { result += referencesIn(it) }
             step.aggregate?.sources?.forEach { result += referencesIn(it) }
             step.subWorkflow?.inputs?.values?.forEach { result += referencesIn(it) }
@@ -61,6 +63,7 @@ object WorkflowAnalyzer {
             step.groupChat?.initialMessage?.let { result += stepOutputsReferencedIn(it) }
             step.agentBased?.goal?.let { result += stepOutputsReferencedIn(it) }
             step.classifier?.input?.let { result += stepOutputsReferencedIn(it) }
+            jevTemplateFields(step).forEach { result += stepOutputsReferencedIn(it) }
             step.iterateOver?.source?.let { result += stepOutputsReferencedIn(it) }
             step.aggregate?.sources?.forEach { result += stepOutputsReferencedIn(it) }
             step.subWorkflow?.inputs?.values?.forEach { result += stepOutputsReferencedIn(it) }
@@ -75,8 +78,9 @@ object WorkflowAnalyzer {
      * - `extract[*].variable`
      * - `iterate_over.results_variable`
      * - `aggregate.output_variable`
-     * - `classifier.output_variable`
+     * - `classifier.output_variable`(Jev 分类另含 `<out>_confidence` / `<out>_probabilities` 与附加问题变量)
      * - `repeat_until.extract_variable`
+     * - `repeat_until.jev` 的问题/综合分变量
      */
     fun collectWrittenVariables(workflow: WorkflowDefinition): Set<String> {
         val result = mutableSetOf<String>()
@@ -86,6 +90,7 @@ object WorkflowAnalyzer {
             step.aggregate?.outputVariable?.let { result += it }
             step.classifier?.outputVariable?.let { result += it }
             step.repeatUntil?.extractVariable?.let { result += it }
+            result += jevWrittenVariables(step)
         }
         return result
     }
@@ -116,6 +121,7 @@ object WorkflowAnalyzer {
             step.groupChat?.initialMessage?.let { readInSelected += referencesIn(it) }
             step.agentBased?.goal?.let { readInSelected += referencesIn(it) }
             step.classifier?.input?.let { readInSelected += referencesIn(it) }
+            jevTemplateFields(step).forEach { readInSelected += referencesIn(it) }
             step.iterateOver?.source?.let { readInSelected += referencesIn(it) }
             step.aggregate?.sources?.forEach { readInSelected += referencesIn(it) }
             step.subWorkflow?.inputs?.values?.forEach { readInSelected += referencesIn(it) }
@@ -125,6 +131,7 @@ object WorkflowAnalyzer {
             step.aggregate?.outputVariable?.let { writtenInSelected += it }
             step.classifier?.outputVariable?.let { writtenInSelected += it }
             step.repeatUntil?.extractVariable?.let { writtenInSelected += it }
+            writtenInSelected += jevWrittenVariables(step)
         }
 
         val readOutsideAfter = mutableSetOf<String>()
@@ -134,6 +141,7 @@ object WorkflowAnalyzer {
             step.groupChat?.initialMessage?.let { readOutsideAfter += referencesIn(it) }
             step.agentBased?.goal?.let { readOutsideAfter += referencesIn(it) }
             step.classifier?.input?.let { readOutsideAfter += referencesIn(it) }
+            jevTemplateFields(step).forEach { readOutsideAfter += referencesIn(it) }
             step.iterateOver?.source?.let { readOutsideAfter += referencesIn(it) }
             step.aggregate?.sources?.forEach { readOutsideAfter += referencesIn(it) }
             step.subWorkflow?.inputs?.values?.forEach { readOutsideAfter += referencesIn(it) }
@@ -150,6 +158,28 @@ object WorkflowAnalyzer {
             writtenInternalOnly = writtenThenRead
         )
     }
+
+    /**
+     * classifier.instructions、classifier.jev 问题 instructions、repeat_until.jev.state 与其问题
+     * instructions —— 这些字段都支持模板,运行时会被解析。
+     */
+    private fun jevTemplateFields(step: WorkflowStep): List<String> {
+        val fields = mutableListOf<String>()
+        step.classifier?.let { classifier ->
+            classifier.instructions?.let { fields += it }
+            classifier.jev?.questions?.forEach { fields += it.instructions }
+        }
+        step.repeatUntil?.jev?.let { jev ->
+            jev.state?.let { fields += it }
+            jev.questions.forEach { fields += it.instructions }
+        }
+        return fields
+    }
+
+    /** Jev 分类器与 repeat_until.jev 写入的派生变量(见 [JevVariableNames]) */
+    private fun jevWrittenVariables(step: WorkflowStep): List<String> =
+        step.classifier?.jevWrittenVariables().orEmpty() +
+            step.repeatUntil?.jev?.writtenVariables().orEmpty()
 
     /** 从字符串里提取所有 `{{var:xxx}}` / `{{xxx}}` 引用 */
     private fun referencesIn(text: String?): Set<String> {

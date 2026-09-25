@@ -1,0 +1,113 @@
+name: jev-support-triage
+version: 1.0.0
+description: >-
+  Route a support ticket with a TypeSafe Jev classifier. One Jev request picks
+  the team and also answers urgency, frustration and reply-channel questions;
+  code steps branch on the typed results. Needs TYPESAFE_API_KEY and no chat model.
+# A Jev classifier does not use an agent, but the field itself is required.
+agents: {}
+variables:
+  ticket_text: >-
+    Hi, you charged my card twice for the March invoice. I need the duplicate
+    refunded before Friday or our company card goes over its limit. This is the
+    third time I am writing about this.
+workflow:
+  - step: triage
+    classifier:
+      # Sent to Jev as the `state`; templates are resolved first.
+      input: "{{var:ticket_text}}"
+      instructions: "Which team should handle this support ticket?"
+      categories:
+        - name: billing
+          description: "Payments, invoices, refunds and plan changes"
+        - name: technical
+          description: "Bugs, outages, login problems and integrations"
+        - name: general
+          description: "Anything else, such as product questions or feedback"
+      output_variable: team
+      default_category: general
+      jev:
+        # Below 0.6 confidence the ticket goes to default_category (general).
+        min_confidence: 0.6
+        # Extra typed questions are answered in the same request.
+        questions:
+          - id: is_urgent
+            type: noul
+            instructions: "Does the customer say the problem is time-sensitive?"
+            yes_description: "The customer names a deadline or an ongoing business impact"
+            no_description: "No urgency is expressed"
+            threshold: 0.7
+          - id: frustration
+            type: score
+            instructions: "How frustrated does the customer appear?"
+            levels: ["Calm", "Frustrated but civil", "Very angry"]
+          - id: channel
+            type: choice
+            instructions: "Which channel should we reply on?"
+            options:
+              - name: email
+                description: "A written reply by email is enough"
+              - name: phone
+                description: "The customer needs a call back"
+            default_option: email
+            min_confidence: 0.5
+        # Weighted mean of normalized answers: frustration_normalized and is_urgent.
+        composites:
+          - name: priority
+            weights:
+              frustration: 0.4
+              is_urgent: 0.6
+
+  # Downstream steps branch on plain conditions over the variables Jev wrote.
+  # Code steps read them as WF_VAR_<NAME> environment variables.
+  - step: route_billing
+    depends_on: [triage]
+    condition: "team == 'billing'"
+    code:
+      language: bash
+      script: |
+        echo "Queue: billing (confidence ${WF_VAR_TEAM_CONFIDENCE}), reply by ${WF_VAR_CHANNEL}"
+
+  - step: route_technical
+    depends_on: [triage]
+    condition: "team == 'technical'"
+    code:
+      language: bash
+      script: |
+        echo "Queue: technical (confidence ${WF_VAR_TEAM_CONFIDENCE}), reply by ${WF_VAR_CHANNEL}"
+
+  - step: route_general
+    depends_on: [triage]
+    condition: "team == 'general'"
+    code:
+      language: bash
+      script: |
+        echo "Queue: general (confidence ${WF_VAR_TEAM_CONFIDENCE}), reply by ${WF_VAR_CHANNEL}"
+
+  # team_confidence stays the real Jev confidence on a low-confidence fallback
+  # and is "0" when Jev could not be reached, so this catches both cases.
+  - step: needs_review
+    depends_on: [triage]
+    condition: "team_confidence < 0.6"
+    code:
+      language: bash
+      script: |
+        echo "Jev was not confident about the team (${WF_VAR_TEAM_CONFIDENCE}); a human should check the routing."
+
+  - step: escalate
+    depends_on: [triage]
+    condition: "is_urgent_yes == 'true' || priority >= 0.7"
+    code:
+      language: bash
+      script: |
+        echo "Escalate: urgent=${WF_VAR_IS_URGENT_YES} (p=${WF_VAR_IS_URGENT}), priority=${WF_VAR_PRIORITY}"
+
+  - step: summary
+    depends_on: [route_billing, route_technical, route_general, needs_review, escalate]
+    code:
+      language: bash
+      script: |
+        echo "team=${WF_VAR_TEAM} confidence=${WF_VAR_TEAM_CONFIDENCE}"
+        echo "team_probabilities=${WF_VAR_TEAM_PROBABILITIES}"
+        echo "frustration_level=${WF_VAR_FRUSTRATION_LEVEL} frustration_normalized=${WF_VAR_FRUSTRATION_NORMALIZED}"
+        echo "channel=${WF_VAR_CHANNEL} priority=${WF_VAR_PRIORITY}"

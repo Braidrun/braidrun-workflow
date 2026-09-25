@@ -351,7 +351,14 @@ object ModelRegistry {
         }
     }
 
-    private fun mapProviderStringToEnum(provider: String): LLMProvider {
+    /**
+     * provider 字符串 → Koog [LLMProvider]。未知 provider 回落到 OpenRouter（带 WARN），
+     * 但 TypeSafe Jev（`typesafe` / `typesafe_ai` / `jev`）是决策模型而非聊天模型，
+     * 直接抛 [IllegalArgumentException]，绝不能静默路由到 OpenRouter。
+     * internal 仅为测试可见。
+     */
+    internal fun mapProviderStringToEnum(provider: String): LLMProvider {
+        rejectTypeSafeChatProvider(provider)
         return when (provider) {
             "openrouter", "open_router" -> LLMProvider.OpenRouter
             "openai", "open_ai" -> LLMProvider.OpenAI

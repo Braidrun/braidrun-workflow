@@ -48,3 +48,21 @@ Recommended integration pattern:
 - Inject `working_dir`, `output_dir`, and `subprocess_mode` explicitly.
 - Use Docker mode for untrusted code or shell work.
 - Keep LLM provider credentials outside workflow YAML when possible.
+- For TypeSafe Jev steps (`classifier.jev`, `repeat_until.jev`), a multi-tenant host
+  should pass each user's key and turn off the process-environment fallback. Then an
+  operator's `TYPESAFE_API_KEY` never pays for users' steps:
+
+  ```kotlin
+  WorkflowExecutor(
+      httpAccess = HttpAccess(),
+      baseParameters = parameters,
+      jevCredentials = JevCredentials(apiKey = userKey, defaultModel = "jev-latest"),
+      jevEnvKeyFallback = false
+  )
+  ```
+
+  Sub-workflows run in the same executor and use the same settings.
+
+  `JevCredentials` is in `com.fartech.agents.jev`. See
+  [Jev (TypeSafe) Decisions](WORKFLOW_GUIDE.md#jev-typesafe-decisions) for the full
+  order in which keys and models are resolved.

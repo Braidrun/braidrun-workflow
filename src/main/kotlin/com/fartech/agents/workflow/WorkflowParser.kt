@@ -355,8 +355,13 @@ object WorkflowParser {
                     )
                 }
 
+                // repeat_until.jev 与 evaluate_agent / extract_* 互斥（RepeatUntilConfig.init 已保证这些字段为空），
+                // 不需要评估 agent；下面的 evaluate_agent / extract 检查只针对 agent 评估模式。
+                // agent_based 等既有限制保持不变。
+                val usesJev = config.jev != null
+
                 // 验证 evaluate_agent 引用的 agent 存在
-                config.evaluateAgent?.let { evalAgent ->
+                config.evaluateAgent?.takeUnless { usesJev }?.let { evalAgent ->
                     if (!definedAgents.contains(evalAgent)) {
                         throw WorkflowValidationException(
                             "Step '${step.step}' repeat_until references undefined evaluate_agent '$evalAgent'. " +
@@ -366,14 +371,14 @@ object WorkflowParser {
                 }
 
                 // 验证 extract_pattern 和 extract_variable 必须同时提供或同时为空
-                if ((config.extractPattern != null) != (config.extractVariable != null)) {
+                if (!usesJev && (config.extractPattern != null) != (config.extractVariable != null)) {
                     throw WorkflowValidationException(
                         "Step '${step.step}' repeat_until: extract_pattern and extract_variable must both be provided or both be omitted"
                     )
                 }
 
                 // 验证正则表达式语法
-                config.extractPattern?.let { pattern ->
+                config.extractPattern?.takeUnless { usesJev }?.let { pattern ->
                     try {
                         Regex(pattern)
                     } catch (e: Exception) {
@@ -502,23 +507,30 @@ object WorkflowParser {
 
         workflow.workflow.forEach { step ->
             step.classifier?.let { config ->
-                // 验证 agent 引用存在
-                if (!definedAgents.contains(config.agent)) {
-                    throw WorkflowValidationException(
-                        "Step '${step.step}' classifier references undefined agent '${config.agent}'. " +
-                                "Available agents: ${definedAgents.joinToString(", ")}"
-                    )
+                // 验证 agent 引用存在（Jev 分类不使用 agent，ClassifierConfig.init 已保证 agent 为空）
+                if (!config.isJev) {
+                    val agentName = config.agent
+                    if (agentName == null || !definedAgents.contains(agentName)) {
+                        throw WorkflowValidationException(
+                            "Step '${step.step}' classifier references undefined agent '${config.agent}'. " +
+                                    "Available agents: ${definedAgents.joinToString(", ")}"
+                        )
+                    }
                 }
 
-                // 验证类别名称唯一
-                val names = config.categories.map { it.name }
-                val duplicates = names.groupingBy { it }.eachCount().filter { it.value > 1 }.keys
-                if (duplicates.isNotEmpty()) {
-                    throw WorkflowValidationException(
-                        "Step '${step.step}' classifier has duplicate category names: ${duplicates.joinToString(", ")}"
-                    )
-                }
+                validateClassifierCategoryNames("Step '${step.step}' classifier", config)
             }
+        }
+    }
+
+    /** 类别名称必须唯一（Jev 的 choice criteria 以名称为 key，重复会被静默合并） */
+    private fun validateClassifierCategoryNames(owner: String, config: ClassifierConfig) {
+        val names = config.categories.map { it.name }
+        val duplicates = names.groupingBy { it }.eachCount().filter { it.value > 1 }.keys
+        if (duplicates.isNotEmpty()) {
+            throw WorkflowValidationException(
+                "$owner has duplicate category names: ${duplicates.joinToString(", ")}"
+            )
         }
     }
 
@@ -557,6 +569,11 @@ object WorkflowParser {
                                     "Available agents: ${definedAgents.joinToString(", ")}"
                             )
                         }
+                    }
+
+                    // agent 存在性已由 referencedAgents 检查；这里补上类别名称唯一的检查
+                    stateStep.classifier?.let { classifier ->
+                        validateClassifierCategoryNames("Step '${step.step}' state '$stateKey' classifier", classifier)
                     }
 
                     validateExtractConfigs(
@@ -1104,7 +1121,8 @@ object WorkflowParser {
                 appendLine("    depends on: ${step.dependsOn.joinToString(", ")}")
             }
             step.repeatUntil?.let {
-                appendLine("    repeat_until: ${it.condition} (max ${it.maxIterations} iterations)")
+                val evaluator = if (it.jev != null) ", Jev evaluation" else ""
+                appendLine("    repeat_until: ${it.condition} (max ${it.maxIterations} iterations$evaluator)")
             }
             if (step.isAgentBased) {
                 step.agentBased?.let { ab ->

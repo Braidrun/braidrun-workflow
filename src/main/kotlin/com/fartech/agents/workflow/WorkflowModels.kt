@@ -995,6 +995,7 @@ data class AgentDefinition(
                     "ollama" -> params["ollama_api_key"] = JsonPrimitive(key)
                     "zai", "z.ai", "z_ai", "z-ai", "zhipuai", "zhipu_ai" -> params["zai_api_key"] = JsonPrimitive(key)
                     "nvidia", "nvidia_nim", "nvidia-nim", "nim", "nvidia_build", "nvidia-build" -> params["nvidia_api_key"] = JsonPrimitive(key)
+                    "typesafe", "typesafe_ai", "jev" -> params["typesafe_api_key"] = JsonPrimitive(key)
                 }
             }
         }
@@ -1400,7 +1401,8 @@ data class WorkflowStep(
             isGroupChat -> groupChat?.participants.orEmpty()
             isAgentBased -> agentBased?.participants.orEmpty()
             isCode -> emptyList()
-            isClassifier -> listOfNotNull(classifier?.agent)
+            // Jev 分类器不使用 agent（agent 为空）
+            isClassifier -> listOfNotNull(classifier?.agent?.takeIf { it.isNotBlank() })
             isStateMachine -> stateMachine?.referencedAgents.orEmpty()
             isSubWorkflow -> emptyList()  // 子 workflow 的 agents 由 child 自己管理,父不校验
             isWorkflowOutputRead -> emptyList()
@@ -1413,7 +1415,7 @@ data class WorkflowStep(
             isGroupChat -> "group_chat(${groupChat?.participants?.joinToString(",") ?: "?"})"
             isAgentBased -> "agent_based(${agentBased?.participants?.joinToString(",") ?: "?"})"
             isCode -> "code(${code?.language ?: "?"})"
-            isClassifier -> "classifier(${classifier?.agent ?: "?"})"
+            isClassifier -> classifier?.displayLabel() ?: "classifier(?)"
             isStateMachine -> "state_machine(${stateMachine?.states?.size ?: 0} states)"
             isSubWorkflow -> "sub_workflow(${subWorkflow?.identityLabel() ?: "?"})"
             isWorkflowOutputRead -> "workflow_output_read(${workflowOutputRead?.workflowId ?: "?"})"
@@ -1538,11 +1540,28 @@ data class RepeatUntilConfig(
 
     /** 提取的变量名（与 extract_pattern 配合使用，将匹配结果存入此变量） */
     @SerialName("extract_variable")
-    val extractVariable: String? = null
+    val extractVariable: String? = null,
+
+    /**
+     * TypeSafe Jev 评估（可选）：每轮迭代后用 Jev 类型化问题评估步骤输出，写入变量/综合分，
+     * 并把评语写入 `{{steps.<step>:evaluate.output}}`。与 evaluate_agent / evaluate_prompt /
+     * extract_pattern / extract_variable 互斥。见 [RepeatUntilJevConfig]。
+     */
+    @SerialName("jev")
+    val jev: RepeatUntilJevConfig? = null
 ) {
     init {
         require(condition.isNotBlank()) { "repeat_until condition cannot be blank" }
         require(maxIterations > 0) { "repeat_until max_iterations must be > 0" }
+        if (jev != null) {
+            // 空字符串视同未配置（web 编辑器清空字段时可能传 ""）
+            require(
+                evaluateAgent.isNullOrBlank() && evaluatePrompt.isNullOrBlank() &&
+                    extractPattern.isNullOrBlank() && extractVariable.isNullOrBlank()
+            ) {
+                "repeat_until: 'jev' cannot be combined with evaluate_agent/evaluate_prompt/extract_pattern/extract_variable"
+            }
+        }
         // Phase 11 hardening: cap upper bound so a typo or adversarial workflow YAML
         // can't park a step in a loop for hours. 1000 is generous — quality-review
         // loops in real workflows use 3–10 iterations.
@@ -1797,7 +1816,7 @@ data class CodePreambleConfig(
 /**
  * 智能分类路由配置
  *
- * 使用 LLM Agent 对输入进行分类，根据分类结果设置变量，
+ * 使用 LLM Agent（或 TypeSafe Jev，见 [jev]）对输入进行分类，根据分类结果设置变量，
  * 下游步骤可通过 condition 字段判断走不同分支。
  *
  * YAML 格式:
@@ -1815,12 +1834,30 @@ data class CodePreambleConfig(
  *         description: "一般性咨询"
  *     output_variable: request_category
  * ```
+ *
+ * Jev 分类（不配置 agent，`jev: {}` 即可）:
+ * ```yaml
+ * - step: triage
+ *   classifier:
+ *     input: "{{var:ticket_text}}"
+ *     instructions: "Which team should handle this support ticket?"
+ *     categories: [...]
+ *     output_variable: team
+ *     default_category: general
+ *     jev:
+ *       min_confidence: 0.6
+ * ```
+ * Jev 分类额外写入 `<out>_confidence` / `<out>_probabilities` 以及附加问题的变量，
+ * 见 [jevWrittenVariables] / [JevVariableNames]。
  */
 @Serializable
 data class ClassifierConfig(
-    /** 执行分类的 Agent 名称（引用 agents 中定义的 agent） */
+    /**
+     * 执行分类的 Agent 名称（引用 agents 中定义的 agent）。
+     * LLM 分类必填；Jev 分类（[jev] 非空）必须为空。
+     */
     @SerialName("agent")
-    val agent: String,
+    val agent: String? = null,
 
     /** 分类输入（支持模板变量） */
     @SerialName("input")
@@ -1836,10 +1873,50 @@ data class ClassifierConfig(
 
     /** 分类失败时的默认类别（可选） */
     @SerialName("default_category")
-    val defaultCategory: String? = null
+    val defaultCategory: String? = null,
+
+    /**
+     * 分类任务说明（可选，支持模板）。Jev 引擎作为主问题的 instructions（`input` 作为 state）；
+     * LLM 引擎会追加到分类 prompt 中。
+     */
+    @SerialName("instructions")
+    val instructions: String? = null,
+
+    /** TypeSafe Jev 配置（可选）：存在即使用 Jev 引擎分类，与 [agent] 互斥 */
+    @SerialName("jev")
+    val jev: ClassifierJevConfig? = null
 ) {
+    /** 是否由 TypeSafe Jev 回答（而非 LLM agent） */
+    val isJev: Boolean
+        get() = jev != null
+
+    /**
+     * Jev 分类写入的全部变量名（含 output_variable 本身）；非 Jev 分类返回空列表
+     * （LLM 分类只写 output_variable）。
+     */
+    fun jevWrittenVariables(): List<String> {
+        val jevConfig = jev ?: return emptyList()
+        return JevVariableNames.forClassifier(
+            outputVariable,
+            jevConfig.questions.idTypePairs(),
+            jevConfig.composites.map { it.name }
+        )
+    }
+
+    /** 监控 / 结果中展示的标签：`classifier(<agent>)`、`classifier(jev)` 或 `classifier(jev:<model>)` */
+    fun displayLabel(): String {
+        val jevConfig = jev ?: return "classifier(${agent ?: "?"})"
+        return jevConfig.model?.let { "classifier(jev:$it)" } ?: "classifier(jev)"
+    }
+
     init {
-        require(agent.isNotBlank()) { "classifier agent cannot be blank" }
+        if (jev == null) {
+            require(!agent.isNullOrBlank()) { "classifier agent cannot be blank" }
+        } else {
+            require(agent.isNullOrBlank()) {
+                "classifier: 'agent' and 'jev' are mutually exclusive — a Jev classifier does not use an agent"
+            }
+        }
         require(input.isNotBlank()) { "classifier input cannot be blank" }
         require(categories.size >= 2) { "classifier must have at least 2 categories" }
         require(outputVariable.isNotBlank()) { "classifier output_variable cannot be blank" }
@@ -1847,6 +1924,13 @@ data class ClassifierConfig(
             require(categories.any { it.name == dc }) {
                 "classifier default_category '$dc' must be one of the defined categories: ${categories.map { it.name }}"
             }
+        }
+        instructions?.let { require(it.isNotBlank()) { "classifier instructions cannot be blank when set" } }
+        if (jev != null) {
+            require(categories.size <= MAX_JEV_CHOICE_OPTIONS) {
+                "classifier: Jev supports at most $MAX_JEV_CHOICE_OPTIONS categories (got ${categories.size})"
+            }
+            requireNoDuplicateJevVariables("classifier", jevWrittenVariables())
         }
     }
 }
@@ -2538,7 +2622,7 @@ data class StateStepConfig(
             isGroupChat -> groupChat?.participants.orEmpty()
             isAgentBased -> agentBased?.participants.orEmpty()
             isCode -> emptyList()
-            isClassifier -> listOfNotNull(classifier?.agent)
+            isClassifier -> listOfNotNull(classifier?.agent?.takeIf { it.isNotBlank() })
             isSubWorkflow -> emptyList()
             else -> listOfNotNull(agent)
         }

@@ -8,6 +8,13 @@ import ai.koog.agents.features.eventHandler.feature.handleEvents
 import ai.koog.prompt.message.Message
 import ai.koog.prompt.message.MessagePart
 import com.fartech.agents.commons.*
+import com.fartech.agents.jev.JevApiException
+import com.fartech.agents.jev.JevClientFactory
+import com.fartech.agents.jev.JevCredentials
+import com.fartech.agents.jev.JevRequest
+import com.fartech.agents.jev.JevResponse
+import com.fartech.agents.jev.resolveJevCall
+import com.fartech.agents.jev.validateAgainst
 import com.fartech.agents.tools.ExternalAgentContext
 import com.fartech.agents.tools.ExternalAgentTools
 import com.fartech.agents.tools.ClaudeCredentialProvider
@@ -779,7 +786,23 @@ class WorkflowExecutor(
     private val onCodexAuthJsonRotated: ((credentialId: String?, authJson: String) -> Unit)? = null,
     /** Trusted host callback; mint immediately before each code step, after approvals.
      * Receives that step's execution budget in seconds. Never serialized into workflow state. */
-    private val executionApiTokenProvider: ((Long) -> String)? = null
+    private val executionApiTokenProvider: ((Long) -> String)? = null,
+    /**
+     * TypeSafe (Jev) credentials injected by the host (e.g. the web credential vault) for
+     * `classifier.jev` / `repeat_until.jev`. Highest-priority key source; see
+     * [com.fartech.agents.jev.resolveJevCall]. The key is never written to workflow variables,
+     * events or logs. Sub-workflows run in this executor and inherit it.
+     */
+    private val jevCredentials: JevCredentials? = null,
+    /** Builds Jev clients; always handed [httpAccess]'s client (egress proxy + SSRF guard). Tests inject fakes. */
+    private val jevClientFactory: JevClientFactory = JevClientFactory.Default,
+    /**
+     * Whether a Jev call may fall back to the `TYPESAFE_API_KEY` process env var when neither
+     * [jevCredentials] nor base parameters provide a key. The web host passes false so an
+     * operator-set key never silently pays for users' steps. `TYPESAFE_BASE_URL` /
+     * `TYPESAFE_DEFAULT_MODEL` are operator settings and are honored either way.
+     */
+    private val jevEnvKeyFallback: Boolean = true
 ) {
 
     /**
@@ -1821,7 +1844,8 @@ class WorkflowExecutor(
      *
      * 每次迭代：
      * 1. 执行步骤本身（通过 executeStepOnce 或 executeWithRetry）
-     * 2. 如果配置了 evaluate_agent，运行评估 Agent
+     * 2. 如果配置了 jev，用 TypeSafe Jev 评估（写入变量/综合分与评语，刷新 savepoint）；
+     *    否则如果配置了 evaluate_agent，运行评估 Agent
      * 3. 如果配置了 extract_pattern，从评估结果中提取变量
      * 4. 检查终止条件
      * 5. 如条件未满足且未达到 max_iterations，重复
@@ -1919,8 +1943,36 @@ class WorkflowExecutor(
                 break
             }
 
-            // 运行评估 Agent（如果配置了）
-            if (config.evaluateAgent != null) {
+            // 运行评估：repeat_until.jev（TypeSafe Jev）或评估 Agent（如果配置了）
+            val jevEvaluation = config.jev
+            if (jevEvaluation != null) {
+                val failure = evaluateRepeatUntilWithJev(step, jevEvaluation, workflow, context, iteration)
+                if (failure != null) {
+                    // executeStepOnce 已为本轮写入成功结果；直接抛异常会被下游当作成功
+                    // （on_success 触发、handleStepExecutionFailure 复用该成功结果）。
+                    // 先写入失败结果并完成监控，再抛出。
+                    val failedResult = lastResult.copy(
+                        success = false,
+                        error = failure,
+                        producedVariables = context.snapshotVariablesForPersistence()
+                    )
+                    context.stepResults[step.step] = failedResult
+                    if (monitoringEnabled) {
+                        WorkflowMonitor.completeStep(
+                            context.executionId,
+                            step.step,
+                            success = false,
+                            error = failure
+                        )
+                        monitoringCompleted = true
+                    }
+                    throw WorkflowExecutionException(failure)
+                }
+                // 刷新 savepoint：producedVariables 快照在 executeStepOnce 内、Jev 评估之前生成；
+                // 不刷新的话"从下一步重跑"会恢复上一轮（或缺失）的 Jev 变量。
+                lastResult = lastResult.copy(producedVariables = context.snapshotVariablesForPersistence())
+                context.stepResults[step.step] = lastResult
+            } else if (config.evaluateAgent != null) {
                 val evalResult = runEvaluateAgent(step, config, workflow, context, iteration)
                 // 从评估结果中提取变量
                 if (config.extractPattern != null && config.extractVariable != null && evalResult != null) {
@@ -3546,7 +3598,7 @@ class WorkflowExecutor(
     /**
      * 执行分类路由步骤
      *
-     * 使用 LLM Agent 对输入进行分类，根据分类结果设置变量。
+     * 使用 LLM Agent（或 TypeSafe Jev，见 [executeJevClassifierStep]）对输入进行分类，根据分类结果设置变量。
      * 下游步骤可通过 condition 字段判断走不同分支。
      */
     private suspend fun executeClassifierStep(
@@ -3557,7 +3609,11 @@ class WorkflowExecutor(
     ): StepResult {
         val config = step.classifier
             ?: throw WorkflowExecutionException("Classifier configuration missing for step '${step.step}'")
-        val agentDef = workflow.agents[config.agent]
+        if (config.isJev) {
+            return executeJevClassifierStep(step, workflow, context, config)
+        }
+        val classifierAgent = config.agent
+        val agentDef = classifierAgent?.let { workflow.agents[it] }
             ?: throw WorkflowExecutionException("Classifier agent '${config.agent}' not found for step '${step.step}'")
 
         logger.info { "[Workflow:${workflow.name}] Executing classifier step '${step.step}' with agent '${config.agent}'" }
@@ -3576,23 +3632,16 @@ class WorkflowExecutor(
 
         // 构建分类 prompt
         val resolvedInput = resolveTemplate(config.input, context)
-        val categoriesDescription = config.categories.joinToString("\n") { cat ->
-            "- ${cat.name}: ${cat.description}"
-        }
-        val classificationPrompt = """You are a classifier. Analyze the following input and classify it into exactly one of the given categories.
-
-INPUT:
-$resolvedInput
-
-CATEGORIES:
-$categoriesDescription
-
-IMPORTANT: You MUST respond with ONLY the category name (one of: ${config.categories.joinToString(", ") { it.name }}). Do not include any explanation, punctuation, or extra text. Just the category name."""
+        val classificationPrompt = buildLlmClassifierPrompt(
+            resolvedInput = resolvedInput,
+            categories = config.categories,
+            resolvedInstructions = config.instructions?.let { resolveTemplate(it, context) }
+        )
 
         // 创建 agent 并执行
         val rawResult = try {
             runStepAgent(
-                agentName = config.agent,
+                agentName = classifierAgent,
                 agentDef = agentDef,
                 context = context,
                 stepName = "${step.step}:classifier",
@@ -3639,6 +3688,244 @@ IMPORTANT: You MUST respond with ONLY the category name (one of: ${config.catego
 
         val output = "classification: $finalCategory"
         return StepResult(success = true, output = output)
+    }
+
+    /**
+     * TypeSafe Jev 分类（classifier.jev）。
+     *
+     * 一次 System One 请求同时回答主分类问题（choice，id = output_variable，state = 解析后的 input）
+     * 与所有附加问题，写入 [JevVariableNames] 约定的变量。错误语义：
+     * - CancellationException 原样抛出；
+     * - 配置类错误（缺少 key、401/403、400/404/422）→ 步骤失败，绝不静默使用默认类别；
+     * - 瞬时错误（限流/过载/5xx/网络/无效响应，已重试）→ 有 default_category 时写入兜底变量并发出警告事件，否则失败；
+     * - 主问题置信度低于 min_confidence → default_category，否则失败（附加 choice 问题同理用 default_option）。
+     * 输出首行 `classification: <category>` 是 resume 还原依赖的不变量。
+     */
+    private suspend fun executeJevClassifierStep(
+        step: WorkflowStep,
+        workflow: WorkflowDefinition,
+        context: WorkflowExecutionContext,
+        config: ClassifierConfig
+    ): StepResult {
+        val jevConfig = config.jev
+            ?: throw WorkflowExecutionException("Classifier step '${step.step}' is not a Jev classifier")
+
+        logger.info { "[Workflow:${workflow.name}] Executing Jev classifier step '${step.step}'" }
+
+        if (enableMonitoring) {
+            WorkflowMonitor.addEvent(
+                context.executionId, step.step, AgentEvent(
+                    type = "classifier_started",
+                    category = "agent",
+                    subCategory = "classifier",
+                    summary = "🏷️ 分类路由开始 (Jev): ${config.categories.size} 类别",
+                    detail = "engine=jev, categories=${config.categories.map { it.name }}, output_variable=${config.outputVariable}"
+                )
+            )
+        }
+
+        val resolve: (String) -> String = { resolveTemplate(it, context) }
+        val resolvedInput = resolve(config.input)
+        var requestedModel: String? = jevConfig.model
+
+        val decision = try {
+            val response = callJev(jevConfig.model) { model ->
+                requestedModel = model
+                buildJevClassifierRequest(config, model, resolvedInput, resolve)
+            }
+            emitJevUsageEvent(context, step.step, response)
+            response to decideJevClassifier(step.step, config, response)
+        } catch (e: CancellationException) {
+            // Never convert a user cancel into a fabricated default-category result.
+            throw e
+        } catch (e: JevApiException) {
+            val defaultCategory = config.defaultCategory
+            if (e.isConfigurationError || defaultCategory == null) {
+                throw WorkflowExecutionException("Classifier step '${step.step}': ${e.message}", e)
+            }
+            return applyJevClassifierErrorFallback(step, workflow, context, config, requestedModel, defaultCategory, e)
+        }
+        val (response, classification) = decision
+
+        classification.variables(config).forEach { (name, value) -> context.setVariable(name, value) }
+        logger.info {
+            "[Workflow:${workflow.name}] Jev classifier step '${step.step}' result: ${config.outputVariable}='${classification.category}'" +
+                (classification.confidence?.let { " (confidence ${formatJevNumber(it)})" } ?: "") +
+                (if (classification.fellBack) " [below min_confidence, default_category used]" else "")
+        }
+
+        if (enableMonitoring) {
+            val confidenceText = classification.confidence?.let(::formatJevNumber)
+            val summarySuffix = when {
+                classification.fellBack -> "（Jev 置信度 ${confidenceText ?: "-"} 低于最低置信度，使用默认类别）"
+                confidenceText != null -> "（Jev 置信度 $confidenceText）"
+                else -> "（Jev）"
+            }
+            WorkflowMonitor.addEvent(
+                context.executionId, step.step, AgentEvent(
+                    type = "classifier_completed",
+                    category = "agent",
+                    subCategory = "classifier",
+                    summary = "🏷️ 分类结果: ${classification.category}$summarySuffix",
+                    detail = jevClassifierDecisionPayload(config, response.model, classification, response.usage)
+                )
+            )
+        }
+
+        val output = jevClassifierOutput(
+            classification.category,
+            if (classification.fellBack) null else classification.confidence
+        )
+        return StepResult(success = true, output = output)
+    }
+
+    /** Transient Jev failure with a default_category: write the §4.2 error-fallback values and warn. */
+    private fun applyJevClassifierErrorFallback(
+        step: WorkflowStep,
+        workflow: WorkflowDefinition,
+        context: WorkflowExecutionContext,
+        config: ClassifierConfig,
+        model: String?,
+        defaultCategory: String,
+        error: JevApiException
+    ): StepResult {
+        jevClassifierErrorFallbackVariables(config, defaultCategory).forEach { (name, value) -> context.setVariable(name, value) }
+        logger.warn {
+            "[Workflow:${workflow.name}] Jev classifier step '${step.step}' failed (${error.kind}); " +
+                "using default_category '$defaultCategory': ${error.message}"
+        }
+        if (enableMonitoring) {
+            WorkflowMonitor.addEvent(
+                context.executionId, step.step, AgentEvent(
+                    type = "jev_call_failed",
+                    category = "agent",
+                    subCategory = "classifier",
+                    summary = "⚠️ Jev 调用失败，使用默认类别: $defaultCategory",
+                    detail = error.message
+                )
+            )
+            WorkflowMonitor.addEvent(
+                context.executionId, step.step, AgentEvent(
+                    type = "classifier_completed",
+                    category = "agent",
+                    subCategory = "classifier",
+                    summary = "🏷️ 分类结果: $defaultCategory（Jev 失败，使用默认类别）",
+                    detail = jevClassifierErrorPayload(config, model, defaultCategory, error.message ?: error.kind.name)
+                )
+            )
+        }
+        return StepResult(success = true, output = jevClassifierOutput(defaultCategory, null))
+    }
+
+    /**
+     * repeat_until.jev：对本轮输出做一次 Jev 评估（所有问题一次请求），写入变量/综合分与评语
+     * `<step>:evaluate`。返回 null 表示评估完成（或瞬时错误已写入兜底值，循环继续）；返回错误信息表示
+     * 必须让步骤失败（配置类错误，或附加 choice 问题低于 min_confidence 且无 default_option）。
+     */
+    private suspend fun evaluateRepeatUntilWithJev(
+        step: WorkflowStep,
+        jevConfig: RepeatUntilJevConfig,
+        workflow: WorkflowDefinition,
+        context: WorkflowExecutionContext,
+        iteration: Int
+    ): String? {
+        val resolve: (String) -> String = { resolveTemplate(it, context) }
+        val resolvedState = resolve(jevConfig.stateTemplateFor(step.step))
+        var requestedModel: String? = jevConfig.model
+
+        logger.info { "[Workflow:${workflow.name}] Running Jev evaluation for step '${step.step}' iteration $iteration" }
+
+        return try {
+            val response = callJev(jevConfig.model) { model ->
+                requestedModel = model
+                buildJevQuestionSetRequest(jevConfig.questions, model, resolvedState, resolve)
+            }
+            emitJevUsageEvent(context, step.step, response)
+            val decision = evaluateJevQuestionSet(step.step, jevConfig.questions, jevConfig.composites, response.answers)
+            decision.allVariables(jevConfig.composites).forEach { (name, value) -> context.setVariable(name, value) }
+            context.setStepOutput(
+                "${step.step}:evaluate",
+                buildJevCritique(iteration, response.model, decision, jevConfig.composites)
+            )
+
+            if (enableMonitoring) {
+                WorkflowMonitor.addEvent(
+                    context.executionId, step.step, AgentEvent(
+                        type = "repeat_until_evaluate",
+                        category = "agent",
+                        summary = "Jev evaluation completed (iteration $iteration)",
+                        detail = jevRepeatUntilDecisionPayload(iteration, response.model, decision, response.usage)
+                    )
+                )
+            }
+            null
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: JevApiException) {
+            if (e.isConfigurationError) {
+                return "repeat_until Jev evaluation failed for step '${step.step}': ${e.message}"
+            }
+            // 瞬时错误：与评估 Agent 失败一致（记录日志 + 警告事件，循环继续），但先覆盖为兜底值，
+            // 避免条件读到上一轮的旧结果。
+            jevQuestionSetFallbackVariables(jevConfig.questions, jevConfig.composites)
+                .forEach { (name, value) -> context.setVariable(name, value) }
+            logger.error(e) {
+                "[Workflow:${workflow.name}] Jev evaluation failed for step '${step.step}' iteration $iteration (${e.kind}): ${e.message}"
+            }
+            if (enableMonitoring) {
+                WorkflowMonitor.addEvent(
+                    context.executionId, step.step, AgentEvent(
+                        type = "jev_call_failed",
+                        category = "agent",
+                        summary = "⚠️ Jev evaluation failed (iteration $iteration); fallback values written",
+                        detail = e.message
+                    )
+                )
+                WorkflowMonitor.addEvent(
+                    context.executionId, step.step, AgentEvent(
+                        type = "repeat_until_evaluate",
+                        category = "agent",
+                        summary = "Jev evaluation failed (iteration $iteration)",
+                        detail = jevRepeatUntilErrorPayload(iteration, requestedModel, e.message ?: e.kind.name)
+                    )
+                )
+            }
+            null
+        } catch (e: WorkflowExecutionException) {
+            // 附加 choice 问题低于 min_confidence 且没有 default_option
+            e.message ?: "repeat_until Jev evaluation failed for step '${step.step}'"
+        } catch (e: Exception) {
+            // 意外异常同样走失败流程：直接抛出会绕过调用方写入失败结果的逻辑，
+            // 让本轮已存入的成功结果被下游当作成功。
+            logger.error(e) { "[Workflow:${workflow.name}] Unexpected Jev evaluation error for step '${step.step}'" }
+            "repeat_until Jev evaluation failed for step '${step.step}': ${e.message ?: e::class.simpleName}"
+        }
+    }
+
+    /**
+     * Resolves key / model / base URL (see [resolveJevCall]), builds the request for the
+     * resolved model and performs ONE System One call through [httpAccess]'s client.
+     * The response is validated against the request (any factory, including fakes).
+     */
+    private suspend fun callJev(stepModel: String?, buildRequest: (model: String) -> JevRequest): JevResponse {
+        val call = resolveJevCall(
+            stepModel = stepModel,
+            credentials = jevCredentials,
+            parameters = baseParameters,
+            envKeyFallback = jevEnvKeyFallback
+        )
+        val request = buildRequest(call.model)
+        val client = jevClientFactory.create(call.apiKey, call.clientSettings(), httpAccess.client)
+        val response = client.systemOne(request)
+        response.validateAgainst(request)
+        return response
+    }
+
+    /** The single token-bearing `llm_call_completed` event per Jev call (under the step's own name). */
+    private fun emitJevUsageEvent(context: WorkflowExecutionContext, stepName: String, response: JevResponse) {
+        if (enableMonitoring) {
+            WorkflowMonitor.addEvent(context.executionId, stepName, buildJevUsageEvent(response))
+        }
     }
 
     // ==================== 通用结构化输出提取 ====================
@@ -9301,6 +9588,30 @@ data class ApprovalDecision(
  */
 interface ApprovalHandler {
     suspend fun requestApproval(request: ApprovalRequest): ApprovalDecision
+}
+
+/**
+ * LLM 分类器 prompt。可选的 classifier.instructions 作为 TASK 段插入；
+ * 未配置时与引入该字段之前的 prompt 逐字节一致。
+ */
+internal fun buildLlmClassifierPrompt(
+    resolvedInput: String,
+    categories: List<ClassifierCategory>,
+    resolvedInstructions: String?
+): String {
+    val categoriesDescription = categories.joinToString("\n") { cat ->
+        "- ${cat.name}: ${cat.description}"
+    }
+    val taskSection = resolvedInstructions?.let { "TASK:\n$it\n\n" }.orEmpty()
+    return """You are a classifier. Analyze the following input and classify it into exactly one of the given categories.
+
+${taskSection}INPUT:
+$resolvedInput
+
+CATEGORIES:
+$categoriesDescription
+
+IMPORTANT: You MUST respond with ONLY the category name (one of: ${categories.joinToString(", ") { it.name }}). Do not include any explanation, punctuation, or extra text. Just the category name."""
 }
 
 /**
