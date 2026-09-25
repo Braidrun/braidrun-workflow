@@ -5,12 +5,15 @@ import com.fartech.agents.tools.ExternalAgentContext
 import com.fartech.agents.tools.ExternalAgentTools
 import com.fartech.agents.tools.SubAgentTools
 import com.fartech.agents.tools.exec.SubprocessExecutor
+import com.fartech.agents.workflow.NestedWorkflowRuntime
+import com.fartech.agents.workflow.WorkflowTools
 import com.fartech.ftapp2.commonsKt.ConfigurationParameter
 import com.fartech.ftapp2.commonsKt.HttpAccess
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.encodeToJsonElement
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertNotNull
@@ -108,6 +111,37 @@ class ToolRegistryBuilderTest {
         val subAgentTools = reflectedTool.thisRef as SubAgentTools
 
         assertSame(executor, subAgentTools.externalAgentExecutor)
+    }
+
+    @Test
+    fun `parseToolSet reuses a supplied WorkflowTools instead of building a default one`() {
+        val httpAccess = HttpAccess()
+        val hostWorkflowTools = WorkflowTools(httpAccess, emptyList(), NestedWorkflowRuntime(jevEnvKeyFallback = false))
+        val registry = parseToolSet(
+            parameters = disabledSkillsParams(),
+            httpAccess = httpAccess,
+            tools = listOf("workflow", "sub_agent"),
+            customToolSets = listOf(hostWorkflowTools)
+        )
+
+        assertEquals(1, registry.tools.count { it.name == "executeWorkflow" })
+        assertSame(hostWorkflowTools, (registry.getTool("executeWorkflow") as ToolFromCallable<*>).thisRef)
+        val subAgentTools = (registry.getTool("runSubAgent") as ToolFromCallable<*>).thisRef as SubAgentTools
+        assertEquals(listOf<Any>(hostWorkflowTools), subAgentTools.hostToolSets)
+    }
+
+    @Test
+    fun `parseToolSet still builds a default WorkflowTools when none is supplied`() {
+        val registry = parseToolSet(
+            parameters = disabledSkillsParams(),
+            httpAccess = HttpAccess(),
+            tools = listOf("workflow", "sub_agent")
+        )
+
+        assertEquals(1, registry.tools.count { it.name == "executeWorkflow" })
+        assertTrue((registry.getTool("executeWorkflow") as ToolFromCallable<*>).thisRef is WorkflowTools)
+        val subAgentTools = (registry.getTool("runSubAgent") as ToolFromCallable<*>).thisRef as SubAgentTools
+        assertTrue(subAgentTools.hostToolSets.isEmpty())
     }
 
     private class CapturingExecutor : SubprocessExecutor {

@@ -40,4 +40,34 @@ class ExecutionCallbackRenewalTest {
         assertFalse(result.success)
         assertFalse(marker.toFile().exists())
     }
+    @Test fun `callback is minted after resource wait and wait does not spend workflow or step budget`() = runBlocking {
+        var admitted = false
+        var calls = 0
+        val native = com.fartech.agents.tools.exec.NativeSubprocessExecutor()
+        val waitingExecutor = object : com.fartech.agents.tools.exec.SubprocessExecutor {
+            override suspend fun execute(request: com.fartech.agents.tools.exec.SubprocessExecutor.ExecRequest): com.fartech.agents.tools.exec.SubprocessExecutor.ExecResult {
+                assertFalse(request.env.containsKey("WF_API_TOKEN"))
+                assertNotNull(request.environmentAtStart)
+                com.fartech.agents.tools.exec.resourceAdmissionWait { kotlinx.coroutines.delay(1200) }
+                admitted = true
+                return native.execute(request)
+            }
+        }
+        val executor = WorkflowExecutor(HttpAccess(), listOf(
+            ConfigurationParameter("working_dir", JsonPrimitive(root.toString())),
+            ConfigurationParameter("execution_api_token", JsonPrimitive("expired-startup"))
+        ), enableMonitoring = false, codeStepExecutor = waitingExecutor, executionApiTokenProvider = {
+            assertTrue(admitted, "must not mint a short-lived token before admission")
+            calls++
+            "after-admission"
+        })
+        val result = executor.execute(WorkflowDefinition(name="resource-wait", agents=emptyMap(),
+            timeout=TimeoutConfig(total="1s", perStep="1s"), workflow=listOf(
+                WorkflowStep(step="first", code=CodeStepConfig(language="bash", script="test \"\$WF_API_TOKEN\" = after-admission", timeout=2)),
+                WorkflowStep(step="second", code=CodeStepConfig(language="bash", script="test \"\$WF_API_TOKEN\" = after-admission", timeout=2))
+            )))
+        assertTrue(result.success, result.error)
+        assertEquals(2, calls)
+    }
+
 }

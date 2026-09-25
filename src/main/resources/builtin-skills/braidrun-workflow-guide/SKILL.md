@@ -1,7 +1,7 @@
 ---
 name: braidrun-workflow-guide
-description: Current English guide for Braidrun Workflow YAML, CLI usage, library usage, tool groups, Docker runtime, and external Claude Code / Codex agents.
-version: "3.0.0"
+description: Current English guide for Braidrun Workflow YAML, CLI usage, library usage, tool groups, Docker runtime, external Claude Code / Codex agents, and TypeSafe Jev decision steps.
+version: "3.1.0"
 author: braidrun
 tags:
   - guide
@@ -10,6 +10,7 @@ tags:
   - cli
   - mcp
   - docker
+  - jev
 attachments:
   - config-template.yaml
   - workflow-template.yaml
@@ -36,6 +37,7 @@ Use this skill when a user or agent needs current guidance for authoring or runn
 4. Keep API keys outside workflow YAML when possible.
 5. Validate YAML with `braidrun-workflow validate` before running it.
 6. Use `dry-run` to review the step and agent plan without calling models or tools.
+7. When a TypeSafe key is available and a route or quality gate needs a calibrated decision, prefer a Jev step (`classifier.jev`, `repeat_until.jev`) over an LLM judge parsed with regex.
 
 ## Useful Commands
 
@@ -63,3 +65,30 @@ Common runtime parameters:
 - `external_agent_codex_extra_args`
 
 Prefer API-key authentication for stable automation.
+
+## Typed Decisions with TypeSafe Jev
+
+Jev is TypeSafe AI's decision model. It answers typed `choice` / `score` / `noul`
+questions with calibrated probabilities and cannot write text, so it is never an
+agent `llm.provider`.
+
+- `classifier.jev`: add `jev: {}` (optional `model`, `min_confidence`, `questions`,
+  `composites`) and omit `agent`. Jev picks the category, and extra questions are
+  answered in the same request. Besides `output_variable`, it writes
+  `<out>_confidence`, `<out>_probabilities` and per-question variables such as
+  `<id>_yes`, `<id>_level` and `<id>_normalized`.
+- `repeat_until.jev`: typed questions grade each iteration instead of
+  `evaluate_agent`. The critique goes to `{{steps.<step>:evaluate.output}}`.
+- Branch with plain conditions on those variables, for example
+  `team_confidence >= 0.8` or `is_urgent_yes == 'true'`. Conditions never call a model.
+- Key: `TYPESAFE_API_KEY` or `--param typesafe_api_key=...`. Model: `jev.model`, then
+  `typesafe_model`, `TYPESAFE_DEFAULT_MODEL` or `jev-latest`.
+- A missing or rejected key fails the step. Transient errors fall back to
+  `default_category` when it is set.
+- Limits: 255 categories or options, 2..10 score levels, 64k tokens per request.
+  English is most accurate.
+
+See `workflow-capability-reference.md` for field tables. Runnable examples:
+
+- `examples/workflows/jev-support-triage.yaml`
+- `examples/workflows/jev-quality-loop.yaml`

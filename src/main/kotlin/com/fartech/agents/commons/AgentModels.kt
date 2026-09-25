@@ -20,6 +20,8 @@ import ai.koog.prompt.executor.ollama.client.OllamaClient
 import ai.koog.prompt.llm.LLMCapability
 import ai.koog.prompt.llm.LLMProvider
 import ai.koog.prompt.llm.LLModel
+import com.fartech.agents.jev.JEV_NOT_A_CHAT_MODEL_MESSAGE
+import com.fartech.agents.jev.isTypeSafeProviderId
 import com.fartech.ftapp2.commonsKt.*
 import io.ktor.client.*
 import mu.KotlinLogging
@@ -258,12 +260,27 @@ private val CUSTOM_MODEL_REGISTRY = mutableMapOf<String, MutableMap<String, LLMo
 private val registryLock = Any()
 
 /**
+ * TypeSafe Jev returns typed decisions, not chat completions, so `typesafe` /
+ * `typesafe_ai` / `jev` must never resolve to a chat client. Without this guard the
+ * id would hit the unknown-provider → OpenRouter default and send the Jev key to
+ * openrouter.ai. Jev is used through `classifier.jev` / `repeat_until.jev` only.
+ *
+ * @throws IllegalArgumentException for a TypeSafe provider id.
+ */
+internal fun rejectTypeSafeChatProvider(provider: String) {
+    if (isTypeSafeProviderId(provider)) throw IllegalArgumentException(JEV_NOT_A_CHAT_MODEL_MESSAGE)
+}
+
+/**
  * Maps a provider string (lowercase) to the corresponding [LLMProvider] enum value.
  *
  * Providers that are routed through OpenRouter (xAI, Qwen, Meta, Mistral, Perplexity)
  * are mapped to [LLMProvider.OpenRouter]. Unknown providers also default to OpenRouter.
+ * TypeSafe (Jev) ids are rejected — see [rejectTypeSafeChatProvider].
  */
 private fun mapProviderToLLMProvider(providerKey: String): LLMProvider = when (providerKey) {
+    // Jev is a decision model: never let it reach the OpenRouter catch-all below.
+    "typesafe", "typesafe_ai", "typesafe-ai", "jev" -> throw IllegalArgumentException(JEV_NOT_A_CHAT_MODEL_MESSAGE)
     "openrouter", "open_router" -> LLMProvider.OpenRouter
     "openai", "open_ai" -> LLMProvider.OpenAI
     "google" -> LLMProvider.Google
@@ -357,6 +374,7 @@ private fun getCustomModel(provider: String, modelName: String): LLModel? {
  * 3. Dynamically creates model from configuration
  */
 fun determineLLMModel(llmModelConfig: LLModelConfig): LLModel {
+    rejectTypeSafeChatProvider(llmModelConfig.provider)
     val providerKey = llmModelConfig.provider.lowercase()
     val modelKey = llmModelConfig.model.lowercase()
 
@@ -520,6 +538,7 @@ private fun envVarNamesForProvider(provider: String): List<String> = when (provi
     "meta", "meta-llama" -> listOf("OPENROUTER_API_KEY") // Meta uses OpenRouter
     "mistral", "mistralai" -> listOf("MISTRAL_API_KEY", "OPENROUTER_API_KEY") // Mistral uses OpenRouter
     "perplexity" -> listOf("PERPLEXITY_API_KEY", "OPENROUTER_API_KEY") // Perplexity uses OpenRouter
+    "typesafe", "typesafe_ai", "typesafe-ai", "jev" -> listOf("TYPESAFE_API_KEY") // TypeSafe Jev (decision model, not chat)
     else -> emptyList()
 }
 
@@ -549,13 +568,21 @@ private fun providerKeyAliases(provider: String): List<String> = when (provider.
     "mistral", "mistralai" -> listOf("mistral", "mistralai", "openrouter", "open_router")
     "perplexity" -> listOf("perplexity", "openrouter", "open_router")
     "ollama", "local", "olla" -> listOf("ollama", "local", "olla")
+    // Must match com.fartech.agents.jev.TYPESAFE_PROVIDER_ALIASES (and the web credential aliases).
+    "typesafe", "typesafe_ai", "typesafe-ai", "jev" -> listOf("typesafe", "typesafe_ai", "jev")
     else -> listOf(provider.lowercase())
 }.distinct()
 
 private fun providerApiKeyParameterNames(provider: String): List<String> =
     providerKeyAliases(provider).map { "${it.replace('-', '_')}_api_key" }.distinct()
 
-internal fun resolveConfiguredApiKey(
+/**
+ * Resolves a provider key from configuration ONLY — standalone `<alias>_api_key`
+ * parameters first, then [keys] (`llm_provider_keys`) by alias — without the
+ * process-environment fallback of [resolveConfiguredApiKey]. Used where the env
+ * lookup must be injectable or disabled (TypeSafe Jev credential resolution).
+ */
+internal fun resolveConfiguredApiKeyFromParams(
     parameters: List<ConfigurationParameter>,
     provider: String,
     keys: Map<String, String>
@@ -573,10 +600,18 @@ internal fun resolveConfiguredApiKey(
         value.takeIf { it.isNotBlank() }
     }?.let { return it }
 
-    val explicitApiKey = providerKeyAliases(provider).firstNotNullOfOrNull { alias ->
+    return providerKeyAliases(provider).firstNotNullOfOrNull { alias ->
         keys[alias]?.takeIf { it.isNotBlank() }
     }
-    val envResult = resolveApiKey(provider, explicitApiKey)
+}
+
+internal fun resolveConfiguredApiKey(
+    parameters: List<ConfigurationParameter>,
+    provider: String,
+    keys: Map<String, String>
+): String? {
+    resolveConfiguredApiKeyFromParams(parameters, provider, keys)?.let { return it }
+    val envResult = resolveApiKey(provider, null)
     debugLlmConfig { "  fallback resolveApiKey -> ${redactKey(envResult)}" }
     return envResult
 }
@@ -690,6 +725,7 @@ fun createLLMClient(
     modelConfig: LLModelConfig,
     keys: Map<String, String>
 ): Pair<LLMProvider, LLMClient> {
+    rejectTypeSafeChatProvider(modelConfig.provider)
     val model = determineLLMModel(modelConfig)
     debugLlmConfig {
         "createLLMClient provider=${model.provider.id} model=${model.id} configProvider=${modelConfig.provider} " +

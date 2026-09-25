@@ -311,7 +311,7 @@ class CodeExecutionTools(
     }
 
     private fun buildExecutorEnvironment(workDir: File): Map<String, String> {
-        val usingDocker = executor is DockerSubprocessExecutor
+        val usingDocker = executor.isDocker
         val workspacePath = if (usingDocker) "/workspace" else workDir.absolutePath
         val outputPath = when {
             context.outputDir == null -> null
@@ -336,7 +336,7 @@ class CodeExecutionTools(
     }
 
     private fun buildExecutorMounts(workDir: File): List<SubprocessExecutor.Mount> {
-        if (executor !is DockerSubprocessExecutor) return emptyList()
+        if (!executor.isDocker) return emptyList()
 
         val mounts = mutableListOf<SubprocessExecutor.Mount>()
         val canonicalWorkDir = runCatching { workDir.canonicalFile }.getOrDefault(workDir.absoluteFile)

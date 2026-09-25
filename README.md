@@ -8,6 +8,7 @@ Use this repository when you need the runtime as a command-line tool or an embed
 
 - Workflow YAML execution from CLI or Kotlin code.
 - Agent steps, code steps, parallel execution, conditions, iteration, retries, state machines, and sub-workflows.
+- Typed decisions with the TypeSafe Jev decision model: classifier routing with calibrated confidence, plus Jev-graded `repeat_until` loops.
 - Built-in presets for coding, research, writing, data analysis, documents, browser automation, DevOps, communication, and marketing research.
 - Built-in tool groups for files, shell, Git, HTTP, browser automation, documents, databases, RAG, email, image processing, and MCP.
 - Multi-runtime agent execution: embedded Koog agents, plus Claude Code and OpenAI Codex as direct workflow agents or delegated sub-agents.
@@ -30,6 +31,7 @@ Requirements:
 - JDK 21 or newer
 - Docker Desktop or Docker Engine for Docker subprocess mode
 - Provider API keys for Koog-backed agent workflows
+- `TYPESAFE_API_KEY` only for Jev decision steps (`classifier.jev`, `repeat_until.jev`)
 - Node.js and the relevant `claude` or `codex` CLI only when using Claude Code or Codex agents
 
 ```bash
@@ -53,6 +55,33 @@ Run with Docker-backed subprocess isolation:
   --subprocess-mode docker
 ```
 
+## Provider Keys
+
+The runtime reads provider keys from environment variables. A runtime parameter
+works too: `--param <provider>_api_key=...`, for example `--param openai_api_key=...`.
+Keep keys out of workflow YAML.
+
+| Provider | Environment variable | Used by |
+| --- | --- | --- |
+| OpenRouter (preset default) | `OPENROUTER_API_KEY` | Koog agents |
+| OpenAI | `OPENAI_API_KEY` | Koog agents |
+| Anthropic | `ANTHROPIC_API_KEY` | Koog agents, Claude Code |
+| Google | `GOOGLE_API_KEY` | Koog agents |
+| DeepSeek | `DEEPSEEK_API_KEY` | Koog agents |
+| TypeSafe (Jev) | `TYPESAFE_API_KEY` | `classifier.jev` and `repeat_until.jev` only |
+
+Other providers follow the same `<PROVIDER>_API_KEY` pattern.
+
+TypeSafe Jev is a decision model, not a chat model, so it cannot be an agent's
+provider. See
+[Jev (TypeSafe) Decisions](docs/WORKFLOW_GUIDE.md#jev-typesafe-decisions) for model
+selection, `TYPESAFE_BASE_URL` / `TYPESAFE_DEFAULT_MODEL` and error handling.
+
+```bash
+export TYPESAFE_API_KEY=...
+./build/install/braidrun-workflow/bin/braidrun-workflow run examples/workflows/jev-support-triage.yaml
+```
+
 ## Use as a Library
 
 Released tags are published through [JitPack](https://jitpack.io/#Braidrun/braidrun-workflow):
@@ -64,7 +93,7 @@ repositories {
 }
 
 dependencies {
-    implementation("com.github.Braidrun:braidrun-workflow:1.1.2")
+    implementation("com.github.Braidrun:braidrun-workflow:1.2.0")
 }
 ```
 

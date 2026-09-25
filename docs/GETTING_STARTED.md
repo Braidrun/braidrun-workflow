@@ -20,6 +20,18 @@ export OPENROUTER_API_KEY=...
 ./build/install/braidrun-workflow/bin/braidrun-workflow run examples/workflows/research-summary.yaml
 ```
 
+## Run a Jev Decision Workflow
+
+`jev-support-triage.yaml` routes a support ticket with the TypeSafe Jev decision model.
+Jev answers typed questions with calibrated confidence and does not need a chat model:
+
+```bash
+export TYPESAFE_API_KEY=...
+./build/install/braidrun-workflow/bin/braidrun-workflow run examples/workflows/jev-support-triage.yaml
+```
+
+See [Jev (TypeSafe) Decisions](WORKFLOW_GUIDE.md#jev-typesafe-decisions) for the YAML.
+
 ## Validate Before Running
 
 ```bash

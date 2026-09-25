@@ -663,6 +663,129 @@ class AgentModelsTest {
     }
 
     // =========================================================================
+    // TypeSafe Jev guard (decision model, never a chat provider)
+    // =========================================================================
+
+    @Nested
+    inner class TypeSafeProviderGuardTest {
+
+        private val typeSafeIds = listOf("typesafe", "typesafe_ai", "jev", "TypeSafe", "JEV", "typesafe-ai")
+
+        private fun assertNotAChatModel(block: () -> Unit) {
+            val error = assertThrows(IllegalArgumentException::class.java) { block() }
+            assertEquals(
+                "TypeSafe Jev is a decision model, not a chat model. Use it via classifier.jev or repeat_until.jev.",
+                error.message
+            )
+        }
+
+        @Test
+        fun `createLLMClient rejects typesafe ids instead of falling back to OpenRouter`() {
+            for (id in typeSafeIds) {
+                assertNotAChatModel {
+                    createLLMClient(
+                        parameters = emptyList(),
+                        httpClient = HttpAccess().client,
+                        modelConfig = LLModelConfig(provider = id, model = "jev-latest"),
+                        keys = mapOf("typesafe" to "ts-key", "openrouter" to "sk-or")
+                    )
+                }
+            }
+        }
+
+        @Test
+        fun `determineLLMModel rejects typesafe ids`() {
+            for (id in typeSafeIds) {
+                assertNotAChatModel { determineLLMModel(LLModelConfig(provider = id, model = "jev-1.13.0")) }
+            }
+        }
+
+        @Test
+        fun `custom model definitions cannot register a typesafe chat model`() {
+            assertNotAChatModel {
+                registerCustomModel(CustomModelDefinition(name = "jev", provider = "typesafe", modelId = "jev-latest"))
+            }
+        }
+
+        @Test
+        fun `unknown providers still default to OpenRouter`() {
+            val model = determineLLMModel(LLModelConfig(provider = "typesafe_x", model = "model-x"))
+            assertEquals(LLMProvider.OpenRouter, model.provider)
+        }
+
+        @Test
+        fun `typesafe aliases resolve standalone and llm_provider_keys`() {
+            for (alias in listOf("typesafe", "typesafe_ai", "jev")) {
+                assertEquals(
+                    "ts-map-key",
+                    resolveConfiguredApiKey(emptyList(), "typesafe", mapOf(alias to "ts-map-key")),
+                    "llm_provider_keys alias $alias"
+                )
+                assertEquals(
+                    "ts-param-key",
+                    resolveConfiguredApiKey(
+                        listOf(ConfigurationParameter("${alias}_api_key", JsonPrimitive("ts-param-key"))),
+                        "jev",
+                        emptyMap()
+                    ),
+                    "standalone ${alias}_api_key"
+                )
+            }
+        }
+
+        @Test
+        fun `params-only resolution matches resolveConfiguredApiKey precedence without env`() {
+            val parameters = listOf(ConfigurationParameter("typesafe_ai_api_key", JsonPrimitive("ts-param-key")))
+            assertEquals(
+                "ts-param-key",
+                resolveConfiguredApiKeyFromParams(parameters, "typesafe", mapOf("typesafe" to "ts-map-key"))
+            )
+            assertEquals("ts-map-key", resolveConfiguredApiKeyFromParams(emptyList(), "typesafe", mapOf("jev" to "ts-map-key")))
+            // Never consults the process environment, whatever OPENROUTER_API_KEY / TYPESAFE_API_KEY hold here.
+            assertNull(resolveConfiguredApiKeyFromParams(emptyList(), "openrouter", emptyMap()))
+            assertNull(resolveConfiguredApiKeyFromParams(emptyList(), "typesafe", emptyMap()))
+        }
+
+        @Test
+        fun `missing typesafe api key message lists env var, params and aliases`() {
+            val message = buildMissingApiKeyMessage("typesafe")
+
+            assertTrue(message.contains("Missing API key for provider 'typesafe'"))
+            assertTrue(message.contains("TYPESAFE_API_KEY"))
+            assertTrue(message.contains("typesafe_api_key / typesafe_ai_api_key / jev_api_key"), message)
+            assertTrue(message.contains("llm_provider_keys for: typesafe / typesafe_ai / jev"), message)
+            assertEquals(message, buildMissingApiKeyMessage("jev").replace("'jev'", "'typesafe'"))
+        }
+
+        @Test
+        fun `engine aliases stay in lockstep with the jev package constants`() {
+            val message = buildMissingApiKeyMessage("typesafe_ai")
+            assertTrue(
+                message.contains(com.fartech.agents.jev.TYPESAFE_PROVIDER_ALIASES.joinToString(" / ")),
+                message
+            )
+            assertTrue(message.contains(com.fartech.agents.jev.TYPESAFE_API_KEY_ENV), message)
+        }
+
+        @Test
+        fun `legacy agent llmProviderKeys map typesafe aliases to typesafe_api_key`() {
+            for (alias in listOf("typesafe", "typesafe_ai", "jev")) {
+                val params = com.fartech.agents.workflow.AgentDefinition(
+                    llmProviderKeys = mapOf(alias to "ts-legacy")
+                ).resolveParameters()
+                assertEquals(JsonPrimitive("ts-legacy"), params["typesafe_api_key"], alias)
+            }
+        }
+
+        @Test
+        fun `typesafe is not registered as a chat provider`() {
+            for (id in listOf("typesafe", "typesafe_ai", "jev")) {
+                assertFalse(LLM_PROVIDER_MODELS.containsKey(id), "LLM_PROVIDER_MODELS must not list $id")
+            }
+        }
+    }
+
+    // =========================================================================
     // registerCustomModel / Custom Model Registry
     // =========================================================================
 

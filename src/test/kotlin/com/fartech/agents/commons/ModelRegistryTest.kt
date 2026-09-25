@@ -385,4 +385,42 @@ class ModelRegistryTest {
             assertTrue(all.containsKey("amazon"))        // routed
         }
     }
+
+    // ========================================================================
+    // TypeSafe Jev guard：决策模型，不能作为聊天 provider，也不能静默回落 OpenRouter
+    // ========================================================================
+
+    @Nested
+    inner class TypeSafeGuard {
+
+        @Test
+        fun `mapProviderStringToEnum rejects typesafe ids`() {
+            for (id in listOf("typesafe", "typesafe_ai", "jev")) {
+                val error = assertThrows(IllegalArgumentException::class.java) {
+                    ModelRegistry.mapProviderStringToEnum(id)
+                }
+                assertEquals(
+                    "TypeSafe Jev is a decision model, not a chat model. Use it via classifier.jev or repeat_until.jev.",
+                    error.message,
+                    id
+                )
+            }
+        }
+
+        @Test
+        fun `mapProviderStringToEnum keeps existing mappings and the OpenRouter catch-all`() {
+            assertEquals(LLMProvider.OpenRouter, ModelRegistry.mapProviderStringToEnum("openrouter"))
+            assertEquals(LLMProvider.Anthropic, ModelRegistry.mapProviderStringToEnum("anthropic"))
+            assertEquals(LLMProvider.OpenRouter, ModelRegistry.mapProviderStringToEnum("some_new_provider"))
+        }
+
+        @Test
+        fun `no chat models are registered for typesafe ids`() {
+            val all = ModelRegistry.getAllProviderModels()
+            for (id in listOf("typesafe", "typesafe_ai", "jev")) {
+                assertNull(ModelRegistry.getProviderModels(id), id)
+                assertFalse(all.containsKey(id), id)
+            }
+        }
+    }
 }

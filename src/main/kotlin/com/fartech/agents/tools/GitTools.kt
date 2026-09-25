@@ -80,7 +80,7 @@ class GitTools(
     }
 
     private fun buildExecutorEnvironment(workDir: File): Map<String, String> {
-        val usingDocker = executor is DockerSubprocessExecutor
+        val usingDocker = executor.isDocker
         val workspacePath = if (usingDocker) "/workspace" else workDir.absolutePath
         return buildMap {
             put("BRAIDRUN_WORKSPACE", workspacePath)
@@ -92,7 +92,7 @@ class GitTools(
     }
 
     private fun buildExecutorMounts(workDir: File): List<SubprocessExecutor.Mount> {
-        if (executor !is DockerSubprocessExecutor) return emptyList()
+        if (!executor.isDocker) return emptyList()
         // Git rarely needs skills/output mounts; but if outputDir is different from workDir,
         // mirror the shell-tools pattern so `git archive > /output/...` keeps working.
         val mounts = mutableListOf<SubprocessExecutor.Mount>()

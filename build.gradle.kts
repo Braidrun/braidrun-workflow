@@ -151,6 +151,8 @@ dependencies {
     // Testing
     testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")
     testImplementation(kotlin("test"))
+    // Ktor MockEngine for HTTP client tests (TypeSafe Jev client).
+    testImplementation("io.ktor:ktor-client-mock:${ktorVersion}")
     // Logging
     implementation("org.slf4j:slf4j-api:2.0.9")
     implementation("io.github.microutils:kotlin-logging:3.0.5")
@@ -318,7 +320,7 @@ dependencies {
 }
 
 group = "com.fartech.braidrun"
-version = "1.1.8"
+version = "1.2.0"
 description = "braidrun-workflow"
 
 tasks.named<Jar>("jar") {
@@ -380,6 +382,11 @@ tasks.test {
         ?.coerceAtLeast(1)
         ?: minOf(2, Runtime.getRuntime().availableProcessors().coerceAtLeast(1))
     systemProperty("braidrun.quietConsole", "true")
+    // Tests parse the public examples/templates and the workflow guide's snippets from disk;
+    // declare them so editing only those files does not leave `test` UP-TO-DATE.
+    inputs.dir("examples/workflows").withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.dir("workflows/templates").withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.file("docs/WORKFLOW_GUIDE.md").withPathSensitivity(PathSensitivity.RELATIVE)
     reports.html.required.set(false)
     reports.junitXml.required.set(true)
     // Surface failing test names + stack traces on the console (CI logs only

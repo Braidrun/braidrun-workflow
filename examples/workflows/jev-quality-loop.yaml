@@ -1,0 +1,76 @@
+name: jev-quality-loop
+version: 1.0.0
+description: >-
+  Draft a product announcement with a writer agent and let TypeSafe Jev grade
+  every draft. The loop stops once the weighted quality score reaches 0.75, and
+  each round sees Jev's critique of the previous draft. Needs a chat-model key
+  for the writer and TYPESAFE_API_KEY for Jev.
+agents:
+  writer:
+    preset: writer
+variables:
+  release_notes: >-
+    Scheduled runs now retry failed steps automatically, up to three times, with
+    exponential backoff. Available on all plans from today. No configuration is
+    needed.
+workflow:
+  - step: draft
+    agent: writer
+    input: |
+      Write a short product announcement (under 150 words) for these release notes:
+      {{var:release_notes}}
+
+      Use only facts from the notes. From the second round on, the reviewer
+      feedback below lists the weakest points first; fix those. In the first
+      round there is no feedback yet.
+
+      Reviewer feedback:
+      {{steps.draft:evaluate.output}}
+    repeat_until:
+      condition: "quality >= 0.75"
+      max_iterations: 3
+      # Jev grades each draft instead of an evaluate agent. It cannot read files,
+      # so everything it needs to judge goes into the state.
+      jev:
+        state: |
+          Release notes:
+          {{var:release_notes}}
+
+          Announcement draft:
+          {{steps.draft.output}}
+        questions:
+          - id: accuracy
+            type: score
+            instructions: "Does the announcement draft state only facts that appear in the release notes?"
+            levels:
+              - "Makes claims that are not in the release notes"
+              - "Mostly accurate, with minor imprecision"
+              - "Every claim is backed by the release notes"
+          - id: on_brand
+            type: noul
+            instructions: "Does the announcement draft use a friendly, plain-language tone?"
+            yes_description: "Friendly and easy to read, without jargon"
+            no_description: "Stiff, salesy or full of jargon"
+        composites:
+          - name: quality
+            weights:
+              accuracy: 0.7
+              on_brand: 0.3
+
+  # The loop also ends after max_iterations without meeting the condition.
+  # quality is "" when the last Jev call failed, so check for that explicitly.
+  - step: quality_gate
+    depends_on: [draft]
+    condition: "quality < 0.75 || quality == ''"
+    code:
+      language: bash
+      script: |
+        echo "Quality bar not met (quality='${WF_VAR_QUALITY}'); review the draft before publishing."
+
+  - step: report
+    depends_on: [quality_gate]
+    code:
+      language: bash
+      script: |
+        echo "quality=${WF_VAR_QUALITY} accuracy_level=${WF_VAR_ACCURACY_LEVEL} on_brand=${WF_VAR_ON_BRAND_YES}"
+        echo "${STEP_OUTPUT_DRAFT_EVALUATE}"

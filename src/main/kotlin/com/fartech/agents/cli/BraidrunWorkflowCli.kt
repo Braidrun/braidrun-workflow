@@ -350,7 +350,7 @@ internal class BraidrunWorkflowCli(
                 step.parallel != null -> "parallel"
                 step.stateMachine != null -> "state_machine"
                 step.code != null -> "code"
-                step.classifier != null -> "classifier"
+                step.classifier != null -> if (step.classifier.isJev) "classifier(jev)" else "classifier"
                 step.agentBased != null -> "agent_based"
                 step.subWorkflow != null -> "sub_workflow"
                 else -> "runtime"

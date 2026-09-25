@@ -18,6 +18,8 @@ import java.io.File
  * behaviour with zero Docker dependency (constraint C1).
  */
 interface SubprocessExecutor {
+    /** Transport capability survives host admission/credential/artifact decorators. */
+    val isDocker: Boolean get() = false
 
     suspend fun execute(request: ExecRequest): ExecResult
 
@@ -52,8 +54,23 @@ interface SubprocessExecutor {
          * return stdout normally; this lets long-running JSONL emitters surface
          * progress before the process exits.
          */
-        val stdoutLineCallback: ((String) -> Unit)? = null
+        val stdoutLineCallback: ((String) -> Unit)? = null,
+        /** Trusted host callback, evaluated by the concrete executor after resource admission.
+         * Never serialized or spilled to the script environment file. */
+        val environmentAtStart: (() -> Map<String, String>)? = null,
+        /** Concrete executor confirms termination before a host may release its resource reservation.
+         * An uncertain Docker create/remove acknowledgement must NOT invoke this callback. */
+        val onSettled: (() -> Unit)? = null,
+        /** Trusted runtime classification used to prove that a queued code step never started. */
+        val admissionKind: String = "SUBPROCESS"
     )
+
+    /** Resolve short-lived credentials immediately before the actual process is created. */
+    fun ExecRequest.preparedForStart(): ExecRequest = environmentAtStart?.let { provider ->
+        copy(env = env + provider(), environmentAtStart = null)
+    } ?: this
+
+    fun ExecRequest.confirmSettled() { runCatching { onSettled?.invoke() } }
 
     data class Mount(
         val hostPath: File,
