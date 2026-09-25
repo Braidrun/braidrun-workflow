@@ -61,7 +61,8 @@ private suspend fun SubAgentContext.buildAgent(
     httpAccess: HttpAccess,
     parameters: List<ConfigurationParameter>,
     llm: LLM,
-    externalAgentExecutor: SubprocessExecutor?
+    externalAgentExecutor: SubprocessExecutor?,
+    hostToolSets: List<ToolSet>
 ): AIAgent<String, String> {
     // Build base system prompt
     val baseSystemPrompt = """
@@ -86,6 +87,7 @@ private suspend fun SubAgentContext.buildAgent(
             parameters = subAgentParameters,
             httpAccess = httpAccess,
             tools = emptyList<AgentTools>(),
+            customToolSets = hostToolSets,
             externalAgentExecutor = externalAgentExecutor
         ),
         strategyBuilder = { params, _, toolRegistry ->
@@ -105,7 +107,14 @@ class SubAgentTools(
     val httpAccess: HttpAccess,
     val parameters: List<ConfigurationParameter>,
     private val onMonitorEvent: MonitoringEventCallback? = null,
-    internal val externalAgentExecutor: SubprocessExecutor? = null
+    internal val externalAgentExecutor: SubprocessExecutor? = null,
+    /**
+     * Host-owned tool sets registered into every sub agent's registry in place of the
+     * defaults [parseToolSet] would build from [parameters] (sub agents inherit the parent's
+     * `tool_set`). Carries the host's [com.fartech.agents.workflow.WorkflowTools] so a sub
+     * agent's `workflow` tool keeps the host's Jev credential policy.
+     */
+    internal val hostToolSets: List<ToolSet> = emptyList()
 ) : ToolSet {
 
     val llmGroupConfig = parameters.getLLMGroupConfig()
@@ -142,7 +151,8 @@ class SubAgentTools(
                     httpAccess,
                     parameters,
                     agentContext.llm,
-                    externalAgentExecutor
+                    externalAgentExecutor,
+                    hostToolSets
                 )
                 val output = agent.run(agentContext.prompt)
                 emit(
@@ -226,7 +236,8 @@ class SubAgentTools(
                                 httpAccess,
                                 parameters,
                                 ctx.llm,
-                                externalAgentExecutor
+                                externalAgentExecutor,
+                                hostToolSets
                             )
                             val output = agent!!.run(ctx.prompt)
                             consecutiveFailures = 0  // Reset on success

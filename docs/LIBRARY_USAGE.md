@@ -61,7 +61,10 @@ Recommended integration pattern:
   )
   ```
 
-  Sub-workflows run in the same executor and use the same settings.
+  Sub-workflows and workflows that an agent runs through the `workflow` tool use the
+  same settings: the executor hands its `workflow` tool a `NestedWorkflowRuntime` with
+  its code step executor, proxy env, credential providers and Jev policy. If you build
+  a `WorkflowTools` yourself, pass it a `NestedWorkflowRuntime` with the same values.
 
   `JevCredentials` is in `com.fartech.agents.jev`. See
   [Jev (TypeSafe) Decisions](WORKFLOW_GUIDE.md#jev-typesafe-decisions) for the full

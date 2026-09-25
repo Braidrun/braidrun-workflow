@@ -749,11 +749,14 @@ class WorkflowExecutor(
     /**
      * Code step 执行器。当非 null 时,`executeCodeStep` 通过此 executor 运行脚本
      * (在 Docker 或 Native 沙箱中);当 null 时回退到直接 ProcessBuilder 执行,
-     * 保持向后兼容(CLI 模式和现有测试)。
+     * 保持向后兼容(CLI 模式和现有测试)。宿主调用过
+     * [WorkflowHostPolicy.requireCodeStepExecutor] 时，null 不再回退，`code:` 步骤直接失败。
      *
      * Web 场景中由 [ExecutionService] 注入:
      * - PRODUCTION/STAGING → [DockerSubprocessExecutor]
      * - DEVELOPMENT → [NativeSubprocessExecutor]
+     *
+     * Agent `workflow` 工具的嵌套 executor 经 [NestedWorkflowRuntime] 继承同一个实例。
      */
     private val codeStepExecutor: SubprocessExecutor? = null,
     /**
@@ -2710,6 +2713,14 @@ class WorkflowExecutor(
     ): StepResult = withContext(Dispatchers.IO) {
         val config = step.code
             ?: throw WorkflowExecutionException("Code configuration missing for step '${step.step}'")
+        // Checked before anything is minted or written: the legacy path would run the
+        // script with a bare ProcessBuilder on the host, outside any sandbox.
+        if (codeStepExecutor == null && WorkflowHostPolicy.requiresCodeStepExecutor) {
+            throw WorkflowExecutionException(
+                "Code step '${step.step}' refused: this host requires a sandboxed code step executor " +
+                    "and none is configured for this workflow run"
+            )
+        }
 
         logger.info { "[Workflow] Executing code step '${step.step}' (language=${config.language})" }
 
@@ -5163,6 +5174,7 @@ class WorkflowExecutor(
         } else {
             rawToolNames
         }
+        hostWorkflowToolsOrNull(orchestratorToolNames, parameters)?.let { orchestratorCustomToolSets.add(it) }
 
         val orchestratorSkillManager = createSkillManager(parameters)
         val orchestratorToolRegistry = com.fartech.agents.commons.parseToolSet(
@@ -6710,13 +6722,6 @@ class WorkflowExecutor(
                 createUserInteractionHandler(executionId, stepName)
             } else null
 
-        // 如果有共享知识库，将其作为 customToolSet 注入（避免重复创建 RAGTools 实例）
-        val customToolSets = if (sharedRagTools != null) {
-            listOf(sharedRagTools)
-        } else {
-            emptyList()
-        }
-
         // 如果有共享知识库且工具集中未显式声明 rag_tools，自动注入
         val finalToolNames = if (sharedRagTools != null && "rag_tools" !in toolNames) {
             logger.info { "Auto-injecting 'rag_tools' for agent '$agentName' (shared knowledge base enabled)" }
@@ -6724,6 +6729,13 @@ class WorkflowExecutor(
         } else {
             toolNames
         }
+
+        // 如果有共享知识库，将其作为 customToolSet 注入（避免重复创建 RAGTools 实例）；
+        // workflow 工具同样由本 executor 构建，让嵌套执行继承宿主的 Jev 凭据策略
+        val customToolSets = listOfNotNull(
+            sharedRagTools,
+            hostWorkflowToolsOrNull(finalToolNames, parameters)
+        )
 
         val toolRegistry = parseToolSet(
             parameters,
@@ -6802,6 +6814,41 @@ class WorkflowExecutor(
                 parameters = runtime.parameters
             )
         }
+    }
+
+    /**
+     * The `workflow` tool for an agent whose tool set contains it, else null. `executeWorkflow`
+     * runs a nested [WorkflowExecutor] in this JVM, which must inherit THIS executor's runtime
+     * ([nestedWorkflowRuntime]): without [codeStepExecutor] its `code:` steps would run with a
+     * bare ProcessBuilder on the host, outside the Docker sandbox and egress proxy, and without
+     * the Jev policy an operator-set `TYPESAFE_API_KEY` could pay for a nested run the host would
+     * not pay for. Passed to `parseToolSet` as a custom tool set, which then skips its default
+     * `WorkflowTools`. Host-only on purpose: [parameters] are user-controlled on the web and
+     * must not drive this.
+     */
+    private fun hostWorkflowToolsOrNull(
+        toolNames: Collection<String>,
+        parameters: List<ConfigurationParameter>
+    ): WorkflowTools? =
+        if ("workflow" in toolNames) {
+            WorkflowTools(httpAccess, parameters, nestedWorkflowRuntime)
+        } else {
+            null
+        }
+
+    private val nestedWorkflowRuntime: NestedWorkflowRuntime by lazy {
+        NestedWorkflowRuntime(
+            codeStepExecutor = codeStepExecutor,
+            extraCodeStepEnv = extraCodeStepEnv,
+            claudeCredentialProvider = claudeCredentialProvider,
+            codexCredentialProvider = codexCredentialProvider,
+            onCodexAuthJsonRotated = onCodexAuthJsonRotated,
+            executionApiTokenProvider = executionApiTokenProvider,
+            workflowResolver = workflowResolver,
+            jevCredentials = jevCredentials,
+            jevClientFactory = jevClientFactory,
+            jevEnvKeyFallback = jevEnvKeyFallback
+        )
     }
 
     private fun mergeParameters(

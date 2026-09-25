@@ -3,19 +3,63 @@ package com.fartech.agents.workflow
 import ai.koog.agents.core.tools.annotations.LLMDescription
 import ai.koog.agents.core.tools.annotations.Tool
 import ai.koog.agents.core.tools.reflect.ToolSet
+import com.fartech.agents.jev.JevClientFactory
+import com.fartech.agents.jev.JevCredentials
+import com.fartech.agents.tools.ClaudeCredentialProvider
+import com.fartech.agents.tools.exec.SubprocessExecutor
 import com.fartech.ftapp2.commonsKt.ConfigurationParameter
 import com.fartech.ftapp2.commonsKt.HttpAccess
 import com.fartech.ftapp2.commonsKt.parameter
 import kotlinx.serialization.Serializable
 import java.io.File
 
+/**
+ * Host-owned runtime of the nested [WorkflowExecutor] behind [WorkflowTools.executeWorkflow].
+ * Each field has the same meaning as the same-named [WorkflowExecutor] constructor param.
+ *
+ * A [WorkflowExecutor] builds this from its own constructor fields when an agent's tool set
+ * contains `workflow`, so a nested run keeps the host's sandbox (`code:` steps through
+ * [codeStepExecutor] instead of a bare ProcessBuilder on the host), egress proxy env,
+ * credential pools, callback-token minting, sub-workflow resolution and Jev policy.
+ * Host-only on purpose: never derived from ConfigurationParameters, which are user-controlled
+ * on the web. The defaults match a standalone executor (CLI / library use).
+ */
+class NestedWorkflowRuntime(
+    val codeStepExecutor: SubprocessExecutor? = null,
+    val extraCodeStepEnv: Map<String, String> = emptyMap(),
+    val claudeCredentialProvider: ClaudeCredentialProvider? = null,
+    val codexCredentialProvider: ClaudeCredentialProvider? = null,
+    val onCodexAuthJsonRotated: ((credentialId: String?, authJson: String) -> Unit)? = null,
+    val executionApiTokenProvider: ((Long) -> String)? = null,
+    val workflowResolver: WorkflowResolver? = null,
+    val jevCredentials: JevCredentials? = null,
+    val jevClientFactory: JevClientFactory = JevClientFactory.Default,
+    val jevEnvKeyFallback: Boolean = true
+)
+
 @LLMDescription("Toolset for defining and executing complex multi-agent workflows")
 class WorkflowTools(
     private val httpAccess: HttpAccess,
-    private val parameters: List<ConfigurationParameter>
+    private val parameters: List<ConfigurationParameter>,
+    /** Runtime inherited from the host executor that owns this tool; see [NestedWorkflowRuntime]. */
+    private val runtime: NestedWorkflowRuntime = NestedWorkflowRuntime()
 ) : ToolSet {
 
-    private val executor = WorkflowExecutor(httpAccess, parameters, enableMonitoring = true)
+    private val executor = WorkflowExecutor(
+        httpAccess,
+        parameters,
+        enableMonitoring = true,
+        workflowResolver = runtime.workflowResolver,
+        codeStepExecutor = runtime.codeStepExecutor,
+        extraCodeStepEnv = runtime.extraCodeStepEnv,
+        claudeCredentialProvider = runtime.claudeCredentialProvider,
+        codexCredentialProvider = runtime.codexCredentialProvider,
+        onCodexAuthJsonRotated = runtime.onCodexAuthJsonRotated,
+        executionApiTokenProvider = runtime.executionApiTokenProvider,
+        jevCredentials = runtime.jevCredentials,
+        jevClientFactory = runtime.jevClientFactory,
+        jevEnvKeyFallback = runtime.jevEnvKeyFallback
+    )
     private val versionControl = WorkflowVersionControl()
     private val templatesDir: String = parameters.parameter("workflow_templates_dir", "./workflows/templates")
 
@@ -171,18 +215,23 @@ class WorkflowTools(
     @Tool
     @LLMDescription("Create a new workflow from a template")
     suspend fun createWorkflowFromTemplate(
-        @LLMDescription("Name of the template (without .yaml extension)")
+        @LLMDescription("Template file name as listed by listWorkflowTemplates, without the .yaml extension and without directories")
         templateName: String,
 
-        @LLMDescription("Output path for the new workflow file")
+        @LLMDescription("Output path for the new .yaml/.yml workflow file, inside the working directory")
         outputPath: String,
 
         @LLMDescription("Variables to substitute in the template as comma-separated key=value pairs, e.g. 'topic=AI,language=zh'")
         variables: String = ""
     ): String {
         return try {
-            val templatePath = "$templatesDir/$templateName.yaml"
-            val templateFile = File(templatePath)
+            val templateFile = resolveTemplateFile(templateName)
+            val outputFile = resolveTemplateOutputFile(outputPath)
+            val substitutions = parseKeyValueString(variables)
+            substitutions.forEach { (key, value) ->
+                // A value spanning lines could add YAML keys or steps next to the placeholder.
+                require(value.none { it == '\n' || it == '\r' }) { "Variable '$key' must be a single line" }
+            }
 
             if (!templateFile.exists()) {
                 return "❌ Template not found: $templateName"
@@ -191,16 +240,50 @@ class WorkflowTools(
             var content = templateFile.readText()
 
             // 替换变量
-            parseKeyValueString(variables).forEach { (key, value) ->
+            substitutions.forEach { (key, value) ->
                 content = content.replace("{{$key}}", value)
             }
 
-            File(outputPath).writeText(content)
+            outputFile.writeText(content)
 
-            "✅ Workflow created from template '$templateName' → $outputPath"
+            "✅ Workflow created from template '$templateName' → ${outputFile.path}"
         } catch (e: Exception) {
             "❌ Failed to create workflow from template: ${e.message}"
         }
+    }
+
+    /** A template is a file directly inside [templatesDir], named without separators or `..`. */
+    private fun resolveTemplateFile(templateName: String): File {
+        require(templateName.isNotBlank()) { "Template name must not be blank" }
+        require(".." !in templateName && templateName.none { it in "/\\:" || it.isISOControl() }) {
+            "Invalid template name '$templateName': use a name from listWorkflowTemplates, without directories or '..'"
+        }
+        return File(templatesDir, "$templateName.yaml")
+    }
+
+    /**
+     * Confines template output the way the sandboxed file tools confine writes: inside
+     * `working_dir` / `output_dir`, or inside the process working directory when neither is set
+     * (CLI runs). Relative paths resolve against the first root. Only `.yaml` / `.yml` files, so
+     * the tool cannot drop scripts, hooks or dotfiles even inside those roots.
+     */
+    private fun resolveTemplateOutputFile(outputPath: String): File {
+        require(outputPath.isNotBlank()) { "Output path must not be blank" }
+        require(outputPath.none { it.isISOControl() }) { "Output path must not contain control characters" }
+        require(File(outputPath).extension.lowercase() in setOf("yaml", "yml")) {
+            "Output path must end with .yaml or .yml: $outputPath"
+        }
+        val roots = listOf("working_dir", "output_dir")
+            .map { parameters.parameter(it, "") }
+            .filter { it.isNotBlank() }
+            .ifEmpty { listOf(System.getProperty("user.dir")) }
+            .map { File(it).canonicalFile }
+        // canonicalFile also resolves symlinks, so a link inside a root cannot point the write elsewhere.
+        val requested = File(outputPath).let { if (it.isAbsolute) it else File(roots.first(), outputPath) }.canonicalFile
+        require(roots.any { requested.toPath().startsWith(it.toPath()) }) {
+            "Output path '$outputPath' is outside the allowed directories: ${roots.joinToString(", ")}"
+        }
+        return requested
     }
 
     @Tool

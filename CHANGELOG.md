@@ -95,6 +95,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `classifier(jev)` or `classifier(jev:<model>)`. The workflow summary marks
   Jev-evaluated `repeat_until` steps.
 
+### Security
+
+- The agent `workflow` tool no longer runs `code:` steps outside the host's
+  sandbox. Its nested `WorkflowExecutor` used to get no `codeStepExecutor`,
+  so a workflow the agent wrote ran its `code:` steps with a bare
+  ProcessBuilder in the host JVM — on braidrun-web, the server itself,
+  outside the Docker sandbox and egress proxy.
+  - New `NestedWorkflowRuntime`: a `WorkflowExecutor` hands its
+    `codeStepExecutor`, `extraCodeStepEnv`, Claude/Codex credential providers
+    and auth.json rotation sink, `executionApiTokenProvider`,
+    `workflowResolver` and Jev policy to the nested executor.
+  - `WorkflowTools(httpAccess, parameters, runtime)` replaces the Jev-only
+    constructor parameters. The two-argument form is unchanged.
+  - New `WorkflowHostPolicy.requireCodeStepExecutor()`: a host declares it
+    once, and from then on every executor without a `codeStepExecutor`
+    refuses `code:` steps. This covers `workflow` tools built outside any
+    executor. The CLI and library default is unchanged.
+- The agent `workflow` tool's `createWorkflowFromTemplate` no longer reads or
+  writes arbitrary paths. The model supplies both arguments. Before, a
+  template name with `../` read any `.yaml` file, and `outputPath` wrote
+  anywhere the process could write.
+  - `templateName` must be a bare name from `listWorkflowTemplates`. Names
+    containing `/`, `\`, `:`, `..` or control characters are rejected.
+  - `outputPath` must end in `.yaml` / `.yml`. It must also resolve,
+    symlinks included, inside `working_dir` or `output_dir`, the same roots
+    the sandboxed file tools use. When neither is set (CLI runs), the root is
+    the process working directory. Relative paths resolve against the first
+    root.
+  - Substituted variable values must be single-line, so a value cannot add
+    YAML keys or steps.
+
 Deferred to later releases:
 
 - AI-evaluated `condition:` expressions. Conditions stay synchronous,

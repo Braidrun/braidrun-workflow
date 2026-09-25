@@ -289,7 +289,10 @@ private fun buildToolRegistry(
                 httpAccess = httpAccess,
                 parameters = parameters,
                 onMonitorEvent = onSubAgentEvent,
-                externalAgentExecutor = externalAgentExecutor
+                externalAgentExecutor = externalAgentExecutor,
+                // Sub agents inherit the parent's tool_set; hand them the host's WorkflowTools
+                // so their `workflow` tool keeps the host's Jev policy too.
+                hostToolSets = customToolSets.filterIsInstance<com.fartech.agents.workflow.WorkflowTools>()
             )
         )
     }
@@ -417,7 +420,13 @@ private fun buildToolRegistry(
 
     if (toolSet.contains("workflow")) {
         // Workflow Tools
-        tools(com.fartech.agents.workflow.WorkflowTools(httpAccess, parameters))
+        // 如果 customToolSets 中已包含宿主构建的 WorkflowTools（携带宿主 executor 的 NestedWorkflowRuntime：
+        // 沙箱 codeStepExecutor、代理 env、凭据、Jev 策略），跳过创建默认实例：默认实例没有沙箱
+        // （code: 步骤要么直接 ProcessBuilder，要么在 WorkflowHostPolicy 下被拒绝），且会读取 TYPESAFE_API_KEY
+        val hasHostWorkflowTools = customToolSets.any { it is com.fartech.agents.workflow.WorkflowTools }
+        if (!hasHostWorkflowTools) {
+            tools(com.fartech.agents.workflow.WorkflowTools(httpAccess, parameters))
+        }
     }
 
     // Register FileManagementTools only if not already registered via "file_system"
