@@ -101,6 +101,23 @@ parameter you inject (keep it host-set, e.g. in the executor's base parameters).
 plain library use set none of them. Per-skill MCP auto-start is off unless you
 call `WorkflowHostPolicy.allowSkillMcpAutoStart()`.
 
+Run-scoped tool state: browser contexts belong to a run. `WorkflowExecutor.execute`
+scopes each execution for you. If you run agents directly (for example a chat
+turn built with `buildAndRunAgent`), wrap each run so its contexts are private
+to it and closed when it ends:
+
+```kotlin
+import com.fartech.agents.tools.ToolRunScope
+
+ToolRunScope.withRunScope("chat-turn:$turnId") {
+    buildAndRunAgent(...)
+}
+```
+
+A single-user embedder that wants the old process-wide sharing calls
+`ToolRunScope.declareSingleUserProcess()` at startup, as the CLI does. See
+[Security](SECURITY.md#run-scoped-tool-state).
+
 Skill tools: the mutating skill operations (`downloadSkillFromClawHub`,
 `downloadSkillFromGit`, `clearSkillCache`, `refreshSkills`) are on
 `SkillAdminTools`, not `SkillTools`. For user-initiated installs, call the host

@@ -210,9 +210,9 @@ models, and OpenAI models (not Azure) that use only the Responses API (e.g. the
 use Chat Completions and get placeholders, as do OpenRouter and other
 OpenAI-compatible providers. Other models get a
 short text placeholder with the image type, size and the reason. Screenshots
-are also saved to disk as before. A screenshot image is attached only when the
-current run opened that browser context; otherwise the model is told to use a
-new `contextId`.
+are also saved to disk as before. Browser contexts belong to the run that opened
+them (see [Security](SECURITY.md#run-scoped-tool-state)), so a screenshot always
+shows the current run's own page.
 
 Each attached image is re-sent on every later round (roughly 1.2–1.6K input
 tokens per image per round). Three agent parameters bound the cost:

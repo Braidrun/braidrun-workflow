@@ -19,6 +19,7 @@ import com.fartech.agents.tools.ExternalAgentContext
 import com.fartech.agents.tools.ExternalAgentTools
 import com.fartech.agents.tools.ClaudeCredentialProvider
 import com.fartech.agents.tools.RAGTools
+import com.fartech.agents.tools.ToolRunScope
 import com.fartech.agents.tools.exec.ResourceWaitClock
 import com.fartech.agents.tools.exec.withResourceWaitClock
 import com.fartech.agents.tools.exec.withResourceAwareTimeout
@@ -1004,9 +1005,22 @@ class WorkflowExecutor(
         initialInput: Map<String, Any> = emptyMap(),
         externalExecutionId: String? = null,
         resumeState: WorkflowResumeState? = null
+    ): WorkflowExecutionResult {
+        val executionId = externalExecutionId ?: UUID.randomUUID().toString()
+        // Run-scoped tool state (browser contexts) belongs to this execution. It is released when
+        // the execution returns, whether it completed, failed or was cancelled. See ToolRunScope.
+        return ToolRunScope.withRunScope(executionId) {
+            executeInRunScope(workflow, initialInput, executionId, resumeState)
+        }
+    }
+
+    private suspend fun executeInRunScope(
+        workflow: WorkflowDefinition,
+        initialInput: Map<String, Any>,
+        executionId: String,
+        resumeState: WorkflowResumeState?
     ): WorkflowExecutionResult = withContext(SubWorkflowStackElement()) {
         coroutineScope scope@{
-        val executionId = externalExecutionId ?: UUID.randomUUID().toString()
         val startTime = System.currentTimeMillis()
         debugController?.attachExecution(executionId, workflow.name)
 
