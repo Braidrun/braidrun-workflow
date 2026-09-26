@@ -1,14 +1,19 @@
 package com.fartech.agents.commons
 
+import com.fartech.agents.workflow.WorkflowHostPolicy
 import com.fartech.ftapp2.commonsKt.AnsiColor
 import com.fartech.ftapp2.commonsKt.ConfigurationParameter
 import com.fartech.ftapp2.commonsKt.parameter
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import java.io.IOException
 import java.nio.charset.StandardCharsets
+import java.nio.file.FileVisitResult
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
+import java.nio.file.SimpleFileVisitor
+import java.nio.file.attribute.BasicFileAttributes
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.io.path.exists
 import kotlin.io.path.isDirectory
@@ -118,7 +123,12 @@ data class ClaudeSkill(
                     }
                     appendLine("  **This is an executable script. Use ShellTools to run it: `$runCmd`**")
                 }
-                if (attachment.content != null && attachment.content.length <= 2000) {
+                // Attachments without a filesystem path (classpath built-ins) cannot be read
+                // with file tools, so they are inlined whole; their size is already capped
+                // by maxAttachmentSize when loaded.
+                if (attachment.content != null &&
+                    (attachment.content.length <= 2000 || attachment.absolutePath == null)
+                ) {
                     val lang = attachment.name.substringAfterLast('.', "")
                     appendLine("```$lang")
                     appendLine(attachment.content)
@@ -133,6 +143,9 @@ data class ClaudeSkill(
      * Lists bundled resource files in the skill directory without reading their content.
      * Returns relative paths from the skill's base directory.
      * Caps at 50 entries to avoid overwhelming the model for large skill directories.
+     *
+     * Dot-directories (`.state/`, `.learnings/`, `.git/`; runtime state and possible secrets)
+     * and dependency/cache trees are pruned, not just their dot-files filtered.
      */
     fun listBundledResources(maxEntries: Int = 50): List<String> {
         val dir = baseDirectory ?: return emptyList()
@@ -141,6 +154,7 @@ data class ClaudeSkill(
 
         return baseDir.walkTopDown()
             .maxDepth(3)
+            .onEnter { it == baseDir || !isUnlistedResourceDirectory(it.name) }
             .filter { it.isFile && !it.name.equals("SKILL.md", ignoreCase = true) }
             .filter { !it.name.startsWith(".") }
             .take(maxEntries)
@@ -148,6 +162,12 @@ data class ClaudeSkill(
             .toList()
     }
 }
+
+/** Dependency / cache directories never listed as skill resources (dot-directories always skipped). */
+private val UNLISTED_RESOURCE_DIRECTORIES = setOf("node_modules", "venv", "__pycache__")
+
+private fun isUnlistedResourceDirectory(name: String): Boolean =
+    name.startsWith(".") || name in UNLISTED_RESOURCE_DIRECTORIES
 
 /**
  * Represents an attachment (script, template, etc.) within a skill.
@@ -417,18 +437,24 @@ data class SkillMetadata(
  * - Standard cross-client paths (.agents/skills/, .claude/skills/) when enabled
  * - Project-level skills override user-level skills (name collision precedence)
  */
-class SkillLoader(
+class SkillLoader internal constructor(
     private val skillsPath: Path,
-    private val config: SkillsConfiguration
+    private val config: SkillsConfiguration,
+    /** Directory budget shared by all roots of one discovery pass; tests lower it. */
+    private val maxDirectoriesToScan: Int
 ) {
+    constructor(skillsPath: Path, config: SkillsConfiguration) :
+            this(skillsPath, config, MAX_DIRECTORIES_TO_SCAN)
+
     companion object {
         private const val SKILL_FILENAME = "SKILL.md"
         private const val YAML_DELIMITER = "---"
+        private const val CLASSPATH_PREFIX = "classpath:"
 
         /** Recommended depth 4-6 levels per the Agent Skills best practices guide. */
         private const val MAX_FILE_WALK_DEPTH = 5
 
-        /** Max directories to scan to prevent runaway scanning in large trees. */
+        /** Max directories to scan (across all roots) to prevent runaway scanning in large trees. */
         private const val MAX_DIRECTORIES_TO_SCAN = 2000
 
         /** Directories to skip during skill discovery. */
@@ -475,14 +501,16 @@ class SkillLoader(
 
         // Collect skills from all paths with scope tags for precedence handling
         val allSkills = mutableListOf<ClaudeSkill>()
+        // One directory cap for the whole pass, not per root.
+        val budget = DirectoryScanBudget(maxDirectoriesToScan)
 
         // 1. Primary skills path (cache or configured)
-        allSkills.addAll(loadSkillsFromPath(skillsPath, scope = "configured"))
+        allSkills.addAll(loadSkillsFromPath(skillsPath, scope = "configured", budget = budget))
 
         // 2. Additional configured paths
         config.additionalSkillPaths.forEach { path ->
             try {
-                allSkills.addAll(loadSkillsFromPath(Paths.get(path), scope = "additional"))
+                allSkills.addAll(loadSkillsFromPath(Paths.get(path), scope = "additional", budget = budget))
             } catch (e: Exception) {
                 logProgress(AnsiColor.YELLOW, "Skills", "⚠ Could not scan additional path '$path': ${e.message}")
             }
@@ -508,7 +536,7 @@ class SkillLoader(
                     try {
                         val p = Paths.get(path)
                         if (p.exists() && p.isDirectory() && p != skillsPath) {
-                            allSkills.addAll(loadSkillsFromPath(p, scope = "project"))
+                            allSkills.addAll(loadSkillsFromPath(p, scope = "project", budget = budget))
                         }
                     } catch (e: Exception) {
                         logProgress(AnsiColor.YELLOW, "Skills", "⚠ Could not scan project path '$path': ${e.message}")
@@ -532,7 +560,7 @@ class SkillLoader(
                 try {
                     val p = Paths.get(path)
                     if (p.exists() && p.isDirectory() && p != skillsPath) {
-                        allSkills.addAll(loadSkillsFromPath(p, scope = "user"))
+                        allSkills.addAll(loadSkillsFromPath(p, scope = "user", budget = budget))
                     }
                 } catch (e: Exception) {
                     logProgress(AnsiColor.YELLOW, "Skills", "⚠ Could not scan user path '$path': ${e.message}")
@@ -739,8 +767,9 @@ class SkillLoader(
         }
 
         // The classpath location is recorded with a classpath: prefix so callers
-        // can distinguish it from a filesystem path.
-        val classpathLocation = "classpath:$basePath/$dirName/$SKILL_FILENAME"
+        // can distinguish it from a filesystem path. Attachment content stays null here;
+        // it is loaded on activation by [withBuiltinAttachmentContent].
+        val classpathLocation = "$CLASSPATH_PREFIX$basePath/$dirName/$SKILL_FILENAME"
 
         return ClaudeSkill(
             name = sanitizedName,
@@ -756,6 +785,59 @@ class SkillLoader(
             location = classpathLocation,
             scope = "builtin"
         )
+    }
+
+    /**
+     * Returns [skill] with the content of its classpath attachments loaded.
+     *
+     * Built-in skills live inside the JAR, so the model has no file path to read their bundled
+     * resources from. Their content is loaded here, on activation rather than at discovery
+     * (which runs for every agent build), each attachment capped by
+     * [SkillsConfiguration.maxAttachmentSize]. Filesystem skills are returned unchanged.
+     */
+    internal fun withBuiltinAttachmentContent(skill: ClaudeSkill): ClaudeSkill {
+        if (skill.location?.startsWith(CLASSPATH_PREFIX) != true) return skill
+        if (skill.attachments.none { it.content == null }) return skill
+        val resourceDir = skill.baseDirectory?.removePrefix(CLASSPATH_PREFIX) ?: return skill
+        return skill.copy(
+            attachments = skill.attachments.map { attachment ->
+                if (attachment.content != null) {
+                    attachment
+                } else {
+                    attachment.copy(content = readBuiltinResource(resourceDir, attachment.path))
+                }
+            }
+        )
+    }
+
+    private fun readBuiltinResource(resourceDir: String, relativePath: String): String? {
+        val segments = relativePath.replace('\\', '/').split('/').filter { it.isNotEmpty() }
+        if (segments.isEmpty() || segments.any { it == "." || it == ".." }) {
+            logProgress(AnsiColor.YELLOW, "Skills", "⚠ Rejected built-in resource path: $relativePath")
+            return null
+        }
+        val resourcePath = "$resourceDir/${segments.joinToString("/")}"
+        val limit = config.maxAttachmentSize.coerceAtMost(Int.MAX_VALUE - 1L).toInt()
+        return try {
+            val bytes = javaClass.getResourceAsStream(resourcePath)?.use { it.readNBytes(limit + 1) }
+            when {
+                bytes == null -> {
+                    logProgress(AnsiColor.YELLOW, "Skills", "Built-in resource not found: classpath:$resourcePath")
+                    null
+                }
+                bytes.size > limit -> {
+                    logProgress(
+                        AnsiColor.YELLOW, "Skills",
+                        "Built-in resource too large: classpath:$resourcePath (max: ${config.maxAttachmentSize})"
+                    )
+                    null
+                }
+                else -> String(bytes, StandardCharsets.UTF_8)
+            }
+        } catch (e: Exception) {
+            logProgress(AnsiColor.YELLOW, "Skills", "Could not read built-in resource: classpath:$resourcePath (${e.message})")
+            null
+        }
     }
 
     /**
@@ -791,61 +873,100 @@ class SkillLoader(
 
     /**
      * Scans a single directory for skills.
-     * Skips known non-skill directories (.git, node_modules, etc.) and respects
-     * the max directory scan limit to prevent runaway scanning.
+     * Prunes known non-skill directories (.git, node_modules, etc.) and draws from the
+     * directory [budget] shared by the whole discovery pass.
      */
-    private fun loadSkillsFromPath(basePath: Path, scope: String = "configured"): List<ClaudeSkill> {
+    private fun loadSkillsFromPath(
+        basePath: Path,
+        scope: String = "configured",
+        budget: DirectoryScanBudget = DirectoryScanBudget(maxDirectoriesToScan)
+    ): List<ClaudeSkill> {
         if (!basePath.exists()) {
             return emptyList()
         }
 
         val skills = mutableListOf<ClaudeSkill>()
-        var dirCount = 0
+        for (skillDir in collectCandidateSkillDirectories(basePath, budget)) {
+            try {
+                val skill = loadSkill(skillDir, scope)
+                if (skill != null && isSkillEnabled(skill.name)) {
+                    skills.add(skill)
+                    logProgress(AnsiColor.GREEN, "Skills", "✓ Loaded skill: ${skill.name} [${scope}]")
+                }
+            } catch (e: IllegalArgumentException) {
+                // Lenient: log warning but don't crash
+                logProgress(
+                    AnsiColor.YELLOW,
+                    "Skills",
+                    "⚠ Skipped skill in ${skillDir.fileName}: ${e.message}"
+                )
+            } catch (e: Exception) {
+                logProgress(
+                    AnsiColor.YELLOW,
+                    "Skills",
+                    "⚠ Failed to load skill from ${skillDir.fileName}: ${e.message}"
+                )
+            }
+        }
+
+        return skills
+    }
+
+    /**
+     * Directory budget for one discovery pass. [loadAllSkills] (and [loadAllHooks]) hand the
+     * same instance to every root, so the cap bounds the whole pass rather than each root.
+     */
+    private class DirectoryScanBudget(private val limit: Int) {
+        private var used = 0
+        private var exhaustionLogged = false
+
+        fun tryConsume(): Boolean {
+            if (used < limit) {
+                used++
+                return true
+            }
+            if (!exhaustionLogged) {
+                exhaustionLogged = true
+                logProgress(
+                    AnsiColor.YELLOW, "Skills",
+                    "⚠ Reached max directory scan limit ($limit); remaining directories are not scanned"
+                )
+            }
+            return false
+        }
+    }
+
+    /**
+     * Directories under [basePath] (the root included, depth ≤ [MAX_FILE_WALK_DEPTH]) that may
+     * hold a SKILL.md, sorted by path so "first found wins" within a scope is deterministic.
+     *
+     * [SKIP_DIRECTORIES] subtrees are pruned rather than merely filtered out, so a
+     * `node_modules/pkg/SKILL.md` is never loaded and `.git/objects` never uses up the budget.
+     * Symlinked directories are candidates but are not descended into (same as `Files.walk`).
+     */
+    private fun collectCandidateSkillDirectories(basePath: Path, budget: DirectoryScanBudget): List<Path> {
+        val candidates = mutableListOf<Path>()
+        fun isSkipped(dir: Path) = dir != basePath && SKIP_DIRECTORIES.contains(dir.fileName?.toString())
+        fun accept(dir: Path): FileVisitResult {
+            if (!budget.tryConsume()) return FileVisitResult.TERMINATE
+            candidates.add(dir)
+            return FileVisitResult.CONTINUE
+        }
 
         try {
-            Files.walk(basePath, MAX_FILE_WALK_DEPTH).use { paths ->
-                val iterator = paths
-                    .filter { it.isDirectory() }
-                    .filter { dir ->
-                        // Skip known non-skill directories
-                        !SKIP_DIRECTORIES.contains(dir.fileName?.toString())
-                    }
-                    .iterator()
-                // Explicit iterator + break: `return@forEach` inside Stream.forEach only
-                // skips the element — the walk itself (the expensive part this cap exists
-                // to stop) continued over the whole tree and re-logged the warning once
-                // per excess directory.
-                while (iterator.hasNext()) {
-                    val skillDir = iterator.next()
-                    if (++dirCount > MAX_DIRECTORIES_TO_SCAN) {
-                        logProgress(
-                            AnsiColor.YELLOW, "Skills",
-                            "⚠ Reached max directory scan limit ($MAX_DIRECTORIES_TO_SCAN) in $basePath"
-                        )
-                        break
-                    }
-                    try {
-                        val skill = loadSkill(skillDir, scope)
-                        if (skill != null && isSkillEnabled(skill.name)) {
-                            skills.add(skill)
-                            logProgress(AnsiColor.GREEN, "Skills", "✓ Loaded skill: ${skill.name} [${scope}]")
-                        }
-                    } catch (e: IllegalArgumentException) {
-                        // Lenient: log warning but don't crash
-                        logProgress(
-                            AnsiColor.YELLOW,
-                            "Skills",
-                            "⚠ Skipped skill in ${skillDir.fileName}: ${e.message}"
-                        )
-                    } catch (e: Exception) {
-                        logProgress(
-                            AnsiColor.YELLOW,
-                            "Skills",
-                            "⚠ Failed to load skill from ${skillDir.fileName}: ${e.message}"
-                        )
-                    }
+            Files.walkFileTree(basePath, emptySet(), MAX_FILE_WALK_DEPTH, object : SimpleFileVisitor<Path>() {
+                override fun preVisitDirectory(dir: Path, attrs: BasicFileAttributes): FileVisitResult =
+                    if (isSkipped(dir)) FileVisitResult.SKIP_SUBTREE else accept(dir)
+
+                override fun visitFile(file: Path, attrs: BasicFileAttributes): FileVisitResult {
+                    // Directories at MAX_FILE_WALK_DEPTH and symlinked directories arrive here.
+                    val isDirectory = attrs.isDirectory || (attrs.isSymbolicLink && Files.isDirectory(file))
+                    return if (isDirectory && !isSkipped(file)) accept(file) else FileVisitResult.CONTINUE
                 }
-            }
+
+                override fun visitFileFailed(file: Path, exc: IOException): FileVisitResult =
+                    FileVisitResult.CONTINUE
+            })
         } catch (e: Exception) {
             logProgress(
                 AnsiColor.YELLOW,
@@ -853,8 +974,7 @@ class SkillLoader(
                 "⚠ Error walking skills directory $basePath: ${e.message}"
             )
         }
-
-        return skills
+        return candidates.sorted()
     }
 
     /**
@@ -1016,146 +1136,10 @@ class SkillLoader(
         val yamlLines = lines.subList(1, actualEndIndex)
         val bodyLines = lines.drop(actualEndIndex + 1)
 
-        val frontmatter = parseYamlFrontmatter(yamlLines.joinToString("\n"))
+        val frontmatter = SkillFrontmatterParser.parse(yamlLines.joinToString("\n"))
         val body = bodyLines.joinToString("\n").trim()
 
         return frontmatter to body
-    }
-
-    /**
-     * Simple YAML parser for frontmatter (handles key: value pairs and lists).
-     * This is not a full YAML parser but handles the subset used in Skills.
-     *
-     * Includes a fallback for malformed YAML values containing unquoted colons,
-     * which is the most common cross-client compatibility issue. For example:
-     * ```yaml
-     * description: Use this skill when: the user asks about PDFs
-     * ```
-     * The colon after "when" technically breaks YAML parsing. This parser handles
-     * it by treating everything after the first colon as the value.
-     */
-    /**
-     * Block scalar mode for YAML `>` (folded) and `|` (literal) syntax.
-     * FOLDED joins lines with spaces; LITERAL joins lines with newlines.
-     */
-    private enum class BlockScalarMode { FOLDED, LITERAL }
-
-    private fun parseYamlFrontmatter(yaml: String): Map<String, Any> {
-        val map = mutableMapOf<String, Any>()
-        var currentKey: String? = null
-        val currentList = mutableListOf<String>()
-        // Block scalar state: when a key's value is ">" or "|", subsequent indented lines
-        // are collected here and joined according to the mode.
-        var blockScalarMode: BlockScalarMode? = null
-        val blockScalarLines = mutableListOf<String>()
-
-        fun flushPending() {
-            val key = currentKey ?: return
-            when {
-                blockScalarMode != null && blockScalarLines.isNotEmpty() -> {
-                    val separator = if (blockScalarMode == BlockScalarMode.FOLDED) " " else "\n"
-                    map[key] = blockScalarLines.joinToString(separator).trim()
-                }
-                currentList.isNotEmpty() -> {
-                    map[key] = currentList.toList()
-                }
-            }
-            currentList.clear()
-            blockScalarLines.clear()
-            blockScalarMode = null
-            currentKey = null
-        }
-
-        yaml.lines().forEach { line ->
-            val trimmed = line.trim()
-
-            // When inside a block scalar, collect indented continuation lines.
-            // A non-empty line that is NOT indented (no leading whitespace) signals the end
-            // of the block scalar.  Empty lines inside block scalars are preserved for
-            // literal mode and act as paragraph breaks for folded mode (approximated here
-            // by simply skipping them, which matches how descriptions are typically used).
-            if (blockScalarMode != null && currentKey != null) {
-                if (line.isNotEmpty() && (line[0] == ' ' || line[0] == '\t')) {
-                    // Indented continuation line — belongs to the block scalar
-                    if (trimmed.isNotEmpty()) {
-                        blockScalarLines.add(trimmed)
-                    }
-                    return@forEach
-                } else if (trimmed.isEmpty()) {
-                    // Blank line inside a block scalar — preserve for literal, skip for folded
-                    if (blockScalarMode == BlockScalarMode.LITERAL) {
-                        blockScalarLines.add("")
-                    }
-                    return@forEach
-                } else {
-                    // Non-indented, non-empty line — block scalar ends, fall through to normal parsing
-                    flushPending()
-                }
-            }
-
-            when {
-                // Skip empty lines and comments
-                trimmed.isEmpty() || trimmed.startsWith("#") -> {
-                    // Do nothing
-                }
-
-                // List item (must start with "- ")
-                trimmed.startsWith("- ") && currentKey != null -> {
-                    var item = trimmed.substring(2).trim()
-                    if (item.isNotEmpty()) {
-                        // Handle basic quoting
-                        if ((item.startsWith("\"") && item.endsWith("\"")) ||
-                            (item.startsWith("'") && item.endsWith("'"))
-                        ) {
-                            item = item.substring(1, item.length - 1)
-                        }
-                        currentList.add(item)
-                    }
-                }
-
-                // Key-value pair (contains ":")
-                trimmed.contains(":") -> {
-                    // Save previous pending data
-                    flushPending()
-
-                    // Parse new key-value pair
-                    val colonIndex = trimmed.indexOf(':')
-                    val key = trimmed.substring(0, colonIndex).trim()
-                    var value = trimmed.substring(colonIndex + 1).trim()
-
-                    if (key.isEmpty()) {
-                        // Skip invalid keys
-                        currentKey = null
-                    } else if (value == ">" || value == ">-") {
-                        // YAML folded block scalar
-                        currentKey = key
-                        blockScalarMode = BlockScalarMode.FOLDED
-                    } else if (value == "|" || value == "|-") {
-                        // YAML literal block scalar
-                        currentKey = key
-                        blockScalarMode = BlockScalarMode.LITERAL
-                    } else if (value.isNotEmpty()) {
-                        // Direct value
-                        // Handle basic quoting
-                        if ((value.startsWith("\"") && value.endsWith("\"")) ||
-                            (value.startsWith("'") && value.endsWith("'"))
-                        ) {
-                            value = value.substring(1, value.length - 1)
-                        }
-                        map[key] = value
-                        currentKey = null
-                    } else {
-                        // Value on next lines (possibly a list)
-                        currentKey = key
-                    }
-                }
-            }
-        }
-
-        // Flush any remaining pending data
-        flushPending()
-
-        return map
     }
 
     /**
@@ -1316,34 +1300,31 @@ class SkillLoader(
         val hookLoader = BraidrunHookLoader(config)
         // Use LinkedHashMap to preserve insertion order; later puts override earlier ones.
         val hooksMap = LinkedHashMap<String, BraidrunAgentHook>()
+        // Same pruning and pass-wide directory cap as skill discovery.
+        val budget = DirectoryScanBudget(maxDirectoriesToScan)
 
         // Helper: scan a directory for skill sub-directories and load their hooks
         fun scanPathForHooks(basePath: Path, label: String) {
             if (!basePath.exists() || !basePath.isDirectory()) return
             try {
-                Files.walk(basePath, MAX_FILE_WALK_DEPTH).use { paths ->
-                    paths
-                        .filter { it.isDirectory() }
-                        .filter { dir -> !SKIP_DIRECTORIES.contains(dir.fileName?.toString()) }
-                        .forEach { skillDir ->
-                            // Case-insensitive matching for SKILL.md
-                            val skillFile = skillDir.toFile().listFiles()?.firstOrNull {
-                                it.isFile && it.name.equals(SKILL_FILENAME, ignoreCase = true)
-                            }
-                            if (skillFile == null) return@forEach
-                            val skill = loadSkill(skillDir, label) ?: return@forEach
-                            if (!isSkillEnabled(skill.name)) return@forEach
+                collectCandidateSkillDirectories(basePath, budget).forEach { skillDir ->
+                    // Case-insensitive matching for SKILL.md
+                    val skillFile = skillDir.toFile().listFiles()?.firstOrNull {
+                        it.isFile && it.name.equals(SKILL_FILENAME, ignoreCase = true)
+                    }
+                    if (skillFile == null) return@forEach
+                    val skill = loadSkill(skillDir, label) ?: return@forEach
+                    if (!isSkillEnabled(skill.name)) return@forEach
 
-                            val hook = hookLoader.loadHookFromSkillDir(skillDir, skill.name)
-                            if (hook != null) {
-                                hooksMap[hook.name] = hook
-                                logProgress(
-                                    AnsiColor.GREEN,
-                                    "Hooks",
-                                    "✓ Loaded skill hook: ${hook.name} (from ${skill.name}) [$label]"
-                                )
-                            }
-                        }
+                    val hook = hookLoader.loadHookFromSkillDir(skillDir, skill.name)
+                    if (hook != null) {
+                        hooksMap[hook.name] = hook
+                        logProgress(
+                            AnsiColor.GREEN,
+                            "Hooks",
+                            "✓ Loaded skill hook: ${hook.name} (from ${skill.name}) [$label]"
+                        )
+                    }
                 }
             } catch (e: Exception) {
                 logProgress(AnsiColor.RED, "Hooks", "✗ Error loading skill hooks from $label ($basePath): ${e.message}")
@@ -1550,9 +1531,9 @@ class SkillManager(
         java.util.concurrent.CopyOnWriteArrayList()
 
     /**
-     * Tracks which skills have been activated in the current session.
-     * Used to deduplicate activations and avoid the same instructions appearing
-     * multiple times in the conversation context.
+     * Tracks which skills have been activated through this manager. Used to fire
+     * [BraidrunHookEvent.SKILL_ACTIVATED] once per skill; activation itself always
+     * returns the full instructions (see [activateSkill]).
      */
     private val activatedSkills = ConcurrentHashMap.newKeySet<String>()
 
@@ -1695,7 +1676,11 @@ class SkillManager(
     fun getDiscoverySummaries(): String {
         if (!initialized) initialize()
 
-        if (loadedSkills.isEmpty()) {
+        // Snapshot once: the catalog and its example must agree, and ConcurrentHashMap
+        // iteration order is not stable (the example used to change between runs,
+        // breaking prompt caching).
+        val skills = loadedSkills.values.sortedBy { it.name }
+        if (skills.isEmpty()) {
             return ""
         }
 
@@ -1709,22 +1694,31 @@ class SkillManager(
             appendLine("When a skill references relative paths, resolve them against the skill's")
             appendLine("directory (the parent of SKILL.md) and use absolute paths in tool calls.")
             appendLine()
-            // Structured XML catalog with name, description, and location
+            // Structured XML catalog with name, description, and location.
+            // Values come from user-installed SKILL.md files, so they are escaped: a
+            // description containing `</available_skills>` must not close the block.
             appendLine("<available_skills>")
-            loadedSkills.values.sortedBy { it.name }.forEach { skill ->
+            skills.forEach { skill ->
                 appendLine("  <skill>")
-                appendLine("    <name>${skill.name}</name>")
-                appendLine("    <description>${skill.description}</description>")
+                appendLine("    <name>${escapeCatalogXml(skill.name)}</name>")
+                appendLine("    <description>${escapeCatalogXml(skill.description)}</description>")
                 if (skill.location != null) {
-                    appendLine("    <location>${skill.location}</location>")
+                    appendLine("    <location>${escapeCatalogXml(skill.location)}</location>")
                 }
                 appendLine("  </skill>")
             }
             appendLine("</available_skills>")
             appendLine()
-            appendLine("To use a skill, call the `useSkill` tool with the exact skill name shown above (e.g., useSkill(skillName = \"${loadedSkills.keys.firstOrNull() ?: "example-skill"}\")).")
+            appendLine("To use a skill, call the `useSkill` tool with the exact skill name shown above (e.g., useSkill(skillName = \"${skills.first().name}\")).")
         }
     }
+
+    /**
+     * Escapes only `&`, `<` and `>`: enough to keep catalog values from breaking the XML
+     * structure, without the quote-escaping noise (and token cost) of full XML escaping.
+     */
+    private fun escapeCatalogXml(value: String): String =
+        value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
     /**
      * Gets full content for specified skills.
@@ -1759,12 +1753,15 @@ class SkillManager(
 
     /**
      * Activates a skill and returns its full content with structured wrapping.
-     * Tracks activation to support deduplication — if a skill has already been
-     * activated in this session, returns a short notice instead of re-injecting
-     * the full instructions.
+     *
+     * Every call returns the full instructions. A manager outlives a conversation (WEB pools
+     * managers across users and turns, and replays history without tool results; context
+     * compaction drops old tool results too), so "already activated" never proved the
+     * instructions were still in the model's context. Only the [BraidrunHookEvent.SKILL_ACTIVATED]
+     * hook is de-duplicated: it fires on the first activation per manager.
      *
      * @param name The skill name to activate.
-     * @return The skill's full content (first activation) or a dedup notice, or an error message.
+     * @return The skill's full content, or an error message.
      */
     fun activateSkill(name: String): String {
         if (!initialized) initialize()
@@ -1772,19 +1769,13 @@ class SkillManager(
         val skill = getSkill(name)
             ?: return "Error: Skill '$name' not found. Use listConfiguredSkills() to see available skills."
 
-        // Deduplication: skip re-injection if already activated in this session
-        if (!activatedSkills.add(skill.name)) {
-            logProgress(
-                AnsiColor.CYAN, "Skills",
-                "ℹ Skill '${skill.name}' already activated in this session, skipping re-injection"
-            )
-            return "Skill '${skill.name}' is already active in this session. " +
-                    "Its instructions were loaded earlier and are still in context."
+        if (activatedSkills.add(skill.name)) {
+            logProgress(AnsiColor.GREEN, "Skills", "✓ Activated skill: ${skill.name}")
+            dispatchHooks(BraidrunHookEvent.SKILL_ACTIVATED, additionalConfig = mapOf("skillName" to skill.name))
+        } else {
+            logProgress(AnsiColor.CYAN, "Skills", "ℹ Re-activated skill: ${skill.name}")
         }
-
-        logProgress(AnsiColor.GREEN, "Skills", "✓ Activated skill: ${skill.name}")
-        dispatchHooks(BraidrunHookEvent.SKILL_ACTIVATED, additionalConfig = mapOf("skillName" to skill.name))
-        return skill.toFullContent()
+        return loader.withBuiltinAttachmentContent(skill).toFullContent()
     }
 
     /**
@@ -1842,12 +1833,16 @@ class SkillManager(
 
     /**
      * Creates system prompt augmentation with skill information.
+     *
+     * @param skillToolsRegistered whether the agent's registry has `useSkill`. The progressive
+     *   disclosure catalog tells the model to call it, so it is omitted when the tool is absent
+     *   (for example an exact tool set without `skill_tools`).
      */
-    fun createSkillSystemPrompt(): String {
+    fun createSkillSystemPrompt(skillToolsRegistered: Boolean = true): String {
         if (!initialized) initialize()
 
         return if (config.progressiveDisclosure) {
-            getDiscoverySummaries()
+            if (skillToolsRegistered) getDiscoverySummaries() else ""
         } else {
             // Load all skills fully (not recommended for many skills)
             getSkillsContent(loadedSkills.keys.toList())
@@ -1874,6 +1869,15 @@ class SkillManager(
                 AnsiColor.YELLOW,
                 "Hooks",
                 "⚠ Script execution disabled (hookScriptExecutionEnabled=false) — skipping handler for: ${hook.name}"
+            )
+            return null
+        }
+        // The host policy wins over skills_config: a config may only narrow it.
+        if (!WorkflowHostPolicy.allowsSkillHookScripts) {
+            logProgress(
+                AnsiColor.YELLOW,
+                "Hooks",
+                "⚠ Script execution disabled by host policy — skipping handler for: ${hook.name}"
             )
             return null
         }
@@ -2195,6 +2199,17 @@ class SkillManager(
      */
     private fun initializeMCPServersForSkill(skill: ClaudeSkill) {
         if (skill.mcpServers.isEmpty()) return
+        // Off unless the host opted in: these run npm/pip/run.sh on the host with the JVM's
+        // environment, and their stdio was never wired to a client anyway.
+        if (!WorkflowHostPolicy.allowsSkillMcpAutoStart) {
+            logProgress(
+                AnsiColor.YELLOW,
+                "MCP",
+                "⚠ Skipping ${skill.mcpServers.size} bundled MCP server(s) of '${skill.name}': " +
+                    "per-skill MCP auto-start is not enabled by the host"
+            )
+            return
+        }
 
         // Prefer the skill's ACTUAL directory (parent of its SKILL.md): skills are
         // discovered from multiple scopes (project .claude/skills, user ~/.agents,
@@ -2309,9 +2324,13 @@ class SkillManager(
 
 /**
  * Creates a SkillManager from configuration parameters.
- * Returns null if no skills configuration is provided.
+ * Returns null if no skills configuration is provided, or when the skills subsystem is
+ * disabled ([skillsSubsystemDisabled]: `disable_skills`, or `skills_config.enabled=false`).
+ * `SkillTools` is not registered in that case, so a manager would only advertise a catalog
+ * the model cannot use (and still load hooks and MCP servers).
  */
 fun createSkillManager(parameters: List<ConfigurationParameter>): SkillManager? {
+    if (skillsSubsystemDisabled(parameters)) return null
     val config = parameters.parameter<SkillsConfiguration?>("skills_config", null)
         ?: if (parameters.parameter("tool_set", emptySet<String>()).contains("skill_tools")) {
             val defaultCacheDir =

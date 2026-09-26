@@ -2,6 +2,7 @@ package com.fartech.agents.commons
 
 import ai.koog.agents.core.agent.GraphAIAgent
 import ai.koog.agents.features.eventHandler.feature.handleEvents
+import com.fartech.agents.workflow.WorkflowHostPolicy
 import com.fartech.ftapp2.commonsKt.AnsiColor
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -574,6 +575,16 @@ class BraidrunHookExecutor(private val config: SkillsConfiguration = SkillsConfi
      */
     fun execute(hook: BraidrunAgentHook, context: BraidrunHookContext): BraidrunHookScriptResult? {
         val scriptPath = hook.handlerScript ?: return null
+        // Checked here as well as in SkillManager: this executor is public and would
+        // otherwise start the script with a bare ProcessBuilder in the host JVM.
+        if (!WorkflowHostPolicy.allowsSkillHookScripts) {
+            logProgress(
+                AnsiColor.YELLOW,
+                "Hooks",
+                "⚠ Script execution disabled by host policy — skipping handler for: ${hook.name}"
+            )
+            return null
+        }
         if (!scriptPath.exists()) {
             logProgress(AnsiColor.YELLOW, "Hooks", "⚠ Handler script not found: $scriptPath")
             return null

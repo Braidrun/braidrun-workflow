@@ -85,17 +85,25 @@ tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach 
     }
 }
 
-// Koog 1.0.0 ships two streams (see release notes):
-//   - STABLE (`1.0.0`):  agents-core / agents-features-memory / -snapshot /
-//                        -tokenizer / -trace, embeddings-*, prompt-*, rag-base,
-//                        a2a-*, koog-agents umbrella.
-//   - BETA   (`1.0.0-beta-preview7`):  agents-features-longterm-memory,
-//                        agents-features-opentelemetry, rag-vector, agents-planner.
-// We pull the umbrella at STABLE so most APIs are locked; the few beta-stream
-// modules we depend on (LTM, Langfuse via OpenTelemetry, vector RAG) ride the
-// preview7 train until they get promoted.
-val koogVersion = "1.0.0"
-val koogBetaVersion = "1.0.0-beta-preview7"
+// Koog publishes every module on exactly ONE of two release streams, and each
+// artifact only exists at its own stream's version (requesting a stable module
+// at `-beta` or vice versa fails resolution, or silently resolves through a
+// transitive edge). Check maven-metadata.xml before moving a module between
+// the two constants below.
+//   - STABLE (`koogVersion` = 1.3.0): koog-agents umbrella, agents-features-
+//     memory / -snapshot / -tokenizer / -trace / -opentelemetry,
+//     embeddings-*, rag-base, http-client-*, prompt-processor,
+//     prompt-tokenizer, prompt-cache-files / -model, prompt-executor-model /
+//     -cached, and the openai / openai-base / anthropic / openrouter / bedrock
+//     / ollama clients.
+//   - BETA (`koogBetaVersion` = 1.3.0-beta): agents-ext, agents-mcp, a2a-*,
+//     agents-features-a2a-*, agents-features-longterm-memory, rag-vector,
+//     prompt-cache-redis, and the google / deepseek / mistralai / dashscope /
+//     litert clients.
+// Not used on purpose: `ai.koog:skills` (beta-only, Agent Skills catalog).
+// Braidrun's skill system stays in-house (SkillManager; see docs/SKILLS.md).
+val koogVersion = "1.3.0"
+val koogBetaVersion = "1.3.0-beta"
 val ktorVersion = "3.4.1"
 val vertxVersion = "4.5.18"
 
@@ -118,18 +126,16 @@ dependencies {
 
     // Koog agents, using the Ktor versions resolved by Koog itself.
     implementation("ai.koog:koog-agents:${koogVersion}")
-    // agents-ext (BETA stream) — homes built-in tools that 0.8.0 shipped under
-    // agents-core: ExitTool, ReadFileTool, ListDirectoryTool, EditFileTool,
-    // WriteFileTool, ExecuteShellCommandTool, etc. The 1.0.0 reorg moved them
-    // out of the stable umbrella; we add the dependency explicitly so
-    // ToolRegistryBuilder.kt can keep registering them.
+    // agents-ext (BETA stream) — homes the built-in tools (ExitTool,
+    // ReadFileTool, ListDirectoryTool, EditFileTool, WriteFileTool,
+    // ExecuteShellCommandTool, etc.) that are not part of the stable umbrella;
+    // declared explicitly so ToolRegistryBuilder.kt can register them.
     implementation("ai.koog:agents-ext:${koogBetaVersion}")
     // agents-mcp (BETA stream) — McpToolRegistryProvider + stdio/SSE/Streamable
-    // HTTP transports for talking to external MCP servers. Lives outside the
-    // koog-agents:1.0.0 umbrella because the SDK upgrade (0.8.1 → 0.11.1)
-    // shipped on the beta train.
+    // HTTP transports for talking to external MCP servers. Not part of the
+    // stable koog-agents umbrella.
     implementation("ai.koog:agents-mcp:${koogBetaVersion}")
-    // Core A2A server library — A2A modules live on the BETA stream in 1.0.0.
+    // Core A2A server library — all A2A modules are on the BETA stream.
     api("ai.koog:a2a-server:${koogBetaVersion}")
     api("ai.koog:agents-features-a2a-server:${koogBetaVersion}")
     api("ai.koog:agents-features-a2a-client:${koogBetaVersion}")
@@ -200,22 +206,22 @@ dependencies {
 
     // Koog RAG: embeddings + vector storage
     // Note: `vector-storage` was renamed to `rag-vector` in Koog 0.8.0.
-    // `rag-vector` rides the BETA stream in 1.0.0 (still preview7); the rest
-    // of the RAG surface (`rag-base`, `embeddings-*`) is in STABLE.
+    // `rag-vector` is on the BETA stream; the rest of the RAG surface
+    // (`rag-base`, `embeddings-*`) is STABLE.
     implementation("ai.koog:embeddings-base:${koogVersion}")
     implementation("ai.koog:embeddings-llm:${koogVersion}")
     implementation("ai.koog:rag-vector:${koogBetaVersion}")
 
-    // Koog LLM client modules (1.0.0 stripped these out of the koog-agents
-    // umbrella so apps pay only for the providers they use). We use:
-    //   STABLE (1.0.0):
+    // Koog LLM client modules (not bundled in the koog-agents umbrella, so
+    // apps pay only for the providers they use). We use:
+    //   STABLE (1.3.0):
     //     openai-client, openai-client-base (AbstractOpenAILLMClient base),
     //     anthropic-client (used for Claude direct + via OpenRouter mirror),
     //     openrouter-client, bedrock-client (future), ollama-client.
-    //   BETA (1.0.0-beta-preview7):
+    //   BETA (1.3.0-beta):
     //     google-client (Gemini), deepseek-client (DeepSeek V3.1/V4),
     //     mistralai-client (Mistral large), dashscope-client (Qwen direct),
-    //     litert-client (Google LiteRT local — new in 1.0.0; opt-in).
+    //     litert-client (Google LiteRT local; opt-in).
     // The bundled `prompt-executor-llms-all` BoM is BETA-only, so we stay on
     // per-provider deps to keep the stable umbrella consistent.
     implementation("ai.koog:prompt-executor-openai-client:${koogVersion}")
@@ -228,18 +234,17 @@ dependencies {
     implementation("ai.koog:prompt-executor-deepseek-client:${koogBetaVersion}")
     implementation("ai.koog:prompt-executor-mistralai-client:${koogBetaVersion}")
     implementation("ai.koog:prompt-executor-dashscope-client:${koogBetaVersion}")
-    // Phase-11 (Koog 1.0.0) — new: LiteRT local model client. Lets workflow
-    // authors run small on-device Google models without an external API.
+    // LiteRT local model client. Lets workflow authors run small on-device
+    // Google models without an external API.
     implementation("ai.koog:prompt-executor-litert-client:${koogBetaVersion}")
     // STABLE LLM executor surface (CachedPromptExecutor + MultiLLMPromptExecutor).
-    // Koog 1.0.0 merged `prompt-executor-llms` into `prompt-executor-model`;
-    // MultiLLMPromptExecutor / RoutingLLMPromptExecutor / LLMClientRouter now
-    // live under `ai.koog.prompt.executor.llms.*` but are published in
-    // prompt-executor-model. The cached executor (CachedPromptExecutor) keeps
-    // its own artifact.
+    // MultiLLMPromptExecutor / RoutingLLMPromptExecutor / LLMClientRouter live
+    // under `ai.koog.prompt.executor.llms.*` but are published in
+    // prompt-executor-model (the old `prompt-executor-llms` artifact is gone).
+    // The cached executor (CachedPromptExecutor) keeps its own artifact.
     implementation("ai.koog:prompt-executor-model:${koogVersion}")
     implementation("ai.koog:prompt-executor-cached:${koogVersion}")
-    // Prompt-cache backends: in-memory (STABLE 1.0.0) + Redis (BETA preview7).
+    // Prompt-cache backends: in-memory + file (STABLE) and Redis (BETA).
     implementation("ai.koog:prompt-cache-files:${koogVersion}")
     implementation("ai.koog:prompt-cache-model:${koogVersion}")
     implementation("ai.koog:prompt-cache-redis:${koogBetaVersion}")
@@ -277,16 +282,17 @@ dependencies {
     //     explicitly so the long-term memory + local file memory providers
     //     resolve.
     //   - agents-features-snapshot (STABLE): `Persistence` feature for
-    //     checkpoint/restore — required for the `runFromCheckpoint` flow
-    //     adopted in the Koog 1.0.0 audit (Phase 11).
-    //   - agents-features-opentelemetry (BETA): OpenTelemetry feature with
-    //     Langfuse / Weave / DataDog exporters; now multiplatform in 1.0.0
-    //     so the JVM-only extensions live in a separate `-jvm` artifact
-    //     (resolved transitively via -opentelemetry).
+    //     checkpoint/restore — required for the `runFromCheckpoint` flow.
+    //   - agents-features-opentelemetry (STABLE): OpenTelemetry feature with
+    //     Langfuse / Weave / DataDog exporters. It has never had a `-beta`
+    //     build (an earlier `koogBetaVersion` request only resolved through the
+    //     umbrella's transitive stable version). It is multiplatform, so the
+    //     JVM-only extensions live in a separate `-jvm` artifact (resolved
+    //     transitively).
     implementation("ai.koog:agents-features-longterm-memory:${koogBetaVersion}")
     implementation("ai.koog:agents-features-memory:${koogVersion}")
     implementation("ai.koog:agents-features-snapshot:${koogVersion}")
-    implementation("ai.koog:agents-features-opentelemetry:${koogBetaVersion}")
+    implementation("ai.koog:agents-features-opentelemetry:${koogVersion}")
     implementation("ai.koog:prompt-processor:${koogVersion}")
     implementation("ai.koog:rag-base:${koogVersion}")
 
@@ -298,8 +304,8 @@ dependencies {
     //   - `kotlin-sdk-client-jvm` — `StdioClientTransport`, `SseClientTransport`,
     //     `WebSocketClientTransport`, `StreamableHttpClientTransport` used by
     //     AgentMcpUtils to consume external MCP servers.
-    // Bumped 0.8.1 → 0.11.1 alongside the Koog 1.0.0 upgrade — the koog-agents
-    // 1.0.0 release advertises Streamable HTTP as the primary transport.
+    // Matches the MCP SDK that agents-mcp 1.3.0-beta itself depends on
+    // (0.11.1); Streamable HTTP is the primary transport.
     implementation("io.modelcontextprotocol:kotlin-sdk-server-jvm:0.11.1")
     implementation("io.modelcontextprotocol:kotlin-sdk-client-jvm:0.11.1")
 
@@ -320,7 +326,7 @@ dependencies {
 }
 
 group = "com.fartech.braidrun"
-version = "1.2.0"
+version = "1.3.0"
 description = "braidrun-workflow"
 
 tasks.named<Jar>("jar") {

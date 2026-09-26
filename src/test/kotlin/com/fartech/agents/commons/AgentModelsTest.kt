@@ -413,9 +413,17 @@ class AgentModelsTest {
 
         @Test
         fun `dynamic model uses STANDARD_CAPABILITIES by default`() {
-            val config = LLModelConfig(provider = "openai", model = "unknown-model")
+            val config = LLModelConfig(provider = "mistral", model = "unknown-model")
             val model = determineLLMModel(config)
             assertEquals(STANDARD_CAPABILITIES, model.capabilities)
+        }
+
+        @Test
+        fun `dynamic openai model adds the chat completions endpoint to STANDARD_CAPABILITIES`() {
+            // OpenAILLMClient refuses a model that declares neither OpenAI endpoint.
+            val config = LLModelConfig(provider = "openai", model = "unknown-model")
+            val model = determineLLMModel(config)
+            assertEquals(STANDARD_CAPABILITIES + LLMCapability.OpenAIEndpoint.Completions, model.capabilities)
         }
 
         @Test

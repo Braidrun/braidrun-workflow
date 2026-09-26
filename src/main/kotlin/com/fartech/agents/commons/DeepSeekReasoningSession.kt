@@ -53,14 +53,44 @@ internal suspend fun AIAgentLLMWriteSession.requestLLMOnlyCallingToolsPreserving
         request = { requestLLMOnlyCallingTools() }
     )
 
+/**
+ * List-shaped LLM request used by the multi-tool graphs (`toolCycleGraphMulti*`,
+ * `single_run*`, and therefore the default `just_work_parallel` strategy).
+ *
+ * With the default `numberOfChoices` (unset or 1) the round goes through
+ * [AIAgentLLMWriteSession.requestLLM], so it is a normal metered LLM call:
+ * the agent pipeline fires `onLLMCallStarting` / `onLLMCallCompleted` /
+ * `onLLMCallFailed` (token + cost events, LLM_CALL_* skill hooks, trace
+ * spans, LongTermMemory retrieval) and the configured `ResponseProcessor`
+ * (WeakModelToolCallFix) is applied. The single response is returned as a
+ * one-element list.
+ *
+ * Only `numberOfChoices > 1` still uses Koog's `requestLLMMultipleChoices`.
+ * Upstream `ContextualPromptExecutor.executeMultipleChoices` fires **no**
+ * pipeline events and skips the `ResponseProcessor`, so those rounds are
+ * unmetered (no `llm_call_completed` / token events), invisible to hooks and
+ * tracing, and never augmented by LongTermMemory. Every choice is appended to
+ * history. `numberOfChoices` comes from the user-controlled workflow
+ * `num_choices` parameter, so metered hosts must declare
+ * `WorkflowHostPolicy.requireSingleLlmChoice()` to keep users from opting out
+ * of accounting this way. Note that with the prompt cache on, Koog's `CachedPromptExecutor`
+ * collapses multi-choice requests to a single `execute` call anyway.
+ *
+ * In both modes a reasoning-only response is replaced by its
+ * [withReasoningAsTextFallback] form, and history ends with exactly the
+ * returned assistant message(s): tool-cycle graphs need that assistant
+ * `tool_calls` message in history before they append matching tool results,
+ * otherwise strict providers reject the next request with "tool result's
+ * tool id ... not found".
+ */
 @PublishedApi
-internal suspend fun AIAgentLLMWriteSession.requestLLMMultiplePreservingDeepSeekReasoning(): List<Message.Assistant> =
-    // Koog 1.0.0's write-session `requestLLMMultipleChoices()` returns choices
-    // from the read session but does not append them back to prompt history.
-    // Tool-cycle graphs need that assistant `tool_calls` message in history
-    // before they append matching tool results, otherwise strict providers
-    // reject the next request with "tool result's tool id ... not found".
-    requestLLMMultipleChoices().map { choice ->
+internal suspend fun AIAgentLLMWriteSession.requestLLMMultiplePreservingDeepSeekReasoning(): List<Message.Assistant> {
+    if ((prompt.params.numberOfChoices ?: 1) <= 1) {
+        return listOf(requestLLMWithReasoningOnlyTextFallback())
+    }
+    // Koog's write-session `requestLLMMultipleChoices()` does not append the
+    // choices to prompt history, so append them here.
+    return requestLLMMultipleChoices().map { choice ->
         choice.takeIf { it.hasProviderValidAssistantPayload() }
             ?: choice.withReasoningAsTextFallback()
     }.also { choices ->
@@ -68,6 +98,24 @@ internal suspend fun AIAgentLLMWriteSession.requestLLMMultiplePreservingDeepSeek
             choices.forEach { message(it) }
         }
     }
+}
+
+/**
+ * [AIAgentLLMWriteSession.requestLLM] (which appends the response to history),
+ * swapping a provider-invalid reasoning-only response for its text fallback in
+ * place so history still holds a single assistant message for the round.
+ */
+private suspend fun AIAgentLLMWriteSession.requestLLMWithReasoningOnlyTextFallback(): Message.Assistant {
+    val response = requestLLM()
+    if (response.hasProviderValidAssistantPayload()) return response
+
+    val sanitized = response.withReasoningAsTextFallback()
+    dropLastNMessages(1)
+    appendPrompt {
+        message(sanitized)
+    }
+    return sanitized
+}
 
 @PublishedApi
 internal suspend fun AIAgentLLMWriteSession.requestLLMMultipleOnlyCallingToolsPreservingDeepSeekReasoning(): List<Message.Assistant> {

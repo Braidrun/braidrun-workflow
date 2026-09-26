@@ -1,133 +1,147 @@
 provider: anthropic
 models:
-  # ===== Claude 4.x =====
+  # Anthropic's first-party API takes dashed ids (`claude-opus-4-7`); dotted
+  # spellings are OpenRouter's and 400 here. Limits and lifecycle verified
+  # against platform.claude.com models overview + model-deprecations
+  # (2026-09-26).
+  #
+  # Capability rules the YAML must honour on its own:
+  # - Claude Opus 4.7 and later (Fable 5.x, Opus 5.x, Sonnet 5) reject
+  #   sampling parameters, so they never declare `temperature`.
+  # - Thinking is on by default for Fable 5.x, Opus 5, Opus 5.5 and Sonnet 5;
+  #   forced tool choice (`any` / `tool`) 400s there, so they omit `tool_choice`.
+  # - Every entry declares `thinking`: replaying a thinking block requires it.
+
+  # ===== Claude 5 =====
+  "claude-fable-5-1":
+    id: "claude-fable-5-1"
+    capabilities: tools, vision, document, completion, json.basic, json, thinking
+    context_length: 1000000
+    max_output_tokens: 128000
   "claude-fable-5":
     id: "claude-fable-5"
-    capabilities: multimodal
+    capabilities: tools, vision, document, completion, json.basic, json, thinking
     context_length: 1000000
-  "claude-opus-4.7":
-    id: "claude-opus-4.7"
-    capabilities: multimodal
+    max_output_tokens: 128000
+  "claude-opus-5-5":
+    id: "claude-opus-5-5"
+    capabilities: tools, vision, document, completion, json.basic, json, thinking
     context_length: 1000000
+    max_output_tokens: 128000
+  "claude-opus-5":
+    id: "claude-opus-5"
+    capabilities: tools, vision, document, completion, json.basic, json, thinking
+    context_length: 1000000
+    max_output_tokens: 128000
+  "claude-sonnet-5":
+    id: "claude-sonnet-5"
+    capabilities: tools, vision, document, completion, json.basic, json, thinking
+    context_length: 1000000
+    max_output_tokens: 128000
+  # ===== Claude 4.x =====
+  # Opus 4.7 / 4.8 run without thinking unless asked, so forced tool choice works.
+  "claude-opus-4-8":
+    id: "claude-opus-4-8"
+    capabilities: tools, tool_choice, vision, document, completion, json.basic, json, thinking
+    context_length: 1000000
+    max_output_tokens: 128000
   "claude-opus-4-7":
     id: "claude-opus-4-7"
-    capabilities: multimodal
+    capabilities: tools, tool_choice, vision, document, completion, json.basic, json, thinking
     context_length: 1000000
-  "claude-opus-latest":
-    id: "claude-opus-latest"
-    capabilities: multimodal
+    max_output_tokens: 128000
+  "claude-opus-4-6":
+    id: "claude-opus-4-6"
+    capabilities: temperature, tools, tool_choice, vision, document, completion, json.basic, json, thinking
     context_length: 1000000
-  "claude-sonnet-4.6":
-    id: "claude-sonnet-4.6"
-    capabilities: multimodal
-    context_length: 1000000
+    max_output_tokens: 128000
   "claude-sonnet-4-6":
     id: "claude-sonnet-4-6"
-    capabilities: multimodal
+    capabilities: temperature, tools, tool_choice, vision, document, completion, json.basic, json, thinking
     context_length: 1000000
+    max_output_tokens: 128000
+  "claude-opus-4-5":
+    id: "claude-opus-4-5"
+    capabilities: temperature, tools, tool_choice, vision, document, completion, json.basic, json, thinking
+    context_length: 200000
+    max_output_tokens: 64000
+  "claude-sonnet-4-5":
+    id: "claude-sonnet-4-5"
+    capabilities: temperature, tools, tool_choice, vision, document, completion, json.basic, json, thinking
+    context_length: 200000
+    max_output_tokens: 64000
+  "claude-haiku-4-5":
+    id: "claude-haiku-4-5"
+    capabilities: temperature, tools, tool_choice, vision, document, completion, json.basic, json, thinking
+    context_length: 200000
+    max_output_tokens: 64000
+  # ===== Dotted spellings kept for saved configs =====
+  # Earlier releases keyed these models by their OpenRouter spelling and sent
+  # it verbatim, which the first-party API rejects. The keys stay resolvable
+  # (the registry has no hidden-alias concept) but now send the dashed id.
+  "claude-opus-4.7":
+    id: "claude-opus-4-7"
+    capabilities: tools, tool_choice, vision, document, completion, json.basic, json, thinking
+    context_length: 1000000
+    max_output_tokens: 128000
   "claude-opus-4.6":
-    id: "claude-opus-4.6"
-    capabilities: multimodal
+    id: "claude-opus-4-6"
+    capabilities: temperature, tools, tool_choice, vision, document, completion, json.basic, json, thinking
     context_length: 1000000
-  "claude-opus-4.6-fast":
-    id: "claude-opus-4.6-fast"
-    capabilities: multimodal
+    max_output_tokens: 128000
+  "claude-sonnet-4.6":
+    id: "claude-sonnet-4-6"
+    capabilities: temperature, tools, tool_choice, vision, document, completion, json.basic, json, thinking
     context_length: 1000000
+    max_output_tokens: 128000
   "claude-opus-4.5":
-    id: "claude-opus-4.5"
-    capabilities: multimodal
+    id: "claude-opus-4-5"
+    capabilities: temperature, tools, tool_choice, vision, document, completion, json.basic, json, thinking
     context_length: 200000
+    max_output_tokens: 64000
   "claude-sonnet-4.5":
-    id: "claude-sonnet-4.5"
-    capabilities: multimodal
-    context_length: 1000000
+    id: "claude-sonnet-4-5"
+    capabilities: temperature, tools, tool_choice, vision, document, completion, json.basic, json, thinking
+    context_length: 200000
+    max_output_tokens: 64000
   "claude-haiku-4.5":
-    id: "claude-haiku-4.5"
-    capabilities: multimodal
+    id: "claude-haiku-4-5"
+    capabilities: temperature, tools, tool_choice, vision, document, completion, json.basic, json, thinking
     context_length: 200000
-  "claude-opus-4.1":
-    id: "claude-opus-4.1"
-    capabilities: multimodal
-    context_length: 200000
-  "claude-sonnet-4.1":
-    id: "claude-sonnet-4.1"
-    capabilities: multimodal
-    context_length: 200000
-  "claude-haiku-4.1":
-    id: "claude-haiku-4.1"
-    capabilities: multimodal
-    context_length: 200000
-  "claude-opus-4":
-    id: "claude-opus-4"
-    capabilities: multimodal
-    context_length: 200000
+    max_output_tokens: 64000
+  # ===== Deprecated (not yet retired) — kept so saved configs keep resolving =====
   "claude-sonnet-4":
-    id: "claude-sonnet-4"
-    capabilities: multimodal
+    id: "claude-sonnet-4-0"
+    capabilities: temperature, tools, tool_choice, vision, document, completion, json.basic, json, thinking
     context_length: 200000
-  # ===== Claude 3.x =====
-  "claude-3.7-sonnet":
-    id: "claude-3.7-sonnet"
-    capabilities: multimodal
+    max_output_tokens: 64000
+  "claude-opus-4":
+    id: "claude-opus-4-0"
+    capabilities: temperature, tools, tool_choice, vision, document, completion, json.basic, json, thinking
     context_length: 200000
-  "claude-3.7-sonnet-20250219":
-    id: "claude-3-7-sonnet-20250219"
-    capabilities: multimodal
-    context_length: 200000
-  "claude-3.5-sonnet":
-    id: "claude-3.5-sonnet"
-    capabilities: multimodal
-    context_length: 200000
-  "claude-3.5-sonnet-20241022":
-    id: "claude-3-5-sonnet-20241022"
-    capabilities: multimodal
-    context_length: 200000
-  "claude-3.5-sonnet-20240620":
-    id: "claude-3-5-sonnet-20240620"
-    capabilities: multimodal
-    context_length: 200000
-  "claude-3.5-haiku":
-    id: "claude-3.5-haiku"
-    capabilities: multimodal
-    context_length: 200000
-  "claude-3.5-haiku-20241022":
-    id: "claude-3-5-haiku-20241022"
-    capabilities: multimodal
-    context_length: 200000
-  "claude-3-opus":
-    id: "claude-3-opus-20240229"
-    capabilities: multimodal
-    context_length: 200000
-  "claude-3-opus-20240229":
-    id: "claude-3-opus-20240229"
-    capabilities: multimodal
-    context_length: 200000
-  "claude-3-sonnet":
-    id: "claude-3-sonnet-20240229"
-    capabilities: multimodal
-    context_length: 200000
-  "claude-3-haiku":
-    id: "claude-3-haiku-20240307"
-    capabilities: multimodal
-    context_length: 200000
-  "claude-3-haiku-20240307":
-    id: "claude-3-haiku-20240307"
-    capabilities: multimodal
-    context_length: 200000
-  # ===== Convenience aliases =====
+    max_output_tokens: 32000
+  # ===== Convenience aliases → the current model of each tier =====
+  # `claude-opus` / `claude-sonnet` stay on the newest models that still accept
+  # sampling params and forced tool choice (Opus 4.8 / Sonnet 4.6): the engine
+  # sends temperature and forces tool choice until the runtime guards land, and
+  # Opus 5 / Sonnet 5 would 400 on both. Retarget to 5.x once the guards ship.
   "claude-fable":
-    id: "claude-fable-5"
-    capabilities: multimodal
+    id: "claude-fable-5-1"
+    capabilities: tools, vision, document, completion, json.basic, json, thinking
     context_length: 1000000
-  "claude-sonnet":
-    id: "claude-sonnet-4-20250514"
-    capabilities: multimodal
-    context_length: 200000
-  "claude-haiku":
-    id: "claude-haiku-4.5"
-    capabilities: multimodal
-    context_length: 200000
+    max_output_tokens: 128000
   "claude-opus":
-    id: "claude-opus-4.7"
-    capabilities: multimodal
+    id: "claude-opus-4-8"
+    capabilities: tools, tool_choice, vision, document, completion, json.basic, json, thinking
     context_length: 1000000
+    max_output_tokens: 128000
+  "claude-sonnet":
+    id: "claude-sonnet-4-6"
+    capabilities: temperature, tools, tool_choice, vision, document, completion, json.basic, json, thinking
+    context_length: 1000000
+    max_output_tokens: 128000
+  "claude-haiku":
+    id: "claude-haiku-4-5"
+    capabilities: temperature, tools, tool_choice, vision, document, completion, json.basic, json, thinking
+    context_length: 200000
+    max_output_tokens: 64000

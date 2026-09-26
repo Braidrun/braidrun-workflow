@@ -1,0 +1,183 @@
+package com.fartech.agents.commons
+
+import ai.koog.agents.core.tools.ToolDescriptor
+import ai.koog.prompt.Prompt
+import ai.koog.prompt.cache.model.PromptCache
+import ai.koog.prompt.dsl.ModerationResult
+import ai.koog.prompt.executor.cached.CachedPromptExecutor
+import ai.koog.prompt.executor.model.PromptExecutor
+import ai.koog.prompt.executor.model.PromptExecutorOperation
+import ai.koog.prompt.executor.model.ResolvedModel
+import ai.koog.prompt.llm.LLModel
+import ai.koog.prompt.message.LLMChoice
+import ai.koog.prompt.message.Message
+import ai.koog.prompt.message.ResponseMetaInfo
+import ai.koog.prompt.streaming.StreamFrame
+import ai.koog.prompt.structure.json.generator.BasicJsonSchemaGenerator
+import ai.koog.prompt.structure.json.generator.StandardJsonSchemaGenerator
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlin.coroutines.AbstractCoroutineContextElement
+import kotlin.coroutines.CoroutineContext
+
+/** `ResponseMetaInfo.metadata` flag set on responses served from the prompt cache. */
+const val PROMPT_CACHE_HIT_METADATA_KEY = "braidrun_prompt_cache_hit"
+
+/**
+ * Koog [CachedPromptExecutor] whose cache hits carry no token usage.
+ *
+ * On a hit Koog re-stamps the cached message with the `metaInfo` of the last
+ * assistant message already in the request prompt (`PromptCache.get(prompt,
+ * tools, clock)`), i.e. the PREVIOUS round's token counts. Every metering
+ * consumer — WorkflowExecutor's `llm_call_completed` / `token_usage` events and
+ * the web assistant's quota counters (buffered `onLLMCallCompleted` and the
+ * streamed `StreamFrame.End`) — would then bill that round a second time for a
+ * call that never reached a provider.
+ *
+ * Koog's executor still owns the cache (keying, lookup, storing, streaming
+ * replay). This wrapper only tells a hit from a miss — a miss is the one path
+ * that reaches `nested`, which records it on the per-call [CacheMissProbe] —
+ * and gives a hit fresh metadata without token counts, flagged with
+ * [PROMPT_CACHE_HIT_METADATA_KEY]. Misses pass through untouched.
+ */
+internal class MeteringSafeCachedPromptExecutor(
+    cache: PromptCache,
+    nested: PromptExecutor,
+) : PromptExecutor() {
+
+    private val cached = CachedPromptExecutor(cache = cache, nested = MissRecordingPromptExecutor(nested))
+
+    override suspend fun execute(
+        prompt: Prompt,
+        model: LLModel,
+        tools: List<ToolDescriptor>
+    ): Message.Assistant {
+        val probe = CacheMissProbe()
+        val response = withContext(probe) { cached.execute(prompt, model, tools) }
+        return if (probe.missed) response else response.copy(metaInfo = response.metaInfo.asUnmeteredCacheHit())
+    }
+
+    override fun executeStreaming(
+        prompt: Prompt,
+        model: LLModel,
+        tools: List<ToolDescriptor>
+    ): Flow<StreamFrame> = flow {
+        val probe = CacheMissProbe()
+        // The cached executor resolves hit/miss before it replays the first frame.
+        cached.executeStreaming(prompt, model, tools)
+            .flowOn(probe)
+            .collect { frame ->
+                emit(
+                    if (frame is StreamFrame.End && !probe.missed) {
+                        frame.copy(metaInfo = frame.metaInfo.asUnmeteredCacheHit())
+                    } else {
+                        frame
+                    }
+                )
+            }
+    }
+
+    override suspend fun moderate(prompt: Prompt, model: LLModel): ModerationResult =
+        cached.moderate(prompt, model)
+
+    override suspend fun models(): List<LLModel> = cached.models()
+
+    override fun getStandardJsonSchemaGenerator(model: LLModel): StandardJsonSchemaGenerator =
+        cached.getStandardJsonSchemaGenerator(model)
+
+    override fun getBasicJsonSchemaGenerator(model: LLModel): BasicJsonSchemaGenerator =
+        cached.getBasicJsonSchemaGenerator(model)
+
+    override fun close() = cached.close()
+}
+
+/** Per-call marker the nested executor flips when the cache had to call the provider. */
+private class CacheMissProbe : AbstractCoroutineContextElement(CacheMissProbe) {
+    companion object Key : CoroutineContext.Key<CacheMissProbe>
+
+    @Volatile
+    var missed: Boolean = false
+}
+
+/** Transparent delegate that records every provider call on the caller's [CacheMissProbe]. */
+private class MissRecordingPromptExecutor(private val nested: PromptExecutor) : PromptExecutor() {
+
+    override suspend fun resolveModel(
+        model: LLModel,
+        promptExecutorOperation: PromptExecutorOperation
+    ): ResolvedModel = nested.resolveModel(model, promptExecutorOperation)
+
+    override suspend fun execute(
+        prompt: Prompt,
+        model: LLModel,
+        tools: List<ToolDescriptor>
+    ): Message.Assistant {
+        recordMiss()
+        return nested.execute(prompt, model, tools)
+    }
+
+    override suspend fun execute(
+        prompt: Prompt,
+        model: ResolvedModel,
+        tools: List<ToolDescriptor>
+    ): Message.Assistant {
+        recordMiss()
+        return nested.execute(prompt, model, tools)
+    }
+
+    override fun executeStreaming(
+        prompt: Prompt,
+        model: LLModel,
+        tools: List<ToolDescriptor>
+    ): Flow<StreamFrame> = nested.executeStreaming(prompt, model, tools)
+
+    override fun executeStreaming(
+        prompt: Prompt,
+        resolvedModel: ResolvedModel,
+        tools: List<ToolDescriptor>
+    ): Flow<StreamFrame> = nested.executeStreaming(prompt, resolvedModel, tools)
+
+    override suspend fun executeMultipleChoices(
+        prompt: Prompt,
+        model: LLModel,
+        tools: List<ToolDescriptor>
+    ): LLMChoice {
+        recordMiss()
+        return nested.executeMultipleChoices(prompt, model, tools)
+    }
+
+    override suspend fun moderate(prompt: Prompt, model: LLModel): ModerationResult =
+        nested.moderate(prompt, model)
+
+    override suspend fun moderate(prompt: Prompt, model: ResolvedModel): ModerationResult =
+        nested.moderate(prompt, model)
+
+    override suspend fun models(): List<LLModel> = nested.models()
+
+    override fun getStandardJsonSchemaGenerator(model: LLModel): StandardJsonSchemaGenerator =
+        nested.getStandardJsonSchemaGenerator(model)
+
+    override fun getBasicJsonSchemaGenerator(model: LLModel): BasicJsonSchemaGenerator =
+        nested.getBasicJsonSchemaGenerator(model)
+
+    override fun close() = nested.close()
+
+    private suspend fun recordMiss() {
+        currentCoroutineContext()[CacheMissProbe]?.missed = true
+    }
+}
+
+/**
+ * Everything but the timestamp in a hit's metaInfo describes the previous round
+ * (token counts, model id, provider cache-usage metadata), so keep only the
+ * timestamp and the hit flag.
+ */
+private fun ResponseMetaInfo.asUnmeteredCacheHit(): ResponseMetaInfo = ResponseMetaInfo(
+    timestamp = timestamp,
+    metadata = JsonObject(mapOf(PROMPT_CACHE_HIT_METADATA_KEY to JsonPrimitive(true))),
+)

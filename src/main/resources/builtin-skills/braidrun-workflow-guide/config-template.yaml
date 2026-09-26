@@ -28,3 +28,8 @@ output_dir: "./output"
 # external_agent_claude_model: sonnet
 # external_agent_codex_command: codex
 # external_agent_codex_model: gpt-5.5
+
+# Images returned by browser_screenshot / MCP tools (vision models only).
+# tool_result_images_enabled: true
+# tool_result_images_max_per_request: 4   # 0-12, re-sent every round
+# tool_result_images_max_per_run: 24      # 0-200, 0 = off

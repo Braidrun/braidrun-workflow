@@ -3,6 +3,26 @@ aliases:
 - x-ai
 models:
   # ===== Grok 4.x =====
+  "grok-4.7":
+    id: "x-ai/grok-4.7"
+    capabilities: temperature, completion, tools, tool_choice, vision, json.basic, json, thinking, document
+    context_length: 500000
+    max_output_tokens: 450000
+  "grok-4.6":
+    id: "x-ai/grok-4.6"
+    capabilities: temperature, completion, tools, tool_choice, vision, json.basic, json, thinking, document
+    context_length: 500000
+    max_output_tokens: 450000
+  "grok-4.5":
+    id: "x-ai/grok-4.5"
+    capabilities: temperature, completion, tools, tool_choice, vision, json.basic, json, thinking, document
+    context_length: 500000
+    max_output_tokens: 450000
+  "grok-4.3":
+    id: "x-ai/grok-4.3"
+    capabilities: temperature, completion, tools, tool_choice, vision, json.basic, json, thinking, document
+    context_length: 1000000
+    max_output_tokens: 900000
   "grok-4.20-multi-agent":
     id: "x-ai/grok-4.20-multi-agent"
     capabilities: multimodal

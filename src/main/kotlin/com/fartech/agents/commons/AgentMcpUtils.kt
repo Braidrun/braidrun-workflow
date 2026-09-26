@@ -298,12 +298,15 @@ internal fun resolveMcpLaunch(
  *                   to register. The configurations must include `mcp_servers` with server
  *                   details like type, URL, command, arguments, and environment variables.
  * @param toolRegistry The initial tool registry to which the registered tools will be added.
+ * @param mediaPolicy Whether MCP image results are sent to the model as image parts. Base64
+ *                    payloads never reach the model as text either way (see [MediaAwareMcpTool]).
  * @return The updated tool registry including tools registered from all valid MCP servers.
  */
 suspend fun registerMcpTools(
     httpAccess: HttpAccess,
     parameters: List<ConfigurationParameter>,
-    toolRegistry: ToolRegistry
+    toolRegistry: ToolRegistry,
+    mediaPolicy: ToolResultMediaPolicy = ToolResultMediaPolicy.forParameters(parameters),
 ): ToolRegistry {
     val mcpServersConfig = parameters.parameter("mcp_servers", mapOf<String, McpServerConfig>())
     val agentEnv = parameters.parameter("env", "").takeIf { it.isNotBlank() }
@@ -359,7 +362,7 @@ suspend fun registerMcpTools(
                 ),
                 name = serverName,
             )
-            mcpRegistries.add(registry)
+            mcpRegistries.add(registry.withMcpToolResultMedia(mediaPolicy))
 
         } catch (e: Exception) {
             // 记录错误但不中断整个注册过程;先把已启动的 stdio 子进程杀掉,避免泄漏。

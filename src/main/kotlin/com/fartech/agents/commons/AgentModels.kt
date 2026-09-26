@@ -11,10 +11,10 @@ import ai.koog.prompt.executor.clients.mistralai.MistralAIClientSettings
 import ai.koog.prompt.executor.clients.mistralai.MistralAILLMClient
 import ai.koog.prompt.executor.clients.openai.OpenAIClientSettings
 import ai.koog.prompt.executor.clients.openai.OpenAILLMClient
-import ai.koog.prompt.executor.clients.openai.base.AbstractOpenAILLMClient
 import ai.koog.prompt.executor.clients.openrouter.OpenRouterClientSettings
 import ai.koog.prompt.executor.clients.openrouter.OpenRouterLLMClient
 import ai.koog.http.client.HttpClientFactoryResolver
+import ai.koog.http.client.KoogHttpClient
 import ai.koog.prompt.executor.llms.MultiLLMPromptExecutor
 import ai.koog.prompt.executor.ollama.client.OllamaClient
 import ai.koog.prompt.llm.LLMCapability
@@ -22,13 +22,18 @@ import ai.koog.prompt.llm.LLMProvider
 import ai.koog.prompt.llm.LLModel
 import com.fartech.agents.jev.JEV_NOT_A_CHAT_MODEL_MESSAGE
 import com.fartech.agents.jev.isTypeSafeProviderId
+import com.fartech.agents.workflow.WorkflowHostPolicy
+import com.fartech.agents.tools.toLLM
+import com.fartech.agents.tools.toLLModel
 import com.fartech.ftapp2.commonsKt.*
 import io.ktor.client.*
 import mu.KotlinLogging
 import io.ktor.client.plugins.*
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNames
 import kotlinx.serialization.json.decodeFromJsonElement
 
 private val logger = KotlinLogging.logger {}
@@ -43,37 +48,57 @@ val GPT_OSS_120b: LLModel
         ?: error("gpt-oss:120b not found in ModelRegistry — check ollama.yaml")
 
 
+// `llm_config` reaches the engine in both spellings: the engine's own
+// AgentDefinition.resolveParameters and braidrun-web write snake_case (`base_url`,
+// `max_token`, `is_vision`, `custom_models`), hand-written workflow parameters and older
+// callers use camelCase. JsonMapper ignores unknown keys, so without the @JsonNames aliases
+// every snake_case value was silently dropped (e.g. the base URL, sending the request to the
+// provider default instead).
+
 @Serializable
+@OptIn(ExperimentalSerializationApi::class)
 data class LLModelConfig(
     val provider: String,
     val model: String,
+    @JsonNames("base_url")
     val baseUrl: String? = null,
+    @JsonNames("max_token")
     val maxToken: Long? = null,
+    @JsonNames("is_vision")
     val isVision: Boolean? = null,
+    @JsonNames("display_name")
     val displayName: String? = null,
     val capabilities: List<String>? = null,
     val description: String? = null
 )
 
 @Serializable
+@OptIn(ExperimentalSerializationApi::class)
 data class CustomModelDefinition(
     val name: String,
     val provider: String,
+    @JsonNames("model_id")
     val modelId: String,
+    @JsonNames("base_url")
     val baseUrl: String? = null,
+    @JsonNames("context_length")
     val contextLength: Long? = null,
+    @JsonNames("max_output_tokens")
     val maxOutputTokens: Long? = null,
+    @JsonNames("is_vision")
     val isVision: Boolean? = null,
     val capabilities: List<String>? = null,
     val description: String? = null
 )
 
 @Serializable
+@OptIn(ExperimentalSerializationApi::class)
 data class LLModelGroupConfig(
     val models: List<LLModelConfig>,
     val fallback: LLModelConfig = DEFAULT_LLM_MODEL_CONFIG,
     val temperature: Double? = 1.0,
     val agentDefinedSettings: JsonElement = Json.parseToJsonElement("{}"),
+    @JsonNames("custom_models")
     val customModels: List<CustomModelDefinition>? = null, // New field for custom model definitions
     /**
      * Ordered list of additional LLM provider tiers to try **on error**
@@ -91,10 +116,11 @@ data class LLModelGroupConfig(
      * ```
      * cascadeFallbacks = listOf(
      *     LLModelConfig(provider = "openrouter", model = "anthropic/claude-sonnet-4.5"),
-     *     LLModelConfig(provider = "deepseek", model = "deepseek-chat"),
+     *     LLModelConfig(provider = "deepseek", model = "deepseek-flash"),
      * )
      * ```
      */
+    @JsonNames("cascade_fallbacks")
     val cascadeFallbacks: List<LLModelConfig> = emptyList(),
 )
 
@@ -162,6 +188,16 @@ fun LLModelGroupConfig.getDefaultModelName(): String? {
         null
     }
 }
+
+/**
+ * The model an agent built from this group runs on when the caller passes no explicit model:
+ * the agent-defined `default` assignment, else the first configured model, else [DEFAULT_LLM_MODEL].
+ * Mirrors the `llmModel` default of `buildAgent`.
+ */
+fun LLModelGroupConfig.resolveDefaultLLModel(): LLModel =
+    getDefaultModelName()?.let { foundModelWithName(it).toLLM().toLLModel() }
+        ?: models.firstOrNull()?.toLLM()?.toLLModel()
+        ?: DEFAULT_LLM_MODEL
 
 fun List<ConfigurationParameter>.getLLMGroupConfig(): LLModelGroupConfig =
     parameter(key = "llm_config", defaultValue = LLModelGroupConfig(models = listOf()))
@@ -321,11 +357,12 @@ fun registerCustomModel(definition: CustomModelDefinition) {
         val provider = mapProviderToLLMProvider(providerKey)
 
         // Parse capabilities
-        val capabilities = when {
+        val declaredCapabilities = when {
             definition.capabilities != null -> parseCapabilities(definition.capabilities)
             definition.isVision == true -> MULTIMODAL_CAPABILITIES
             else -> STANDARD_CAPABILITIES
         }
+        val capabilities = withClientRequiredCapabilities(provider, definition.modelId, declaredCapabilities)
 
         // Create LLModel instance
         val model = LLModel(
@@ -351,6 +388,13 @@ fun registerCustomModel(definition: CustomModelDefinition) {
  */
 fun registerCustomModels(definitions: List<CustomModelDefinition>?) {
     definitions?.forEach { registerCustomModel(it) }
+}
+
+/** Removes a custom model registered by [registerCustomModel]; lets tests leave the global registry clean. */
+internal fun unregisterCustomModel(provider: String, name: String) {
+    synchronized(registryLock) {
+        CUSTOM_MODEL_REGISTRY[provider.lowercase()]?.remove(name.lowercase())
+    }
 }
 
 /**
@@ -414,7 +458,7 @@ private fun createCustomModel(modelConfig: LLModelConfig): LLModel {
     val contextLength = modelConfig.maxToken ?: 32_768L
 
     // Determine capabilities from configuration
-    val capabilities = when {
+    val declaredCapabilities = when {
         // If capabilities are explicitly defined, use them
         modelConfig.capabilities != null -> parseCapabilities(modelConfig.capabilities)
         // If vision is specified, use multimodal capabilities
@@ -424,6 +468,7 @@ private fun createCustomModel(modelConfig: LLModelConfig): LLModel {
     }
 
     val provider = mapProviderToLLMProvider(providerKey)
+    val capabilities = withClientRequiredCapabilities(provider, modelConfig.model, declaredCapabilities)
     if (provider == LLMProvider.OpenRouter && providerKey !in setOf(
             "openrouter", "open_router",
             "xai", "x-ai", "qwen", "meta", "meta-llama",
@@ -625,6 +670,39 @@ internal fun resolveConfiguredApiKeyOrThrow(
         ?: throw IllegalStateException(buildMissingApiKeyMessage(provider))
 }
 
+/**
+ * Provider-key lookup for one [createLLMClient] call. With [explicitOnly] (a user-chosen base URL
+ * under [WorkflowHostPolicy.requireExplicitKeysForCustomLlmEndpoints]) only keys supplied with the
+ * run are used — the host's environment keys must never be sent to a host the user picked — and
+ * a missing key is a configuration error instead of an empty `Authorization` header.
+ */
+private class ApiKeySource(
+    private val parameters: List<ConfigurationParameter>,
+    private val keys: Map<String, String>,
+    private val explicitOnly: Boolean,
+) {
+    fun resolve(provider: String): String? {
+        if (!explicitOnly) return resolveConfiguredApiKey(parameters, provider, keys)
+        return resolveConfiguredApiKeyFromParams(parameters, provider, keys)
+            ?: if (provider.lowercase() in KEYLESS_LLM_PROVIDERS) null else throw missingExplicitKey(provider)
+    }
+
+    fun orThrow(provider: String): String = if (explicitOnly) {
+        resolve(provider) ?: throw missingExplicitKey(provider)
+    } else {
+        resolveConfiguredApiKeyOrThrow(parameters, provider, keys)
+    }
+
+    private fun missingExplicitKey(provider: String) = IllegalStateException(
+        "Missing API key for provider '$provider' with a custom base_url. This host does not use its own " +
+            "environment keys for custom endpoints; pass one of ${providerApiKeyParameterNames(provider).joinToString(" / ")} " +
+            "or set llm_provider_keys for: ${providerKeyAliases(provider).joinToString(" / ")}."
+    )
+}
+
+/** Local servers that usually need no key. */
+private val KEYLESS_LLM_PROVIDERS = setOf("lmstudio", "lm-studio", "lm_studio", "ollama", "local", "olla")
+
 internal fun buildMissingApiKeyMessage(provider: String): String {
     val envText = envVarNamesForProvider(provider)
         .takeIf { it.isNotEmpty() }
@@ -718,12 +796,35 @@ internal fun resolveVersionedEndpointPath(baseUrl: String, koogDefaultPath: Stri
 /**
  * Creates an LLM client based on the provider configuration.
  * Returns a pair of (LLMProvider, LLMClient).
+ *
+ * Koog 1.0.0 decoupled LLM clients from Ktor: the `baseClient: HttpClient` constructor
+ * parameter is gone and each client builds its own `KoogHttpClient` from a
+ * `KoogHttpClient.Factory`, discovered on the classpath via ServiceLoader
+ * (`http-client-ktor`). The [httpClient] parameter is retained for source compatibility
+ * with existing callers and is ignored.
  */
 fun createLLMClient(
     parameters: List<ConfigurationParameter>,
-    httpClient: HttpClient,
+    @Suppress("UNUSED_PARAMETER") httpClient: HttpClient,
     modelConfig: LLModelConfig,
     keys: Map<String, String>
+): Pair<LLMProvider, LLMClient> =
+    createLLMClient(parameters, modelConfig, keys, HttpClientFactoryResolver.resolve())
+
+/**
+ * [createLLMClient] with an explicit Koog HTTP client factory — the seam a host (or a test)
+ * uses to supply its own transport.
+ *
+ * Every client is built against its effective base URL (the configured one, else the
+ * provider default), which is checked by [LlmEndpointPolicy] before the factory sees it, and
+ * is wrapped in [ModelParamsSanitizingLLMClient] so the shared prompt params are fitted to
+ * the model each request is actually sent to.
+ */
+fun createLLMClient(
+    parameters: List<ConfigurationParameter>,
+    modelConfig: LLModelConfig,
+    keys: Map<String, String>,
+    httpClientFactory: KoogHttpClient.Factory,
 ): Pair<LLMProvider, LLMClient> {
     rejectTypeSafeChatProvider(modelConfig.provider)
     val model = determineLLMModel(modelConfig)
@@ -731,28 +832,20 @@ fun createLLMClient(
         "createLLMClient provider=${model.provider.id} model=${model.id} configProvider=${modelConfig.provider} " +
                 "keys=${keys.mapValues { redactKey(it.value) }}"
     }
-    // Koog 1.0.0 decoupled LLM clients from Ktor: the `baseClient: HttpClient`
-    // constructor parameter is gone. Each client now either receives a fully
-    // wired `httpClient: KoogHttpClient` (primary constructor) or builds one
-    // internally from a `httpClientFactory: KoogHttpClient.Factory` (secondary
-    // constructor). The Ktor-backed factory is on our runtime classpath via
-    // `http-client-ktor` (transitive from `koog-agents:1.0.0`), so the
-    // top-level factory functions auto-discover it through ServiceLoader.
-    // We deliberately drop our caller-supplied Ktor `httpClient` here — Koog
-    // owns its own connection pool now, and threading our Ktor client through
-    // wouldn't be honoured anyway. The `httpClient` parameter is retained on
-    // the function signature for source compatibility with existing callers;
-    // it's silently ignored.
-    @Suppress("UNUSED_PARAMETER")
-    val ignoredHttpClient = httpClient // explicit no-op so the param doesn't generate a warning
-    return when (model.provider) {
-        LLMProvider.Ollama -> {
-            val baseUrl = modelConfig.baseUrl ?: OllamaClient.DEFAULT_BASE_URL
-            LLMProvider.Ollama to OllamaClient(
-                httpClientFactory = ai.koog.http.client.HttpClientFactoryResolver.resolve(),
-                baseUrl = baseUrl,
-            )
-        }
+    val configProvider = modelConfig.provider.lowercase()
+    // A blank base URL (an empty form field) means "use the provider default".
+    val defaultBaseUrl = defaultLlmBaseUrl(model.provider, configProvider)
+    val baseUrl = modelConfig.baseUrl?.takeIf { it.isNotBlank() } ?: defaultBaseUrl
+    val customEndpoint = LlmEndpointPolicy.isCustomEndpoint(modelConfig.baseUrl, defaultBaseUrl)
+    LlmEndpointPolicy.check(baseUrl, configProvider, providerDefault = !customEndpoint)
+    val apiKeys = ApiKeySource(parameters, keys, explicitOnly = customEndpoint &&
+        WorkflowHostPolicy.requiresExplicitKeysForCustomLlmEndpoints)
+
+    val client: LLMClient = when (model.provider) {
+        LLMProvider.Ollama -> OllamaClient(
+            httpClientFactory = httpClientFactory,
+            baseUrl = baseUrl,
+        )
 
         LLMProvider.OpenAI,
         QWEN_DIRECT_LLM_PROVIDER,
@@ -761,17 +854,6 @@ fun createLLMClient(
         LMSTUDIO_LLM_PROVIDER,
         ZAI_LLM_PROVIDER,
         NVIDIA_LLM_PROVIDER -> {
-            // Determine provider-specific defaults for OpenAI-compatible APIs
-            val configProvider = modelConfig.provider.lowercase()
-            val defaultBaseUrl = when (configProvider) {
-                "kimi", "moonshot" -> "https://api.moonshot.cn/v1"
-                "minimax" -> "https://api.minimax.chat/v1"
-                "qwen_direct", "dashscope" -> "https://dashscope.aliyuncs.com/compatible-mode/v1"
-                "lmstudio", "lm-studio", "lm_studio" -> "http://localhost:1234/v1"
-                "zai", "z.ai", "z_ai", "z-ai", "zhipuai", "zhipu_ai" -> "https://api.z.ai/api/coding/paas/v4"
-                "nvidia", "nvidia_nim", "nvidia-nim", "nim", "nvidia_build", "nvidia-build" -> "https://integrate.api.nvidia.com/v1"
-                else -> "https://api.openai.com/v1"
-            }
             val providerKey = when (configProvider) {
                 "kimi", "moonshot" -> "kimi"
                 "minimax" -> "minimax"
@@ -781,14 +863,13 @@ fun createLLMClient(
                 "nvidia", "nvidia_nim", "nvidia-nim", "nim", "nvidia_build", "nvidia-build" -> "nvidia"
                 else -> "openai"
             }
-            val baseUrl = modelConfig.baseUrl ?: defaultBaseUrl
             val apiKey = if (providerKey == "lmstudio") {
-                resolveConfiguredApiKey(parameters, providerKey, keys)
+                apiKeys.resolve(providerKey)
                     .also { if (it == null) warnMissingApiKey(providerKey) } ?: ""
             } else {
-                resolveConfiguredApiKeyOrThrow(parameters, providerKey, keys)
+                apiKeys.orThrow(providerKey)
             }
-            model.provider to OpenAILLMClient(
+            OpenAILLMClient(
                 apiKey = apiKey,
                 settings = OpenAIClientSettings(
                     baseUrl = baseUrl,
@@ -796,117 +877,118 @@ fun createLLMClient(
                     // stock `v1/chat/completions` would resolve to
                     // `.../v1/v1/chat/completions` → 404. See resolveVersionedEndpointPath.
                     chatCompletionsPath = resolveVersionedEndpointPath(baseUrl, "v1/chat/completions")
-                )
+                ),
+                httpClientFactory = httpClientFactory,
             )
         }
 
-        LLMProvider.Google -> {
-            val baseUrl = modelConfig.baseUrl ?: "https://generativelanguage.googleapis.com"
-            LLMProvider.Google to GoogleLLMClient(
-                apiKey = resolveConfiguredApiKey(parameters, "google", keys)
-                    .also { if (it == null) warnMissingApiKey("google") } ?: "",
-                settings = GoogleClientSettings(
-                    baseUrl = baseUrl,
-                    // The default base URL is a bare host, so `v1beta/models` is
-                    // correct as-is; a user-supplied `.../v1beta` base would
-                    // otherwise double-join. See resolveVersionedEndpointPath.
-                    defaultPath = resolveVersionedEndpointPath(baseUrl, "v1beta/models")
-                )
-            )
-        }
+        LLMProvider.Google -> GoogleLLMClient(
+            apiKey = apiKeys.resolve("google")
+                .also { if (it == null) warnMissingApiKey("google") } ?: "",
+            settings = GoogleClientSettings(
+                baseUrl = baseUrl,
+                // The default base URL is a bare host, so `v1beta/models` is
+                // correct as-is; a user-supplied `.../v1beta` base would
+                // otherwise double-join. See resolveVersionedEndpointPath.
+                defaultPath = resolveVersionedEndpointPath(baseUrl, "v1beta/models")
+            ),
+            httpClientFactory = httpClientFactory,
+        )
 
-        LLMProvider.Anthropic -> {
-            val baseUrl = modelConfig.baseUrl ?: "https://api.anthropic.com/v1"
-            LLMProvider.Anthropic to AnthropicLLMClient(
-                apiKey = resolveConfiguredApiKey(parameters, "anthropic", keys)
-                    .also { if (it == null) warnMissingApiKey("anthropic") } ?: "",
-                settings = AnthropicClientSettings(
-                    baseUrl = baseUrl,
-                    // The default base URL carries `/v1`, so the stock `v1/messages`
-                    // default would resolve to `.../v1/v1/messages` → 404.
-                    // See resolveVersionedEndpointPath.
-                    messagesPath = resolveVersionedEndpointPath(baseUrl, "v1/messages")
-                )
-            )
-        }
+        LLMProvider.Anthropic -> AnthropicLLMClient(
+            apiKey = apiKeys.resolve("anthropic")
+                .also { if (it == null) warnMissingApiKey("anthropic") } ?: "",
+            settings = AnthropicClientSettings(
+                // Koog's default map only knows Koog's own LLModel objects; send our
+                // (normalized) model id instead. See AnthropicModelIdPassThrough.
+                modelVersionsMap = AnthropicModelIdPassThrough,
+                baseUrl = baseUrl,
+                // The default base URL carries `/v1`, so the stock `v1/messages`
+                // default would resolve to `.../v1/v1/messages` → 404.
+                // See resolveVersionedEndpointPath.
+                messagesPath = resolveVersionedEndpointPath(baseUrl, "v1/messages")
+            ),
+            httpClientFactory = httpClientFactory,
+        )
 
-        LLMProvider.DeepSeek -> {
-            val baseUrl = modelConfig.baseUrl ?: "https://api.deepseek.com/v1"
-            LLMProvider.DeepSeek to DeepSeekLLMClient(
-                // Koog 1.0.0's stock DeepSeekLLMClient natively performs the
-                // reasoning+content+tool_calls collapse our former
-                // `DeepSeekThinkingModeLLMClient` wrapper hand-rolled
-                // (`prepareMessagesForDeepSeek` lives inside the stock client now).
-                // The custom wrapper is therefore obsolete and the codebase
-                // routes through the stock client directly.
-                apiKey = resolveConfiguredApiKey(parameters, "deepseek", keys)
-                    .also { if (it == null) warnMissingApiKey("deepseek") } ?: "",
-                settings = DeepSeekClientSettings(
-                    baseUrl = baseUrl,
-                    // DeepSeek's stock default `chat/completions` has no version
-                    // prefix, so it never double-joins; routed through the resolver
-                    // for uniformity (it returns the path unchanged either way).
-                    chatCompletionsPath = resolveVersionedEndpointPath(baseUrl, "chat/completions")
-                )
-            )
-        }
+        // Koog 1.0.0's stock DeepSeekLLMClient natively performs the
+        // reasoning+content+tool_calls collapse our former
+        // `DeepSeekThinkingModeLLMClient` wrapper hand-rolled
+        // (`prepareMessagesForDeepSeek` lives inside the stock client now).
+        LLMProvider.DeepSeek -> DeepSeekLLMClient(
+            apiKey = apiKeys.resolve("deepseek")
+                .also { if (it == null) warnMissingApiKey("deepseek") } ?: "",
+            settings = DeepSeekClientSettings(
+                baseUrl = baseUrl,
+                // DeepSeek's stock default `chat/completions` has no version
+                // prefix, so it never double-joins; routed through the resolver
+                // for uniformity (it returns the path unchanged either way).
+                chatCompletionsPath = resolveVersionedEndpointPath(baseUrl, "chat/completions")
+            ),
+            httpClientFactory = httpClientFactory,
+        )
 
-        LLMProvider.OpenRouter -> {
-            // Koog 1.0.0's `AbstractOpenAILLMClient.convertPromptToMessages` double-encodes
-            // `MessagePart.Tool.Call.args` via `Json.encodeToString(it.args)` while `args`
-            // is already a JSON string. The resulting wire `arguments` is a JSON string
-            // literal instead of a JSON-object string. Lenient providers re-parse and
-            // recover; MiniMax (and others routed via OpenRouter) reject it midstream
-            // with `invalid params, invalid function arguments json string`. Wrap the
-            // HTTP client so we unwrap the double-encoding before the bytes leave us.
-            val orSettings = OpenRouterClientSettings(
-                baseUrl = modelConfig.baseUrl ?: "https://openrouter.ai",
+        // Koog 1.1.1+ sends Tool.Call.args verbatim (upstream fix #2095), so the former
+        // ToolArgsFixingKoogHttpClient double-encoding shim is gone; see
+        // ToolCallArgsUpstreamRegressionTest for the pin.
+        LLMProvider.OpenRouter -> OpenRouterLLMClient(
+            apiKey = apiKeys.orThrow(configProvider),
+            settings = OpenRouterClientSettings(
+                baseUrl = baseUrl,
                 chatCompletionsPath = "/api/v1/chat/completions"
-            )
-            val rawHttp = AbstractOpenAILLMClient.createConfiguredHttpClient(
-                apiKey = resolveConfiguredApiKeyOrThrow(parameters, modelConfig.provider.lowercase(), keys),
-                settings = orSettings,
-                httpClientFactory = HttpClientFactoryResolver.resolve(),
-                clientName = "OpenRouterLLMClient",
-            )
-            LLMProvider.OpenRouter to OpenRouterLLMClient(
-                settings = orSettings,
-                httpClient = ToolArgsFixingKoogHttpClient(rawHttp),
-            )
-        }
+            ),
+            httpClientFactory = httpClientFactory,
+        )
 
-        LLMProvider.MistralAI -> {
-            val baseUrl = modelConfig.baseUrl ?: "https://api.mistral.ai/v1"
-            LLMProvider.MistralAI to MistralAILLMClient(
-                apiKey = resolveConfiguredApiKey(parameters, "mistral", keys)
-                    .also { if (it == null) warnMissingApiKey("mistral") } ?: "",
-                settings = MistralAIClientSettings(
-                    baseUrl = baseUrl,
-                    // The default base URL carries `/v1`, so the stock
-                    // `v1/chat/completions` would resolve to `.../v1/v1/chat/completions`
-                    // → 404. See resolveVersionedEndpointPath.
-                    chatCompletionsPath = resolveVersionedEndpointPath(baseUrl, "v1/chat/completions")
-                )
-            )
-        }
+        LLMProvider.MistralAI -> MistralAILLMClient(
+            apiKey = apiKeys.resolve("mistral")
+                .also { if (it == null) warnMissingApiKey("mistral") } ?: "",
+            settings = MistralAIClientSettings(
+                baseUrl = baseUrl,
+                // The default base URL carries `/v1`, so the stock
+                // `v1/chat/completions` would resolve to `.../v1/v1/chat/completions`
+                // → 404. See resolveVersionedEndpointPath.
+                chatCompletionsPath = resolveVersionedEndpointPath(baseUrl, "v1/chat/completions")
+            ),
+            httpClientFactory = httpClientFactory,
+        )
 
-        else -> {
-            val baseUrl = modelConfig.baseUrl ?: "https://api.openai.com/v1"
-            model.provider to OpenAILLMClient(
-                apiKey = resolveConfiguredApiKey(parameters, modelConfig.provider, keys).also {
-                    if (it == null) warnMissingApiKey(
-                        modelConfig.provider
-                    )
-                } ?: "",
-                settings = OpenAIClientSettings(
-                    baseUrl = baseUrl,
-                    // OpenAI-compatible fallback: the default base carries `/v1`,
-                    // so the stock `v1/chat/completions` would double-join.
-                    // See resolveVersionedEndpointPath.
-                    chatCompletionsPath = resolveVersionedEndpointPath(baseUrl, "v1/chat/completions")
+        else -> OpenAILLMClient(
+            apiKey = apiKeys.resolve(modelConfig.provider).also {
+                if (it == null) warnMissingApiKey(
+                    modelConfig.provider
                 )
-            )
-        }
+            } ?: "",
+            settings = OpenAIClientSettings(
+                baseUrl = baseUrl,
+                // OpenAI-compatible fallback: the default base carries `/v1`,
+                // so the stock `v1/chat/completions` would double-join.
+                // See resolveVersionedEndpointPath.
+                chatCompletionsPath = resolveVersionedEndpointPath(baseUrl, "v1/chat/completions")
+            ),
+            httpClientFactory = httpClientFactory,
+        )
+    }
+    return model.provider to ModelParamsSanitizingLLMClient(client)
+}
+
+/** The base URL a client for [provider] uses when `llm_config` sets none. */
+private fun defaultLlmBaseUrl(provider: LLMProvider, configProvider: String): String = when (provider) {
+    LLMProvider.Ollama -> OllamaClient.DEFAULT_BASE_URL
+    LLMProvider.Google -> "https://generativelanguage.googleapis.com"
+    LLMProvider.Anthropic -> "https://api.anthropic.com/v1"
+    LLMProvider.DeepSeek -> "https://api.deepseek.com/v1"
+    LLMProvider.OpenRouter -> "https://openrouter.ai"
+    LLMProvider.MistralAI -> "https://api.mistral.ai/v1"
+    // OpenAI and the OpenAI-compatible providers, plus the OpenAI-client fallback.
+    else -> when (configProvider) {
+        "kimi", "moonshot" -> "https://api.moonshot.cn/v1"
+        "minimax" -> "https://api.minimax.chat/v1"
+        "qwen_direct", "dashscope" -> "https://dashscope.aliyuncs.com/compatible-mode/v1"
+        "lmstudio", "lm-studio", "lm_studio" -> "http://localhost:1234/v1"
+        "zai", "z.ai", "z_ai", "z-ai", "zhipuai", "zhipu_ai" -> "https://api.z.ai/api/coding/paas/v4"
+        "nvidia", "nvidia_nim", "nvidia-nim", "nim", "nvidia_build", "nvidia-build" -> "https://integrate.api.nvidia.com/v1"
+        else -> "https://api.openai.com/v1"
     }
 }
 

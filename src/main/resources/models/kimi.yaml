@@ -8,6 +8,13 @@ models:
     capabilities: json.basic, json, tools, tool_choice, vision, completion, thinking, openai.completions
     context_length: 1048576
     max_output_tokens: 1048576
+  # Thinking cannot be disabled and temperature is fixed at 1.0 (any other
+  # value 400s), so no `temperature` — same contract as kimi-k3.
+  # platform.kimi.ai K2.7 Code quickstart + pricing (2026-09-26).
+  "kimi-k2.7-code":
+    id: "kimi-k2.7-code"
+    capabilities: json.basic, json, tools, tool_choice, vision, completion, thinking, openai.completions
+    context_length: 262144
   "kimi-k2.6":
     id: "kimi-k2.6"
     capabilities: multimodal, openai.completions

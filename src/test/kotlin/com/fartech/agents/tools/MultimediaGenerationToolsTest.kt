@@ -1,7 +1,11 @@
 package com.fartech.agents.tools
 
+import com.fartech.agents.commons.LlmEndpointNotAllowedException
+import com.fartech.agents.workflow.WorkflowHostPolicy
 import com.fartech.ftapp2.commonsKt.ConfigurationParameter
 import com.fartech.ftapp2.commonsKt.HttpAccess
+import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import org.junit.jupiter.api.io.TempDir
@@ -76,12 +80,58 @@ class MultimediaGenerationToolsTest {
         assertTrue(ex.message!!.contains("exceeds multimedia_max_reference_image_bytes"))
     }
 
+    @Test
+    fun `latched host refuses a private multimedia base url before any request`() {
+        WorkflowHostPolicy.requirePublicLlmEndpoints()
+        try {
+            val tools = MultimediaGenerationTools(
+                httpAccess = HttpAccess(),
+                parameters = listOf(
+                    ConfigurationParameter(
+                        "llm_config",
+                        Json.parseToJsonElement(
+                            """{"models":[{"provider":"openrouter","model":"openai/gpt-5.5","base_url":"https://127.0.0.1"}]}"""
+                        ),
+                    ),
+                    ConfigurationParameter("openrouter_api_key", JsonPrimitive("sk-or-test")),
+                ),
+            )
+
+            val ex = assertFailsWith<LlmEndpointNotAllowedException> {
+                runBlocking { tools.generateImage(prompt = "a cat", imagePath = "unused.png") }
+            }
+            assertTrue(ex.message!!.contains("multimedia"), ex.message)
+        } finally {
+            WorkflowHostPolicy.resetForTests()
+        }
+    }
+
+    @Test
+    fun `custom multimedia base url never uses environment keys under the explicit-keys latch`() {
+        WorkflowHostPolicy.requireExplicitKeysForCustomLlmEndpoints()
+        try {
+            val custom = MultimediaGenerationTools(
+                HttpAccess(),
+                listOf(ConfigurationParameter("multimedia_base_url", JsonPrimitive("https://attacker.example"))),
+            )
+            // No key supplied with the run: an empty key, whatever OPENROUTER_API_KEY holds.
+            assertEquals("", custom.multimediaApiKey())
+
+            val supplied = MultimediaGenerationTools(
+                HttpAccess(),
+                listOf(
+                    ConfigurationParameter("multimedia_base_url", JsonPrimitive("https://attacker.example")),
+                    providerKeys("llm_provider_keys", "openrouter", "shared-key"),
+                ),
+            )
+            assertEquals("shared-key", supplied.multimediaApiKey())
+        } finally {
+            WorkflowHostPolicy.resetForTests()
+        }
+    }
+
     private fun providerKeys(key: String, provider: String, value: String): ConfigurationParameter =
         ConfigurationParameter(key, JsonObject(mapOf(provider to JsonPrimitive(value))))
 
-    private fun MultimediaGenerationTools.resolveMultimediaApiKeyForTest(): String {
-        val method = MultimediaGenerationTools::class.java.getDeclaredMethod("multimediaApiKey")
-        method.isAccessible = true
-        return method.invoke(this) as String
-    }
+    private fun MultimediaGenerationTools.resolveMultimediaApiKeyForTest(): String = multimediaApiKey()
 }

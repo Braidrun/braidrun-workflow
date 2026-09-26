@@ -1,5 +1,6 @@
 package com.fartech.agents.commons
 
+import com.fartech.agents.workflow.WorkflowHostPolicy
 import com.fartech.ftapp2.commonsKt.AnsiColor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -200,11 +201,27 @@ class MCPServerManager {
     }
 
     /**
+     * Preparing or starting a bundled server runs npm/pip/shell on this host, so it needs the
+     * host's opt-in ([WorkflowHostPolicy.allowSkillMcpAutoStart]) — checked here as well as in
+     * [SkillManager], since this class is reachable through `SkillManager.getMCPServerManager()`.
+     */
+    private fun refusedByHostPolicy(serverName: String, skillName: String): Boolean {
+        if (WorkflowHostPolicy.allowsSkillMcpAutoStart) return false
+        logProgress(
+            AnsiColor.YELLOW,
+            "MCP",
+            "⚠ Not running MCP server '$serverName' of skill '$skillName': per-skill MCP auto-start is not enabled by the host"
+        )
+        return true
+    }
+
+    /**
      * Prepares an MCP server by installing dependencies and building it.
      * Returns true if successful, false otherwise.
      */
     suspend fun prepareMCPServer(serverPath: Path, skillName: String): Boolean = withContext(Dispatchers.IO) {
         val serverName = serverPath.name
+        if (refusedByHostPolicy(serverName, skillName)) return@withContext false
         val serverType = detectServerType(serverPath)
 
         logProgress(AnsiColor.CYAN, "MCP", "Preparing MCP server '$serverName' ($serverType) for skill '$skillName'...")
@@ -392,6 +409,7 @@ class MCPServerManager {
      */
     suspend fun startMCPServer(serverPath: Path, skillName: String): MCPServerInfo? = withContext(Dispatchers.IO) {
         val serverName = serverPath.name
+        if (refusedByHostPolicy(serverName, skillName)) return@withContext null
         val serverKey = "$skillName:$serverName"
         val serverType = detectServerType(serverPath)
 

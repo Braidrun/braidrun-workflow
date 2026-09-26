@@ -4,6 +4,7 @@ import ai.koog.agents.core.tools.annotations.LLMDescription
 import ai.koog.agents.core.tools.annotations.Tool
 import ai.koog.agents.core.tools.reflect.ToolSet
 import com.fartech.agents.commons.*
+import com.fartech.agents.workflow.WorkflowHostPolicy
 import com.fartech.ftapp2.commonsKt.AnsiColor
 import com.fartech.ftapp2.commonsKt.ConfigurationParameter
 import com.fartech.ftapp2.commonsKt.HttpAccess
@@ -89,7 +90,14 @@ data class ClawHubSkillDetails(
     val stars: Long?
 )
 
-@LLMDescription("Toolset for searching and downloading Claude skills from ClawHub registry")
+/**
+ * Read-only skill tools: search and inspect ClawHub, list and activate local skills.
+ *
+ * Tools that change what is installed on the host (ClawHub/Git downloads, cache
+ * deletion, refresh) live in [SkillAdminTools] so the host can withhold them via
+ * [WorkflowHostPolicy.restrictSkillSideEffects].
+ */
+@LLMDescription("Toolset for searching ClawHub and for listing, inspecting and activating Claude skills")
 class SkillTools(
     private val parameters: List<ConfigurationParameter>,
     private val httpAccess: HttpAccess,
@@ -167,12 +175,6 @@ class SkillTools(
          * 防止多个工作流并发下载同一个 skill 时文件损坏
          */
         private val downloadLocks = ConcurrentHashMap<String, Mutex>()
-
-        /**
-         * Wall-clock cap for `git clone --depth 1` of a single skill. 5 minutes is generous
-         * for even a multi-MB repo over a slow link; longer hangs are a stuck server.
-         */
-        internal const val GIT_CLONE_TIMEOUT_SECONDS: Long = 300L
     }
 
     private fun getManager(): SkillManager? {
@@ -185,6 +187,22 @@ class SkillTools(
     private fun emit(type: String, summary: String, detail: String? = null) {
         onMonitorEvent?.invoke(type, summary, detail)
     }
+
+    // ------------------------------------------------------------------
+    // Shared with SkillAdminTools (same cache dir, manager and monitoring)
+    // ------------------------------------------------------------------
+
+    internal val cacheDirectory: String
+        get() = skillsCacheDir
+
+    internal fun currentSkillManager(): SkillManager? = getManager()
+
+    /** The manager the constructor wired up; null when the skills subsystem is disabled. */
+    internal fun refreshSkillManager() {
+        skillManager?.refresh()
+    }
+
+    internal fun emitEvent(type: String, summary: String, detail: String? = null) = emit(type, summary, detail)
 
     /**
      * Search for Claude skills in the ClawHub registry.
@@ -288,18 +306,24 @@ class SkillTools(
 
     /**
      * Download a skill from ClawHub registry with local caching support.
+     *
+     * Host API, deliberately not a `@Tool`: hosts (e.g. braidrun-web's SkillService) call it
+     * for user-initiated installs. The model-facing variant is
+     * [SkillAdminTools.downloadSkillFromClawHub], which the host policy can switch off.
+     * Under [WorkflowHostPolicy.restrictSkillSideEffects] the skill's `hooks/` and
+     * `mcp-servers/` are dropped before the skill manager sees the directory, including a
+     * directory served from the cache.
+     *
+     * @param refreshManager false lets a host that validates the result first (name clashes,
+     *   package shape) keep the new directory out of its shared [SkillManager] until it has
+     *   accepted it; the host then refreshes the manager itself.
      */
-    @Tool
-    @LLMDescription("Download a Claude skill from ClawHub registry by slug and extract it to a local directory. Uses local cache if skill version already exists.")
     suspend fun downloadSkillFromClawHub(
-        @LLMDescription("unique slug identifier of the skill to download")
         slug: String,
-        @LLMDescription("optional version to download (e.g., '1.2.3'); if not specified, downloads latest version")
         version: String? = null,
-        @LLMDescription("optional tag to download (e.g., 'latest'); ignored if version is specified")
         tag: String? = null,
-        @LLMDescription("if true, always re-download even if cached version exists; default is false")
-        forceDownload: Boolean = false
+        forceDownload: Boolean = false,
+        refreshManager: Boolean = true
     ): SkillReference = withContext(Dispatchers.IO) {
         logProgress(
             AnsiColor.CYAN,
@@ -375,7 +399,8 @@ class SkillTools(
                             slug = parsedSlug,
                             version = latestVersion,
                             tag = null,
-                            forceDownload = true
+                            forceDownload = true,
+                            refreshManager = refreshManager
                         )
                     }
                 }
@@ -391,9 +416,11 @@ class SkillTools(
                     existingCachedDir.absolutePath
                 )
 
+                // A cache entry may predate the host policy or come from another process.
+                stripUnderHostPolicy(existingCachedDir, "$parsedSlug@$actualVersion")
                 return@withLock SkillReference(
                     skillPath = existingCachedDir.absolutePath,
-                    skillName = null,
+                    skillName = readSkillName(existingCachedDir),
                     slug = parsedSlug,
                     version = actualVersion
                 )
@@ -468,6 +495,7 @@ class SkillTools(
                     skillRootDir.listFiles()?.forEach { it.renameTo(File(cachedDir, it.name)) }
                     skillRootDir.deleteRecursively()
                 }
+                stripUnderHostPolicy(cachedDir, "$parsedSlug@$actualVersion")
             } catch (e: Exception) {
                 cachedDir.deleteRecursively()
                 logProgress(AnsiColor.RED, "ClawHub", "✗ Failed to download skill: ${e.message}")
@@ -483,22 +511,12 @@ class SkillTools(
             emit("skill_download_completed", "✅ 下载技能完成: $parsedSlug@$actualVersion", cachedDir.absolutePath)
 
             // Refresh skill manager to include new skill
-            skillManager?.refresh()
+            if (refreshManager) skillManager?.refresh()
 
             // Load skill name outside the download try-catch to avoid deleting cached files on load errors
-            val loader = SkillLoader(
-                cachedDir.toPath(),
-                SkillsConfiguration(skillsPath = cachedDir.absolutePath, maxSkillsPerRequest = 1)
-            )
-            val loadedSkill = try {
-                loader.loadSkill(cachedDir.toPath())
-            } catch (e: Exception) {
-                logProgress(AnsiColor.YELLOW, "ClawHub", "⚠ Could not read skill metadata: ${e.message}")
-                null
-            }
             SkillReference(
                 skillPath = cachedDir.absolutePath,
-                skillName = loadedSkill?.name,
+                skillName = readSkillName(cachedDir),
                 slug = parsedSlug,
                 version = actualVersion
             )
@@ -506,113 +524,41 @@ class SkillTools(
     }
 
     /**
-     * Download a skill from a Git repository URL.
+     * True when [dir] is (or lies inside) the directory of a skill this agent's manager loaded.
+     * On a restricted (multi-tenant) host the shared skills path also holds other accounts'
+     * private skills; the manager only loads the ones this agent's scoped config enables.
      */
-    @Tool
-    @LLMDescription("Download a Claude skill from a Git repository URL (GitHub, GitLab, etc.) to a local temporary directory")
-    suspend fun downloadSkillFromGit(
-        @LLMDescription("Git repository URL containing the skill (e.g., https://github.com/user/skill-repo.git)")
-        repositoryUrl: String,
-        @LLMDescription("optional subdirectory within the repo where SKILL.md is located; leave empty if SKILL.md is in repo root")
-        subdirectory: String = ""
-    ): SkillReference = withContext(Dispatchers.IO) {
-        logProgress(
-            AnsiColor.CYAN,
-            "GitDownload",
-            "Preparing to download skill from Git: $repositoryUrl (subdirectory: '$subdirectory')"
-        )
-        emit("skill_download_preparing", "📦 准备从 Git 下载技能", repositoryUrl)
-        val repoName = repositoryUrl.substringAfterLast("/").removeSuffix(".git")
-        val repoHash = repositoryUrl.hashCode().toString(16)
-        val skillDirName = "git_${repoName}_$repoHash"
-        val skillPathRoot = File(skillsCacheDir, skillDirName)
-
-        if (skillPathRoot.exists()) {
-            skillPathRoot.deleteRecursively()
+    private fun isLoadedSkillDirectory(dir: File): Boolean {
+        val candidate = runCatching { dir.canonicalFile }.getOrNull() ?: return false
+        val skills = runCatching { getManager()?.getAllSkills() }.getOrNull().orEmpty()
+        return skills.any { skill ->
+            val location = skill.location?.let(::File) ?: return@any false
+            val skillDir = if (location.isFile) location.parentFile ?: return@any false else location
+            val root = runCatching { skillDir.canonicalFile }.getOrNull() ?: return@any false
+            candidate == root || SkillInstallHygiene.isStrictlyInside(candidate, root)
         }
-        skillPathRoot.mkdirs()
+    }
 
-        try {
-            logProgress(AnsiColor.CYAN, "GitDownload", "Downloading skill from: $repositoryUrl")
+    /** Drops `hooks/` and `mcp-servers/` from [dir] when the host restricted skill side effects. */
+    private fun stripUnderHostPolicy(dir: File, label: String) {
+        if (!WorkflowHostPolicy.restrictsSkillSideEffects) return
+        val stripped = SkillInstallHygiene.stripSideEffectDirectories(dir)
+        if (stripped.isNotEmpty()) {
+            logProgress(AnsiColor.YELLOW, "ClawHub", "⚠ Removed ${stripped.joinToString(", ")} from '$label' (host policy)")
+        }
+    }
 
-            // 🔒 Security: Use ProcessBuilder with arguments directly to prevent command injection.
-            // Use SubprocessSafety so the child can't pin a thread on a stuck network connection
-            // (5-minute cap) or wedge us on a full stdout pipe (drained on background thread).
-            val osName = System.getProperty("os.name", "Unknown").lowercase()
-            val isWindows = osName.contains("win")
-
-            val command = if (isWindows) {
-                listOf("cmd", "/c", "git", "clone", "--depth", "1", repositoryUrl, skillPathRoot.absolutePath)
-            } else {
-                listOf("git", "clone", "--depth", "1", repositoryUrl, skillPathRoot.absolutePath)
-            }
-
-            val cloneResult = com.fartech.agents.commons.SubprocessSafety.runCapturedWithTimeout(
-                command = command,
-                timeoutSeconds = GIT_CLONE_TIMEOUT_SECONDS,
-                maxOutputBytes = 1 * 1024 * 1024
-            )
-
-            if (cloneResult.timedOut) {
-                skillPathRoot.deleteRecursively()
-                throw IllegalStateException(
-                    "git clone for '$repositoryUrl' exceeded ${GIT_CLONE_TIMEOUT_SECONDS}s timeout — aborted"
-                )
-            }
-            val output = cloneResult.output
-            val exitCode = cloneResult.exitCode ?: -1
-
-            if (exitCode != 0) {
-                skillPathRoot.deleteRecursively()
-                throw IllegalStateException("Failed to clone repository: $output")
-            }
-
-            // Determine the actual skill path
-            val skillPath = if (subdirectory.isNotBlank()) {
-                File(skillPathRoot, subdirectory)
-            } else {
-                skillPathRoot
-            }
-
-            // Verify SKILL.md exists (case-insensitive to handle varying naming conventions)
-            val skillFile = skillPath.listFiles()?.firstOrNull {
-                it.isFile && it.name.equals("SKILL.md", ignoreCase = true)
-            }
-
-            if (skillFile == null) {
-                skillPathRoot.deleteRecursively()
-                throw IllegalArgumentException(
-                    "SKILL.md not found in ${skillPath.absolutePath}. " +
-                            "Please check the repository URL and subdirectory."
-                )
-            }
-
-            logProgress(
-                AnsiColor.GREEN,
-                "GitDownload",
-                "✓ Successfully downloaded skill to: ${skillPath.absolutePath}"
-            )
-            emit("skill_download_completed", "✅ 从 Git 下载技能完成", skillPath.absolutePath)
-
-            // Refresh skill manager to include new skill
-            skillManager?.refresh()
-
-            val loader = SkillLoader(skillPath.toPath(), SkillsConfiguration(skillsPath = skillPath.absolutePath))
-            val loadedSkill = loader.loadSkill(skillPath.toPath())
-
-            SkillReference(
-                skillPath = skillPath.absolutePath,
-                skillName = loadedSkill?.name
-            )
+    /** The `name` a downloaded skill declares, or null when its SKILL.md cannot be read. */
+    private fun readSkillName(dir: File): String? {
+        val loader = SkillLoader(
+            dir.toPath(),
+            SkillsConfiguration(skillsPath = dir.absolutePath, maxSkillsPerRequest = 1)
+        )
+        return try {
+            loader.loadSkill(dir.toPath())?.name
         } catch (e: Exception) {
-            skillPathRoot.deleteRecursively()
-            logProgress(
-                AnsiColor.RED,
-                "GitDownload",
-                "✗ Failed to download skill: ${e.message}"
-            )
-            emit("skill_download_failed", "❌ 从 Git 下载技能失败", e.message)
-            throw e
+            logProgress(AnsiColor.YELLOW, "ClawHub", "⚠ Could not read skill metadata: ${e.message}")
+            null
         }
     }
 
@@ -631,6 +577,10 @@ class SkillTools(
             val path = Paths.get(skillPath)
             if (!path.exists() || !path.isDirectory()) {
                 return "Error: Skill path does not exist or is not a directory: $skillPath"
+            }
+            if (WorkflowHostPolicy.restrictsSkillSideEffects && !isLoadedSkillDirectory(path.toFile())) {
+                emit("skill_inspect_failed", "❌ 检查技能失败: $skillPath", "outside configured skills")
+                return "Error: path is outside the configured skills directories: $skillPath"
             }
 
             val tempConfig = SkillsConfiguration(
@@ -688,7 +638,10 @@ class SkillTools(
 
         val cachedSkills = cacheDir.listFiles { file ->
             file.isDirectory && (File(file, "SKILL.md").exists() || File(file, "skill.md").exists())
-        }?.sortedBy { it.name } ?: emptyList()
+        }?.sortedBy { it.name }
+            // A restricted host's shared cache holds other accounts' skills; list only this agent's.
+            ?.filter { !WorkflowHostPolicy.restrictsSkillSideEffects || isLoadedSkillDirectory(it) }
+            ?: emptyList()
 
         if (cachedSkills.isEmpty()) {
             return "No cached skills found in: ${cacheDir.absolutePath}"
@@ -719,92 +672,24 @@ class SkillTools(
             }
 
             appendLine("Use inspectSkill() to view detailed information about a cached skill.")
-            appendLine("Use downloadSkillFromClawHub() with forceDownload=true to refresh a cached skill.")
+            if (WorkflowHostPolicy.allowsSkillAdminTools) {
+                appendLine("Use downloadSkillFromClawHub() with forceDownload=true to refresh a cached skill.")
+            }
         }.also { emit("skill_list_cached_completed", "✅ 缓存技能列出完成", "共 ${cachedSkills.size} 个技能") }
     }
 
     /**
-     * Clear the local skill cache.
-     */
-    @Tool
-    @LLMDescription("Clear all cached skills from the local cache directory, or clear a specific skill by cache key")
-    fun clearSkillCache(
-        @LLMDescription("optional specific skill cache key to clear (e.g., 'slug@version'); if not specified, clears entire cache")
-        cacheKey: String? = null
-    ): String {
-        emit("skill_cache_clear_starting", "🗑️ 清除技能缓存")
-        val cacheDir = File(skillsCacheDir)
-
-        val result = if (cacheKey != null) {
-            // Clear specific skill
-            val normalizedKey = cacheKey.replace("/", "_").replace(":", "_")
-            val skillDir = File(cacheDir, normalizedKey)
-            // If exact directory not found, try matching by slug in _meta.json or name in SKILL.md
-            val targetDir = if (skillDir.exists()) {
-                skillDir
-            } else {
-                cacheDir.listFiles { f -> f.isDirectory }?.firstOrNull { dir ->
-                    // Match by directory name prefix (slug@version or slug-version)
-                    dir.name == normalizedKey ||
-                            dir.name.startsWith("$normalizedKey@") ||
-                            dir.name.startsWith("$normalizedKey-") ||
-                            // Match by slug field in _meta.json
-                            runCatching {
-                                val meta = File(dir, "_meta.json").takeIf { it.exists() }?.readText()
-                                meta != null && Json.parseToJsonElement(meta).jsonObject["slug"]?.jsonPrimitive?.content == cacheKey
-                            }.getOrDefault(false) ||
-                            // Match by name field in SKILL.md front-matter
-                            runCatching {
-                                val skillMd = File(dir, "SKILL.md").takeIf { it.exists() }?.readText()
-                                skillMd != null && Regex("""^name:\s*(.+)$""", RegexOption.MULTILINE)
-                                    .find(skillMd)?.groupValues?.get(1)?.trim() == cacheKey
-                            }.getOrDefault(false)
-                }
-            }
-            if (targetDir != null && targetDir.exists()) {
-                val deleted = targetDir.deleteRecursively()
-                if (deleted) {
-                    "✓ Cleared cached skill: $cacheKey"
-                } else {
-                    "✗ Failed to clear cached skill: $cacheKey"
-                }
-            } else {
-                "Cached skill not found: $cacheKey"
-            }
-        } else {
-            // Clear entire cache
-            if (!cacheDir.exists()) {
-                "Cache directory does not exist: ${cacheDir.absolutePath}"
-            } else {
-                val count = cacheDir.listFiles()?.size ?: 0
-                val deleted = cacheDir.deleteRecursively() && cacheDir.mkdirs()
-                if (deleted) {
-                    "✓ Cleared $count cached skill(s) from: ${cacheDir.absolutePath}"
-                } else {
-                    "✗ Failed to clear cache directory: ${cacheDir.absolutePath}"
-                }
-            }
-        }
-
-        // Refresh skill manager to reflect deleted skills
-        skillManager?.refresh()
-        emit("skill_cache_clear_completed", "✅ 技能缓存清除完成")
-        return result
-    }
-
-    /**
      * Activate a skill and load its full instructions into the conversation context.
-     * Uses deduplication: if a skill has already been activated in this session,
-     * returns a notice instead of re-injecting the same instructions.
+     * Every call returns the full instructions (see [SkillManager.activateSkill]).
      *
      * The returned content is wrapped in structured XML tags (`<skill_content>`)
      * for clear identification during context management, and includes a listing
      * of bundled resources that the model can load on demand.
      */
     @Tool
-    @LLMDescription("Activate a skill and load its full instructions. Returns structured content with skill instructions and bundled resources. If already activated in this session, returns a deduplication notice.")
+    @LLMDescription("Activate a skill and load its full instructions. Returns structured content with skill instructions and bundled resources. Call it again whenever the instructions are no longer in context.")
     fun useSkill(
-        @LLMDescription("The exact name of the skill to activate (e.g., 'search_files'). Must match a name from the available_skills catalog.")
+        @LLMDescription("The exact name of the skill to activate (e.g., 'pdf-processing'). Must match a name from the available_skills catalog.")
         skillName: String
     ): String {
         logProgress(AnsiColor.CYAN, "SkillTools", "Attempting to activate skill: $skillName")
@@ -833,27 +718,6 @@ class SkillTools(
 
         return manager.detectRelevantSkills(query).also { results ->
             emit("skill_discovery_completed", "✅ 本地技能发现完成: $query", "命中 ${results.size} 个技能")
-        }
-    }
-
-    /**
-     * Refresh the skill manager to re-discover and re-load all skills from the configured directory.
-     */
-    @Tool
-    @LLMDescription("Refresh the skill manager to re-discover and re-load all skills from the configured directory")
-    fun refreshSkills(): String {
-        logProgress(
-            AnsiColor.CYAN,
-            "SkillTools",
-            "Refreshing skill manager and re-loading skills from configured directory"
-        )
-        emit("skill_install_starting", "♻️ 刷新技能安装状态")
-        val manager = getManager()
-            ?: return "Error: Skill manager not available or no skills directory configured."
-
-        manager.refresh()
-        return "✓ Successfully refreshed ${manager.getSkillCount()} skill(s).".also {
-            emit("skill_install_completed", "✅ 技能刷新完成", it)
         }
     }
 
@@ -890,12 +754,16 @@ class SkillTools(
                     }
                     appendLine()
                     appendLine("Note: These skills are from the system configuration.")
-                    appendLine("To add skills dynamically:")
-                    appendLine("  1. Use searchSkills() to find skills in ClawHub registry")
-                    appendLine("  2. Use downloadSkillFromClawHub() to download from ClawHub (uses local cache)")
-                    appendLine("  3. Use downloadSkillFromGit() to download from Git repositories")
-                    appendLine("  4. Use listCachedSkills() to view cached skills")
-                    appendLine("  5. Pass the returned SkillReference to sub-agents")
+                    if (WorkflowHostPolicy.allowsSkillAdminTools) {
+                        appendLine("To add skills dynamically:")
+                        appendLine("  1. Use searchSkills() to find skills in ClawHub registry")
+                        appendLine("  2. Use downloadSkillFromClawHub() to download from ClawHub (uses local cache)")
+                        appendLine("  3. Use downloadSkillFromGit() to download from Git repositories")
+                        appendLine("  4. Use listCachedSkills() to view cached skills")
+                        appendLine("  5. Pass the returned SkillReference to sub-agents")
+                    } else {
+                        appendLine("Installing or removing skills is managed by the host, not by agents.")
+                    }
                 }.also { emit("skill_list_configured_completed", "✅ 已配置技能列出完成", "共 ${skills.size} 个技能") }
             }
         } catch (e: Exception) {

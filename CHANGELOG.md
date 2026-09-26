@@ -1,21 +1,212 @@
-# 1.1.9
-
-- Exclude resource admission waits from execution budgets without restarting an executing body.
-- Renew scoped code-step callback credentials only at actual process launch, after admission.
-- Route subprocess tools through the host-provided executor and classify direct code-step requests.
-- Confirm process/container settlement before releasing host reservations; make native cancellation waits interruptible.
-- Give admitted Docker containers stable reservation names and reconcile stopped/absent containers without killing running work.
-
-# 1.1.8
-
-- Allow trusted runtimes to issue fresh scoped callback credentials before each code step, including steps after long approval waits. Refuse execution if renewal fails.
-
 # Changelog
 
 All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [1.3.0]
+
+Koog upgrade (1.0.0 → 1.3.0) plus the model, metering, multimodal and skill
+work it enabled. 1.2.0 and 1.3.0 are not tagged yet; library consumers
+resolving from JitPack need the tag (or a local `publishToMavenLocal`).
+
+### Upgrade notes
+
+Act on these when moving from 1.2.x:
+
+- **Skill admin tools moved.** `downloadSkillFromClawHub`,
+  `downloadSkillFromGit`, `clearSkillCache` and `refreshSkills` are no longer
+  model tools on `SkillTools`; they live on the new `SkillAdminTools` toolset.
+  `SkillTools` keeps the read-only tools. `SkillTools.downloadSkillFromClawHub`
+  stays as a host API (not a `@Tool`) and gains `refreshManager: Boolean = true`.
+  The `skill_tools` group registers `SkillAdminTools` only while
+  `WorkflowHostPolicy.allowsSkillAdminTools` is true.
+- **Per-skill MCP auto-start is off by default** everywhere, including the CLI.
+  Hosts that want `<skill>/mcp-servers/` started must call
+  `WorkflowHostPolicy.allowSkillMcpAutoStart()`.
+- **New `WorkflowHostPolicy` latches** (one-way, process-wide; see
+  `docs/SECURITY.md#host-policy-latches`): `requirePublicLlmEndpoints()`,
+  `requireExplicitKeysForCustomLlmEndpoints()`, `requireSingleLlmChoice()`,
+  `restrictSkillSideEffects()` and `allowSkillMcpAutoStart()`. Multi-tenant or
+  metered hosts should declare the first four at startup, next to
+  `requireCodeStepExecutor()`. CLI and library defaults are unchanged.
+- **Metering now covers previously unmetered rounds.** Every round of the
+  default `just_work_parallel` strategy and the `single_run*` strategies fires
+  the normal LLM-call events, so `llm_call_completed` / token usage, cost,
+  quota, `LLM_CALL_*` skill hooks, tracing spans, long-term-memory retrieval
+  and the weak-model tool-call fix now apply to them. Expect higher reported
+  token use and cost on the default strategy: this is real usage that was
+  invisible before. Rounds with `num_choices > 1` remain unmetered upstream.
+- **Prompt-cache hits report no token usage.** They carry timestamp-only
+  metadata plus `braidrun_prompt_cache_hit=true` in response metadata; code
+  that read the model id or provider metadata from a cache hit now gets empty
+  values.
+- **Anthropic default `max_tokens`** is 16,000 (64,000 when streaming), capped
+  by the model's output limit, instead of Koog's 2048. Replies without an
+  explicit `max_tokens` can be longer and cost more.
+- **`llm_config` snake_case keys are now honored.** `base_url`, `max_token`,
+  `is_vision`, `display_name`, `custom_models`, `cascade_fallbacks` and, in
+  custom models, `model_id`, `context_length`, `max_output_tokens` were
+  silently ignored before. Stored workflows with a snake_case `base_url` start
+  sending requests to it.
+- **Catalog ids removed or retargeted.** Retired and shut-down models were
+  removed (details under Removed). A workflow pinned to a removed id now goes
+  through the custom-model path with the id sent verbatim. Alias targets:
+  `claude-opus` → `claude-opus-4-8`, `claude-sonnet` → `claude-sonnet-4-6`,
+  `claude-fable` → `claude-fable-5-1`, `claude-haiku` → `claude-haiku-4-5`.
+  `claude-sonnet-4` / `claude-opus-4` now send `claude-sonnet-4-0` /
+  `claude-opus-4-0`; dotted direct-Anthropic keys (`claude-opus-4.7`) send the
+  dashed first-party id.
+- **Removed shims.** The OpenRouter tool-argument double-encoding workaround
+  (`ToolArgsFixingKoogHttpClient`) and the OpenTelemetry span-tree workaround
+  are gone. Agent runs that hit the span-tree `IllegalStateException` now fail
+  with it instead of completing with an empty output.
+- **`useSkill` always returns the full skill content**, also on repeat calls.
+  `SKILL_ACTIVATED` still fires once per manager.
+- **Skill discovery changes identity for some skills.** Frontmatter is parsed
+  as real YAML: nested keys such as `translations.<locale>.name` no longer
+  override the top-level `name` / `description`, and inline `# comments` are
+  stripped. A skill whose identity came from such a nested key loads under its
+  top-level name now; update allow/deny lists that referenced the old name.
+- **`clearSkillCache` requires a cache key**; `downloadSkillFromGit` accepts
+  only `https://` URLs.
+- `SkillManager.createSkillSystemPrompt` gained an optional
+  `skillToolsRegistered` parameter (default `true`).
+
+### Changed
+
+- Upgraded Koog to 1.3.0 on the stable stream and 1.3.0-beta for beta-only
+  modules (agents-ext, agents-mcp, a2a-*, longterm-memory, rag-vector,
+  prompt-cache-redis and the google / deepseek / mistralai / dashscope
+  clients). `agents-features-opentelemetry` is requested on the stable stream.
+  The module-to-stream map is in `build.gradle.kts`. Fixes inherited from
+  Koog 1.1–1.3 include reasoning deltas from OpenAI-compatible and DeepSeek
+  streams (reasoning is now shown and replayed for these providers), streamed
+  tool calls no longer fragmenting on providers that repeat the call id, and
+  Gemini replies traced correctly in Langfuse.
+- Model parameters are fitted to the model on every request, including
+  fallback and cascade tiers, by `ModelParamsSanitizingLLMClient` (applied by
+  `createLLMClient`):
+  - `temperature` is omitted for models that reject it (Claude Opus 4.7+,
+    Sonnet 5, Fable / Mythos 5.x, Kimi K3, and any model without the
+    `temperature` capability). Other tiers keep the configured value.
+  - A forced tool choice becomes `auto` where it is not supported (models
+    without `tool_choice`, and Claude models that think by default).
+  - Direct Anthropic requests without `max_tokens` get the new defaults (see
+    Upgrade notes).
+- Single-choice rounds in `requestLLMMultiplePreservingDeepSeekReasoning` go
+  through `requestLLM()`, so they fire LLM-call events and run the response
+  processor. The reasoning-only fallback is kept.
+- The prompt cache is wrapped in `MeteringSafeCachedPromptExecutor`, and
+  prompts that carry tool-result images bypass it
+  (`ToolResultMediaBypassingPromptCache`) for every `cache_policy`.
+- Model catalog synced with Koog 1.3.0 and provider docs (2026-09-26).
+  Capability metadata corrected: Claude Opus 4.7+ / Fable / Sonnet 5 and
+  GPT-5.x / 6 no longer declare `temperature`; Claude models that think by
+  default no longer declare `tool_choice`; every model on an
+  OpenAI-compatible provider declares `openai.completions` or
+  `openai.responses`.
+- The `mistral` provider sends OpenRouter `mistralai/...` slugs.
+- Default image generation uses Google's GA ids: the multimedia catalog
+  (`models/multimedia.yaml`) marks `google/gemini-3.1-flash-image` as its
+  default, and the `generateImage` tool's `NANO_BANANA_2` / `NANO_BANANA_PRO`
+  choices now send `google/gemini-3.1-flash-image` / `google/gemini-3-pro-image`
+  instead of the retired `-preview` ids. A `-preview` id can still be chosen
+  with `multimedia_default_image_model`.
+- Skill discovery walks with pruning: `.git`, `node_modules`, `build`, `dist`,
+  `target` and the other skipped directories are not entered. Load order is
+  sorted by path, and one 2000-directory budget covers the whole discovery
+  pass (hooks use the same pruning).
+- The `<available_skills>` catalog escapes `&`, `<` and `>`, uses a stable
+  example name, and is omitted when `useSkill` is not registered
+  (`disable_skills`, or an explicit `tool_set` without `skill_tools`).
+  `createSkillManager` returns `null` when skills are disabled.
+- Skill frontmatter `version` / `author` are read from `metadata.*` first.
+  List-valued metadata stays a list; nested maps become JSON text.
+- An execution's staged skills copy (`.skills-runtime/`) contains only the
+  skills the agent's scoped `skills_config` enables, never `.state/`, `.git`
+  or symbolic links; its directory name includes a selection fingerprint.
+
+### Added
+
+- Multimodal tool results (Koog 1.3):
+  - `browser_screenshot` (now `BrowserScreenshotTool`) returns the PNG as an
+    image part, shrunk to at most 1568 px and 1 MB. The file is still saved.
+    The image is attached only when the current run (`execution_id`, else
+    `session_id`) created that browser context.
+  - MCP `ImageContent` is sent as image parts instead of base64 JSON text;
+    audio / blob base64 is replaced by placeholders.
+  - `ToolResultMediaAdaptingLLMClient` replaces images with short text
+    placeholders wherever the route or model cannot show them.
+  - New workflow parameters `tool_result_images_enabled` (default `true`),
+    `tool_result_images_max_per_request` (default 4, clamped 0–12) and
+    `tool_result_images_max_per_run` (default 24, clamped 0–200).
+  - `data:` URIs and long base64 runs in `tool_call_completed` payloads are
+    redacted.
+- Models: Claude Fable 5.1, Opus 5.5, Opus 5, Sonnet 5, Opus 4.8; GPT-6
+  Astra / Sol / Luna and GPT-5.6 Sol / Terra / Luna; Gemini 3.1 Flash-Lite,
+  3.5 Flash / Flash-Lite, 3.6 / 3.7 / 3.8 Flash; DeepSeek `deepseek-flash`;
+  Qwen 3.5–3.8; Grok 4.3–4.7; GLM-5.3; Kimi K3 / K2.7 Code; MiniMax-M3;
+  Ollama `qwen3.6:27b` / `qwen3.8:27b`. First-party Anthropic ids are dashed
+  (`claude-opus-5`); OpenRouter ids are dotted (`anthropic/claude-opus-4.8`).
+- `WorkflowHostPolicy.requireSingleLlmChoice()`,
+  `requirePublicLlmEndpoints()`, `requireExplicitKeysForCustomLlmEndpoints()`,
+  `restrictSkillSideEffects()` and `allowSkillMcpAutoStart()`.
+- `LlmEndpointNotAllowedException`, thrown by the internal endpoint check behind
+  `requirePublicLlmEndpoints()` (a configuration error: not retried, no fallback).
+- `SkillAdminTools` toolset.
+- Built-in (classpath) skills inline their attachments on activation, each
+  capped by `maxAttachmentSize` (`braidrun-workflow-guide` now ships its config
+  template this way).
+- `docs/SKILLS.md`: skill reference and the decision to keep the in-house skill
+  system rather than `ai.koog:skills`.
+
+### Fixed
+
+- Direct Anthropic models (Claude 5, Opus 4.7, custom and dotted ids such as
+  `claude-opus-4.7`) run instead of failing with "Unsupported model".
+- OpenAI-compatible direct providers (OpenAI, DashScope / Qwen direct, Kimi,
+  MiniMax, Z.ai, NVIDIA, LM Studio) run catalog, custom and ad-hoc models that
+  declared no OpenAI endpoint (previously "Cannot determine proper LLM
+  params").
+- Requests to models that reject `temperature` or forced `tool_choice` no
+  longer fail with HTTP 400, and a primary that rejects temperature no longer
+  strips it from other tiers.
+- Prompt-cache hits no longer re-report the previous round's token usage.
+- Skill resource listings skip dot-directories, `node_modules`, `venv` and
+  `__pycache__`.
+
+### Removed
+
+- `ToolArgsFixingKoogHttpClient` and the other OpenRouter tool-argument
+  double-encoding shims; the OpenTelemetry span-tree workaround.
+- Retired / shut-down catalog ids, including Claude 3.x and `claude-*-4.1`,
+  `claude-opus-latest`, `claude-opus-4.6-fast`; Gemini 1.5 / 2.0 and
+  shut-down Gemini previews; `deepseek-chat`, `deepseek-reasoner`,
+  `deepseek-r1*`, `deepseek-coder*`, `deepseek-v3*`; OpenAI models past
+  shutdown (`o1-mini`, `o1-preview`, `gpt-4-32k`, `gpt-5-chat`, `*-codex`,
+  ...); and OpenRouter entries OpenRouter no longer serves.
+
+### Security
+
+- `restrictSkillSideEffects()`: no skill hook script runs, no per-skill MCP
+  server starts, `SkillAdminTools` are neither registered nor callable,
+  ClawHub installs (fresh and cache hits) drop `hooks/` and `mcp-servers/`,
+  and `inspectSkill` / `listCachedSkills` only see skills the agent's own
+  manager loaded. A `skills_config` flag can only narrow this.
+- `clearSkillCache` rejects empty keys, `.`, `..`, paths and control
+  characters, stays inside the cache directory and never follows symlinks.
+- `downloadSkillFromGit` runs `git -c core.symlinks=false -c
+  protocol.allow=never -c protocol.https.allow=always clone --depth 1
+  --no-recurse-submodules -- <url>` without a shell, rejects a symlinked
+  `SKILL.md`, and keeps the subdirectory inside the clone.
+- `requirePublicLlmEndpoints()` validates chat-client, RAG-embedder and
+  multimedia base URLs (https, public resolved addresses).
+  `requireExplicitKeysForCustomLlmEndpoints()` keeps host environment keys
+  away from non-default base URLs.
+- `requireSingleLlmChoice()` closes the `num_choices > 1` metering bypass on
+  hosts that bill per token.
 
 ## [1.2.0]
 
@@ -135,6 +326,18 @@ Deferred to later releases:
 - Jev for `group_chat` termination or speaker selection, `iterate_over`
   filters, aggregate pick-best, extract candidate picking and manual-approval
   auto-decisions.
+
+## [1.1.9]
+
+- Exclude resource admission waits from execution budgets without restarting an executing body.
+- Renew scoped code-step callback credentials only at actual process launch, after admission.
+- Route subprocess tools through the host-provided executor and classify direct code-step requests.
+- Confirm process/container settlement before releasing host reservations; make native cancellation waits interruptible.
+- Give admitted Docker containers stable reservation names and reconcile stopped/absent containers without killing running work.
+
+## [1.1.8]
+
+- Allow trusted runtimes to issue fresh scoped callback credentials before each code step, including steps after long approval waits. Refuse execution if renewal fails.
 
 ## [1.1.7]
 

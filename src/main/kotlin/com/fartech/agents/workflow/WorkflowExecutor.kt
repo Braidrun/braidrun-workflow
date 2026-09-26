@@ -6951,13 +6951,15 @@ class WorkflowExecutor(
         val stagedPrimaryDir = materializeSkillDirectory(
             sourcePath = config.skillsPath,
             destinationRoot = runtimeRoot,
-            directoryKey = "configured"
+            directoryKey = "configured",
+            config = config
         )
         val stagedAdditionalDirs = config.additionalSkillPaths.mapIndexedNotNull { index, path ->
             materializeSkillDirectory(
                 sourcePath = path,
                 destinationRoot = runtimeRoot,
-                directoryKey = "additional-$index"
+                directoryKey = "additional-$index",
+                config = config
             )
         }
 
@@ -6978,10 +6980,17 @@ class WorkflowExecutor(
         )
     }
 
+    /**
+     * Stages the skills of [sourcePath] that [config] loads into [destinationRoot] (see
+     * [RuntimeSkillMaterialization]: no other tenants' skills, no `.state/`, `.git` or links).
+     * The directory name carries a fingerprint of that selection, so agents of one execution
+     * with different scoped configs never reuse, or replace, each other's copy.
+     */
     private fun materializeSkillDirectory(
         sourcePath: String,
         destinationRoot: File,
-        directoryKey: String
+        directoryKey: String,
+        config: SkillsConfiguration
     ): String? {
         val sourceDir = sourcePath
             .takeIf { it.isNotBlank() && !it.startsWith("classpath:", ignoreCase = true) }
@@ -6999,7 +7008,9 @@ class WorkflowExecutor(
                 sourceDir.absolutePath.hashCode().toUInt().toString(16)
             }
         )
-        val destinationDir = File(destinationRoot, "$directoryKey-$suffix")
+        val skillRoots = RuntimeSkillMaterialization.enabledSkillRoots(sourceDir, config)
+        val selection = RuntimeSkillMaterialization.selectionFingerprint(sourceDir, skillRoots)
+        val destinationDir = File(destinationRoot, "$directoryKey-$suffix-$selection")
         val materializationLock = skillMaterializationLocks[
             floorMod(destinationDir.absolutePath.hashCode(), skillMaterializationLocks.size)
         ]
@@ -7016,7 +7027,7 @@ class WorkflowExecutor(
             if (tempDir.exists()) {
                 tempDir.deleteRecursively()
             }
-            sourceDir.copyRecursively(tempDir, overwrite = true)
+            RuntimeSkillMaterialization.copySelectedSkills(sourceDir, tempDir, skillRoots)
             writeMaterializedSkillsMarker(tempDir, sourceDir)
             if (destinationDir.exists()) {
                 destinationDir.deleteRecursively()
@@ -8731,7 +8742,11 @@ class WorkflowExecutor(
                 val toolName = eventContext.toolName
                 val subCat = detectToolSubCategory(toolName)
                 val argsStr = try { eventContext.toolArgs.toString() } catch (_: Exception) { null }
-                val resultStr = try { eventContext.toolResult.toString() } catch (_: Exception) { null }
+                // Tool results that carry images encode placeholders here (MediaAwareMcpTool,
+                // BrowserScreenshotTool); the redaction guards tools that return base64 as text.
+                val resultStr = try {
+                    eventContext.toolResult.toString().let(ToolResultImages::redactInlineBase64)
+                } catch (_: Exception) { null }
                 val detailParts = listOfNotNull(
                     argsStr?.let { "args: $it" },
                     resultStr?.let { "result: $it" }
