@@ -273,15 +273,7 @@ suspend inline fun <Input, Output> buildAgent(
                     )
                 }
             }
-            if (parameters.parameter("enable_langfuse_tracing", false)) {
-                install(OpenTelemetry) {
-                    addLangfuseExporter(
-                        langfuseSecretKey = parameters.parameter("langfuse_secret_key", ""),
-                        langfusePublicKey = parameters.parameter("langfuse_public_key", ""),
-                        langfuseUrl = parameters.parameter("langfuse_url", "https://us.cloud.langfuse.com")
-                    )
-                }
-            }
+            installLangfuseIfEnabled(parameters)
             // Tier-1 observability features (2026-04):
             //
             // Both features are **off by default** so they have zero overhead
@@ -773,6 +765,28 @@ fun GraphAIAgent.FeatureContext.installTokenizerIfEnabled(parameters: List<Confi
 }
 
 /**
+ * Install Koog's OpenTelemetry feature with a Langfuse exporter when
+ * `enable_langfuse_tracing=true` (`langfuse_url`, `langfuse_public_key`, `langfuse_secret_key`).
+ *
+ * The exporter POSTs every span from this JVM, so on a host that declared
+ * [WorkflowHostPolicy.requirePublicServiceEndpoints] `langfuse_url` must be https on a public
+ * host ([ServiceEndpointPolicy]). The keys are passed as "" rather than null so Koog never falls
+ * back to the host's own `LANGFUSE_*` environment.
+ */
+fun GraphAIAgent.FeatureContext.installLangfuseIfEnabled(parameters: List<ConfigurationParameter>) {
+    if (!parameters.parameter("enable_langfuse_tracing", false)) return
+    val langfuseUrl = parameters.parameter("langfuse_url", "https://us.cloud.langfuse.com")
+    ServiceEndpointPolicy.check(langfuseUrl, "Langfuse")
+    install(OpenTelemetry) {
+        addLangfuseExporter(
+            langfuseSecretKey = parameters.parameter("langfuse_secret_key", ""),
+            langfusePublicKey = parameters.parameter("langfuse_public_key", ""),
+            langfuseUrl = langfuseUrl
+        )
+    }
+}
+
+/**
  * Install Koog's [Tracing] feature when `tracing_enabled=true`.
  *
  * Writes a structured NDJSON trace of every agent step (node, LLM call,
@@ -784,7 +798,9 @@ fun GraphAIAgent.FeatureContext.installTokenizerIfEnabled(parameters: List<Confi
  *   - `tracing_enabled: Boolean` (default false).
  *   - `tracing_file_path: String` — absolute or working-directory-relative
  *     path where trace events are appended. Defaults to
- *     `.workflow-runs/traces/agent-<sessionId>.ndjson`.
+ *     `.workflow-runs/traces/agent-<sessionId>.ndjson`. Ignored once the host
+ *     declared [WorkflowHostPolicy.requireTenantScopedStorage]: a user-chosen
+ *     path would let a workflow author write into any file the host can.
  *   - `tracing_to_log: Boolean` — also mirror events through the
  *     `agent.trace` KLogger (INFO level). Defaults to false; enabling it
  *     is noisy but handy when tailing container logs.
@@ -799,7 +815,31 @@ fun GraphAIAgent.FeatureContext.installTokenizerIfEnabled(parameters: List<Confi
  */
 fun GraphAIAgent.FeatureContext.installTracingIfEnabled(parameters: List<ConfigurationParameter>) {
     if (!parameters.parameter("tracing_enabled", false)) return
+    val tracePath = resolveTracePath(parameters) ?: return
 
+    install(Tracing) {
+        // Ensure the parent dir exists so the file writer doesn't throw
+        // NoSuchFileException on first write. `createDirectories` is a
+        // no-op if the directory already exists.
+        tracePath.parent?.let { java.nio.file.Files.createDirectories(it) }
+        addMessageProcessor(appendingTraceFileWriter(tracePath))
+
+        if (parameters.parameter("tracing_to_log", false)) {
+            addMessageProcessor(
+                TraceFeatureMessageLogWriter.create(
+                    org.slf4j.LoggerFactory.getLogger("agent.trace")
+                )
+            )
+        }
+    }
+}
+
+/**
+ * Where [installTracingIfEnabled] writes: `tracing_file_path` when the caller controls it, else
+ * `<cwd>/.workflow-runs/traces/agent-<session_id>.ndjson`. Null when the default somehow
+ * resolves outside that directory.
+ */
+internal fun resolveTracePath(parameters: List<ConfigurationParameter>): java.nio.file.Path? {
     // Sanitize the session-id segment so a pathological value like
     // `../../etc/passwd` can't escape the intended traces directory when
     // interpolated into the default path template. Keep alphanumerics,
@@ -812,38 +852,42 @@ fun GraphAIAgent.FeatureContext.installTracingIfEnabled(parameters: List<Configu
         .take(128)
         .ifBlank { "default" }
 
-    val filePath = parameters.parameter(
-        "tracing_file_path",
-        ".workflow-runs/traces/agent-$safeSessionId.ndjson"
-    )
+    val defaultFilePath = ".workflow-runs/traces/agent-$safeSessionId.ndjson"
+    // Outside a multi-tenant host the caller controls `tracing_file_path` and
+    // it is honoured verbatim. Inside one it is a workflow parameter, i.e.
+    // user input, so only the default template is used.
+    val requestsPath = parameters.any { it.key == "tracing_file_path" }
+    val hasExplicitPath = requestsPath && !WorkflowHostPolicy.requiresTenantScopedStorage
+    if (requestsPath && !hasExplicitPath) {
+        logProgress(AnsiColor.YELLOW, "Tracing", "tracing_file_path is ignored on this host; writing to $defaultFilePath")
+    }
+    val filePath = if (hasExplicitPath) parameters.parameter("tracing_file_path", defaultFilePath) else defaultFilePath
     val tracePath = java.nio.file.Paths.get(filePath).toAbsolutePath().normalize()
 
-    // Operator-supplied `tracing_file_path` is honoured verbatim (they
-    // control the value) — but the DEFAULT template is locked to live
-    // under `<cwd>/.workflow-runs/traces/`. If the caller didn't set
-    // `tracing_file_path` explicitly, enforce that prefix so a crafted
-    // session_id that survived the sanitizer above still can't escape.
-    val hasExplicitPath = parameters.any { it.key == "tracing_file_path" }
+    // The DEFAULT template is locked to live under `<cwd>/.workflow-runs/traces/`:
+    // enforce that prefix so a crafted session_id that survived the sanitizer
+    // above still can't escape.
     val defaultRoot = java.nio.file.Paths.get(".workflow-runs/traces").toAbsolutePath().normalize()
     if (!hasExplicitPath && !tracePath.startsWith(defaultRoot)) {
         // Extremely unlikely (session_id sanitizer should prevent this)
         // but bail rather than write to an unexpected location.
-        return
+        return null
     }
-
-    install(Tracing) {
-        // Ensure the parent dir exists so the file writer doesn't throw
-        // NoSuchFileException on first write. `createDirectories` is a
-        // no-op if the directory already exists.
-        tracePath.parent?.let { java.nio.file.Files.createDirectories(it) }
-        addMessageProcessor(TraceFeatureMessageFileWriter.create(targetPath = tracePath))
-
-        if (parameters.parameter("tracing_to_log", false)) {
-            addMessageProcessor(
-                TraceFeatureMessageLogWriter.create(
-                    org.slf4j.LoggerFactory.getLogger("agent.trace")
-                )
-            )
-        }
-    }
+    return tracePath
 }
+
+/**
+ * A trace writer that appends to [path]. Koog's default opener (`Files.newOutputStream`)
+ * truncates, which would wipe an earlier step's trace for the same session, or whatever file
+ * the path names.
+ */
+internal fun appendingTraceFileWriter(path: java.nio.file.Path) = TraceFeatureMessageFileWriter.create(
+    targetPath = path,
+    streamOpener = { target ->
+        java.nio.file.Files.newOutputStream(
+            target,
+            java.nio.file.StandardOpenOption.CREATE,
+            java.nio.file.StandardOpenOption.APPEND,
+        )
+    },
+)

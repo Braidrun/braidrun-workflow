@@ -28,6 +28,14 @@ package com.fartech.agents.workflow
  * ([com.fartech.agents.tools.SkillAdminTools]) let a model install or delete skills on the
  * host. [restrictSkillSideEffects] turns all of that off for every agent in the process.
  *
+ * The same holds for the other workflow parameters that name a host resource. A Langfuse URL,
+ * an MCP server URL or a Redis prompt-cache URL is a connection the host JVM opens
+ * ([requirePublicServiceEndpoints]). An `mcp_servers` entry without a URL starts a native
+ * process next to the server, outside any sandbox ([refuseStdioMcpServers]). And
+ * `tracing_file_path` and `long_term_memory_namespace` pick where on the host's shared storage
+ * an agent writes, which lets one user overwrite host files or read another tenant's memory
+ * ([requireTenantScopedStorage]).
+ *
  * Deliberately not a ConfigurationParameter: those are user-controlled on the web. A
  * `skills_config` flag (e.g. `hookScriptExecutionEnabled`) can only narrow these, never widen.
  */
@@ -50,6 +58,15 @@ object WorkflowHostPolicy {
 
     @Volatile
     private var singleLlmChoiceRequired = false
+
+    @Volatile
+    private var publicServiceEndpointsRequired = false
+
+    @Volatile
+    private var stdioMcpServersRefused = false
+
+    @Volatile
+    private var tenantScopedStorageRequired = false
 
     /** True once the host required every `code:` step to go through an injected executor. */
     val requiresCodeStepExecutor: Boolean
@@ -126,7 +143,53 @@ object WorkflowHostPolicy {
     val allowsSkillAdminTools: Boolean
         get() = !skillSideEffectsRestricted
 
+    /** True once the host declared [requirePublicServiceEndpoints]. */
+    val requiresPublicServiceEndpoints: Boolean
+        get() = publicServiceEndpointsRequired
+
+    /**
+     * One-way: every Langfuse exporter URL and MCP server URL an agent connects to must be
+     * TLS (`https`, or `wss` for a WebSocket MCP server) on a public host, and `cache_policy:
+     * redis` is ignored in favour of the in-memory cache. A Redis URL is a plaintext RESP
+     * connection into whatever network the host sits in, so it is not validated but dropped.
+     * See [com.fartech.agents.commons.ServiceEndpointPolicy].
+     */
+    fun requirePublicServiceEndpoints() {
+        publicServiceEndpointsRequired = true
+    }
+
+    /** True once the host declared [refuseStdioMcpServers]. */
+    val refusesStdioMcpServers: Boolean
+        get() = stdioMcpServersRefused
+
+    /**
+     * One-way: an agent whose `mcp_servers` contains an enabled entry without a `url` (a stdio
+     * server, which the engine starts with a plain ProcessBuilder in this JVM) fails to build
+     * instead of starting the process. URL-based MCP servers are unaffected.
+     */
+    fun refuseStdioMcpServers() {
+        stdioMcpServersRefused = true
+    }
+
+    /** True once the host declared [requireTenantScopedStorage]. */
+    val requiresTenantScopedStorage: Boolean
+        get() = tenantScopedStorageRequired
+
+    /**
+     * One-way: user parameters can no longer choose where on the host's shared storage an
+     * agent writes. `tracing_file_path` is ignored, so traces go to the default
+     * `.workflow-runs/traces/agent-<session_id>.ndjson`. `long_term_memory_namespace` is
+     * confined under `ltm:<user_id>:`, where `user_id` is the one the host injected. An agent
+     * without a `user_id` gets no long-term memory at all.
+     */
+    fun requireTenantScopedStorage() {
+        tenantScopedStorageRequired = true
+    }
+
     internal fun resetForTests() {
+        publicServiceEndpointsRequired = false
+        stdioMcpServersRefused = false
+        tenantScopedStorageRequired = false
         explicitKeysForCustomLlmEndpointsRequired = false
         codeStepExecutorRequired = false
         singleLlmChoiceRequired = false

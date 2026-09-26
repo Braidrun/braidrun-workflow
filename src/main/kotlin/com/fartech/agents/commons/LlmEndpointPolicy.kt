@@ -30,6 +30,8 @@ class LlmEndpointNotAllowedException(message: String) : IllegalArgumentException
  */
 internal object LlmEndpointPolicy {
 
+    private val HTTPS_ONLY = setOf("https")
+
     /**
      * @param providerDefault true when [baseUrl] is the provider's built-in default (not user-set):
      *   a DNS failure for it is a transient network problem, not an SSRF attempt, so it is left to
@@ -58,18 +60,23 @@ internal object LlmEndpointPolicy {
     internal fun violation(baseUrl: String, resolve: (String) -> List<InetAddress>): String? =
         violation(baseUrl, allowUnresolvable = false, resolve)
 
+    /**
+     * @param allowedSchemes lower-case schemes that count as TLS for this kind of endpoint
+     *   (`https` for LLM clients; [ServiceEndpointPolicy] also allows `wss` for MCP).
+     */
     internal fun violation(
         baseUrl: String,
         allowUnresolvable: Boolean,
         resolve: (String) -> List<InetAddress>,
+        allowedSchemes: Set<String> = HTTPS_ONLY,
     ): String? {
         val uri = try {
             URI(baseUrl.trim())
         } catch (_: Exception) {
             return "not a valid URL"
         }
-        if (!uri.scheme.equals("https", ignoreCase = true)) {
-            return "only https is allowed, got scheme '${uri.scheme ?: ""}'"
+        if (uri.scheme?.lowercase() !in allowedSchemes) {
+            return "only ${allowedSchemes.sorted().joinToString(" or ")} is allowed, got scheme '${uri.scheme ?: ""}'"
         }
         // URI keeps IPv6 literals bracketed; InetAddress wants them bare.
         val host = uri.host?.removeSurrounding("[", "]")?.takeIf { it.isNotBlank() }
@@ -111,7 +118,7 @@ internal object LlmEndpointPolicy {
     }
 
     /** scheme://host[:port] only — a base URL can carry credentials or tokens in userinfo, path or query. */
-    private fun redactedEndpoint(baseUrl: String): String = try {
+    internal fun redactedEndpoint(baseUrl: String): String = try {
         val uri = URI(baseUrl.trim())
         buildString {
             append(uri.scheme ?: "?").append("://").append(uri.host ?: "?")
