@@ -818,7 +818,8 @@ fun createLLMClient(
  * Every client is built against its effective base URL (the configured one, else the
  * provider default), which is checked by [LlmEndpointPolicy] before the factory sees it, and
  * is wrapped in [ModelParamsSanitizingLLMClient] so the shared prompt params are fitted to
- * the model each request is actually sent to.
+ * the model each request is actually sent to, and in [PromptCachingLLMClient] so prompt-cache
+ * markers fit the provider (Anthropic breakpoints unless `anthropic_prompt_caching=false`).
  */
 fun createLLMClient(
     parameters: List<ConfigurationParameter>,
@@ -895,20 +896,23 @@ fun createLLMClient(
             httpClientFactory = httpClientFactory,
         )
 
-        LLMProvider.Anthropic -> AnthropicLLMClient(
-            apiKey = apiKeys.resolve("anthropic")
-                .also { if (it == null) warnMissingApiKey("anthropic") } ?: "",
-            settings = AnthropicClientSettings(
-                // Koog's default map only knows Koog's own LLModel objects; send our
-                // (normalized) model id instead. See AnthropicModelIdPassThrough.
-                modelVersionsMap = AnthropicModelIdPassThrough,
-                baseUrl = baseUrl,
-                // The default base URL carries `/v1`, so the stock `v1/messages`
-                // default would resolve to `.../v1/v1/messages` → 404.
-                // See resolveVersionedEndpointPath.
-                messagesPath = resolveVersionedEndpointPath(baseUrl, "v1/messages")
-            ),
-            httpClientFactory = httpClientFactory,
+        // Koog's streaming path drops the prompt-cache counts; see AnthropicStreamUsageRecovery.
+        LLMProvider.Anthropic -> AnthropicStreamUsageRecoveringClient(
+            AnthropicLLMClient(
+                apiKey = apiKeys.resolve("anthropic")
+                    .also { if (it == null) warnMissingApiKey("anthropic") } ?: "",
+                settings = AnthropicClientSettings(
+                    // Koog's default map only knows Koog's own LLModel objects; send our
+                    // (normalized) model id instead. See AnthropicModelIdPassThrough.
+                    modelVersionsMap = AnthropicModelIdPassThrough,
+                    baseUrl = baseUrl,
+                    // The default base URL carries `/v1`, so the stock `v1/messages`
+                    // default would resolve to `.../v1/v1/messages` → 404.
+                    // See resolveVersionedEndpointPath.
+                    messagesPath = resolveVersionedEndpointPath(baseUrl, "v1/messages")
+                ),
+                httpClientFactory = AnthropicStreamUsageRecoveringClient.capturingFactory(httpClientFactory),
+            )
         )
 
         // Koog 1.0.0's stock DeepSeekLLMClient natively performs the
@@ -969,7 +973,9 @@ fun createLLMClient(
             httpClientFactory = httpClientFactory,
         )
     }
-    return model.provider to ModelParamsSanitizingLLMClient(client)
+    return model.provider to ModelParamsSanitizingLLMClient(
+        PromptCachingLLMClient(client, anthropicCaching = anthropicPromptCachingEnabled(parameters))
+    )
 }
 
 /** The base URL a client for [provider] uses when `llm_config` sets none. */

@@ -30,15 +30,16 @@ import org.junit.jupiter.api.Test
 class PromptCacheHintsTest {
 
     @Test
-    fun `systemWithCacheHint attaches Anthropic OneHour by default`() {
+    fun `systemWithCacheHint attaches the Anthropic 5-minute TTL by default`() {
         val p = prompt("test") {
             systemWithCacheHint("stable skill card prefix")
         }
         val sys = p.messages.filterIsInstance<Message.System>().single()
         assertEquals("stable skill card prefix", sys.textContent())
-        // The cache_control on the message-level part is what providers read.
+        // The cache_control on the message-level part is what providers read. 5 minutes is the
+        // default: every read refreshes it, and a 1-hour write costs 2x input instead of 1.25x.
         val textPart = sys.parts.single()
-        assertEquals(AnthropicCacheControl.OneHour, textPart.cacheControl)
+        assertEquals(AnthropicCacheControl.Default, textPart.cacheControl)
     }
 
     @Test
@@ -68,14 +69,14 @@ class PromptCacheHintsTest {
     }
 
     @Test
-    fun `userWithCacheHint wraps content with Anthropic OneHour by default`() {
+    fun `userWithCacheHint wraps content with the Anthropic 5-minute TTL by default`() {
         val p = prompt("test") {
             userWithCacheHint("long stable context preamble")
         }
         val user = p.messages.filterIsInstance<Message.User>().single()
         assertEquals("long stable context preamble", user.textContent())
         val textPart = user.parts.filterIsInstance<MessagePart.Text>().single()
-        assertEquals(AnthropicCacheControl.OneHour, textPart.cacheControl)
+        assertEquals(AnthropicCacheControl.Default, textPart.cacheControl)
     }
 
     @Test

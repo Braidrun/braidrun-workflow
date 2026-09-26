@@ -42,6 +42,21 @@ Act on these when moving from 1.2.x:
   metadata plus `braidrun_prompt_cache_hit=true` in response metadata; code
   that read the model id or provider metadata from a cache hit now gets empty
   values.
+- **Provider prompt-cache tokens are reported separately.** `AgentEvent` gains
+  `cacheReadTokens` / `cacheCreationTokens`; `inputTokens` excludes them for
+  every provider (Gemini's cached share moves out of `inputTokens`). Price
+  cache reads and writes at the provider's cache rates, not as input. See
+  `docs/PROMPT_CACHING.md`.
+- **Anthropic prompt caching is on by default** (`anthropic_prompt_caching`).
+  Direct Anthropic system prompts arrive as two blocks: the stable prompt, then
+  the environment block.
+- **`StepMetrics` token sums count each call once.** They used to add the
+  `token_usage` display duplicate, so they (and `sub_workflow_completed`
+  totals) were twice the real usage.
+- **The response-cache key changed**, so existing Redis / file entries miss
+  once. Streaming requests no longer go through the response cache.
+- **`PromptCacheHints` helpers default to the 5-minute TTL** instead of one
+  hour.
 - **Anthropic default `max_tokens`** is 16,000 (64,000 when streaming), capped
   by the model's output limit, instead of Koog's 2048. Replies without an
   explicit `max_tokens` can be longer and cost more.
@@ -161,6 +176,13 @@ Act on these when moving from 1.2.x:
   template this way).
 - `docs/SKILLS.md`: skill reference and the decision to keep the in-house skill
   system rather than `ai.koog:skills`.
+- Anthropic prompt caching: `PromptCachingLLMClient` places breakpoints on the
+  stable system prefix, the tail of each tool-loop round and the last tool;
+  `systemWithVolatileTail` keeps the per-build environment block (current
+  date) out of the cached prefix. `docs/PROMPT_CACHING.md` documents it and
+  the `PromptCachingHarnessTest` measurements.
+- `LlmTokenUsage` / `ResponseMetaInfo.tokenUsage()`: provider-normalized usage
+  with prompt-cache reads and writes.
 
 ### Fixed
 
@@ -174,6 +196,14 @@ Act on these when moving from 1.2.x:
   longer fail with HTTP 400, and a primary that rejects temperature no longer
   strips it from other tiers.
 - Prompt-cache hits no longer re-report the previous round's token usage.
+- Streamed Anthropic rounds report their prompt-cache reads and writes (Koog
+  1.3.0 drops them from streamed responses).
+- The response cache no longer replays another model's answer for an identical
+  prompt, no longer shares entries between tools that differ only in parameter
+  schema, treats a storage-key collision as a miss, and no longer fails on
+  prompts that carry cache markers.
+- A cache marker of another provider's type (for example a Bedrock marker on a
+  fallback to Anthropic) is dropped instead of failing the request.
 - Skill resource listings skip dot-directories, `node_modules`, `venv` and
   `__pycache__`.
 

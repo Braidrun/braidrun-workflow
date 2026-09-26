@@ -112,6 +112,7 @@ The library exposes the same parser and executor the CLI uses. See [Library Usag
 - [Claude Code and Codex Agents](docs/EXTERNAL_AGENTS.md)
 - [MCP](docs/MCP.md)
 - [Skills](docs/SKILLS.md)
+- [Prompt Caching and Token Accounting](docs/PROMPT_CACHING.md)
 - [Security](docs/SECURITY.md)
 - [Changelog](CHANGELOG.md)
 

@@ -5497,7 +5497,9 @@ class WorkflowExecutor(
                 val output = childMetrics.getOutputTokens()
                 val total = childMetrics.getTotalTokens()
                 ", child_execution_id=$derivedExecutionId, child_steps=${childMetrics.totalSteps}, " +
-                    "input_tokens=$input, output_tokens=$output, total_tokens=$total"
+                    "input_tokens=$input, output_tokens=$output, total_tokens=$total, " +
+                    "cache_read_tokens=${childMetrics.getCacheReadTokens()}, " +
+                    "cache_creation_tokens=${childMetrics.getCacheCreationTokens()}"
             } else ""
 
             WorkflowMonitor.addEvent(
@@ -5512,7 +5514,9 @@ class WorkflowExecutor(
                         "success=${childResult.success}$tokenSummary",
                     inputTokens = childMetrics?.getInputTokens()?.toInt(),
                     outputTokens = childMetrics?.getOutputTokens()?.toInt(),
-                    totalTokens = childMetrics?.getTotalTokens()?.toInt()
+                    totalTokens = childMetrics?.getTotalTokens()?.toInt(),
+                    cacheReadTokens = childMetrics?.getCacheReadTokens()?.toInt()?.takeIf { it > 0 },
+                    cacheCreationTokens = childMetrics?.getCacheCreationTokens()?.toInt()?.takeIf { it > 0 },
                 )
             )
         }
@@ -8520,6 +8524,8 @@ class WorkflowExecutor(
             inputTokens: Int? = null,
             outputTokens: Int? = null,
             totalTokens: Int? = null,
+            cacheReadTokens: Int? = null,
+            cacheCreationTokens: Int? = null,
         ) {
             WorkflowMonitor.addEvent(
                 executionId,
@@ -8533,6 +8539,8 @@ class WorkflowExecutor(
                     inputTokens = inputTokens,
                     outputTokens = outputTokens,
                     totalTokens = totalTokens,
+                    cacheReadTokens = cacheReadTokens,
+                    cacheCreationTokens = cacheCreationTokens,
                 )
             )
         }
@@ -8857,15 +8865,14 @@ class WorkflowExecutor(
                 // but a `MessagePart.Reasoning` inside the assistant message's parts list.
                 // We surface the same UI events as before by walking the parts directly.
                 val response = eventContext.response
-                val inputTokens = response?.metaInfo?.inputTokensCount?.takeIf { it > 0 }
-                val outputTokens = response?.metaInfo?.outputTokensCount?.takeIf { it > 0 }
-                val totalTokens = response?.metaInfo?.totalTokensCount?.takeIf { it > 0 }
+                // Normalized across providers: inputTokens is the uncached prompt, and cache
+                // reads / writes are separate counts (see LlmTokenUsage).
+                val usage = response?.metaInfo?.tokenUsage() ?: LlmTokenUsage()
+                val inputTokens = usage.inputTokens
+                val outputTokens = usage.outputTokens
+                val totalTokens = usage.totalTokens
 
-                val tokenDetail = listOfNotNull(
-                    inputTokens?.let { "input=$it" },
-                    outputTokens?.let { "output=$it" },
-                    totalTokens?.let { "total=$it" }
-                ).joinToString(", ").ifBlank { null }
+                val tokenDetail = usage.detail()
 
                 // 同上:detail 前缀加 model=/provider= 让步骤卡和事件 tab 都能
                 // 看到本次调用用的模型;两个段用 `; ` 分隔保持可读 + 可机器解析。
@@ -8880,10 +8887,12 @@ class WorkflowExecutor(
                     detail = detail,
                     inputTokens = inputTokens,
                     outputTokens = outputTokens,
-                    totalTokens = totalTokens
+                    totalTokens = totalTokens,
+                    cacheReadTokens = usage.cacheReadTokens,
+                    cacheCreationTokens = usage.cacheCreationTokens,
                 )
 
-                if (inputTokens != null || outputTokens != null || totalTokens != null) {
+                if (!usage.isEmpty) {
                     emit(
                         type = "token_usage",
                         category = "llm",
@@ -8892,7 +8901,9 @@ class WorkflowExecutor(
                         detail = tokenDetail,
                         inputTokens = inputTokens,
                         outputTokens = outputTokens,
-                        totalTokens = totalTokens
+                        totalTokens = totalTokens,
+                        cacheReadTokens = usage.cacheReadTokens,
+                        cacheCreationTokens = usage.cacheCreationTokens,
                     )
                 }
 

@@ -227,18 +227,18 @@ suspend inline fun <Input, Output> buildAgent(
                     it.collectBootstrapMessages().forEach { msg ->
                         logProgress(AnsiColor.CYAN, "Hooks", "💬 $msg")
                     }
-                    system {
-                        +buildSkillAwareSystemPrompt(
+                    // envInfo carries the current date/time, so it goes after the cacheable
+                    // prefix instead of rewriting it on every agent build (PromptCacheHints).
+                    systemWithVolatileTail(
+                        stable = buildSkillAwareSystemPromptPrefix(
                             skillManager = it,
                             systemPrompt = systemPrompt,
-                            envInfo = envInfo,
                             skillToolsRegistered = mcpAugmentedToolRegistry.hasSkillActivationTool(),
-                        )
-                    }
+                        ),
+                        volatileTail = "\n\n$envInfo",
+                    )
                 } ?: run {
-                    system {
-                        +"${systemPrompt}\n\n$envInfo"
-                    }
+                    systemWithVolatileTail(stable = systemPrompt, volatileTail = "\n\n$envInfo")
                 }
             },
             model = llmModel,
@@ -332,15 +332,28 @@ internal const val USE_SKILL_TOOL_NAME = "useSkill"
 internal fun ToolRegistry.hasSkillActivationTool(): Boolean = getToolOrNull(USE_SKILL_TOOL_NAME) != null
 
 /**
- * System prompt for an agent that has a [SkillManager]: skill catalog (only when
- * [skillToolsRegistered]), the operator prompt, bootstrap hook content, virtual bootstrap
- * files, then the environment info.
+ * System prompt for an agent that has a [SkillManager]: [buildSkillAwareSystemPromptPrefix]
+ * followed by the environment info. [buildAgent] sends the two as separate parts
+ * ([systemWithVolatileTail]); the joined text is what providers without explicit prompt
+ * caching receive.
  */
 @PublishedApi
 internal fun buildSkillAwareSystemPrompt(
     skillManager: SkillManager,
     systemPrompt: String,
     envInfo: String,
+    skillToolsRegistered: Boolean,
+): String = buildSkillAwareSystemPromptPrefix(skillManager, systemPrompt, skillToolsRegistered) + "\n\n" + envInfo
+
+/**
+ * The stable part of a [SkillManager] agent's system prompt: skill catalog (only when
+ * [skillToolsRegistered]), the operator prompt, bootstrap hook content and virtual bootstrap
+ * files — everything except the per-build environment info.
+ */
+@PublishedApi
+internal fun buildSkillAwareSystemPromptPrefix(
+    skillManager: SkillManager,
+    systemPrompt: String,
     skillToolsRegistered: Boolean,
 ): String {
     val skillPrompt = skillManager.createSkillSystemPrompt(skillToolsRegistered)
@@ -370,8 +383,6 @@ internal fun buildSkillAwareSystemPrompt(
                 append("\n\n")
             }
         }
-        append("\n\n")
-        append(envInfo)
     }
 }
 

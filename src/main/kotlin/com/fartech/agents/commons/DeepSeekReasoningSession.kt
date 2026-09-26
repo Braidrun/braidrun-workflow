@@ -181,8 +181,11 @@ internal fun Message.Assistant.withReasoningAsTextFallback(): Message.Assistant 
         .joinToString("\n")
         .trim()
         .ifBlank { "The model returned no assistant content." }
+    // Keep a prompt-cache breakpoint the replaced parts carried; otherwise rebuilding the
+    // message silently moves the cached prefix boundary.
+    val cacheControl = parts.lastOrNull { it.cacheControl != null }?.cacheControl
     return Message.Assistant(
-        content = reasoningText,
+        part = MessagePart.Text(reasoningText, cacheControl),
         metaInfo = metaInfo,
         finishReason = finishReason,
         rawResponse = rawResponse,
