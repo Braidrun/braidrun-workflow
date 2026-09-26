@@ -1,38 +1,45 @@
 provider: minimax
 models:
+  # Served by Koog's OpenAILLMClient, which needs `openai.completions` on every
+  # entry. MiniMax-M3 / M2.x ids and context windows verified against the
+  # MiniMax OpenAI-compatible API reference (2026-09-26).
+  "minimax-m3":
+    id: "MiniMax-M3"
+    capabilities: multimodal, openai.completions
+    context_length: 1000000
   "minimax-m2.7":
     id: "MiniMax-M2.7"
-    capabilities: standard
-    context_length: 196608
+    capabilities: standard, openai.completions
+    context_length: 204800
   "minimax-m2.5":
     id: "MiniMax-M2.5"
-    capabilities: standard
-    context_length: 196608
+    capabilities: standard, openai.completions
+    context_length: 204800
   "minimax-m2.1":
     id: "MiniMax-M2.1"
-    capabilities: standard
-    context_length: 196608
+    capabilities: standard, openai.completions
+    context_length: 204800
   "minimax-m2":
     id: "MiniMax-M2"
-    capabilities: standard
-    context_length: 196608
+    capabilities: standard, openai.completions
+    context_length: 204800
   "minimax-01":
     id: "MiniMax-01"
-    capabilities: multimodal
+    capabilities: multimodal, openai.completions
     context_length: 1000192
   "minimax-m1":
     id: "MiniMax-M1"
-    capabilities: standard
+    capabilities: standard, openai.completions
     context_length: 1000000
   "minimax-text-01":
     id: "MiniMax-Text-01"
-    capabilities: standard
+    capabilities: standard, openai.completions
     context_length: 1000192
   "minimax-vl-01":
     id: "MiniMax-VL-01"
-    capabilities: multimodal
+    capabilities: multimodal, openai.completions
     context_length: 1000192
   "minimax-m2-her":
     id: "MiniMax-M2-Her"
-    capabilities: standard
+    capabilities: standard, openai.completions
     context_length: 65536

@@ -2,6 +2,7 @@ package com.fartech.agents.commons
 
 import ai.koog.agents.core.tools.Tool
 import ai.koog.agents.core.tools.ToolRegistry
+import ai.koog.agents.core.tools.ToolRegistryBuilder as KoogToolRegistryBuilder
 import ai.koog.agents.core.tools.reflect.ToolSet
 import ai.koog.agents.ext.tool.ExitTool
 import ai.koog.agents.ext.tool.file.EditFileTool
@@ -64,7 +65,7 @@ fun getDefaultToolRegistry(
     // require operator-configured CLIs (claude / codex) and per-engine API keys. Workflows
     // that want them must opt in via `tool_set: [..., external_agent]`.
     if (!skillsSubsystemDisabled(parameters)) {
-        tools(SkillTools(parameters, httpAccess, skillManager, onMonitorEvent = onSkillEvent, onHookEvent = onHookEvent))
+        registerSkillTools(SkillTools(parameters, httpAccess, skillManager, onMonitorEvent = onSkillEvent, onHookEvent = onHookEvent))
     }
     val defaultExecutor = createSubprocessExecutor(parameters)
     val defaultUserId = parameters.parameter("user_id", "local-user")
@@ -86,7 +87,7 @@ fun getDefaultToolRegistry(
     tools(ShellTools(defaultExecutor, defaultUserId, subprocessContext))
     tools(WebTools(httpAccess, parameters))
     if (!browserToolsDisabled(parameters)) {
-        tools(BrowserTools(parameters))
+        browserTools(parameters)
     }
     tools(CalendarTools)
     tools(DataTransformTools)
@@ -339,7 +340,7 @@ private fun buildToolRegistry(
     }
 
     if (toolSet.contains("browser") && !browserDisabled) {
-        tools(BrowserTools(parameters))
+        browserTools(parameters)
     }
 
     if (toolSet.contains("pdf")) {
@@ -405,8 +406,8 @@ private fun buildToolRegistry(
     }
 
     if (toolSet.contains("skill_tools") && !skillsDisabled) {
-        // Skill Tools
-        tools(SkillTools(parameters, httpAccess, skillManager, onMonitorEvent = onSkillEvent, onHookEvent = onHookEvent))
+        // Skill Tools（写操作工具仅在宿主策略允许时注册）
+        registerSkillTools(SkillTools(parameters, httpAccess, skillManager, onMonitorEvent = onSkillEvent, onHookEvent = onHookEvent))
     }
 
     if (toolSet.contains("im")) {
@@ -484,6 +485,29 @@ private fun buildToolRegistry(
 
     customToolSets.forEach { tools(it) }
     customTools.forEach { tool(it) }
+}
+
+/**
+ * The `skill_tools` group: the read-only [SkillTools] always, plus the mutating
+ * [SkillAdminTools] (downloads, cache deletion, refresh) only while the host policy allows
+ * them. A multi-tenant host withholds them via
+ * [com.fartech.agents.workflow.WorkflowHostPolicy.restrictSkillSideEffects].
+ */
+private fun ai.koog.agents.core.tools.ToolRegistryBuilder.registerSkillTools(skillTools: SkillTools) {
+    tools(skillTools)
+    if (com.fartech.agents.workflow.WorkflowHostPolicy.allowsSkillAdminTools) {
+        tools(SkillAdminTools(skillTools))
+    }
+}
+
+/**
+ * The `browser` tool group: the reflection-based [BrowserTools] plus `browser_screenshot`, which is a
+ * [BrowserScreenshotTool] so the screenshot can reach vision models as an image part.
+ */
+private fun KoogToolRegistryBuilder.browserTools(parameters: List<ConfigurationParameter>) {
+    val browserTools = BrowserTools(parameters)
+    tools(browserTools)
+    tool(BrowserScreenshotTool(browserTools, ToolResultMediaPolicy.forParameters(parameters)))
 }
 
 internal fun skillsSubsystemDisabled(parameters: List<ConfigurationParameter>): Boolean {

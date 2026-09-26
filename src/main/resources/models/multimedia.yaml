@@ -5,9 +5,15 @@
 
 image_models:
   # ===== Google Gemini Image =====
-  "google/gemini-3.1-flash-image-preview":
-    description: "Google Gemini 3.1 Flash Image Preview - Latest and most advanced"
+  # Google shut the -preview ids down on 2026-06-25 (GA replacements below);
+  # OpenRouter still lists them, so they stay selectable but are no longer the default.
+  "google/gemini-3.1-flash-image":
+    description: "Google Gemini 3.1 Flash Image - Latest and most advanced"
     default: true
+  "google/gemini-3-pro-image":
+    description: "Google Gemini 3 Pro Image"
+  "google/gemini-3.1-flash-image-preview":
+    description: "Google Gemini 3.1 Flash Image Preview"
   "google/gemini-3-pro-image-preview":
     description: "Google Gemini 3 Pro Image Preview"
   "google/gemini-2.5-flash-image":

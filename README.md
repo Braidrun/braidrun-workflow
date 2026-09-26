@@ -10,7 +10,9 @@ Use this repository when you need the runtime as a command-line tool or an embed
 - Agent steps, code steps, parallel execution, conditions, iteration, retries, state machines, and sub-workflows.
 - Typed decisions with the TypeSafe Jev decision model: classifier routing with calibrated confidence, plus Jev-graded `repeat_until` loops.
 - Built-in presets for coding, research, writing, data analysis, documents, browser automation, DevOps, communication, and marketing research.
-- Built-in tool groups for files, shell, Git, HTTP, browser automation, documents, databases, RAG, email, image processing, and MCP.
+- Built-in tool groups for files, shell, Git, HTTP, browser automation, documents, databases, RAG, email, image processing, and MCP. Browser screenshots and MCP image results reach Anthropic, Gemini 3+ and Responses-API-only OpenAI vision models as images (text placeholders elsewhere).
+- Koog 1.3.0 model catalog (Claude 5, GPT-6 / GPT-5.6, Gemini 3.x, Qwen 3.x, Grok 4.x and more), with per-request fitting of `temperature`, `tool_choice` and Anthropic `max_tokens` to each model.
+- In-house Agent Skills (`SKILL.md`) with scoped discovery, `useSkill` activation and host-level lockdown for multi-tenant servers.
 - Multi-runtime agent execution: embedded Koog agents, plus Claude Code and OpenAI Codex as direct workflow agents or delegated sub-agents.
 - Native subprocess mode for trusted local development and Docker subprocess mode for production isolation.
 
@@ -93,7 +95,7 @@ repositories {
 }
 
 dependencies {
-    implementation("com.github.Braidrun:braidrun-workflow:1.2.0")
+    implementation("com.github.Braidrun:braidrun-workflow:1.3.0")
 }
 ```
 
@@ -109,6 +111,7 @@ The library exposes the same parser and executor the CLI uses. See [Library Usag
 - [Agent Presets](docs/AGENT_PRESETS.md)
 - [Claude Code and Codex Agents](docs/EXTERNAL_AGENTS.md)
 - [MCP](docs/MCP.md)
+- [Skills](docs/SKILLS.md)
 - [Security](docs/SECURITY.md)
 - [Changelog](CHANGELOG.md)
 

@@ -2,7 +2,6 @@ package com.fartech.agents.commons
 
 import ai.koog.prompt.cache.memory.InMemoryPromptCache
 import ai.koog.prompt.cache.redis.RedisPromptCache
-import ai.koog.prompt.executor.cached.CachedPromptExecutor
 import ai.koog.prompt.executor.clients.LLMClient
 import ai.koog.prompt.executor.clients.retry.RetryConfig
 import ai.koog.prompt.executor.clients.retry.RetryingLLMClient
@@ -105,9 +104,10 @@ private fun clampPositive(name: String, value: Int, hardCap: Int, default: Int):
  *     (`memory`, `redis`, `file`).
  *   - [createPromptExecutor] — wraps the provider's LLM clients in
  *     [RetryingLLMClient], composes them via [MultiLLMPromptExecutor], and
- *     optionally wraps the whole thing in a [CachedPromptExecutor] unless the
- *     caller explicitly opts out (streaming, where cache buffering would
- *     interfere with incremental output).
+ *     optionally wraps the whole thing in a [MeteringSafeCachedPromptExecutor]
+ *     (Koog's `CachedPromptExecutor`, with cache hits reporting no token
+ *     usage) unless the caller explicitly opts out (streaming, where cache
+ *     buffering would interfere with incremental output).
  */
 
 /**
@@ -165,15 +165,16 @@ fun determineCachePolicy(
 
 /**
  * Build a [PromptExecutor] that:
- *   1. wraps each provider's [LLMClient] with [RetryingLLMClient] (config
- *      resolved from `retry_max_attempts` / `retry_initial_delay` /
- *      `retry_max_delay`, else `RetryConfig.PRODUCTION`);
+ *   1. wraps each provider's [LLMClient] with [ToolResultMediaAdaptingLLMClient]
+ *      (tool-result images only where the route can show them) and
+ *      [RetryingLLMClient] (config resolved from `retry_max_attempts` /
+ *      `retry_initial_delay` / `retry_max_delay`, else `RetryConfig.PRODUCTION`);
  *   2. composes them via [MultiLLMPromptExecutor] with the caller-supplied
  *      fallback settings;
- *   3. wraps the result in a [CachedPromptExecutor] using
+ *   3. wraps the result in a [MeteringSafeCachedPromptExecutor] using
  *      [determineCachePolicy] — **unless** `disable_cache_for_streaming=true`,
  *      in which case caching is skipped to avoid incremental-stream buffering
- *      issues.
+ *      issues. Cache hits carry no token usage, so they are never metered.
  */
 fun createPromptExecutor(
     parameters: List<ConfigurationParameter>,
@@ -212,12 +213,16 @@ fun createPromptExecutor(
         RetryConfig.PRODUCTION
     }
 
+    // ToolResultMediaAdaptingLLMClient sits under MultiLLMPromptExecutor so it sees the client and
+    // model that really serve each request (fallback / cascade tiers included) and turns tool-result
+    // images that route cannot show into text placeholders.
+    val maxToolResultImages = toolResultImagesPerRequest(parameters)
     val baseExecutor = MultiLLMPromptExecutor(
         llmClients = llmClients.first
             .toList()
             .associate {
                 it.first to RetryingLLMClient(
-                    it.second,
+                    ToolResultMediaAdaptingLLMClient(it.second, maxToolResultImages),
                     config = retryConfig
                 )
             },
@@ -232,7 +237,7 @@ fun createPromptExecutor(
                 add(
                     MultiLLMPromptExecutor(
                         llmClients = clients.mapValues { (_, client) ->
-                            RetryingLLMClient(client, config = retryConfig)
+                            RetryingLLMClient(ToolResultMediaAdaptingLLMClient(client, maxToolResultImages), config = retryConfig)
                         },
                         fallback = fallback,
                     )
@@ -256,8 +261,9 @@ fun createPromptExecutor(
     return if (disableCache) {
         providerSafeExecutor
     } else {
-        CachedPromptExecutor(
-            cache = determineCachePolicy(parameters),
+        MeteringSafeCachedPromptExecutor(
+            // Prompts carrying tool-result images bypass the cache (see ToolResultMediaBypassingPromptCache).
+            cache = ToolResultMediaBypassingPromptCache(determineCachePolicy(parameters)),
             nested = providerSafeExecutor
         )
     }

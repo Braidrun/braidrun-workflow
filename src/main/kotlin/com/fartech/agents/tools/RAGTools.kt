@@ -11,6 +11,8 @@ import ai.koog.prompt.executor.clients.openai.OpenAILLMClient
 import ai.koog.prompt.llm.LLMCapability
 import ai.koog.prompt.llm.LLMProvider
 import ai.koog.prompt.llm.LLModel
+import com.fartech.agents.commons.LlmEndpointPolicy
+import com.fartech.agents.workflow.WorkflowHostPolicy
 import com.fartech.ftapp2.commonsKt.ConfigurationParameter
 import com.fartech.ftapp2.commonsKt.parameter
 import io.ktor.client.HttpClient
@@ -133,11 +135,15 @@ interface EmbedderFactory {
         val Default: EmbedderFactory = object : EmbedderFactory {
             override fun create(parameters: List<ConfigurationParameter>, baseClient: HttpClient?): Embedder {
                 val baseUrl = resolveEmbeddingBaseUrl(parameters)
+                // rag_embedding_base_url / openrouter_base_url are user-controlled on a
+                // multi-tenant host: same SSRF guard as the chat clients.
+                val customEndpoint = isCustomEmbeddingEndpoint(baseUrl)
+                LlmEndpointPolicy.check(baseUrl, "rag_embedding", providerDefault = !customEndpoint)
                 val embeddingModel = normalizeEmbeddingModelId(
                     parameters.parameter("rag_embedding_model", "text-embedding-3-small"),
                     baseUrl
                 )
-                val apiKey = resolveEmbeddingApiKey(parameters)
+                val apiKey = resolveEmbeddingApiKeyFor(parameters, baseUrl)
 
                 val model = LLModel(
                     provider = LLMProvider.OpenAI,
@@ -169,6 +175,25 @@ interface EmbedderFactory {
         }
     }
 }
+
+/**
+ * [resolveEmbeddingApiKey] for the embedder that targets [baseUrl]: under
+ * [WorkflowHostPolicy.requireExplicitKeysForCustomLlmEndpoints] a user-chosen embedding host only
+ * gets keys supplied with the run, never the host's environment keys.
+ */
+internal fun resolveEmbeddingApiKeyFor(
+    parameters: List<ConfigurationParameter>,
+    baseUrl: String,
+    env: Map<String, String> = System.getenv()
+): String {
+    val explicitOnly = isCustomEmbeddingEndpoint(baseUrl) && WorkflowHostPolicy.requiresExplicitKeysForCustomLlmEndpoints
+    return resolveEmbeddingApiKey(parameters, if (explicitOnly) emptyMap() else env)
+}
+
+/** True when [baseUrl] is neither the OpenAI nor the OpenRouter default embedding endpoint. */
+internal fun isCustomEmbeddingEndpoint(baseUrl: String): Boolean =
+    LlmEndpointPolicy.isCustomEndpoint(baseUrl, DEFAULT_OPENAI_EMBEDDING_BASE_URL) &&
+        LlmEndpointPolicy.isCustomEndpoint(baseUrl, DEFAULT_OPENROUTER_EMBEDDING_BASE_URL)
 
 /**
  * Resolves the API key for embedding operations.

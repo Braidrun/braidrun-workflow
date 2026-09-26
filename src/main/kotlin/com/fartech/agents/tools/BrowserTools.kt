@@ -13,6 +13,7 @@ import com.microsoft.playwright.options.ScreenshotType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.*
+import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 
 @LLMDescription("Toolset for browser automation using Playwright, including navigation, interaction, and screenshots")
@@ -33,6 +34,14 @@ class BrowserTools(
         @Volatile private var browser: Browser? = null
         private val contexts = ConcurrentHashMap<String, BrowserContext>()
         private val pages = ConcurrentHashMap<String, Page>()
+
+        /**
+         * Run scope ([runScope]) that created each context. Contexts and pages are JVM-global and keyed
+         * only by the model-chosen contextId, so in the shared web JVM one run can reach a page another
+         * run left open. Screenshot pixels are only handed to the model when the caller's own run
+         * created the context (see [ScreenshotCapture.Saved.ownedByCaller]).
+         */
+        private val contextOwners = ConcurrentHashMap<String, String>()
 
         /** Cap on the cookiesJson payload accepted by browser_set_cookies. */
         private const val MAX_COOKIES_JSON_BYTES = 256 * 1024
@@ -99,6 +108,7 @@ class BrowserTools(
                 }
             }
             contexts.clear()
+            contextOwners.clear()
             try {
                 browser?.close()
             } catch (e: Exception) {
@@ -114,6 +124,20 @@ class BrowserTools(
         }
     }
 
+    /**
+     * Identity of the workflow run this toolset serves (`execution_id`, else `session_id`); blank when
+     * neither is set, in which case no screenshot is ever treated as owned by the caller.
+     */
+    private val runScope: String by lazy {
+        listOf("execution_id", "session_id").firstNotNullOfOrNull { key ->
+            (parameters.find { it.key == key }?.value as? JsonPrimitive)
+                ?.takeIf { it.isString }?.content?.trim()?.takeIf { it.isNotEmpty() }
+        }.orEmpty()
+    }
+
+    private fun ownsContext(contextId: String): Boolean =
+        runScope.isNotEmpty() && contextOwners[contextId] == runScope
+
     private fun getOrCreatePage(contextId: String): Page {
         val browser = getBrowser(parameters)
         val userAgent = parameters.parameter(
@@ -124,6 +148,7 @@ class BrowserTools(
         // getOrPut would launch two real BrowserContexts/Pages and the losing one —
         // a live headless tab — would never be stored nor closed.
         val context = contexts.computeIfAbsent(contextId) {
+            contextOwners[contextId] = runScope
             browser.newContext(
                 Browser.NewContextOptions()
                     .setUserAgent(userAgent)
@@ -171,16 +196,25 @@ class BrowserTools(
         return scheme == "http" || scheme == "https"
     }
 
-    @Tool
-    @LLMDescription("Take a screenshot of the current page")
-    suspend fun browser_screenshot(
-        @LLMDescription("Path to save the screenshot image (e.g., 'screenshot.png')")
+    /** Outcome of [captureScreenshot]; [Saved.png] is Playwright's own output, never read back from disk. */
+    sealed interface ScreenshotCapture {
+        /**
+         * [ownedByCaller] is true only when the calling run created the browser context, so the
+         * pixels are this run's own page and may be shown to its model.
+         */
+        class Saved(val file: File, val png: ByteArray, val ownedByCaller: Boolean = true) : ScreenshotCapture
+        data class Failed(val message: String) : ScreenshotCapture
+    }
+
+    /**
+     * Backs the `browser_screenshot` tool, which is registered as [BrowserScreenshotTool] (not a
+     * `@Tool` method here) so it can hand the PNG to vision models as an image part.
+     */
+    suspend fun captureScreenshot(
         path: String,
-        @LLMDescription("Optional context ID")
         contextId: String = "default",
-        @LLMDescription("Whether to take a full page screenshot")
         fullPage: Boolean = false
-    ): String = withContext(Dispatchers.IO) {
+    ): ScreenshotCapture = withContext(Dispatchers.IO) {
         try {
             // Phase 9 (2026-05): validate the destination path against the standard
             // output-path guard. Pre-Phase-9 the LLM-supplied `path` flowed straight
@@ -188,17 +222,17 @@ class BrowserTools(
             // `path = "../../.ssh/authorized_keys"` would have been honored.
             val safeFile = ToolPathSecurity.validateOutputPath(path)
             val page = getOrCreatePage(contextId)
-            page.screenshot(
+            val png = page.screenshot(
                 Page.ScreenshotOptions()
                     .setPath(safeFile.toPath())
                     .setFullPage(fullPage)
                     .setType(ScreenshotType.PNG)
             )
-            "✅ Screenshot saved to ${safeFile.absolutePath}"
+            ScreenshotCapture.Saved(safeFile, png, ownedByCaller = ownsContext(contextId))
         } catch (e: SecurityException) {
-            "❌ Screenshot path rejected: ${e.message}"
+            ScreenshotCapture.Failed("❌ Screenshot path rejected: ${e.message}")
         } catch (e: Exception) {
-            "❌ Screenshot failed: ${e.message}"
+            ScreenshotCapture.Failed("❌ Screenshot failed: ${e.message}")
         }
     }
 
@@ -742,6 +776,7 @@ class BrowserTools(
         try {
             pages.remove(contextId)?.close()
             contexts.remove(contextId)?.close()
+            contextOwners.remove(contextId)
             "✅ Context $contextId closed"
         } catch (e: Exception) {
             "❌ Failed to close context: ${e.message}"

@@ -317,7 +317,11 @@ object ModelRegistry {
         // 解析模型
         val models = providerModels.getOrPut(canonicalKey) { mutableMapOf() }
         for ((key, entry) in providerDef.models) {
-            val capabilities = parseCapabilitiesString(entry.capabilities)
+            val capabilities = withClientRequiredCapabilities(
+                llmProvider,
+                entry.id,
+                parseCapabilitiesString(entry.capabilities)
+            )
             models[key.lowercase()] = LLModel(
                 provider = llmProvider,
                 id = entry.id,

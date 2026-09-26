@@ -151,6 +151,105 @@ braidrun-workflow run workflow.yaml --var topic="agent workflow runtime"
 
 Use `sub_workflow` when one workflow should call another workflow as a reusable module. The CLI uses a file-system resolver rooted at the parent workflow directory and the current working directory.
 
+## Models and LLM Settings
+
+A preset agent picks its model through `llm_config` in `overrides`. The model
+catalog lives in `src/main/resources/models/*.yaml` (one file per provider);
+use a key from those files as `model`, or any other id, which is sent as-is.
+First-party Anthropic ids are dashed (`claude-opus-5`, `claude-opus-4-8`);
+OpenRouter ids are dotted (`claude-sonnet-4.5` → `anthropic/claude-sonnet-4.5`).
+The tier aliases `claude-opus` and `claude-sonnet` currently point at Opus 4.8
+and Sonnet 4.6.
+
+```yaml
+agents:
+  writer:
+    preset: writer
+    overrides:
+      llm_config:
+        models:
+          - provider: anthropic
+            model: claude-opus-5
+        cascade_fallbacks:
+          - provider: open_router
+            model: claude-sonnet-4.5
+        temperature: 0.7
+      cascade_fallback_enabled: true
+workflow:
+  - step: draft
+    agent: writer
+    input: "Draft the release announcement."
+```
+
+- `llm_config` accepts snake_case and camelCase keys: `base_url` / `baseUrl`,
+  `max_token` / `maxToken`, `is_vision` / `isVision`, `display_name`,
+  `custom_models`, `cascade_fallbacks`, and in custom models `model_id`,
+  `context_length`, `max_output_tokens`. A blank `base_url` means the provider
+  default. Before 1.3.0 the snake_case spellings were silently ignored.
+- Parameters are fitted to each model on every request, including fallback and
+  cascade tiers. `temperature` is left out for models that reject it (Claude
+  Opus 4.7+, Sonnet 5, Fable 5.x, Kimi K3, GPT-5.x / 6 and any model without the
+  `temperature` capability); other tiers still get it. A forced tool choice
+  becomes `auto` for models that do not support it.
+- Direct Anthropic requests without `max_tokens` default to 16,000 output
+  tokens (64,000 when streaming), capped by the model's limit.
+- Models on OpenAI-compatible providers (OpenAI, DashScope, Kimi, MiniMax, Z.ai,
+  NVIDIA, LM Studio) need an `openai.completions` or `openai.responses`
+  capability; catalog entries declare it, and custom models get
+  `openai.completions` when they declare neither.
+- `num_choices` greater than 1 is not metered (token usage and cost are not
+  reported for those rounds). Hosts that bill per token cap it at 1, so on the
+  hosted Braidrun service it has no effect.
+
+## Tool Result Images
+
+`browser_screenshot` and MCP tools that return images send them to the model as
+images when the model can view them: Anthropic vision models, Gemini 3+ vision
+models, and OpenAI models (not Azure) that use only the Responses API (e.g. the
+`-pro` and `-codex` entries). GPT models that also declare `openai.completions`
+use Chat Completions and get placeholders, as do OpenRouter and other
+OpenAI-compatible providers. Other models get a
+short text placeholder with the image type, size and the reason. Screenshots
+are also saved to disk as before. A screenshot image is attached only when the
+current run opened that browser context; otherwise the model is told to use a
+new `contextId`.
+
+Each attached image is re-sent on every later round (roughly 1.2–1.6K input
+tokens per image per round). Three agent parameters bound the cost:
+
+| Parameter | Default | Meaning |
+| --- | --- | --- |
+| `tool_result_images_enabled` | `true` | `false` sends placeholders only. Accepts booleans or `true`/`false`/`1`/`0`/`yes`/`no`/`on`/`off` strings. |
+| `tool_result_images_max_per_request` | `4` | Most recent images kept per request, clamped to 0–12. |
+| `tool_result_images_max_per_run` | `24` | Images attached per agent run, clamped to 0–200; `0` turns images off. |
+
+```yaml
+agents:
+  operator:
+    preset: computer_operator
+    overrides:
+      tool_result_images_max_per_request: 2
+      tool_result_images_max_per_run: 10
+workflow:
+  - step: check_page
+    agent: operator
+    input: "Open https://example.com and describe the page layout."
+```
+
+Images are shrunk to at most 1568 px and 1 MB; WebP larger than 1568 px is not
+attached. Agents with durable persistence (`enable_persistence` with a
+non-memory `persistence_storage_type`) stay text-only, and prompts that carry
+images skip the prompt cache.
+
+## Skills
+
+Agents with the `skill_tools` group see an `<available_skills>` catalog and load
+a skill with `useSkill`, which returns the full instructions every time it is
+called. Without `skill_tools` in an explicit tool list, or with
+`disable_skills: true`, the catalog is not added to the prompt. Per-skill MCP
+servers do not start unless the host opts in. See [Skills](SKILLS.md) for the
+`SKILL.md` format and discovery rules.
+
 ## Jev (TypeSafe) Decisions
 
 [Jev](https://docs.typesafe.ai) is TypeSafe AI's decision model. It does not write

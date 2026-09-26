@@ -1,100 +1,85 @@
 provider: google
 models:
+  # Ids and limits verified against ai.google.dev/gemini-api/docs/models and
+  # /deprecations (2026-09-26). Shut-down ids (gemini-3-pro-preview, the
+  # 3.1-flash-lite / 3.1-flash-image / 3-pro-image previews, 2.5 previews, the
+  # whole 2.0 and 1.5 lines) are gone: Google 404s them.
+  #
+  # Gemini 3 requires a thought signature on replayed function calls; Koog only
+  # injects its fallback signature for models declaring `thinking`.
   # ===== Gemini 3.x =====
-  "gemini-3.1-pro-preview":
-    id: "gemini-3.1-pro-preview"
-    capabilities: multimodal
-    context_length: 1048576
-  "gemini-3.1-flash-lite-preview":
-    id: "gemini-3.1-flash-lite-preview"
-    capabilities: multimodal
-    context_length: 1048576
-  "gemini-3.1-flash-image-preview":
-    id: "gemini-3.1-flash-image-preview"
-    capabilities: multimodal
-    context_length: 65536
-  "gemini-3-pro-preview":
-    id: "gemini-3-pro-preview"
-    capabilities: multimodal
-    context_length: 1048576
-  "gemini-3-pro-image-preview":
-    id: "gemini-3-pro-image-preview"
-    capabilities: multimodal
-    context_length: 65536
-  "gemini-3-flash-preview":
-    id: "gemini-3-flash-preview"
-    capabilities: multimodal
-    context_length: 1048576
-  # ===== Gemini 2.5 =====
-  "gemini-2.5-pro":
-    id: "gemini-2.5-pro"
-    capabilities: temperature, completion, multiple_choices, vision, vision.video, audio, tools, tool_choice, json.basic, json
+  "gemini-3.8-flash":
+    id: "gemini-3.8-flash"
+    capabilities: temperature, completion, multiple_choices, vision, vision.video, audio, document, tools, tool_choice, json.basic, json, thinking
     context_length: 1048576
     max_output_tokens: 65536
-  "gemini-2.5-pro-preview-05-06":
-    id: "gemini-2.5-pro-preview-05-06"
-    capabilities: multimodal
+  "gemini-3.7-flash":
+    id: "gemini-3.7-flash"
+    capabilities: temperature, completion, multiple_choices, vision, vision.video, audio, document, tools, tool_choice, json.basic, json, thinking
+    context_length: 1048576
+    max_output_tokens: 65536
+  "gemini-3.6-flash":
+    id: "gemini-3.6-flash"
+    capabilities: temperature, completion, multiple_choices, vision, vision.video, audio, document, tools, tool_choice, json.basic, json, thinking
+    context_length: 1048576
+    max_output_tokens: 65536
+  "gemini-3.5-flash":
+    id: "gemini-3.5-flash"
+    capabilities: temperature, completion, multiple_choices, vision, vision.video, audio, document, tools, tool_choice, json.basic, json, thinking
+    context_length: 1048576
+    max_output_tokens: 65536
+  "gemini-3.5-flash-lite":
+    id: "gemini-3.5-flash-lite"
+    capabilities: temperature, completion, multiple_choices, vision, vision.video, audio, document, tools, tool_choice, json.basic, json, thinking
+    context_length: 1048576
+    max_output_tokens: 65536
+  "gemini-3.1-flash-lite":
+    id: "gemini-3.1-flash-lite"
+    capabilities: temperature, completion, multiple_choices, vision, vision.video, audio, document, tools, tool_choice, json.basic, json, thinking
+    context_length: 1048576
+    max_output_tokens: 65536
+  "gemini-3.1-pro-preview":
+    id: "gemini-3.1-pro-preview"
+    capabilities: temperature, completion, multiple_choices, vision, vision.video, audio, document, tools, tool_choice, json.basic, json, thinking
+    context_length: 1048576
+    max_output_tokens: 65536
+  "gemini-3-flash-preview":
+    id: "gemini-3-flash-preview"
+    capabilities: temperature, completion, multiple_choices, vision, vision.video, audio, document, tools, tool_choice, json.basic, json, thinking
+    context_length: 1048576
+    max_output_tokens: 65536
+  # Image-generation models answer in text + image and take no tools.
+  "gemini-3.1-flash-image":
+    id: "gemini-3.1-flash-image"
+    capabilities: temperature, completion, vision, document, thinking
+    context_length: 131072
+    max_output_tokens: 32768
+  "gemini-3-pro-image":
+    id: "gemini-3-pro-image"
+    capabilities: temperature, completion, vision, thinking
+    context_length: 65536
+    max_output_tokens: 32768
+  # ===== Gemini 2.5 (served only to projects that already used them) =====
+  "gemini-2.5-pro":
+    id: "gemini-2.5-pro"
+    capabilities: temperature, completion, multiple_choices, vision, vision.video, audio, document, tools, tool_choice, json.basic, json, thinking
     context_length: 1048576
     max_output_tokens: 65536
   "gemini-2.5-flash":
     id: "gemini-2.5-flash"
-    capabilities: temperature, completion, multiple_choices, vision, vision.video, audio, tools, tool_choice, json.basic, json
-    context_length: 1048576
-    max_output_tokens: 65536
-  "gemini-2.5-flash-preview-04-17":
-    id: "gemini-2.5-flash-preview-04-17"
-    capabilities: multimodal
+    capabilities: temperature, completion, multiple_choices, vision, vision.video, audio, tools, tool_choice, json.basic, json, thinking
     context_length: 1048576
     max_output_tokens: 65536
   "gemini-2.5-flash-lite":
     id: "gemini-2.5-flash-lite"
-    capabilities: multimodal
+    capabilities: temperature, completion, multiple_choices, vision, vision.video, audio, document, tools, tool_choice, json.basic, json, thinking
     context_length: 1048576
+    max_output_tokens: 65536
+  # Shuts down 2026-10-02; replacement is gemini-3.1-flash-image.
   "gemini-2.5-flash-image":
     id: "gemini-2.5-flash-image"
-    capabilities: multimodal
+    capabilities: temperature, completion, vision
     context_length: 32768
-  # ===== Gemini 2.0 =====
-  "gemini-2.0-flash":
-    id: "gemini-2.0-flash"
-    capabilities: multimodal
-    context_length: 1048576
-  "gemini-2.0-flash-001":
-    id: "gemini-2.0-flash-001"
-    capabilities: multimodal
-    context_length: 1048576
-  "gemini-2.0-flash-exp":
-    id: "gemini-2.0-flash-exp"
-    capabilities: multimodal
-    context_length: 1048576
-  "gemini-2.0-flash-thinking-exp":
-    id: "gemini-2.0-flash-thinking-exp"
-    capabilities: multimodal
-    context_length: 1048576
-  "gemini-2.0-flash-lite":
-    id: "gemini-2.0-flash-lite"
-    capabilities: multimodal
-    context_length: 1048576
-  "gemini-2.0-flash-lite-001":
-    id: "gemini-2.0-flash-lite-001"
-    capabilities: multimodal
-    context_length: 1048576
-  # ===== Gemini 1.5 =====
-  "gemini-1.5-pro":
-    id: "gemini-1.5-pro"
-    capabilities: multimodal
-    context_length: 2097152
-    max_output_tokens: 8192
-  "gemini-1.5-flash":
-    id: "gemini-1.5-flash"
-    capabilities: multimodal
-    context_length: 1048576
-    max_output_tokens: 8192
-  "gemini-1.5-flash-8b":
-    id: "gemini-1.5-flash-8b"
-    capabilities: multimodal
-    context_length: 1048576
-    max_output_tokens: 8192
   # ===== Gemma 4 =====
   "gemma-4-31b-it":
     id: "gemma-4-31b-it"

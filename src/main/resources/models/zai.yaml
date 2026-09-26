@@ -6,6 +6,18 @@ aliases:
 - zhipuai
 - zhipu_ai
 models:
+  # GLM-5.3 / GLM-5.3-Flash: docs.z.ai (2026-09-26) — 1M context, 128K output,
+  # thinking always on (disabling it 400s). Flash also takes image / video / file.
+  "glm-5.3":
+    id: "glm-5.3"
+    capabilities: completion, temperature, tools, tool_choice, json.basic, json, multiple_choices, thinking, openai.completions
+    context_length: 1000000
+    max_output_tokens: 128000
+  "glm-5.3-flash":
+    id: "glm-5.3-flash"
+    capabilities: completion, temperature, tools, tool_choice, json.basic, json, multiple_choices, thinking, vision, openai.completions
+    context_length: 1000000
+    max_output_tokens: 128000
   "glm-5.1":
     id: "glm-5.1"
     capabilities: completion, temperature, tools, tool_choice, json.basic, json, multiple_choices, openai.completions

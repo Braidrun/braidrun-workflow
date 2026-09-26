@@ -39,6 +39,14 @@ Use this skill when a user or agent needs current guidance for authoring or runn
 6. Use `dry-run` to review the step and agent plan without calling models or tools.
 7. When a TypeSafe key is available and a route or quality gate needs a calibrated decision, prefer a Jev step (`classifier.jev`, `repeat_until.jev`) over an LLM judge parsed with regex.
 
+## Models and Agent Settings
+
+- Set the model in `overrides.llm_config` (`models`, `fallback`, `cascade_fallbacks`); snake_case and camelCase keys both work. Pick ids from `src/main/resources/models/*.yaml`: first-party Anthropic ids are dashed (`claude-opus-5`), OpenRouter ids dotted (`claude-sonnet-4.5`).
+- The engine fits params per model: `temperature` is dropped where rejected (Claude Opus 4.7+ / Sonnet 5 / Fable 5, GPT-5.x) and forced `tool_choice` becomes `auto` where unsupported, so one config can mix model families. Direct Anthropic defaults to 16K `max_tokens` (64K streaming).
+- `num_choices > 1` is unmetered and capped at 1 on hosted Braidrun; leave it unset.
+- Anthropic, Gemini 3+ and Responses-only OpenAI vision models see images from `browser_screenshot` and MCP tools. Bound cost with `tool_result_images_max_per_request` (default 4) and `tool_result_images_max_per_run` (default 24), or `tool_result_images_enabled: false`.
+- Skills: `useSkill` always returns the full skill; per-skill MCP servers do not auto-start.
+
 ## Useful Commands
 
 ```bash

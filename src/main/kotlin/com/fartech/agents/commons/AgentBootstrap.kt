@@ -29,11 +29,7 @@ import ai.koog.prompt.streaming.StreamFrame
 // inside one message.
 import ai.koog.prompt.streaming.toMessageResponse
 import ai.koog.serialization.TypeToken
-// `toLLM()` / `toLLModel()` extensions live in tools.SubAgentTools. Explicitly imported
-// here because AgentBootstrap no longer shares `AgentCommon`'s wildcard `com.fartech.agents.tools.*`
-// import after the Phase 5 file split.
-import com.fartech.agents.tools.toLLM
-import com.fartech.agents.tools.toLLModel
+import com.fartech.agents.workflow.WorkflowHostPolicy
 import com.fartech.ftapp2.commonsKt.AnsiColor
 import com.fartech.ftapp2.commonsKt.ConfigurationParameter
 import com.fartech.ftapp2.commonsKt.HttpAccess
@@ -46,35 +42,44 @@ import kotlinx.serialization.json.intOrNull
 import kotlin.uuid.ExperimentalUuidApi
 
 /**
- * Resolve sampling temperature after applying model-specific wire constraints.
- *
- * Kimi K3 fixes temperature at 1.0 and recommends that clients omit the field.
- * Workflow and preset defaults are commonly 0.5-0.8, so forwarding the configured
- * value would make an otherwise valid K3 request fail with HTTP 400.
+ * `num_choices` comes from user-controlled workflow config. Under
+ * [WorkflowHostPolicy.requireSingleLlmChoice] it is capped at 1 so every round
+ * stays on the metered single-choice path (see
+ * `requestLLMMultiplePreservingDeepSeekReasoning`).
  */
 @PublishedApi
-internal fun resolveModelTemperature(
-    model: LLModel,
-    configuredTemperature: Double?,
-    modelGroupConfig: LLModelGroupConfig? = null,
-): Double? {
-    val includesKimiK3 = model.provider == KIMI_LLM_PROVIDER &&
-        model.id.equals("kimi-k3", ignoreCase = true) ||
-        modelGroupConfig
-            ?.let { it.models + it.fallback + it.cascadeFallbacks }
-            .orEmpty()
-            .any {
-                val isKimiProvider =
-                    it.provider.equals("kimi", ignoreCase = true) ||
-                        it.provider.equals("moonshot", ignoreCase = true)
-                isKimiProvider && it.model.equals("kimi-k3", ignoreCase = true)
-            }
+internal fun resolveNumberOfChoices(configured: Int): Int =
+    if (WorkflowHostPolicy.requiresSingleLlmChoice) 1 else configured
 
-    return if (includesKimiK3) {
-        null
-    } else {
-        configuredTemperature
+/**
+ * Resolve the prompt's sampling temperature.
+ *
+ * The prompt params are shared by the primary, the fallback and every cascade tier, so the
+ * configured value is kept as-is here: per-model wire constraints (Kimi K3 fixes temperature at
+ * 1.0; Claude Opus 4.7+ / Sonnet 5 / Fable / Mythos reject sampling) are enforced per request by
+ * [ModelParamsSanitizingLLMClient], which knows the concrete model each call goes to. Dropping it
+ * here for the primary would take the temperature away from tiers that do support it.
+ */
+@PublishedApi
+internal fun resolveModelTemperature(configuredTemperature: Double?): Double? = configuredTemperature
+
+/**
+ * Failure path of [buildAndRunAgent]: always rethrows [e] (a failed run must never turn into a
+ * `null` output), adding a Langfuse hint for Koog's OpenTelemetry span-tree error.
+ */
+@PublishedApi
+internal fun rethrowAgentRunFailure(e: Exception): Nothing {
+    // Koog's OpenTelemetry SpanCollector throws this when a node ends with a live child
+    // span. The Koog 0.6.4 cause (no interceptLLMCallFailed) is fixed upstream, so this used
+    // to swallow the run's real failure into a null output; now it only adds a hint.
+    if (e is IllegalStateException && e.message?.contains("Error deleting span node from the tree") == true) {
+        logProgress(
+            AnsiColor.YELLOW,
+            "Agent",
+            "💡 OpenTelemetry span-tree error; if it persists set 'enable_langfuse_tracing: false' to disable Langfuse tracing"
+        )
     }
+    throw e
 }
 
 /**
@@ -147,9 +152,7 @@ suspend inline fun <Input, Output> buildAgent(
         key = "llm_config",
         defaultValue = LLModelGroupConfig(models = listOf())
     ),
-    llmModel: LLModel = llModelGroupConfig.getDefaultModelName()?.let {
-        llModelGroupConfig.foundModelWithName(it).toLLM().toLLModel()
-    } ?: llModelGroupConfig.models.firstOrNull()?.toLLM()?.toLLModel() ?: DEFAULT_LLM_MODEL,
+    llmModel: LLModel = llModelGroupConfig.resolveDefaultLLModel(),
     skillManager: SkillManager? = createSkillManager(parameters),
     noinline installFeatures: GraphAIAgent.FeatureContext.() -> Unit = defaultInstallFeatures,
     noinline strategyBuilder: (List<ConfigurationParameter>, HttpAccess, ToolRegistry) -> AIAgentGraphStrategy<Input, Output>
@@ -173,7 +176,12 @@ suspend inline fun <Input, Output> buildAgent(
     // works only because MCP tools are discovered at use-time inside
     // nodes. Tier-2's `ResponseProcessor` also needs the registered set
     // so the tool-call-fix loop can look up tool descriptors correctly.
-    val mcpAugmentedToolRegistry = registerMcpTools(httpAccess, parameters, toolRegistry)
+    val mcpAugmentedToolRegistry = registerMcpTools(
+        httpAccess = httpAccess,
+        parameters = parameters,
+        toolRegistry = toolRegistry,
+        mediaPolicy = ToolResultMediaPolicy.forModel(llmModel, parameters),
+    )
 
     return GraphAIAgent(
         // Koog 1.0.0 dropped the `inputType` / `outputType` constructor parameters
@@ -200,13 +208,9 @@ suspend inline fun <Input, Output> buildAgent(
             prompt = prompt(
                 id = "chat",
                 params = LLMParams(
-                    temperature = resolveModelTemperature(
-                        model = llmModel,
-                        configuredTemperature = llModelGroupConfig.temperature,
-                        modelGroupConfig = llModelGroupConfig,
-                    ),
+                    temperature = resolveModelTemperature(llModelGroupConfig.temperature),
                     maxTokens = configuredMaxTokens,
-                    numberOfChoices = parameters.parameter("num_choices", 1),
+                    numberOfChoices = resolveNumberOfChoices(parameters.parameter("num_choices", 1)),
                     // Tier-2 (2026-04) — portable `tool_choice` forwarding.
                     // Translates the workflow YAML's `tool_choice: auto|required|none|<toolName>`
                     // into Koog's unified [LLMParams.ToolChoice]; each provider
@@ -224,34 +228,12 @@ suspend inline fun <Input, Output> buildAgent(
                         logProgress(AnsiColor.CYAN, "Hooks", "💬 $msg")
                     }
                     system {
-                        val hookContent = it.collectBootstrapHookContent()
-                        val virtualFiles = it.collectBootstrapVirtualFiles()
-                        val fullPrompt = buildString {
-                            append(it.createSkillSystemPrompt())
-                            append("\n\n")
-                            append(systemPrompt)
-                            if (hookContent.isNotBlank()) {
-                                append("\n\n")
-                                append(hookContent)
-                            }
-                            // Inject virtual bootstrap files (mirrors OpenClaw bootstrapFiles mechanism).
-                            // Each file is presented as if it had been read from disk at session start,
-                            // formatted identically to ReadFileTool output so the agent can reference
-                            // the file by path.
-                            if (virtualFiles.isNotEmpty()) {
-                                append("\n\n")
-                                append("## Bootstrap Files\n\n")
-                                append("The following files were automatically loaded at session start:\n\n")
-                                virtualFiles.forEach { (path, content) ->
-                                    append("[File: $path]\n")
-                                    append(content)
-                                    append("\n\n")
-                                }
-                            }
-                            append("\n\n")
-                            append(envInfo)
-                        }
-                        +fullPrompt
+                        +buildSkillAwareSystemPrompt(
+                            skillManager = it,
+                            systemPrompt = systemPrompt,
+                            envInfo = envInfo,
+                            skillToolsRegistered = mcpAugmentedToolRegistry.hasSkillActivationTool(),
+                        )
                     }
                 } ?: run {
                     system {
@@ -338,6 +320,61 @@ suspend inline fun <Input, Output> buildAgent(
     }
 }
 
+/** Name of the `SkillTools` tool the `<available_skills>` catalog tells the model to call. */
+internal const val USE_SKILL_TOOL_NAME = "useSkill"
+
+/**
+ * True when this registry can activate skills. The skill catalog is only worth emitting then:
+ * `disable_skills`, an exact tool set without `skill_tools`, or a host-built registry leave
+ * the model told to call a tool that does not exist.
+ */
+@PublishedApi
+internal fun ToolRegistry.hasSkillActivationTool(): Boolean = getToolOrNull(USE_SKILL_TOOL_NAME) != null
+
+/**
+ * System prompt for an agent that has a [SkillManager]: skill catalog (only when
+ * [skillToolsRegistered]), the operator prompt, bootstrap hook content, virtual bootstrap
+ * files, then the environment info.
+ */
+@PublishedApi
+internal fun buildSkillAwareSystemPrompt(
+    skillManager: SkillManager,
+    systemPrompt: String,
+    envInfo: String,
+    skillToolsRegistered: Boolean,
+): String {
+    val skillPrompt = skillManager.createSkillSystemPrompt(skillToolsRegistered)
+    val hookContent = skillManager.collectBootstrapHookContent()
+    val virtualFiles = skillManager.collectBootstrapVirtualFiles()
+    return buildString {
+        if (skillPrompt.isNotBlank()) {
+            append(skillPrompt)
+            append("\n\n")
+        }
+        append(systemPrompt)
+        if (hookContent.isNotBlank()) {
+            append("\n\n")
+            append(hookContent)
+        }
+        // Inject virtual bootstrap files (mirrors OpenClaw bootstrapFiles mechanism).
+        // Each file is presented as if it had been read from disk at session start,
+        // formatted identically to ReadFileTool output so the agent can reference
+        // the file by path.
+        if (virtualFiles.isNotEmpty()) {
+            append("\n\n")
+            append("## Bootstrap Files\n\n")
+            append("The following files were automatically loaded at session start:\n\n")
+            virtualFiles.forEach { (path, content) ->
+                append("[File: $path]\n")
+                append(content)
+                append("\n\n")
+            }
+        }
+        append("\n\n")
+        append(envInfo)
+    }
+}
+
 /**
  * Reified convenience overload — derives `TypeToken`s from reified type
  * parameters and forwards to the non-inline [buildAgent] above.
@@ -352,9 +389,7 @@ suspend inline fun <reified Input, reified Output> buildAgent(
         key = "llm_config",
         defaultValue = LLModelGroupConfig(models = listOf())
     ),
-    llmModel: LLModel = llModelGroupConfig.getDefaultModelName()?.let {
-        llModelGroupConfig.foundModelWithName(it).toLLM().toLLModel()
-    } ?: llModelGroupConfig.models.firstOrNull()?.toLLM()?.toLLModel() ?: DEFAULT_LLM_MODEL,
+    llmModel: LLModel = llModelGroupConfig.resolveDefaultLLModel(),
     skillManager: SkillManager? = createSkillManager(parameters),
     noinline installFeatures: GraphAIAgent.FeatureContext.() -> Unit = defaultInstallFeatures,
     noinline strategyBuilder: (List<ConfigurationParameter>, HttpAccess, ToolRegistry) -> AIAgentGraphStrategy<Input, Output>
@@ -377,10 +412,8 @@ suspend inline fun <reified Input, reified Output> buildAgent(
  * `MESSAGE*` / `COMMAND*` / `AGENT_ERROR` / `SESSION_END` skill hooks.
  *
  * Closes the agent in `finally` so subprocess / file handles don't leak if
- * the run throws. A known koog 0.6.4 OpenTelemetry bug (orphaned inference
- * span when an LLM call fails) is specifically caught here — it would
- * otherwise manifest as an unrelated `IllegalStateException` deep inside
- * node execution.
+ * the run throws. Failures always propagate to the caller (after the
+ * `AGENT_ERROR` hook); nothing is turned into a `null` output.
  */
 suspend inline fun <reified Input, reified Output> buildAndRunAgent(
     httpAccess: HttpAccess,
@@ -431,10 +464,6 @@ suspend inline fun <reified Input, reified Output> buildAndRunAgent(
     // turn TWICE (restoreHistoryNode replay + the request node's user(input)),
     // wasting tokens and producing user/user sequences some providers reject.
     saveHistoryMessage(updatedParameters, "user", input.toString())
-    // koog 0.6.4 OTel bug workaround: when an LLM API call fails, the inference span is never
-    // removed from SpanCollector (missing interceptLLMCallFailed handler). When the node then
-    // fails, interceptNodeExecutionFailed tries to removeSpan() but finds the orphaned child
-    // span and throws IllegalStateException. We catch it here to prevent a full program crash.
     var output: Output? = null
     try {
         output = agent.run(input)
@@ -453,20 +482,7 @@ suspend inline fun <reified Input, reified Output> buildAndRunAgent(
             sessionId,
             mapOf("error" to (e.message ?: e.toString()))
         )
-        if (e is IllegalStateException && e.message?.contains("Error deleting span node from the tree") == true) {
-            logProgress(
-                AnsiColor.RED,
-                "Agent",
-                "⚠️ koog OTel bug triggered (missing interceptLLMCallFailed): ${e.message}"
-            )
-            logProgress(
-                AnsiColor.YELLOW,
-                "Agent",
-                "💡 Workaround: set 'enable_langfuse_tracing: false' in config to disable Langfuse tracing"
-            )
-        } else {
-            throw e
-        }
+        rethrowAgentRunFailure(e)
     } finally {
         try {
             agent.close()

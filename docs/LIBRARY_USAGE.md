@@ -69,3 +69,38 @@ Recommended integration pattern:
   `JevCredentials` is in `com.fartech.agents.jev`. See
   [Jev (TypeSafe) Decisions](WORKFLOW_GUIDE.md#jev-typesafe-decisions) for the full
   order in which keys and models are resolved.
+
+## Embedding in a Multi-Tenant Host
+
+The library builds on Koog 1.3.0 (stable modules) and 1.3.0-beta (beta-only
+modules); see `build.gradle.kts` for which module is on which stream. If your
+build also depends on Koog directly, use the same versions.
+
+A server that runs other people's workflows should declare the host policy
+latches once at startup, before building any executor:
+
+```kotlin
+import com.fartech.agents.workflow.WorkflowHostPolicy
+
+WorkflowHostPolicy.requireCodeStepExecutor()                  // code: steps only via your executor
+WorkflowHostPolicy.requirePublicLlmEndpoints()                // no LLM / embedding / multimedia calls to private hosts
+WorkflowHostPolicy.requireExplicitKeysForCustomLlmEndpoints() // env keys never go to a user-set base_url
+WorkflowHostPolicy.requireSingleLlmChoice()                   // num_choices capped at 1, so every round is metered
+WorkflowHostPolicy.restrictSkillSideEffects()                 // no skill hooks, skill MCP servers or agent skill installs
+```
+
+They are one-way and process-wide, deliberately not configuration parameters,
+because workflow YAML and parameters are user-controlled. See
+[Security](SECURITY.md#host-policy-latches) for what each one does. The CLI and
+plain library use set none of them. Per-skill MCP auto-start is off unless you
+call `WorkflowHostPolicy.allowSkillMcpAutoStart()`.
+
+Skill tools: the mutating skill operations (`downloadSkillFromClawHub`,
+`downloadSkillFromGit`, `clearSkillCache`, `refreshSkills`) are on
+`SkillAdminTools`, not `SkillTools`. For user-initiated installs, call the host
+API `SkillTools.downloadSkillFromClawHub(..., refreshManager = false)`, validate
+the result, then refresh your skill manager. See [Skills](SKILLS.md).
+
+Metering: token usage arrives through the LLM-call events for every round of
+the default strategies. Prompt-cache hits carry no token counts and set
+`braidrun_prompt_cache_hit=true` in the response metadata.

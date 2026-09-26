@@ -292,14 +292,16 @@ class WorkflowExecutorRuntimeParameterTest {
             "materializeSkillDirectory",
             String::class.java,
             File::class.java,
-            String::class.java
+            String::class.java,
+            SkillsConfiguration::class.java
         ).apply { isAccessible = true }
+        val config = SkillsConfiguration(skillsPath = sourceRoot.toString(), builtinSkillsEnabled = false)
 
-        val firstPath = method.invoke(executor, sourceRoot.toString(), destinationRoot, "configured") as String
+        val firstPath = method.invoke(executor, sourceRoot.toString(), destinationRoot, "configured", config) as String
         val stagedDir = File(firstPath)
         val sentinel = File(stagedDir, "sentinel.txt").apply { writeText("keep-me") }
 
-        val secondPath = method.invoke(executor, sourceRoot.toString(), destinationRoot, "configured") as String
+        val secondPath = method.invoke(executor, sourceRoot.toString(), destinationRoot, "configured", config) as String
 
         assertEquals(firstPath, secondPath)
         assertTrue(stagedDir.isDirectory)

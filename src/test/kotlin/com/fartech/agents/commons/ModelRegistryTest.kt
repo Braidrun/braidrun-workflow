@@ -363,6 +363,55 @@ class ModelRegistryTest {
         }
 
         @Test
+        fun `every model served by OpenAILLMClient selects an OpenAI endpoint`() {
+            // OpenAILLMClient.determineParams throws "Cannot determine proper LLM params" for a
+            // model declaring neither endpoint; the loader adds Chat Completions when implicit.
+            var checked = 0
+            ModelRegistry.getAllProviderModels().forEach { (providerKey, models) ->
+                models.forEach { (name, model) ->
+                    if (!isOpenAICompatibleProviderIdentity(model.provider)) return@forEach
+                    checked++
+                    assertTrue(
+                        model.supports(LLMCapability.OpenAIEndpoint.Completions) ||
+                            model.supports(LLMCapability.OpenAIEndpoint.Responses),
+                        "$providerKey model '$name' must declare an OpenAI endpoint capability"
+                    )
+                }
+            }
+            assertTrue(checked > 0)
+        }
+
+        @Test
+        fun `workflow custom models on OpenAI-client providers get chat completions`() {
+            try {
+                registerCustomModel(
+                    CustomModelDefinition(name = "rt-test-custom-qwen", provider = "qwen_direct", modelId = "qwen3.7-max")
+                )
+                registerCustomModel(
+                    CustomModelDefinition(
+                        name = "rt-test-custom-responses", provider = "openai", modelId = "gpt-rt",
+                        capabilities = listOf("tools", "openai.responses"),
+                    )
+                )
+                val qwen = determineLLMModel(LLModelConfig(provider = "qwen_direct", model = "rt-test-custom-qwen"))
+                assertTrue(qwen.supports(LLMCapability.OpenAIEndpoint.Completions))
+                // A declared endpoint is kept as-is.
+                val responses = determineLLMModel(LLModelConfig(provider = "openai", model = "rt-test-custom-responses"))
+                assertTrue(responses.supports(LLMCapability.OpenAIEndpoint.Responses))
+                assertFalse(responses.supports(LLMCapability.OpenAIEndpoint.Completions))
+            } finally {
+                unregisterCustomModel("qwen_direct", "rt-test-custom-qwen")
+                unregisterCustomModel("openai", "rt-test-custom-responses")
+            }
+            // Dynamically created (unknown to catalog and custom registry).
+            val dynamic = determineLLMModel(LLModelConfig(provider = "nvidia", model = "rt-unknown-nim-model"))
+            assertTrue(dynamic.supports(LLMCapability.OpenAIEndpoint.Completions))
+            // Not an OpenAI-client provider: untouched.
+            val anthropic = determineLLMModel(LLModelConfig(provider = "anthropic", model = "rt-unknown-claude"))
+            assertFalse(anthropic.supports(LLMCapability.OpenAIEndpoint.Completions))
+        }
+
+        @Test
         fun `getModel is case-insensitive`() {
             val model = ModelRegistry.getModel("OpenRouter", "GPT-4o")
             assertNotNull(model)

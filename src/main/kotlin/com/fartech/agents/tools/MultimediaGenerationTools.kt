@@ -4,8 +4,11 @@ import ai.koog.agents.core.tools.annotations.LLMDescription
 import ai.koog.agents.core.tools.annotations.Tool
 import ai.koog.agents.core.tools.reflect.ToolSet
 import com.fartech.agents.commons.LLModelGroupConfig
+import com.fartech.agents.commons.LlmEndpointPolicy
 import com.fartech.agents.commons.getLLMGroupConfig
 import com.fartech.agents.commons.resolveConfiguredApiKey
+import com.fartech.agents.commons.resolveConfiguredApiKeyFromParams
+import com.fartech.agents.workflow.WorkflowHostPolicy
 import com.fartech.ftapp2.commonsKt.*
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonArray
@@ -68,11 +71,14 @@ enum class ImageGenerationAspectRatios(val ratio: String) {
 @Serializable
 @LLMDescription("Image generation model")
 enum class ImageModel(val model: String) {
-    @LLMDescription("Google Gemini 3.1 Flash Image Preview (Nano Banana 2) - Latest and most advanced")
-    NANO_BANANA_2("google/gemini-3.1-flash-image-preview"),
+    // Google retired the -preview ids on 2026-06-25; these point at the GA ids (multimedia.yaml
+    // marks google/gemini-3.1-flash-image as the default). The -preview ids stay reachable
+    // through `multimedia_default_image_model` while OpenRouter still lists them.
+    @LLMDescription("Google Gemini 3.1 Flash Image (Nano Banana 2) - Latest and most advanced")
+    NANO_BANANA_2("google/gemini-3.1-flash-image"),
 
-    @LLMDescription("Google Gemini 3 Pro Image Preview (Nano Banana Pro)")
-    NANO_BANANA_PRO("google/gemini-3-pro-image-preview"),
+    @LLMDescription("Google Gemini 3 Pro Image (Nano Banana Pro)")
+    NANO_BANANA_PRO("google/gemini-3-pro-image"),
 
     @LLMDescription("Google Gemini 2.5 Flash Image")
     NANO_BANANA("google/gemini-2.5-flash-image"),
@@ -100,6 +106,8 @@ enum class AudioModel(val model: String) {
     GPT_4O_AUDIO_PREVIEW("openai/gpt-4o-audio-preview")
 }
 
+private const val DEFAULT_MULTIMEDIA_BASE_URL = "https://openrouter.ai"
+
 @LLMDescription("Toolset for multimedia generation operations including image and audio")
 class MultimediaGenerationTools(
     val httpAccess: HttpAccess,
@@ -116,7 +124,17 @@ class MultimediaGenerationTools(
         "png", "jpg", "jpeg", "webp", "gif", "bmp", "avif"
     )
 
-    private fun multimediaBaseUrl(): String {
+    /**
+     * 多媒体请求的 base URL，并经过与聊天客户端相同的 SSRF 校验（[LlmEndpointPolicy]）：
+     * multimedia_base_url / llm_config 中的 base_url 在多租户宿主上由用户控制。
+     */
+    internal fun multimediaBaseUrl(): String {
+        val baseUrl = configuredMultimediaBaseUrl() ?: DEFAULT_MULTIMEDIA_BASE_URL
+        LlmEndpointPolicy.check(baseUrl, "multimedia", providerDefault = !isCustomMultimediaEndpoint(baseUrl))
+        return baseUrl
+    }
+
+    private fun configuredMultimediaBaseUrl(): String? {
         val dedicated = parameters.parameter("multimedia_base_url", "")
         if (dedicated.isNotBlank()) return dedicated.trimEnd('/')
 
@@ -128,10 +146,14 @@ class MultimediaGenerationTools(
 
         val group = parameters.getLLMGroupConfig()
         val modelConfig = group.models.firstOrNull { it.provider.equals("openrouter", ignoreCase = true) }
-        return (modelConfig?.baseUrl?.takeIf { it.isNotBlank() } ?: "https://openrouter.ai").trimEnd('/')
+        return modelConfig?.baseUrl?.takeIf { it.isNotBlank() }?.trimEnd('/')
     }
 
-    private fun multimediaApiKey(): String {
+    private fun isCustomMultimediaEndpoint(baseUrl: String): Boolean =
+        LlmEndpointPolicy.isCustomEndpoint(baseUrl, DEFAULT_MULTIMEDIA_BASE_URL)
+
+    /** 用户自选的 base URL 只使用随本次运行提供的 key，绝不使用宿主环境变量里的 key。 */
+    internal fun multimediaApiKey(baseUrl: String = multimediaBaseUrl()): String {
         val dedicated = parameters.parameter("multimedia_api_key", "")
         if (dedicated.isNotBlank()) return dedicated
 
@@ -142,7 +164,13 @@ class MultimediaGenerationTools(
         if (!dedicatedOpenRouter.isNullOrBlank()) return dedicatedOpenRouter
 
         val keys = parameters.parameter("llm_provider_keys", mapOf<String, String>())
-        return resolveConfiguredApiKey(parameters, "openrouter", keys) ?: ""
+        val explicitOnly = isCustomMultimediaEndpoint(baseUrl) &&
+            WorkflowHostPolicy.requiresExplicitKeysForCustomLlmEndpoints
+        return if (explicitOnly) {
+            resolveConfiguredApiKeyFromParams(parameters, "openrouter", keys) ?: ""
+        } else {
+            resolveConfiguredApiKey(parameters, "openrouter", keys) ?: ""
+        }
     }
 
     /**
@@ -242,12 +270,12 @@ class MultimediaGenerationTools(
         referenceImages: List<String> = emptyList()
     ): String {
         val resolvedModelId = resolveImageModelId(model)
-        val apiKey = multimediaApiKey()
+        val baseUrl = multimediaBaseUrl()
+        val apiKey = multimediaApiKey(baseUrl)
         if (apiKey.isBlank()) {
             printlnColor(AnsiColor.YELLOW, "[ImageGen] Multimedia API key not configured. Skipping image generation.")
             return "Multimedia API key not configured. Skipping image generation."
         }
-        val baseUrl = multimediaBaseUrl()
         val url = "$baseUrl/api/v1/chat/completions"
         // Build a Responses API payload per OpenRouter docs
         val body = JsonObject(
@@ -304,12 +332,12 @@ class MultimediaGenerationTools(
         voice: String? = null
     ): String {
         val resolvedModelId = resolveAudioModelId(model)
-        val apiKey = multimediaApiKey()
+        val baseUrl = multimediaBaseUrl()
+        val apiKey = multimediaApiKey(baseUrl)
         if (apiKey.isBlank()) {
             printlnColor(AnsiColor.YELLOW, "[AudioGen] Multimedia API key not configured. Skipping audio generation.")
             return "Multimedia API key not configured. Skipping audio generation."
         }
-        val baseUrl = multimediaBaseUrl()
         val url = "$baseUrl/api/v1/chat/completions"
 
         val body = JsonObject(

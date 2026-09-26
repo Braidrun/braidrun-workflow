@@ -1,5 +1,43 @@
 provider: qwen
 models:
+  # ===== Qwen 3.8 / 3.7 =====
+  # OpenRouter slugs from openrouter.ai/api/v1/models (2026-09-26); OpenRouter
+  # serves Qwen3.8 Max only under its dated `-0902` slug.
+  "qwen3.8-max":
+    id: "qwen/qwen3.8-max-0902"
+    capabilities: temperature, completion, tools, tool_choice, vision, vision.video, json.basic, json, thinking
+    context_length: 1000000
+    max_output_tokens: 131072
+  "qwen3.8-flash":
+    id: "qwen/qwen3.8-flash"
+    capabilities: temperature, completion, tools, tool_choice, vision, vision.video, json.basic, json, thinking
+    context_length: 1000000
+    max_output_tokens: 131072
+  "qwen3.8-2.4t-a95b":
+    id: "qwen/qwen3.8-2.4t-a95b"
+    capabilities: temperature, completion, tools, tool_choice, json.basic, json, thinking
+    context_length: 1048576
+    max_output_tokens: 131072
+  "qwen3.8-27b":
+    id: "qwen/qwen3.8-27b"
+    capabilities: temperature, completion, tools, tool_choice, vision, vision.video, json.basic, json, thinking
+    context_length: 1000000
+    max_output_tokens: 131072
+  "qwen3.7-max":
+    id: "qwen/qwen3.7-max"
+    capabilities: temperature, completion, tools, tool_choice, json.basic, json, thinking
+    context_length: 1000000
+    max_output_tokens: 131072
+  "qwen3.7-plus":
+    id: "qwen/qwen3.7-plus"
+    capabilities: temperature, completion, tools, tool_choice, vision, json.basic, json, thinking
+    context_length: 1000000
+    max_output_tokens: 131072
+  "qwen3.7-flash":
+    id: "qwen/qwen3.7-flash"
+    capabilities: temperature, completion, tools, tool_choice, vision, vision.video, json.basic, json, thinking
+    context_length: 1000000
+    max_output_tokens: 65536
   # ===== Qwen 3.6 =====
   "qwen3.6-plus":
     id: "qwen/qwen3.6-plus"

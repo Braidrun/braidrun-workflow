@@ -107,8 +107,16 @@ object HttpHostSafety {
      * [assertHostIsPublic]'s lookup could return a public IP while the HTTP stack's separate
      * connect-time lookup returns an internal one. No-op when `WEB_TOOLS_ALLOW_PRIVATE_URLS=true`.
      */
-    fun assertResolvedAddressesPublic(host: String, addresses: List<InetAddress>) {
-        if (allowPrivateHosts()) return
+    fun assertResolvedAddressesPublic(host: String, addresses: List<InetAddress>) =
+        assertResolvedAddressesPublic(host, addresses, allowPrivateOverride = allowPrivateHosts())
+
+    /**
+     * Variant of [assertResolvedAddressesPublic] where the caller decides whether the
+     * `WEB_TOOLS_ALLOW_PRIVATE_URLS` opt-out applies (see [assertHostIsPublic] with
+     * `allowPrivateOverride`).
+     */
+    fun assertResolvedAddressesPublic(host: String, addresses: List<InetAddress>, allowPrivateOverride: Boolean) {
+        if (allowPrivateOverride) return
         addresses.forEach { addr ->
             val why = disallowedAddressReason(addr)
             if (why != null) {

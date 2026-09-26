@@ -34,6 +34,26 @@ openrouter_routed:
 - inclusionai
 - allenai
 models:
+  "grok-4.7":
+    id: "x-ai/grok-4.7"
+    capabilities: temperature, completion, tools, tool_choice, vision, json.basic, json, thinking, document
+    context_length: 500000
+    max_output_tokens: 450000
+  "grok-4.6":
+    id: "x-ai/grok-4.6"
+    capabilities: temperature, completion, tools, tool_choice, vision, json.basic, json, thinking, document
+    context_length: 500000
+    max_output_tokens: 450000
+  "grok-4.5":
+    id: "x-ai/grok-4.5"
+    capabilities: temperature, completion, tools, tool_choice, vision, json.basic, json, thinking, document
+    context_length: 500000
+    max_output_tokens: 450000
+  "grok-4.3":
+    id: "x-ai/grok-4.3"
+    capabilities: temperature, completion, tools, tool_choice, vision, json.basic, json, thinking, document
+    context_length: 1000000
+    max_output_tokens: 900000
   "grok-4.20-multi-agent":
     id: "x-ai/grok-4.20-multi-agent"
     capabilities: multimodal
@@ -50,117 +70,112 @@ models:
     id: "x-ai/grok-4.20"
     capabilities: multimodal
     context_length: 2000000
-  "grok-4-fast":
-    id: "x-ai/grok-4-fast"
-    capabilities: multimodal
-    context_length: 2000000
-  "grok-4":
-    id: "x-ai/grok-4"
-    capabilities: multimodal
-    context_length: 256000
-  "grok-3":
-    id: "x-ai/grok-3"
-    capabilities: standard
-    context_length: 131072
-  "grok-3-mini":
-    id: "x-ai/grok-3-mini"
-    capabilities: standard
-    context_length: 131072
-  "grok-code-fast-1":
-    id: "x-ai/grok-code-fast-1"
-    capabilities: standard
-    context_length: 256000
+  # GPT-6 / GPT-5.6 reasoning models reject non-default temperature.
+  "gpt-6-astra":
+    id: "openai/gpt-6-astra"
+    capabilities: completion, speculation, tools, tool_choice, vision, document, json.basic, json, thinking
+    context_length: 1050000
+    max_output_tokens: 128000
+  "gpt-6-sol":
+    id: "openai/gpt-6-sol"
+    capabilities: completion, speculation, tools, tool_choice, vision, document, json.basic, json, thinking
+    context_length: 1050000
+    max_output_tokens: 128000
+  "gpt-6-luna":
+    id: "openai/gpt-6-luna"
+    capabilities: completion, speculation, tools, tool_choice, vision, document, json.basic, json, thinking
+    context_length: 1050000
+    max_output_tokens: 128000
+  "gpt-5.6-sol":
+    id: "openai/gpt-5.6-sol"
+    capabilities: completion, speculation, tools, tool_choice, vision, document, json.basic, json, thinking
+    context_length: 1050000
+    max_output_tokens: 128000
+  "gpt-5.6-terra":
+    id: "openai/gpt-5.6-terra"
+    capabilities: completion, speculation, tools, tool_choice, vision, document, json.basic, json, thinking
+    context_length: 1050000
+    max_output_tokens: 128000
+  "gpt-5.6-luna":
+    id: "openai/gpt-5.6-luna"
+    capabilities: completion, speculation, tools, tool_choice, vision, document, json.basic, json, thinking
+    context_length: 1050000
+    max_output_tokens: 128000
   "gpt-5.5-pro":
     id: "openai/gpt-5.5-pro"
-    capabilities: multimodal
+    capabilities: json, speculation, tools, tool_choice, completion, vision, thinking
     context_length: 1050000
   "gpt-5.5":
     id: "openai/gpt-5.5"
-    capabilities: multimodal
+    capabilities: json, speculation, tools, tool_choice, completion, vision, thinking
     context_length: 1050000
   "gpt-5.4-image-2":
     id: "openai/gpt-5.4-image-2"
-    capabilities: multimodal
+    capabilities: json, speculation, tools, tool_choice, completion, vision, thinking
     context_length: 272000
   "gpt-5.4-pro":
     id: "openai/gpt-5.4-pro"
-    capabilities: multimodal
+    capabilities: json, speculation, tools, tool_choice, completion, vision, thinking
     context_length: 1050000
   "gpt-5.4":
     id: "openai/gpt-5.4"
-    capabilities: multimodal
+    capabilities: json, speculation, tools, tool_choice, completion, vision, thinking
     context_length: 1050000
-  "gpt-5.3-chat":
-    id: "openai/gpt-5.3-chat"
-    capabilities: multimodal
-    context_length: 128000
   "gpt-5.3-codex":
     id: "openai/gpt-5.3-codex"
-    capabilities: multimodal
+    capabilities: json, speculation, tools, tool_choice, completion, vision, thinking
     context_length: 400000
   "gpt-5.2-pro":
     id: "openai/gpt-5.2-pro"
-    capabilities: multimodal
+    capabilities: json, speculation, tools, tool_choice, completion, vision, thinking
     context_length: 400000
   "gpt-5.2-codex":
     id: "openai/gpt-5.2-codex"
-    capabilities: multimodal
+    capabilities: json, speculation, tools, tool_choice, completion, vision, thinking
     context_length: 400000
   "gpt-5.2-chat":
     id: "openai/gpt-5.2-chat"
-    capabilities: multimodal
+    capabilities: json, speculation, tools, tool_choice, completion, vision
     context_length: 128000
   "gpt-5.2":
     id: "openai/gpt-5.2"
-    capabilities: multimodal
+    capabilities: json, speculation, tools, tool_choice, completion, vision, thinking
     context_length: 400000
   "gpt-5.1-codex":
     id: "openai/gpt-5.1-codex"
-    capabilities: multimodal
+    capabilities: json, speculation, tools, tool_choice, completion, vision, thinking
     context_length: 400000
   "gpt-5.1-codex-mini":
     id: "openai/gpt-5.1-codex-mini"
-    capabilities: multimodal
+    capabilities: json, speculation, tools, tool_choice, completion, vision, thinking
     context_length: 400000
   "gpt-5.1-codex-max":
     id: "openai/gpt-5.1-codex-max"
-    capabilities: multimodal
+    capabilities: json, speculation, tools, tool_choice, completion, vision, thinking
     context_length: 400000
-  "gpt-5.1-chat":
-    id: "openai/gpt-5.1-chat"
-    capabilities: multimodal
-    context_length: 128000
   "gpt-5.1":
     id: "openai/gpt-5.1"
-    capabilities: multimodal
+    capabilities: json, speculation, tools, tool_choice, completion, vision, thinking
     context_length: 400000
-  "gpt-5-chat":
-    id: "openai/gpt-5-chat"
-    capabilities: multimodal
-    context_length: 128000
   "gpt-5":
     id: "openai/gpt-5"
-    capabilities: standard
+    capabilities: json, speculation, tools, tool_choice, completion, thinking
     context_length: 400000
   "gpt-5-nano":
     id: "openai/gpt-5-nano"
-    capabilities: standard
+    capabilities: json, speculation, tools, tool_choice, completion, thinking
     context_length: 400000
   "gpt-5-mini":
     id: "openai/gpt-5-mini"
-    capabilities: standard
-    context_length: 400000
-  "gpt-5-codex":
-    id: "openai/gpt-5-codex"
-    capabilities: multimodal
+    capabilities: json, speculation, tools, tool_choice, completion, thinking
     context_length: 400000
   "gpt-5-image":
     id: "openai/gpt-5-image"
-    capabilities: multimodal
+    capabilities: temperature, json, speculation, tools, tool_choice, completion, vision, thinking
     context_length: 400000
   "gpt-5-image-mini":
     id: "openai/gpt-5-image-mini"
-    capabilities: multimodal
+    capabilities: temperature, json, speculation, tools, tool_choice, completion, vision, thinking
     context_length: 400000
   "gpt-4.1":
     id: "openai/gpt-4.1"
@@ -226,30 +241,14 @@ models:
     id: "openai/o4-mini-high"
     capabilities: multimodal
     context_length: 200000
-  "o3-deep-research":
-    id: "openai/o3-deep-research"
-    capabilities: multimodal
-    context_length: 200000
-  "o4-mini-deep-research":
-    id: "openai/o4-mini-deep-research"
-    capabilities: multimodal
-    context_length: 200000
   "gpt-5.4-nano":
     id: "openai/gpt-5.4-nano"
-    capabilities: multimodal
+    capabilities: json, speculation, tools, tool_choice, completion, vision, thinking
     context_length: 400000
   "gpt-5.4-mini":
     id: "openai/gpt-5.4-mini"
-    capabilities: multimodal
+    capabilities: json, speculation, tools, tool_choice, completion, vision, thinking
     context_length: 400000
-  "gpt-4o-search-preview":
-    id: "openai/gpt-4o-search-preview"
-    capabilities: multimodal
-    context_length: 128000
-  "gpt-4o-mini-search-preview":
-    id: "openai/gpt-4o-mini-search-preview"
-    capabilities: multimodal
-    context_length: 128000
   "gpt-oss-120b":
     id: "openai/gpt-oss-120b"
     capabilities: standard
@@ -262,10 +261,41 @@ models:
     id: "openai/gpt-oss-safeguard-20b"
     capabilities: standard
     context_length: 131072
+  "gemini-3.8-flash":
+    id: "google/gemini-3.8-flash"
+    capabilities: temperature, completion, multiple_choices, vision, vision.video, audio, document, tools, tool_choice, json.basic, json, thinking
+    context_length: 1048576
+    max_output_tokens: 65536
+  "gemini-3.7-flash":
+    id: "google/gemini-3.7-flash"
+    capabilities: temperature, completion, multiple_choices, vision, vision.video, audio, document, tools, tool_choice, json.basic, json, thinking
+    context_length: 1048576
+    max_output_tokens: 65536
+  "gemini-3.6-flash":
+    id: "google/gemini-3.6-flash"
+    capabilities: temperature, completion, multiple_choices, vision, vision.video, audio, document, tools, tool_choice, json.basic, json, thinking
+    context_length: 1048576
+    max_output_tokens: 65536
+  "gemini-3.5-flash":
+    id: "google/gemini-3.5-flash"
+    capabilities: temperature, completion, multiple_choices, vision, vision.video, audio, document, tools, tool_choice, json.basic, json, thinking
+    context_length: 1048576
+    max_output_tokens: 65536
+  "gemini-3.5-flash-lite":
+    id: "google/gemini-3.5-flash-lite"
+    capabilities: temperature, completion, multiple_choices, vision, vision.video, audio, document, tools, tool_choice, json.basic, json, thinking
+    context_length: 1048576
+    max_output_tokens: 65536
+  "gemini-3.1-flash-lite":
+    id: "google/gemini-3.1-flash-lite"
+    capabilities: temperature, completion, multiple_choices, vision, vision.video, audio, document, tools, tool_choice, json.basic, json, thinking
+    context_length: 1048576
+    max_output_tokens: 65536
   "gemini-3.1-pro-preview":
     id: "google/gemini-3.1-pro-preview"
-    capabilities: multimodal
+    capabilities: temperature, completion, multiple_choices, vision, vision.video, audio, document, tools, tool_choice, json.basic, json, thinking
     context_length: 1048576
+    max_output_tokens: 65536
   "gemini-3.1-pro-preview-customtools":
     id: "google/gemini-3.1-pro-preview-customtools"
     capabilities: multimodal
@@ -278,10 +308,6 @@ models:
     id: "google/gemini-3.1-flash-image-preview"
     capabilities: multimodal
     context_length: 65536
-  "gemini-3-pro-preview":
-    id: "google/gemini-3-pro-preview"
-    capabilities: multimodal
-    context_length: 1048576
   "gemini-3-pro-image-preview":
     id: "google/gemini-3-pro-image-preview"
     capabilities: multimodal
@@ -328,14 +354,6 @@ models:
     id: "google/gemini-2.5-flash-image"
     capabilities: multimodal
     context_length: 32768
-  "gemini-2.0-flash-001":
-    id: "google/gemini-2.0-flash-001"
-    capabilities: multimodal
-    context_length: 1048576
-  "gemini-2.0-flash-lite-001":
-    id: "google/gemini-2.0-flash-lite-001"
-    capabilities: multimodal
-    context_length: 1048576
   "gemma-4-31b-it":
     id: "google/gemma-4-31b-it"
     capabilities: multimodal
@@ -356,16 +374,8 @@ models:
     id: "google/gemma-3-4b-it"
     capabilities: multimodal
     context_length: 131072
-  "gemma-3n-e4b-it":
-    id: "google/gemma-3n-e4b-it"
-    capabilities: multimodal
-    context_length: 32768
   "gemini-2.5-pro-preview":
     id: "google/gemini-2.5-pro-preview"
-    capabilities: multimodal
-    context_length: 1048576
-  "gemini-2.5-flash-lite-preview-09-2025":
-    id: "google/gemini-2.5-flash-lite-preview-09-2025"
     capabilities: multimodal
     context_length: 1048576
   "lyria-3-pro-preview":
@@ -376,28 +386,52 @@ models:
     id: "google/lyria-3-clip-preview"
     capabilities: standard
     context_length: 1048576
+  # Claude on OpenRouter uses dotted versions (`anthropic/claude-opus-4.8`);
+  # the first-party dashed ids live in anthropic.yaml. Ids and limits from
+  # openrouter.ai/api/v1/models (2026-09-26). Opus 4.7+ / Fable / Sonnet 5
+  # reject sampling parameters (no `temperature`); the thinking-by-default
+  # models (Fable 5.x, Opus 5.x, Sonnet 5) reject forced tool choice.
+  "claude-fable-5.1":
+    id: "anthropic/claude-fable-5.1"
+    capabilities: tools, vision, document, completion, json.basic, json, thinking
+    context_length: 1000000
+    max_output_tokens: 128000
   "claude-fable-5":
     id: "anthropic/claude-fable-5"
-    capabilities: multimodal
+    capabilities: tools, vision, document, completion, json.basic, json, thinking
     context_length: 1000000
+    max_output_tokens: 128000
+  "claude-opus-5.5":
+    id: "anthropic/claude-opus-5.5"
+    capabilities: tools, vision, document, completion, json.basic, json, thinking
+    context_length: 1000000
+    max_output_tokens: 128000
+  "claude-opus-5":
+    id: "anthropic/claude-opus-5"
+    capabilities: tools, vision, document, completion, json.basic, json, thinking
+    context_length: 1000000
+    max_output_tokens: 128000
+  "claude-sonnet-5":
+    id: "anthropic/claude-sonnet-5"
+    capabilities: tools, vision, document, completion, json.basic, json, thinking
+    context_length: 1000000
+    max_output_tokens: 128000
+  "claude-opus-4.8":
+    id: "anthropic/claude-opus-4.8"
+    capabilities: tools, tool_choice, vision, document, completion, json.basic, json, thinking
+    context_length: 1000000
+    max_output_tokens: 128000
   "claude-opus-4.7":
     id: "anthropic/claude-opus-4.7"
-    capabilities: multimodal
+    capabilities: tools, tool_choice, vision, document, completion, json.basic, json, thinking
     context_length: 1000000
-  "claude-opus-latest":
-    id: "anthropic/claude-opus-latest"
-    capabilities: multimodal
-    context_length: 1000000
+    max_output_tokens: 128000
   "claude-sonnet-4.6":
     id: "anthropic/claude-sonnet-4.6"
     capabilities: multimodal
     context_length: 1000000
   "claude-opus-4.6":
     id: "anthropic/claude-opus-4.6"
-    capabilities: multimodal
-    context_length: 1000000
-  "claude-opus-4.6-fast":
-    id: "anthropic/claude-opus-4.6-fast"
     capabilities: multimodal
     context_length: 1000000
   "claude-opus-4.5":
@@ -416,61 +450,26 @@ models:
     id: "anthropic/claude-opus-4.1"
     capabilities: multimodal
     context_length: 200000
-  "claude-opus-4":
-    id: "anthropic/claude-opus-4"
-    capabilities: multimodal
-    context_length: 200000
   "claude-sonnet-4":
     id: "anthropic/claude-sonnet-4"
     capabilities: temperature, speculation, tools, completion, vision
     context_length: 200000
     max_output_tokens: 64000
-  "claude-3.7-sonnet":
-    id: "anthropic/claude-3.7-sonnet"
-    capabilities: multimodal
-    context_length: 200000
-  "claude-3.7-sonnet-thinking":
-    id: "anthropic/claude-3.7-sonnet:thinking"
-    capabilities: multimodal
-    context_length: 200000
-  "claude-sonnet-3.5":
-    id: "anthropic/claude-3.5-sonnet"
-    capabilities: temperature, speculation, tools, completion, vision
-    context_length: 200000
-    max_output_tokens: 8200
-  "anthropic/claude-3-5-sonnet":
-    id: "anthropic/claude-3.5-sonnet"
-    capabilities: temperature, speculation, tools, completion, vision
-    context_length: 200000
-    max_output_tokens: 8200
-  "claude-3.5-sonnet":
-    id: "anthropic/claude-3.5-sonnet"
-    capabilities: temperature, speculation, tools, completion, vision
-    context_length: 200000
-    max_output_tokens: 8200
-  "claude-3.5-haiku":
-    id: "anthropic/claude-3.5-haiku"
-    capabilities: multimodal
-    context_length: 200000
-  "claude-3-haiku":
-    id: "anthropic/claude-3-haiku"
-    capabilities: multimodal
-    context_length: 200000
-  "claude-opus-3":
-    id: "anthropic/claude-3-opus"
-    capabilities: temperature, speculation, tools, completion, vision
-    context_length: 200000
-    max_output_tokens: 4096
-  "claude-sonnet-3":
-    id: "anthropic/claude-3-sonnet"
-    capabilities: temperature, speculation, tools, completion, vision
-    context_length: 200000
-    max_output_tokens: 4096
-  "claude-haiku-3":
-    id: "anthropic/claude-3-haiku"
-    capabilities: temperature, speculation, tools, completion, vision
-    context_length: 200000
-    max_output_tokens: 4096
+  "deepseek-v4.1-flash":
+    id: "deepseek/deepseek-v4.1-flash"
+    capabilities: temperature, completion, tools, tool_choice, vision, json.basic, json, thinking
+    context_length: 1048576
+    max_output_tokens: 131072
+  "deepseek-v4-pro-0813":
+    id: "deepseek/deepseek-v4-pro-0813"
+    capabilities: temperature, completion, tools, tool_choice, json.basic, json, thinking
+    context_length: 1048576
+    max_output_tokens: 384000
+  "deepseek-v4-flash-0731":
+    id: "deepseek/deepseek-v4-flash-0731"
+    capabilities: temperature, completion, tools, tool_choice, json.basic, json, thinking
+    context_length: 1310720
+    max_output_tokens: 943718
   "deepseek-v4-pro":
     id: "deepseek/deepseek-v4-pro"
     capabilities: standard
@@ -481,10 +480,6 @@ models:
     context_length: 1048576
   "deepseek-v3.2":
     id: "deepseek/deepseek-v3.2"
-    capabilities: standard
-    context_length: 163840
-  "deepseek-v3.2-speciale":
-    id: "deepseek/deepseek-v3.2-speciale"
     capabilities: standard
     context_length: 163840
   "deepseek-v3.2-exp":
@@ -520,10 +515,46 @@ models:
     id: "deepseek/deepseek-r1-distill-llama-70b"
     capabilities: standard
     context_length: 131072
-  "deepseek-r1-distill-qwen-32b":
-    id: "deepseek/deepseek-r1-distill-qwen-32b"
-    capabilities: standard
-    context_length: 32768
+  "qwen3.8-max":
+    id: "qwen/qwen3.8-max-0902"
+    capabilities: temperature, completion, tools, tool_choice, vision, vision.video, json.basic, json, thinking
+    context_length: 1000000
+    max_output_tokens: 131072
+  "qwen3.8-flash":
+    id: "qwen/qwen3.8-flash"
+    capabilities: temperature, completion, tools, tool_choice, vision, vision.video, json.basic, json, thinking
+    context_length: 1000000
+    max_output_tokens: 131072
+  "qwen3.8-2.4t-a95b":
+    id: "qwen/qwen3.8-2.4t-a95b"
+    capabilities: temperature, completion, tools, tool_choice, json.basic, json, thinking
+    context_length: 1048576
+    max_output_tokens: 131072
+  "qwen3.8-27b":
+    id: "qwen/qwen3.8-27b"
+    capabilities: temperature, completion, tools, tool_choice, vision, vision.video, json.basic, json, thinking
+    context_length: 1000000
+    max_output_tokens: 131072
+  "qwen3.7-plus":
+    id: "qwen/qwen3.7-plus"
+    capabilities: temperature, completion, tools, tool_choice, vision, json.basic, json, thinking
+    context_length: 1000000
+    max_output_tokens: 131072
+  "qwen3.7-flash":
+    id: "qwen/qwen3.7-flash"
+    capabilities: temperature, completion, tools, tool_choice, vision, vision.video, json.basic, json, thinking
+    context_length: 1000000
+    max_output_tokens: 65536
+  "qwen3.6-flash":
+    id: "qwen/qwen3.6-flash"
+    capabilities: temperature, completion, tools, tool_choice, vision, vision.video, json.basic, json, thinking
+    context_length: 1000000
+    max_output_tokens: 65536
+  "qwen3.6-27b":
+    id: "qwen/qwen3.6-27b"
+    capabilities: temperature, completion, tools, tool_choice, vision, vision.video, json.basic, json, thinking
+    context_length: 262144
+    max_output_tokens: 81920
   "qwen3.7-max":
     id: "qwen/qwen3.7-max"
     capabilities: standard
@@ -596,22 +627,10 @@ models:
     id: "qwen/qwen-2.5-7b-instruct"
     capabilities: standard
     context_length: 32768
-  "qwen2.5-vl-32b-instruct":
-    id: "qwen/qwen2.5-vl-32b-instruct"
-    capabilities: multimodal
-    context_length: 128000
   "qwen2.5-vl-72b-instruct":
     id: "qwen/qwen2.5-vl-72b-instruct"
     capabilities: multimodal
     context_length: 32768
-  "qwq-32b":
-    id: "qwen/qwq-32b"
-    capabilities: standard
-    context_length: 32768
-  "qwen3.6-plus-preview":
-    id: "qwen/qwen3.6-plus-preview:free"
-    capabilities: multimodal
-    context_length: 1000000
   "qwen3-235b-a22b":
     id: "qwen/qwen3-235b-a22b"
     capabilities: standard
@@ -692,22 +711,6 @@ models:
     id: "qwen/qwen-plus"
     capabilities: standard
     context_length: 1000000
-  "qwen-max-via-openrouter":
-    id: "qwen/qwen-max"
-    capabilities: standard
-    context_length: 32768
-  "qwen-turbo-via-openrouter":
-    id: "qwen/qwen-turbo"
-    capabilities: standard
-    context_length: 131072
-  "qwen-vl-max-via-openrouter":
-    id: "qwen/qwen-vl-max"
-    capabilities: multimodal
-    context_length: 131072
-  "qwen-vl-plus-via-openrouter":
-    id: "qwen/qwen-vl-plus"
-    capabilities: multimodal
-    context_length: 131072
   "llama-4-maverick":
     id: "meta-llama/llama-4-maverick"
     capabilities: multimodal
@@ -720,10 +723,6 @@ models:
     id: "meta-llama/llama-3.3-70b-instruct"
     capabilities: standard
     context_length: 131072
-  "llama-3.2-11b-vision-instruct":
-    id: "meta-llama/llama-3.2-11b-vision-instruct"
-    capabilities: multimodal
-    context_length: 131072
   "llama-3.2-3b-instruct":
     id: "meta-llama/llama-3.2-3b-instruct"
     capabilities: standard
@@ -732,10 +731,6 @@ models:
     id: "meta-llama/llama-3.2-1b-instruct"
     capabilities: standard
     context_length: 60000
-  "llama-3.1-405b-instruct":
-    id: "meta-llama/llama-3.1-405b-instruct"
-    capabilities: standard
-    context_length: 131000
   "llama-3.1-70b-instruct":
     id: "meta-llama/llama-3.1-70b-instruct"
     capabilities: standard
@@ -744,14 +739,6 @@ models:
     id: "meta-llama/llama-3.1-8b-instruct"
     capabilities: standard
     context_length: 16384
-  "llama-3-70b-instruct":
-    id: "meta/llama-3-70b-instruct"
-    capabilities: standard
-    context_length: 8000
-  "llama-3-8b-instruct":
-    id: "meta-llama/llama-3-8b-instruct"
-    capabilities: standard
-    context_length: 8192
   "llama-guard-4-12b":
     id: "meta-llama/llama-guard-4-12b"
     capabilities: standard
@@ -792,10 +779,6 @@ models:
     id: "mistralai/mistral-medium-3"
     capabilities: multimodal
     context_length: 131072
-  "mistral-large-2411":
-    id: "mistralai/mistral-large-2411"
-    capabilities: standard
-    context_length: 131072
   "mistral-large":
     id: "mistralai/mistral-large"
     capabilities: standard
@@ -803,10 +786,6 @@ models:
   "mistral-nemo":
     id: "mistralai/mistral-nemo"
     capabilities: standard
-    context_length: 131072
-  "pixtral-large-2411":
-    id: "mistralai/pixtral-large-2411"
-    capabilities: multimodal
     context_length: 131072
   "codestral-2508":
     id: "mistralai/codestral-2508"
@@ -816,22 +795,10 @@ models:
     id: "mistralai/mixtral-8x22b-instruct"
     capabilities: standard
     context_length: 65536
-  "mixtral-8x7b-instruct":
-    id: "mistralai/mixtral-8x7b-instruct"
-    capabilities: temperature, speculation, tools, completion
-    context_length: 32768
-  "mistral-7b-instruct":
-    id: "mistralai/mistral-7b-instruct"
-    capabilities: temperature, speculation, tools, completion
-    context_length: 32768
   "mistral-small-2603":
     id: "mistralai/mistral-small-2603"
     capabilities: multimodal
     context_length: 262144
-  "mistral-small-creative":
-    id: "mistralai/mistral-small-creative"
-    capabilities: standard
-    context_length: 32768
   "mistral-small-24b-instruct-2501":
     id: "mistralai/mistral-small-24b-instruct-2501"
     capabilities: standard
@@ -840,14 +807,6 @@ models:
     id: "mistralai/mistral-saba"
     capabilities: standard
     context_length: 32768
-  "devstral-medium":
-    id: "mistralai/devstral-medium"
-    capabilities: standard
-    context_length: 131072
-  "devstral-small":
-    id: "mistralai/devstral-small"
-    capabilities: standard
-    context_length: 131072
   "voxtral-small-24b-2507":
     id: "mistralai/voxtral-small-24b-2507"
     capabilities: standard
@@ -872,6 +831,11 @@ models:
     id: "perplexity/sonar-deep-research"
     capabilities: standard
     context_length: 128000
+  "minimax-m3":
+    id: "minimax/minimax-m3"
+    capabilities: temperature, completion, tools, tool_choice, vision, vision.video, json.basic, json, thinking
+    context_length: 1048576
+    max_output_tokens: 512000
   "minimax-m2.7":
     id: "minimax/minimax-m2.7"
     capabilities: standard
@@ -924,34 +888,6 @@ models:
     id: "nvidia/nemotron-3-nano-30b-a3b"
     capabilities: standard
     context_length: 262144
-  "nemotron-nano-12b-v2-vl":
-    id: "nvidia/nemotron-nano-12b-v2-vl"
-    capabilities: multimodal
-    context_length: 131072
-  "nemotron-nano-9b-v2":
-    id: "nvidia/nemotron-nano-9b-v2"
-    capabilities: standard
-    context_length: 131072
-  "llama-3.3-nemotron-super-49b-v1.5":
-    id: "nvidia/llama-3.3-nemotron-super-49b-v1.5"
-    capabilities: standard
-    context_length: 131072
-  "llama-3.1-nemotron-70b-instruct":
-    id: "nvidia/llama-3.1-nemotron-70b-instruct"
-    capabilities: standard
-    context_length: 131072
-  "llama-3.1-nemotron-ultra-253b-v1":
-    id: "nvidia/llama-3.1-nemotron-ultra-253b-v1"
-    capabilities: standard
-    context_length: 131072
-  "hunter-alpha":
-    id: "openrouter/hunter-alpha"
-    capabilities: standard
-    context_length: 1048576
-  "healer-alpha":
-    id: "openrouter/healer-alpha"
-    capabilities: multimodal
-    context_length: 262144
   "free":
     id: "openrouter/free"
     capabilities: multimodal
@@ -992,6 +928,16 @@ models:
     id: "cohere/command-r7b-12-2024"
     capabilities: standard
     context_length: 128000
+  "glm-5.3":
+    id: "z-ai/glm-5.3"
+    capabilities: temperature, completion, tools, tool_choice, json.basic, json, thinking
+    context_length: 1310720
+    max_output_tokens: 943717
+  "glm-5.3-flash":
+    id: "z-ai/glm-5.3-flash"
+    capabilities: temperature, completion, tools, tool_choice, vision, vision.video, json.basic, json, thinking
+    context_length: 1310720
+    max_output_tokens: 131072
   "glm-5.1":
     id: "z-ai/glm-5.1"
     capabilities: standard
@@ -1041,30 +987,10 @@ models:
     id: "z-ai/glm-4.5v"
     capabilities: multimodal
     context_length: 65536
-  "glm-4-32b":
-    id: "z-ai/glm-4-32b"
-    capabilities: standard
-    context_length: 128000
-  "ernie-4.5-300b-a47b":
-    id: "baidu/ernie-4.5-300b-a47b"
-    capabilities: standard
-    context_length: 123000
-  "ernie-4.5-21b-a3b":
-    id: "baidu/ernie-4.5-21b-a3b"
-    capabilities: standard
-    context_length: 120000
-  "ernie-4.5-21b-a3b-thinking":
-    id: "baidu/ernie-4.5-21b-a3b-thinking"
-    capabilities: standard
-    context_length: 131072
   "ernie-4.5-vl-424b-a47b":
     id: "baidu/ernie-4.5-vl-424b-a47b"
     capabilities: multimodal
     context_length: 123000
-  "ernie-4.5-vl-28b-a3b":
-    id: "baidu/ernie-4.5-vl-28b-a3b"
-    capabilities: multimodal
-    context_length: 30000
   "mimo-v2.5-pro":
     id: "xiaomi/mimo-v2.5-pro"
     capabilities: standard
@@ -1073,18 +999,22 @@ models:
     id: "xiaomi/mimo-v2.5"
     capabilities: standard
     context_length: 1048576
-  "mimo-v2-pro":
-    id: "xiaomi/mimo-v2-pro"
-    capabilities: standard
+  # Kimi K3 / K2.7 Code pin temperature to 1.0 (other values 400), so no `temperature`.
+  "kimi-k3":
+    id: "moonshotai/kimi-k3"
+    capabilities: completion, tools, tool_choice, vision, vision.video, json.basic, json, thinking
     context_length: 1048576
-  "mimo-v2-omni":
-    id: "xiaomi/mimo-v2-omni"
-    capabilities: multimodal
+    max_output_tokens: 943718
+  "kimi-k2.7-code":
+    id: "moonshotai/kimi-k2.7-code"
+    capabilities: completion, tools, tool_choice, vision, json.basic, json, thinking
     context_length: 262144
-  "mimo-v2-flash":
-    id: "xiaomi/mimo-v2-flash"
-    capabilities: standard
-    context_length: 262144
+    max_output_tokens: 235929
+  "longcat-2.0":
+    id: "meituan/longcat-2.0"
+    capabilities: temperature, completion, tools, tool_choice, json.basic, json, thinking
+    context_length: 1048756
+    max_output_tokens: 262144
   "kimi-k2.6":
     id: "moonshotai/kimi-k2.6"
     capabilities: multimodal
@@ -1109,14 +1039,6 @@ models:
     id: "inception/mercury-2"
     capabilities: standard
     context_length: 128000
-  "mercury":
-    id: "inception/mercury"
-    capabilities: standard
-    context_length: 128000
-  "mercury-coder":
-    id: "inception/mercury-coder"
-    capabilities: standard
-    context_length: 128000
   "palmyra-x5":
     id: "writer/palmyra-x5"
     capabilities: standard
@@ -1133,62 +1055,14 @@ models:
     id: "arcee-ai/trinity-large-thinking"
     capabilities: standard
     context_length: 262144
-  "trinity-large-preview":
-    id: "arcee-ai/trinity-large-preview"
-    capabilities: standard
-    context_length: 131072
-  "arcee-coder-large":
-    id: "arcee-ai/coder-large"
-    capabilities: standard
-    context_length: 32768
-  "arcee-maestro-reasoning":
-    id: "arcee-ai/maestro-reasoning"
-    capabilities: standard
-    context_length: 131072
-  "arcee-spotlight":
-    id: "arcee-ai/spotlight"
-    capabilities: standard
-    context_length: 131072
-  "arcee-virtuoso-large":
-    id: "arcee-ai/virtuoso-large"
-    capabilities: standard
-    context_length: 131072
-  "jamba-large-1.7":
-    id: "ai21/jamba-large-1.7"
-    capabilities: standard
-    context_length: 256000
   "aion-2.0":
     id: "aion-labs/aion-2.0"
     capabilities: standard
     context_length: 131072
-  "cogito-v2.1-671b":
-    id: "deepcogito/cogito-v2.1-671b"
-    capabilities: standard
-    context_length: 128000
   "granite-4.0-h-micro":
     id: "ibm-granite/granite-4.0-h-micro"
     capabilities: standard
     context_length: 131000
-  "lfm-2.5-1.2b-thinking":
-    id: "liquid/lfm-2.5-1.2b-thinking"
-    capabilities: standard
-    context_length: 32768
-  "lfm-2.5-1.2b-instruct":
-    id: "liquid/lfm-2.5-1.2b-instruct"
-    capabilities: standard
-    context_length: 32768
-  "lfm-2-24b-a2b":
-    id: "liquid/lfm-2-24b-a2b"
-    capabilities: standard
-    context_length: 32768
-  "lfm-2.2-6b":
-    id: "liquid/lfm-2.2-6b"
-    capabilities: standard
-    context_length: 32768
-  "kat-coder-pro-v2":
-    id: "kwaipilot/kat-coder-pro-v2"
-    capabilities: standard
-    context_length: 256000
   "reka-flash-3":
     id: "rekaai/reka-flash-3"
     capabilities: standard
@@ -1209,24 +1083,12 @@ models:
     id: "nousresearch/hermes-4-405b"
     capabilities: standard
     context_length: 131072
-  "hermes-4-70b":
-    id: "nousresearch/hermes-4-70b"
-    capabilities: standard
-    context_length: 131072
   "hermes-3-llama-3.1-405b":
     id: "nousresearch/hermes-3-llama-3.1-405b"
     capabilities: standard
     context_length: 131072
   "hermes-3-llama-3.1-70b":
     id: "nousresearch/hermes-3-llama-3.1-70b"
-    capabilities: standard
-    context_length: 131072
-  "tongyi-deepresearch-30b-a3b":
-    id: "alibaba/tongyi-deepresearch-30b-a3b"
-    capabilities: standard
-    context_length: 131072
-  "longcat-flash-chat":
-    id: "meituan/longcat-flash-chat"
     capabilities: standard
     context_length: 131072
   "morph-v3-large":
@@ -1237,38 +1099,10 @@ models:
     id: "morph/morph-v3-fast"
     capabilities: standard
     context_length: 81920
-  "intellect-3":
-    id: "prime-intellect/intellect-3"
-    capabilities: standard
-    context_length: 131072
-  "rnj-1-instruct":
-    id: "essentialai/rnj-1-instruct"
-    capabilities: standard
-    context_length: 32768
   "ui-tars-1.5-7b":
     id: "bytedance/ui-tars-1.5-7b"
     capabilities: multimodal
     context_length: 128000
-  "ling-2.6-1t":
-    id: "inclusionai/ling-2.6-1t:free"
-    capabilities: standard
-    context_length: 262144
-  "ling-2.6-flash":
-    id: "inclusionai/ling-2.6-flash:free"
-    capabilities: standard
-    context_length: 262144
-  "olmo-3.1-32b-instruct":
-    id: "allenai/olmo-3.1-32b-instruct"
-    capabilities: standard
-    context_length: 65536
-  "hy3-preview":
-    id: "tencent/hy3-preview:free"
-    capabilities: standard
-    context_length: 262144
-  "qianfan-ocr-fast":
-    id: "baidu/qianfan-ocr-fast:free"
-    capabilities: multimodal
-    context_length: 65536
   "pareto-code":
     id: "openrouter/pareto-code"
     capabilities: standard
