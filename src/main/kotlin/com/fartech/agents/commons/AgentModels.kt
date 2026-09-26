@@ -899,17 +899,20 @@ fun createLLMClient(
             )
         }
 
-        LLMProvider.Google -> GoogleLLMClient(
-            apiKey = apiKeys.resolve("google")
-                .also { if (it == null) warnMissingApiKey("google") } ?: "",
-            settings = GoogleClientSettings(
-                baseUrl = baseUrl,
-                // The default base URL is a bare host, so `v1beta/models` is
-                // correct as-is; a user-supplied `.../v1beta` base would
-                // otherwise double-join. See resolveVersionedEndpointPath.
-                defaultPath = resolveVersionedEndpointPath(baseUrl, "v1beta/models")
-            ),
-            httpClientFactory = httpClientFactory,
+        // Koog reports Gemini thinking tokens only in the total; see GeminiThinkingUsageClient.
+        LLMProvider.Google -> GeminiThinkingUsageClient(
+            GoogleLLMClient(
+                apiKey = apiKeys.resolve("google")
+                    .also { if (it == null) warnMissingApiKey("google") } ?: "",
+                settings = GoogleClientSettings(
+                    baseUrl = baseUrl,
+                    // The default base URL is a bare host, so `v1beta/models` is
+                    // correct as-is; a user-supplied `.../v1beta` base would
+                    // otherwise double-join. See resolveVersionedEndpointPath.
+                    defaultPath = resolveVersionedEndpointPath(baseUrl, "v1beta/models")
+                ),
+                httpClientFactory = httpClientFactory,
+            )
         )
 
         // Koog's streaming path drops the prompt-cache counts; see AnthropicStreamUsageRecovery.

@@ -47,6 +47,11 @@ Act on these when moving from 1.2.x:
   every provider (Gemini's cached share moves out of `inputTokens`). Price
   cache reads and writes at the provider's cache rates, not as input. See
   `docs/PROMPT_CACHING.md`.
+- **Gemini thinking tokens count as output.** Google bills them at the output
+  rate, but Koog reported them only in `totalTokens`. Direct Gemini calls now
+  include them in `outputTokens` (and in the `ResponseMetaInfo` itself), so
+  `totalTokens` is `inputTokens + outputTokens` for every provider. Event
+  details list the share as `reasoning=`; do not add it to the output again.
 - **Anthropic prompt caching is on by default** (`anthropic_prompt_caching`).
   Direct Anthropic system prompts arrive as two blocks: the stable prompt, then
   the environment block.
@@ -216,6 +221,8 @@ Act on these when moving from 1.2.x:
 - Prompt-cache hits no longer re-report the previous round's token usage.
 - Streamed Anthropic rounds report their prompt-cache reads and writes (Koog
   1.3.0 drops them from streamed responses).
+- Gemini thinking tokens are reported as output, so hosts that price
+  `outputTokens` bill them (Koog 1.3.0 leaves them only in the total).
 - The response cache no longer replays another model's answer for an identical
   prompt, no longer shares entries between tools that differ only in parameter
   schema, treats a storage-key collision as a miss, and no longer fails on

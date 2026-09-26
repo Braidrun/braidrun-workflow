@@ -5,6 +5,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import kotlin.time.Instant
@@ -35,17 +36,68 @@ class LlmTokenUsageTest {
 
     @Test
     fun `Google cached content moves out of the input it is counted in`() {
-        // promptTokenCount 10_000 includes 8_000 cached; the total also carries 50 thinking tokens.
+        // promptTokenCount 10_000 includes 8_000 cached.
         val usage = meta(
-            input = 10_000, output = 200, total = 10_250,
+            input = 10_000, output = 200, total = 10_200,
             PromptCacheUsageKeys.CACHED_CONTENT_TOKEN_COUNT to 8_000,
         ).tokenUsage()
 
         assertEquals(2_000, usage.inputTokens)
         assertEquals(8_000, usage.cacheReadTokens)
         assertNull(usage.cacheCreationTokens)
-        assertEquals(2_250, usage.totalTokens, "thinking tokens stay in the total; the cached share leaves it")
+        assertEquals(2_200, usage.totalTokens, "the cached share leaves the total along with the input")
         assertEquals(10_000, usage.promptTokens)
+    }
+
+    @Test
+    fun `Gemini thinking tokens are billed as output`() {
+        // Koog's Google mapping: output = candidatesTokenCount (200), total = totalTokenCount,
+        // which also holds 50 thinking tokens and the 8_000 cached ones.
+        val raw = meta(
+            input = 10_000, output = 200, total = 10_250,
+            PromptCacheUsageKeys.CACHED_CONTENT_TOKEN_COUNT to 8_000,
+        )
+        val usage = raw.withGeminiThinkingInOutput().tokenUsage()
+
+        assertEquals(
+            LlmTokenUsage(inputTokens = 2_000, outputTokens = 250, totalTokens = 2_250, cacheReadTokens = 8_000, reasoningTokens = 50),
+            usage,
+        )
+        assertEquals(usage.totalTokens, usage.inputTokens!! + usage.outputTokens!!, "total = input + output again")
+        assertEquals("input=2000, output=250, total=2250, cache_read=8000, reasoning=50", usage.detail())
+        assertEquals(200, raw.tokenUsage().outputTokens, "without the Google decorator the thinking share is unpriced")
+    }
+
+    @Test
+    fun `thinking normalization leaves totals without a gap alone and is idempotent`() {
+        // No thinking, or a response whose candidates count already includes it.
+        val settled = meta(input = 100, output = 900, total = 1_000)
+        assertSame(settled, settled.withGeminiThinkingInOutput())
+
+        val once = meta(input = 100, output = 60, total = 1_000).withGeminiThinkingInOutput()
+        assertEquals(once, once.withGeminiThinkingInOutput())
+        assertEquals(LlmTokenUsage(inputTokens = 100, outputTokens = 900, totalTokens = 1_000, reasoningTokens = 840), once.tokenUsage())
+    }
+
+    @Test
+    fun `thinking normalization handles missing counts`() {
+        // A thinking-only reply with no candidates count: everything past the prompt is output.
+        assertEquals(700, meta(input = 100, output = null, total = 800).withGeminiThinkingInOutput().outputTokensCount)
+        // Without the prompt or the total there is nothing to derive from.
+        val noPrompt = meta(input = null, output = 50, total = 800)
+        assertSame(noPrompt, noPrompt.withGeminiThinkingInOutput())
+        val noTotal = meta(input = 100, output = 50, total = null)
+        assertSame(noTotal, noTotal.withGeminiThinkingInOutput())
+    }
+
+    @Test
+    fun `a thoughts count the provider already recorded is kept`() {
+        val usage = meta(input = 100, output = 60, total = 1_000, ReasoningUsageKeys.THOUGHTS_TOKEN_COUNT to 840)
+            .withGeminiThinkingInOutput()
+            .tokenUsage()
+
+        assertEquals(900, usage.outputTokens)
+        assertEquals(840, usage.reasoningTokens)
     }
 
     @Test

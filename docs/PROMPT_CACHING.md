@@ -35,8 +35,10 @@ Set `anthropic_prompt_caching: false` to send prompts without automatic breakpoi
 | `inputTokens` | Prompt tokens billed at the full input rate. Excludes cache reads and writes. |
 | `cacheReadTokens` | Prompt tokens served from the provider cache. |
 | `cacheCreationTokens` | Prompt tokens written to the provider cache. |
-| `outputTokens` | Output tokens. |
-| `totalTokens` | `inputTokens + outputTokens` (plus Gemini thinking tokens). Cache reads and writes are not included. |
+| `outputTokens` | Output tokens billed at the output rate, reasoning included. |
+| `totalTokens` | `inputTokens + outputTokens`. Cache reads and writes are not included. |
+
+Event details also list `reasoning=N` when a provider reports reasoning separately (Gemini thinking). That share is already in `outputTokens`.
 
 Total prompt size is `inputTokens + cacheReadTokens + cacheCreationTokens`.
 
@@ -44,7 +46,7 @@ Total prompt size is `inputTokens + cacheReadTokens + cacheCreationTokens`.
 |---|---|---|
 | Anthropic | `input_tokens` is the uncached remainder. Cache counts are in `metaInfo.metadata`, but only for non-streamed responses. | Passed through. `AnthropicStreamUsageRecoveringClient` restores the cache counts on streamed `StreamFrame.End` frames, which Koog drops. |
 | Bedrock Converse | Same as Anthropic (`cacheReadInputTokens` / `cacheWriteInputTokens`). | Passed through. |
-| Google Gemini | `promptTokenCount` *includes* `cachedContentTokenCount`. | The cached share moves from input to `cacheReadTokens`. |
+| Google Gemini | `promptTokenCount` *includes* `cachedContentTokenCount`. Thinking tokens (`thoughtsTokenCount`) are only in `totalTokenCount`. | The cached share moves from input to `cacheReadTokens`. `GeminiThinkingUsageClient` adds the thinking share (total − prompt − candidates) to `outputTokens`, because Google bills it at the output rate. |
 | OpenAI-compatible | Cached counts are not surfaced. | The full prompt counts as input, so cached reads are over-billed but never under-billed. |
 
 `StepMetrics.getInputTokens()` and the other `StepMetrics` sums skip the `token_usage` display duplicate, so each call counts once. Before, every Koog call was counted twice, including in the `sub_workflow_completed` totals.

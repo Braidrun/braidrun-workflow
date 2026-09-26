@@ -37,9 +37,14 @@ object PromptCacheUsageKeys {
  *   cache-read rate, e.g. 0.1× input on most Claude models).
  * - [cacheCreationTokens] — prompt tokens written to the prompt cache (billed at the
  *   cache-write rate, 1.25× input for Anthropic's 5-minute TTL).
+ * - [outputTokens] — generated tokens billed at the output rate, reasoning included: OpenAI
+ *   and Anthropic count it in their output natively, Gemini thinking is added by
+ *   [GeminiThinkingUsageClient].
+ * - [reasoningTokens] — the reasoning share of [outputTokens] where the provider reports it
+ *   separately (Gemini thinking). Informational: it is already in [outputTokens].
  * - [totalTokens] — the provider's total minus any cached prompt tokens it contained, i.e.
- *   [inputTokens] + [outputTokens] (+ Gemini thinking tokens, which Koog reports only in the
- *   total). Cache reads and writes are reported separately and are not included.
+ *   [inputTokens] + [outputTokens]. Cache reads and writes are reported separately and are
+ *   not included.
  *
  * Total prompt size is [promptTokens] (`input + cacheRead + cacheCreation`).
  */
@@ -49,21 +54,23 @@ data class LlmTokenUsage(
     val totalTokens: Int? = null,
     val cacheReadTokens: Int? = null,
     val cacheCreationTokens: Int? = null,
+    val reasoningTokens: Int? = null,
 ) {
     val promptTokens: Int
         get() = (inputTokens ?: 0) + (cacheReadTokens ?: 0) + (cacheCreationTokens ?: 0)
 
     val isEmpty: Boolean
         get() = inputTokens == null && outputTokens == null && totalTokens == null &&
-            cacheReadTokens == null && cacheCreationTokens == null
+            cacheReadTokens == null && cacheCreationTokens == null && reasoningTokens == null
 
-    /** `input=…, output=…, total=…, cache_read=…, cache_creation=…` for event details; null when empty. */
+    /** `input=…, output=…, total=…, cache_read=…, cache_creation=…, reasoning=…` for event details; null when empty. */
     fun detail(): String? = listOfNotNull(
         inputTokens?.let { "input=$it" },
         outputTokens?.let { "output=$it" },
         totalTokens?.let { "total=$it" },
         cacheReadTokens?.let { "cache_read=$it" },
         cacheCreationTokens?.let { "cache_creation=$it" },
+        reasoningTokens?.let { "reasoning=$it" },
     ).joinToString(", ").ifBlank { null }
 }
 
@@ -80,6 +87,10 @@ data class LlmTokenUsage(
  * Providers whose cached counts Koog 1.3.0 does not surface (the OpenAI-compatible family)
  * report their full prompt as [LlmTokenUsage.inputTokens]. Zero or negative counts are treated
  * as absent, matching the engine's historical `takeIf { it > 0 }`.
+ *
+ * Gemini thinking tokens are already part of `outputTokensCount` when the response came
+ * through [GeminiThinkingUsageClient]; [ReasoningUsageKeys.THOUGHTS_TOKEN_COUNT] only reports
+ * that share as [LlmTokenUsage.reasoningTokens].
  */
 fun ResponseMetaInfo.tokenUsage(): LlmTokenUsage {
     val metadata = metadata
@@ -96,8 +107,8 @@ fun ResponseMetaInfo.tokenUsage(): LlmTokenUsage {
     } else {
         reportedInput
     }
-    // Prefer the provider's own total: Google counts thinking tokens only there. For Google the
-    // cached share leaves the total along with the input; Anthropic's total never contained it.
+    // Prefer the provider's own total. For Google the cached share leaves the total along with
+    // the input; Anthropic's total never contained it.
     val total = totalTokensCount.positiveOrNull()?.let { (it - (googleCached ?: 0)).coerceAtLeast(0) }
         ?: if (input != null || output != null) (input ?: 0) + (output ?: 0) else null
     return LlmTokenUsage(
@@ -106,6 +117,7 @@ fun ResponseMetaInfo.tokenUsage(): LlmTokenUsage {
         totalTokens = total.positiveOrNull(),
         cacheReadTokens = cacheRead,
         cacheCreationTokens = cacheCreation,
+        reasoningTokens = metadata.positiveInt(ReasoningUsageKeys.THOUGHTS_TOKEN_COUNT),
     )
 }
 
