@@ -152,19 +152,6 @@ class BrowserScreenshotToolTest {
     }
 
     @Test
-    fun `a page opened by another run is saved but its pixels are not attached`() = runBlocking {
-        val source = FakeSource(BrowserTools.ScreenshotCapture.Saved(file, png(50, 50), ownedByCaller = false))
-        val tool = BrowserScreenshotTool(source, ToolResultMediaPolicy(attachImages = true))
-
-        val parts = tool.encodeResultToParts(tool.execute(BrowserScreenshotTool.Args(path = "s.png")), serializer)
-
-        assertTrue(parts.none { it is MessagePart.Attachment })
-        val text = (parts.single() as MessagePart.Text).text
-        assertTrue(text.startsWith("✅ Screenshot saved to"), text)
-        assertTrue(text.contains(BrowserScreenshotTool.REASON_FOREIGN_CONTEXT), text)
-    }
-
-    @Test
     fun `per-run image budget stops attaching once spent`() = runBlocking {
         val source = FakeSource(BrowserTools.ScreenshotCapture.Saved(file, png(30, 30)))
         val tool = BrowserScreenshotTool(source, ToolResultMediaPolicy(attachImages = true, maxImagesPerRun = 2))

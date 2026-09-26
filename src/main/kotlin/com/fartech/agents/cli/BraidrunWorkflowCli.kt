@@ -3,6 +3,7 @@ package com.fartech.agents.cli
 import com.fartech.agents.commons.SubprocessExecutorFactory
 import com.fartech.agents.mcp.getSupportedAgentMcpToolGroups
 import com.fartech.agents.mcp.startAgentMcpServer
+import com.fartech.agents.tools.ToolRunScope
 import com.fartech.agents.workflow.AgentDefinition
 import com.fartech.agents.workflow.AgentPresetRegistry
 import com.fartech.agents.workflow.ApprovalDecision
@@ -30,6 +31,8 @@ import kotlin.coroutines.resumeWithException
 import kotlin.system.exitProcess
 
 fun main(args: Array<String>) {
+    // One local user: browser contexts stay shared across runs for the life of the process.
+    ToolRunScope.declareSingleUserProcess()
     val code = try {
         runBlocking { BraidrunWorkflowCli().run(args.toList()) }
     } catch (e: CliException) {

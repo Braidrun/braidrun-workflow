@@ -73,13 +73,11 @@ class BrowserScreenshotTool(
             is BrowserTools.ScreenshotCapture.Failed -> Result(capture.message)
             is BrowserTools.ScreenshotCapture.Saved -> Result(
                 message = "✅ Screenshot saved to ${capture.file.absolutePath}",
-                image = when {
-                    !mediaPolicy.attachImages -> null
-                    // The browser context is JVM-global: never show this run's model a page another
-                    // run opened (it may be logged in somewhere).
-                    !capture.ownedByCaller -> PreparedToolImage.Rejected(REASON_FOREIGN_CONTEXT)
-                    else -> mediaPolicy.prepareImage { ToolResultImages.prepare(capture.png) }
-                },
+                // No ownership check: BrowserTools keys contexts by the caller's ToolRunScope, so the
+                // page is always this run's own.
+                image = if (mediaPolicy.attachImages) {
+                    mediaPolicy.prepareImage { ToolResultImages.prepare(capture.png) }
+                } else null,
             )
         }
 
@@ -105,8 +103,5 @@ class BrowserScreenshotTool(
 
     companion object {
         const val NAME = "browser_screenshot"
-
-        internal const val REASON_FOREIGN_CONTEXT =
-            "this browser context was not opened by the current run; use a new contextId to get the image"
     }
 }

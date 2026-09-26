@@ -14,7 +14,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.*
 import java.io.File
+import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 
 @LLMDescription("Toolset for browser automation using Playwright, including navigation, interaction, and screenshots")
 class BrowserTools(
@@ -32,33 +37,75 @@ class BrowserTools(
         // initialisation and the read.
         @Volatile private var playwright: Playwright? = null
         @Volatile private var browser: Browser? = null
-        private val contexts = ConcurrentHashMap<String, BrowserContext>()
-        private val pages = ConcurrentHashMap<String, Page>()
 
         /**
-         * Run scope ([runScope]) that created each context. Contexts and pages are JVM-global and keyed
-         * only by the model-chosen contextId, so in the shared web JVM one run can reach a page another
-         * run left open. Screenshot pixels are only handed to the model when the caller's own run
-         * created the context (see [ScreenshotCapture.Saved.ownedByCaller]).
+         * One browser context and its page per (run scope, contextId). The browser process is shared, but
+         * the scope comes from [ToolRunScope], which only the host sets. So a run can only address
+         * contexts it created, and the model-chosen contextId names a context within that run only.
          */
-        private val contextOwners = ConcurrentHashMap<String, String>()
+        private val sessions = ConcurrentHashMap<SessionKey, BrowserSession>()
+
+        private data class SessionKey(val scope: String, val contextId: String)
+
+        private class BrowserSession(val context: BrowserContext, val page: Page) {
+            @Volatile var lastUsedNanos: Long = System.nanoTime()
+            val inFlight = AtomicInteger()
+        }
 
         /** Cap on the cookiesJson payload accepted by browser_set_cookies. */
         private const val MAX_COOKIES_JSON_BYTES = 256 * 1024
         /** Cap on the number of cookies set in a single call. */
         private const val MAX_COOKIES_PER_CALL = 200
 
+        private const val IDLE_TTL_ENV = "BRAIDRUN_BROWSER_CONTEXT_IDLE_TTL_MINUTES"
+        private const val DEFAULT_IDLE_TTL_MINUTES = 30L
+
+        /**
+         * Backstop for runs whose end the host never reports (a run with no scope, or a crashed host
+         * path): a context unused for this long is closed. Not applied in a single-user process, where
+         * contexts live for the process as before.
+         */
+        @Volatile
+        internal var idleTtlNanos: Long = TimeUnit.MINUTES.toNanos(
+            System.getenv(IDLE_TTL_ENV)?.trim()?.toLongOrNull()?.takeIf { it > 0 } ?: DEFAULT_IDLE_TTL_MINUTES
+        )
+
+        private val reaperStarted = AtomicBoolean(false)
+
+        /** Starts the once-a-minute idle sweep the first time a multi-tenant process opens a context. */
+        private fun ensureIdleReaper() {
+            if (ToolRunScope.isSingleUserProcess || !reaperStarted.compareAndSet(false, true)) return
+            Executors.newSingleThreadScheduledExecutor { runnable ->
+                Thread(runnable, "braidrun-browser-context-reaper").apply { isDaemon = true }
+            }.scheduleWithFixedDelay({
+                try { closeIdleSessions() } catch (_: Exception) {}
+            }, 1, 1, TimeUnit.MINUTES)
+        }
+
+        /** Test seam: replaces the Playwright Chromium launch with a fake [Browser]. */
+        @Volatile
+        internal var browserLauncherForTests: ((List<ConfigurationParameter>) -> Browser)? = null
+
         init {
             Runtime.getRuntime().addShutdownHook(Thread {
                 try { closeAll() } catch (_: Exception) {}
             })
+            ToolRunScope.onRunEnd(::closeScope)
         }
 
+        /**
+         * The browser process is shared by every run in the JVM, so its launch options are host
+         * settings. Only a single-user process ([ToolRunScope.declareSingleUserProcess], the CLI) takes
+         * them from run parameters. Elsewhere `PLAYWRIGHT_ARGS` would let the first run to launch the
+         * browser pick Chromium switches for every tenant, and some switches (`--renderer-cmd-prefix`,
+         * `--gpu-launcher`, ...) start arbitrary commands on the host.
+         */
         @Synchronized
-        private fun getBrowser(parameters: List<ConfigurationParameter>): Browser {
+        private fun getBrowser(runParameters: List<ConfigurationParameter>): Browser {
+            browser?.let { return it }
+            val parameters = if (ToolRunScope.isSingleUserProcess) runParameters else emptyList()
+            browserLauncherForTests?.let { launch -> return launch(parameters).also { browser = it } }
             val pw = playwright ?: Playwright.create().also { playwright = it }
-            val existing = browser
-            if (existing != null) return existing
 
             val headlessFromParams = if (parameters.any { it.key == "PLAYWRIGHT_HEADLESS" }) {
                 parameters.parameter("PLAYWRIGHT_HEADLESS", true)
@@ -82,6 +129,50 @@ class BrowserTools(
             }
         }
 
+        private fun closeSession(session: BrowserSession) {
+            try {
+                session.page.close()
+            } catch (e: Exception) {
+                printlnColor(AnsiColor.RED, "[Browser] Error closing page: ${e.message}")
+            }
+            try {
+                session.context.close()
+            } catch (e: Exception) {
+                printlnColor(AnsiColor.RED, "[Browser] Error closing context: ${e.message}")
+            }
+        }
+
+        /** Closes every context run [scope] opened. Called by [ToolRunScope] when that run ends. */
+        internal fun closeScope(scope: String) {
+            sessions.keys.filter { it.scope == scope }.forEach { key ->
+                sessions.remove(key)?.let(::closeSession)
+            }
+        }
+
+        /**
+         * Closes contexts idle for longer than [idleTtlNanos] that no tool call is using. The check and
+         * the removal run in one `computeIfPresent`, so they are atomic with the `compute` in [withPage]
+         * that claims a session.
+         */
+        internal fun closeIdleSessions(now: Long = System.nanoTime()) {
+            if (ToolRunScope.isSingleUserProcess) return
+            for (key in sessions.keys) {
+                var expired: BrowserSession? = null
+                sessions.computeIfPresent(key) { _, session ->
+                    if (session.inFlight.get() == 0 && now - session.lastUsedNanos > idleTtlNanos) {
+                        expired = session
+                        null
+                    } else {
+                        session
+                    }
+                }
+                expired?.let(::closeSession)
+            }
+        }
+
+        /** Number of open contexts, for tests. */
+        internal fun openContextCount(): Int = sessions.size
+
         /**
          * Closes all browser instances and contexts.
          *
@@ -92,23 +183,7 @@ class BrowserTools(
          */
         @Synchronized
         fun closeAll() {
-            pages.values.forEach {
-                try {
-                    it.close()
-                } catch (e: Exception) {
-                    printlnColor(AnsiColor.RED, "[Browser] Error closing page: ${e.message}")
-                }
-            }
-            pages.clear()
-            contexts.values.forEach {
-                try {
-                    it.close()
-                } catch (e: Exception) {
-                    printlnColor(AnsiColor.RED, "[Browser] Error closing context: ${e.message}")
-                }
-            }
-            contexts.clear()
-            contextOwners.clear()
+            sessions.keys.toList().forEach { key -> sessions.remove(key)?.let(::closeSession) }
             try {
                 browser?.close()
             } catch (e: Exception) {
@@ -125,36 +200,48 @@ class BrowserTools(
     }
 
     /**
-     * Identity of the workflow run this toolset serves (`execution_id`, else `session_id`); blank when
-     * neither is set, in which case no screenshot is ever treated as owned by the caller.
+     * Scope for tool calls made outside any host run scope. It is private to this instance, and the
+     * idle TTL closes its contexts.
      */
-    private val runScope: String by lazy {
-        listOf("execution_id", "session_id").firstNotNullOfOrNull { key ->
-            (parameters.find { it.key == key }?.value as? JsonPrimitive)
-                ?.takeIf { it.isString }?.content?.trim()?.takeIf { it.isNotEmpty() }
-        }.orEmpty()
+    private val unscopedNamespace = "unscoped:${UUID.randomUUID()}"
+
+    private suspend fun scopeKey(contextId: String): SessionKey =
+        SessionKey(ToolRunScope.currentId() ?: unscopedNamespace, contextId)
+
+    /**
+     * Runs [action] on the caller's page for [contextId], creating the context on first use. The
+     * reaper never closes a session while an action holds it.
+     */
+    private suspend fun <T> withPage(contextId: String, action: (Page) -> T): T {
+        val key = scopeKey(contextId)
+        // Outside `compute`: getBrowser takes the class monitor, which closeAll holds while it
+        // removes map entries, so taking it inside a map bin lock could deadlock.
+        val browser = getBrowser(parameters)
+        val session = sessions.compute(key) { _, existing ->
+            (existing ?: openSession(browser)).also { it.inFlight.incrementAndGet() }
+        }!!
+        ensureIdleReaper()
+        try {
+            return action(session.page)
+        } finally {
+            session.lastUsedNanos = System.nanoTime()
+            session.inFlight.decrementAndGet()
+        }
     }
 
-    private fun ownsContext(contextId: String): Boolean =
-        runScope.isNotEmpty() && contextOwners[contextId] == runScope
-
-    private fun getOrCreatePage(contextId: String): Page {
-        val browser = getBrowser(parameters)
+    private fun openSession(browser: Browser): BrowserSession {
         val userAgent = parameters.parameter(
             "PLAYWRIGHT_USER_AGENT",
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
         )
-        // computeIfAbsent (atomic), NOT getOrPut (get-then-putIfAbsent): a race on
-        // getOrPut would launch two real BrowserContexts/Pages and the losing one —
-        // a live headless tab — would never be stored nor closed.
-        val context = contexts.computeIfAbsent(contextId) {
-            contextOwners[contextId] = runScope
-            browser.newContext(
-                Browser.NewContextOptions()
-                    .setUserAgent(userAgent)
-            )
+        val context = browser.newContext(Browser.NewContextOptions().setUserAgent(userAgent))
+        val page = try {
+            context.newPage()
+        } catch (e: Exception) {
+            try { context.close() } catch (_: Exception) {}
+            throw e
         }
-        return pages.computeIfAbsent(contextId) { context.newPage() }
+        return BrowserSession(context, page)
     }
 
     @Tool
@@ -176,9 +263,10 @@ class BrowserTools(
             require(isAllowedBrowserScheme(url)) {
                 "URL scheme rejected — browser_navigate accepts http(s) only, got: $url"
             }
-            val page = getOrCreatePage(contextId)
-            val response = page.navigate(url)
-            "✅ Navigated to $url (Status: ${response?.status() ?: "unknown"})"
+            withPage(contextId) { page ->
+                val response = page.navigate(url)
+                "✅ Navigated to $url (Status: ${response?.status() ?: "unknown"})"
+            }
         } catch (e: Exception) {
             "❌ Navigation failed: ${e.message}"
         }
@@ -196,13 +284,12 @@ class BrowserTools(
         return scheme == "http" || scheme == "https"
     }
 
-    /** Outcome of [captureScreenshot]; [Saved.png] is Playwright's own output, never read back from disk. */
+    /**
+     * Outcome of [captureScreenshot]; [Saved.png] is Playwright's own output, never read back from disk.
+     * The page always belongs to the calling run, because contexts are keyed by its [ToolRunScope].
+     */
     sealed interface ScreenshotCapture {
-        /**
-         * [ownedByCaller] is true only when the calling run created the browser context, so the
-         * pixels are this run's own page and may be shown to its model.
-         */
-        class Saved(val file: File, val png: ByteArray, val ownedByCaller: Boolean = true) : ScreenshotCapture
+        class Saved(val file: File, val png: ByteArray) : ScreenshotCapture
         data class Failed(val message: String) : ScreenshotCapture
     }
 
@@ -221,14 +308,15 @@ class BrowserTools(
             // into Playwright's `Paths.get(path)` — `path = "/etc/cron.d/payload"` or
             // `path = "../../.ssh/authorized_keys"` would have been honored.
             val safeFile = ToolPathSecurity.validateOutputPath(path)
-            val page = getOrCreatePage(contextId)
-            val png = page.screenshot(
-                Page.ScreenshotOptions()
-                    .setPath(safeFile.toPath())
-                    .setFullPage(fullPage)
-                    .setType(ScreenshotType.PNG)
-            )
-            ScreenshotCapture.Saved(safeFile, png, ownedByCaller = ownsContext(contextId))
+            withPage(contextId) { page ->
+                val png = page.screenshot(
+                    Page.ScreenshotOptions()
+                        .setPath(safeFile.toPath())
+                        .setFullPage(fullPage)
+                        .setType(ScreenshotType.PNG)
+                )
+                ScreenshotCapture.Saved(safeFile, png)
+            }
         } catch (e: SecurityException) {
             ScreenshotCapture.Failed("❌ Screenshot path rejected: ${e.message}")
         } catch (e: Exception) {
@@ -245,9 +333,10 @@ class BrowserTools(
         contextId: String = "default"
     ): String = withContext(Dispatchers.IO) {
         try {
-            val page = getOrCreatePage(contextId)
-            page.click(selector)
-            "✅ Clicked element: $selector"
+            withPage(contextId) { page ->
+                page.click(selector)
+                "✅ Clicked element: $selector"
+            }
         } catch (e: Exception) {
             "❌ Click failed: ${e.message}"
         }
@@ -264,9 +353,10 @@ class BrowserTools(
         contextId: String = "default"
     ): String = withContext(Dispatchers.IO) {
         try {
-            val page = getOrCreatePage(contextId)
-            page.fill(selector, value)
-            "✅ Filled $selector with value"
+            withPage(contextId) { page ->
+                page.fill(selector, value)
+                "✅ Filled $selector with value"
+            }
         } catch (e: Exception) {
             "❌ Fill failed: ${e.message}"
         }
@@ -279,9 +369,10 @@ class BrowserTools(
         contextId: String = "default"
     ): String = withContext(Dispatchers.IO) {
         try {
-            val page = getOrCreatePage(contextId)
-            val content = page.content()
-            "✅ Page content retrieved (${content.length} characters):\n\n${content.take(5000)}${if (content.length > 5000) "..." else ""}"
+            withPage(contextId) { page ->
+                val content = page.content()
+                "✅ Page content retrieved (${content.length} characters):\n\n${content.take(5000)}${if (content.length > 5000) "..." else ""}"
+            }
         } catch (e: Exception) {
             "❌ Failed to get content: ${e.message}"
         }
@@ -296,9 +387,10 @@ class BrowserTools(
         contextId: String = "default"
     ): String = withContext(Dispatchers.IO) {
         try {
-            val page = getOrCreatePage(contextId)
-            val result = page.evaluate(script)
-            "✅ Script execution result: ${result?.toString() ?: "null"}"
+            withPage(contextId) { page ->
+                val result = page.evaluate(script)
+                "✅ Script execution result: ${result?.toString() ?: "null"}"
+            }
         } catch (e: Exception) {
             "❌ Script execution failed: ${e.message}"
         }
@@ -313,9 +405,10 @@ class BrowserTools(
         contextId: String = "default"
     ): String = withContext(Dispatchers.IO) {
         try {
-            val page = getOrCreatePage(contextId)
-            page.keyboard().press(key)
-            "✅ Pressed key: $key"
+            withPage(contextId) { page ->
+                page.keyboard().press(key)
+                "✅ Pressed key: $key"
+            }
         } catch (e: Exception) {
             "❌ Key press failed: ${e.message}"
         }
@@ -330,14 +423,15 @@ class BrowserTools(
         contextId: String = "default"
     ): String = withContext(Dispatchers.IO) {
         try {
-            val page = getOrCreatePage(contextId)
-            val timeout = waitCondition.toDoubleOrNull()
-            if (timeout != null) {
-                page.waitForTimeout(timeout)
-                "✅ Waited for ${timeout}ms"
-            } else {
-                page.waitForSelector(waitCondition)
-                "✅ Selector appeared: $waitCondition"
+            withPage(contextId) { page ->
+                val timeout = waitCondition.toDoubleOrNull()
+                if (timeout != null) {
+                    page.waitForTimeout(timeout)
+                    "✅ Waited for ${timeout}ms"
+                } else {
+                    page.waitForSelector(waitCondition)
+                    "✅ Selector appeared: $waitCondition"
+                }
             }
         } catch (e: Exception) {
             "❌ Wait failed: ${e.message}"
@@ -351,8 +445,9 @@ class BrowserTools(
         contextId: String = "default"
     ): String = withContext(Dispatchers.IO) {
         try {
-            val page = getOrCreatePage(contextId)
-            "✅ Current URL: ${page.url()}"
+            withPage(contextId) { page ->
+                "✅ Current URL: ${page.url()}"
+            }
         } catch (e: Exception) {
             "❌ Failed to get URL: ${e.message}"
         }
@@ -365,8 +460,9 @@ class BrowserTools(
         contextId: String = "default"
     ): String = withContext(Dispatchers.IO) {
         try {
-            val page = getOrCreatePage(contextId)
-            "✅ Page title: ${page.title()}"
+            withPage(contextId) { page ->
+                "✅ Page title: ${page.title()}"
+            }
         } catch (e: Exception) {
             "❌ Failed to get title: ${e.message}"
         }
@@ -379,9 +475,10 @@ class BrowserTools(
         contextId: String = "default"
     ): String = withContext(Dispatchers.IO) {
         try {
-            val page = getOrCreatePage(contextId)
-            page.goBack()
-            "✅ Navigated back"
+            withPage(contextId) { page ->
+                page.goBack()
+                "✅ Navigated back"
+            }
         } catch (e: Exception) {
             "❌ Go back failed: ${e.message}"
         }
@@ -394,9 +491,10 @@ class BrowserTools(
         contextId: String = "default"
     ): String = withContext(Dispatchers.IO) {
         try {
-            val page = getOrCreatePage(contextId)
-            page.goForward()
-            "✅ Navigated forward"
+            withPage(contextId) { page ->
+                page.goForward()
+                "✅ Navigated forward"
+            }
         } catch (e: Exception) {
             "❌ Go forward failed: ${e.message}"
         }
@@ -409,9 +507,10 @@ class BrowserTools(
         contextId: String = "default"
     ): String = withContext(Dispatchers.IO) {
         try {
-            val page = getOrCreatePage(contextId)
-            page.reload()
-            "✅ Page reloaded"
+            withPage(contextId) { page ->
+                page.reload()
+                "✅ Page reloaded"
+            }
         } catch (e: Exception) {
             "❌ Reload failed: ${e.message}"
         }
@@ -426,9 +525,10 @@ class BrowserTools(
         contextId: String = "default"
     ): String = withContext(Dispatchers.IO) {
         try {
-            val page = getOrCreatePage(contextId)
-            page.hover(selector)
-            "✅ Hovered over: $selector"
+            withPage(contextId) { page ->
+                page.hover(selector)
+                "✅ Hovered over: $selector"
+            }
         } catch (e: Exception) {
             "❌ Hover failed: ${e.message}"
         }
@@ -443,9 +543,10 @@ class BrowserTools(
         contextId: String = "default"
     ): String = withContext(Dispatchers.IO) {
         try {
-            val page = getOrCreatePage(contextId)
-            page.focus(selector)
-            "✅ Focused element: $selector"
+            withPage(contextId) { page ->
+                page.focus(selector)
+                "✅ Focused element: $selector"
+            }
         } catch (e: Exception) {
             "❌ Focus failed: ${e.message}"
         }
@@ -462,9 +563,10 @@ class BrowserTools(
         contextId: String = "default"
     ): String = withContext(Dispatchers.IO) {
         try {
-            val page = getOrCreatePage(contextId)
-            page.selectOption(selector, value)
-            "✅ Selected option '$value' in $selector"
+            withPage(contextId) { page ->
+                page.selectOption(selector, value)
+                "✅ Selected option '$value' in $selector"
+            }
         } catch (e: Exception) {
             "❌ Select failed: ${e.message}"
         }
@@ -479,9 +581,10 @@ class BrowserTools(
         contextId: String = "default"
     ): String = withContext(Dispatchers.IO) {
         try {
-            val page = getOrCreatePage(contextId)
-            page.check(selector)
-            "✅ Checked element: $selector"
+            withPage(contextId) { page ->
+                page.check(selector)
+                "✅ Checked element: $selector"
+            }
         } catch (e: Exception) {
             "❌ Check failed: ${e.message}"
         }
@@ -496,9 +599,10 @@ class BrowserTools(
         contextId: String = "default"
     ): String = withContext(Dispatchers.IO) {
         try {
-            val page = getOrCreatePage(contextId)
-            page.uncheck(selector)
-            "✅ Unchecked element: $selector"
+            withPage(contextId) { page ->
+                page.uncheck(selector)
+                "✅ Unchecked element: $selector"
+            }
         } catch (e: Exception) {
             "❌ Uncheck failed: ${e.message}"
         }
@@ -515,9 +619,10 @@ class BrowserTools(
         contextId: String = "default"
     ): String = withContext(Dispatchers.IO) {
         try {
-            val page = getOrCreatePage(contextId)
-            val value = page.getAttribute(selector, attribute)
-            "✅ Attribute '$attribute' for $selector: ${value ?: "null"}"
+            withPage(contextId) { page ->
+                val value = page.getAttribute(selector, attribute)
+                "✅ Attribute '$attribute' for $selector: ${value ?: "null"}"
+            }
         } catch (e: Exception) {
             "❌ Get attribute failed: ${e.message}"
         }
@@ -532,9 +637,10 @@ class BrowserTools(
         contextId: String = "default"
     ): String = withContext(Dispatchers.IO) {
         try {
-            val page = getOrCreatePage(contextId)
-            val text = page.textContent(selector)
-            "✅ Text content for $selector: ${text?.trim() ?: ""}"
+            withPage(contextId) { page ->
+                val text = page.textContent(selector)
+                "✅ Text content for $selector: ${text?.trim() ?: ""}"
+            }
         } catch (e: Exception) {
             "❌ Get text failed: ${e.message}"
         }
@@ -549,9 +655,10 @@ class BrowserTools(
         contextId: String = "default"
     ): String = withContext(Dispatchers.IO) {
         try {
-            val page = getOrCreatePage(contextId)
-            val isVisible = page.isVisible(selector)
-            "✅ Element $selector is visible: $isVisible"
+            withPage(contextId) { page ->
+                val isVisible = page.isVisible(selector)
+                "✅ Element $selector is visible: $isVisible"
+            }
         } catch (e: Exception) {
             "❌ Check visibility failed: ${e.message}"
         }
@@ -564,21 +671,22 @@ class BrowserTools(
         contextId: String = "default"
     ): String = withContext(Dispatchers.IO) {
         try {
-            val page = getOrCreatePage(contextId)
-            val cookies = page.context().cookies()
-            val json = Json.encodeToString(cookies.map {
-                buildJsonObject {
-                    put("name", it.name)
-                    put("value", it.value)
-                    put("domain", it.domain)
-                    put("path", it.path)
-                    put("expires", it.expires ?: -1.0)
-                    put("httpOnly", it.httpOnly)
-                    put("secure", it.secure)
-                    put("sameSite", it.sameSite.toString())
-                }
-            })
-            "✅ Cookies retrieved: $json"
+            withPage(contextId) { page ->
+                val cookies = page.context().cookies()
+                val json = Json.encodeToString(cookies.map {
+                    buildJsonObject {
+                        put("name", it.name)
+                        put("value", it.value)
+                        put("domain", it.domain)
+                        put("path", it.path)
+                        put("expires", it.expires ?: -1.0)
+                        put("httpOnly", it.httpOnly)
+                        put("secure", it.secure)
+                        put("sameSite", it.sameSite.toString())
+                    }
+                })
+                "✅ Cookies retrieved: $json"
+            }
         } catch (e: Exception) {
             "❌ Failed to get cookies: ${e.message}"
         }
@@ -591,9 +699,10 @@ class BrowserTools(
         contextId: String = "default"
     ): String = withContext(Dispatchers.IO) {
         try {
-            val page = getOrCreatePage(contextId)
-            page.context().clearCookies()
-            "✅ Cookies cleared for context $contextId"
+            withPage(contextId) { page ->
+                page.context().clearCookies()
+                "✅ Cookies cleared for context $contextId"
+            }
         } catch (e: Exception) {
             "❌ Failed to clear cookies: ${e.message}"
         }
@@ -616,26 +725,27 @@ class BrowserTools(
             require(cookiesJson.length <= MAX_COOKIES_JSON_BYTES) {
                 "cookiesJson (${cookiesJson.length} chars) exceeds MAX_COOKIES_JSON_BYTES=$MAX_COOKIES_JSON_BYTES"
             }
-            val page = getOrCreatePage(contextId)
-            val jsonArray = Json.parseToJsonElement(cookiesJson).jsonArray
-            require(jsonArray.size <= MAX_COOKIES_PER_CALL) {
-                "cookiesJson contains ${jsonArray.size} cookies; max allowed per call is $MAX_COOKIES_PER_CALL"
+            withPage(contextId) { page ->
+                val jsonArray = Json.parseToJsonElement(cookiesJson).jsonArray
+                require(jsonArray.size <= MAX_COOKIES_PER_CALL) {
+                    "cookiesJson contains ${jsonArray.size} cookies; max allowed per call is $MAX_COOKIES_PER_CALL"
+                }
+                val cookies = jsonArray.map { element ->
+                    val obj = element.jsonObject
+                    val cookie =
+                        Cookie(obj["name"]?.jsonPrimitive?.content ?: "", obj["value"]?.jsonPrimitive?.content ?: "")
+                    obj["url"]?.jsonPrimitive?.content?.let { cookie.setUrl(it) }
+                    obj["domain"]?.jsonPrimitive?.content?.let { cookie.setDomain(it) }
+                    obj["path"]?.jsonPrimitive?.content?.let { cookie.setPath(it) }
+                    obj["expires"]?.jsonPrimitive?.doubleOrNull?.let { cookie.setExpires(it) }
+                    obj["httpOnly"]?.jsonPrimitive?.booleanOrNull?.let { cookie.setHttpOnly(it) }
+                    obj["secure"]?.jsonPrimitive?.booleanOrNull?.let { cookie.setSecure(it) }
+                    // sameSite skipped for now due to enum resolution issues
+                    cookie
+                }
+                page.context().addCookies(cookies)
+                "✅ Added ${cookies.size} cookies to context $contextId"
             }
-            val cookies = jsonArray.map { element ->
-                val obj = element.jsonObject
-                val cookie =
-                    Cookie(obj["name"]?.jsonPrimitive?.content ?: "", obj["value"]?.jsonPrimitive?.content ?: "")
-                obj["url"]?.jsonPrimitive?.content?.let { cookie.setUrl(it) }
-                obj["domain"]?.jsonPrimitive?.content?.let { cookie.setDomain(it) }
-                obj["path"]?.jsonPrimitive?.content?.let { cookie.setPath(it) }
-                obj["expires"]?.jsonPrimitive?.doubleOrNull?.let { cookie.setExpires(it) }
-                obj["httpOnly"]?.jsonPrimitive?.booleanOrNull?.let { cookie.setHttpOnly(it) }
-                obj["secure"]?.jsonPrimitive?.booleanOrNull?.let { cookie.setSecure(it) }
-                // sameSite skipped for now due to enum resolution issues
-                cookie
-            }
-            page.context().addCookies(cookies)
-            "✅ Added ${cookies.size} cookies to context $contextId"
         } catch (e: Exception) {
             "❌ Failed to set cookies: ${e.message}"
         }
@@ -652,9 +762,10 @@ class BrowserTools(
         contextId: String = "default"
     ): String = withContext(Dispatchers.IO) {
         try {
-            val page = getOrCreatePage(contextId)
-            page.evaluate("window.scrollBy($x, $y)")
-            "✅ Scrolled by ($x, $y)"
+            withPage(contextId) { page ->
+                page.evaluate("window.scrollBy($x, $y)")
+                "✅ Scrolled by ($x, $y)"
+            }
         } catch (e: Exception) {
             "❌ Scroll failed: ${e.message}"
         }
@@ -669,9 +780,10 @@ class BrowserTools(
         contextId: String = "default"
     ): String = withContext(Dispatchers.IO) {
         try {
-            val page = getOrCreatePage(contextId)
-            page.locator(selector).scrollIntoViewIfNeeded()
-            "✅ Scrolled to element: $selector"
+            withPage(contextId) { page ->
+                page.locator(selector).scrollIntoViewIfNeeded()
+                "✅ Scrolled to element: $selector"
+            }
         } catch (e: Exception) {
             "❌ Scroll to element failed: ${e.message}"
         }
@@ -686,9 +798,10 @@ class BrowserTools(
         contextId: String = "default"
     ): String = withContext(Dispatchers.IO) {
         try {
-            val page = getOrCreatePage(contextId)
-            page.click("text=$text")
-            "✅ Clicked element with text: $text"
+            withPage(contextId) { page ->
+                page.click("text=$text")
+                "✅ Clicked element with text: $text"
+            }
         } catch (e: Exception) {
             "❌ Click failed: ${e.message}"
         }
@@ -703,9 +816,10 @@ class BrowserTools(
         contextId: String = "default"
     ): String = withContext(Dispatchers.IO) {
         try {
-            val page = getOrCreatePage(contextId)
-            page.dblclick(selector)
-            "✅ Double clicked element: $selector"
+            withPage(contextId) { page ->
+                page.dblclick(selector)
+                "✅ Double clicked element: $selector"
+            }
         } catch (e: Exception) {
             "❌ Double click failed: ${e.message}"
         }
@@ -724,10 +838,11 @@ class BrowserTools(
         contextId: String = "default"
     ): String = withContext(Dispatchers.IO) {
         try {
-            val page = getOrCreatePage(contextId)
-            page.locator(selector)
-                .pressSequentially(value, Locator.PressSequentiallyOptions().setDelay(delay.toDouble()))
-            "✅ Typed '$value' into $selector (delay: ${delay}ms)"
+            withPage(contextId) { page ->
+                page.locator(selector)
+                    .pressSequentially(value, Locator.PressSequentiallyOptions().setDelay(delay.toDouble()))
+                "✅ Typed '$value' into $selector (delay: ${delay}ms)"
+            }
         } catch (e: Exception) {
             "❌ Type failed: ${e.message}"
         }
@@ -742,9 +857,10 @@ class BrowserTools(
         contextId: String = "default"
     ): String = withContext(Dispatchers.IO) {
         try {
-            val page = getOrCreatePage(contextId)
-            val count = page.locator(selector).count()
-            "✅ Found $count elements matching $selector"
+            withPage(contextId) { page ->
+                val count = page.locator(selector).count()
+                "✅ Found $count elements matching $selector"
+            }
         } catch (e: Exception) {
             "❌ Failed to count elements: ${e.message}"
         }
@@ -759,9 +875,10 @@ class BrowserTools(
         contextId: String = "default"
     ): String = withContext(Dispatchers.IO) {
         try {
-            val page = getOrCreatePage(contextId)
-            val texts = page.locator(selector).allTextContents()
-            "✅ Found ${texts.size} elements:\n${texts.joinToString("\n") { "- $it" }}"
+            withPage(contextId) { page ->
+                val texts = page.locator(selector).allTextContents()
+                "✅ Found ${texts.size} elements:\n${texts.joinToString("\n") { "- $it" }}"
+            }
         } catch (e: Exception) {
             "❌ Failed to get all text: ${e.message}"
         }
@@ -774,9 +891,7 @@ class BrowserTools(
         contextId: String = "default"
     ): String = withContext(Dispatchers.IO) {
         try {
-            pages.remove(contextId)?.close()
-            contexts.remove(contextId)?.close()
-            contextOwners.remove(contextId)
+            sessions.remove(scopeKey(contextId))?.let(::closeSession)
             "✅ Context $contextId closed"
         } catch (e: Exception) {
             "❌ Failed to close context: ${e.message}"
@@ -784,11 +899,18 @@ class BrowserTools(
     }
 
     @Tool
-    @LLMDescription("Close all browser instances and contexts to free up resources")
+    @LLMDescription("Close all of this run's browser contexts to free up resources")
     suspend fun browser_close_all(): String = withContext(Dispatchers.IO) {
         try {
-            closeAll()
-            "✅ All browser instances and contexts closed"
+            // The browser process and other runs' contexts are not this run's to close.
+            // A single-user process keeps the old behaviour and shuts the browser down too.
+            if (ToolRunScope.isSingleUserProcess) {
+                closeAll()
+                "✅ All browser instances and contexts closed"
+            } else {
+                closeScope(ToolRunScope.currentId() ?: unscopedNamespace)
+                "✅ All browser contexts of this run closed"
+            }
         } catch (e: Exception) {
             "❌ Failed to close all: ${e.message}"
         }

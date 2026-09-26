@@ -71,3 +71,40 @@ Trace files are always opened for append, never truncated, with or without the l
 The public-endpoint checks resolve DNS when the agent is built. They do not pin the address used at connect time, the same limit `LlmEndpointPolicy` has.
 
 Independent of any latch, a model whose provider is served through OpenRouter (`xai`, `qwen`, `meta`, `mistral`, `perplexity` and unknown provider ids) authenticates only with an OpenRouter key: `openrouter_api_key`, `llm_provider_keys.openrouter` or `OPENROUTER_API_KEY`. A vendor's own key (`MISTRAL_API_KEY`, `llm_provider_keys.mistral`, `cohere_api_key`, …) is never sent to openrouter.ai.
+
+## Run-scoped tool state
+
+Some tools keep live state between calls. The browser tools keep a Playwright
+context (pages, cookies, logins) per `contextId`. In a shared host JVM that state
+is keyed by run as well, so one run can never address another run's contexts,
+whatever `contextId` it passes.
+
+The run comes from `com.fartech.agents.tools.ToolRunScope`, a coroutine-context
+element that only host code installs:
+
+- `WorkflowExecutor.execute` runs each execution as its own run (the execution id).
+  When `execute` returns (completed, failed or cancelled), that run's browser
+  contexts are closed. `sub_workflow` steps share their parent's run. A nested
+  execution started by the agent `workflow` tool is a run of its own.
+- A host that runs agents outside `WorkflowExecutor` wraps each run in
+  `ToolRunScope.withRunScope(id) { ... }`. The braidrun web assistant does this per turn.
+- Tool calls outside any run scope get a namespace private to the `BrowserTools`
+  instance. A host that shares tool registries between users must therefore
+  install a scope.
+- Contexts idle for 30 minutes are closed as a backstop
+  (`BRAIDRUN_BROWSER_CONTEXT_IDLE_TTL_MINUTES`).
+
+The scope is deliberately not taken from the `execution_id` / `session_id`
+parameters: workflow YAML can choose its own `session_id`
+(`session_id_strategy: fixed`), and nothing injects `execution_id` outside
+`WorkflowExecutor`.
+
+The browser process itself is shared, so its launch options are host settings.
+`PLAYWRIGHT_ARGS` and `PLAYWRIGHT_HEADLESS` run parameters are ignored, because
+Chromium switches such as `--renderer-cmd-prefix` start arbitrary commands.
+Set `PLAYWRIGHT_HEADLESS` in the host environment instead.
+
+A single-user process calls `ToolRunScope.declareSingleUserProcess()` once at
+startup; the `braidrun-workflow` CLI does. Every run then shares one scope,
+contexts live until the process exits, no idle TTL applies, and run parameters
+configure the browser launch again. A multi-tenant host must not call it.

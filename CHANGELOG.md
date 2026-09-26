@@ -73,6 +73,26 @@ Act on these when moving from 1.2.x:
   only `https://` URLs.
 - `SkillManager.createSkillSystemPrompt` gained an optional
   `skillToolsRegistered` parameter (default `true`).
+- **Browser contexts are per run.** Playwright contexts are keyed by the
+  host-injected `ToolRunScope` plus `contextId`, so a `contextId` names a
+  context inside one run only. `WorkflowExecutor.execute` makes each execution
+  its own run and closes that run's contexts when it returns (completed,
+  failed or cancelled). A nested execution (the agent `workflow` tool) is a
+  run of its own; `sub_workflow` steps share their parent's. Tool calls
+  outside any run scope get a namespace private to the `BrowserTools`
+  instance. `browser_close_all` closes only the calling run's contexts.
+  Contexts idle for 30 minutes are closed
+  (`BRAIDRUN_BROWSER_CONTEXT_IDLE_TTL_MINUTES`). Library hosts that run agents
+  outside `WorkflowExecutor` should wrap each run in
+  `ToolRunScope.withRunScope(id) { ... }`.
+- **The CLI keeps the old sharing.** `braidrun-workflow` calls
+  `ToolRunScope.declareSingleUserProcess()`: every run shares one scope,
+  contexts live until the process exits, and no idle TTL applies. Other
+  single-user embedders can call it too.
+- **`PLAYWRIGHT_ARGS` and `PLAYWRIGHT_HEADLESS` parameters are ignored**
+  unless the process declared itself single-user. The browser process is
+  shared, so its launch options are host settings: set `PLAYWRIGHT_HEADLESS`
+  in the environment. `PLAYWRIGHT_USER_AGENT` is per context and still applies.
 
 ### Changed
 
@@ -133,8 +153,6 @@ Act on these when moving from 1.2.x:
 - Multimodal tool results (Koog 1.3):
   - `browser_screenshot` (now `BrowserScreenshotTool`) returns the PNG as an
     image part, shrunk to at most 1568 px and 1 MB. The file is still saved.
-    The image is attached only when the current run (`execution_id`, else
-    `session_id`) created that browser context.
   - MCP `ImageContent` is sent as image parts instead of base64 JSON text;
     audio / blob base64 is replaced by placeholders.
   - `ToolResultMediaAdaptingLLMClient` replaces images with short text
@@ -207,6 +225,17 @@ Act on these when moving from 1.2.x:
   away from non-default base URLs.
 - `requireSingleLlmChoice()` closes the `num_choices > 1` metering bypass on
   hosts that bill per token.
+- Browser tools no longer cross runs. Contexts and pages were JVM-global and
+  keyed only by the model-chosen `contextId` (default `"default"`), so in a
+  shared host JVM any run could read another run's page content, cookies and
+  session state, drive its logged-in pages, or close every run's browser with
+  `browser_close_all`. The run scope comes from the host (`ToolRunScope`, a
+  coroutine-context element), not from `execution_id` / `session_id`
+  parameters, which workflow YAML can set (`session_id_strategy: fixed`).
+- The shared Chromium is no longer launched with a run's `PLAYWRIGHT_ARGS`:
+  the first run to start the browser chose switches for every tenant, and
+  switches such as `--renderer-cmd-prefix` or `--gpu-launcher` run arbitrary
+  commands on the host.
 
 ## [1.2.0]
 
