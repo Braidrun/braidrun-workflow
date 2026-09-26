@@ -3,6 +3,7 @@ package com.fartech.agents.commons
 import ai.koog.http.client.KoogHttpClient
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.flow
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
@@ -13,9 +14,12 @@ import kotlin.reflect.KClass
 /**
  * A [KoogHttpClient.Factory] for [createLLMClient] tests: records every client it creates
  * (base URL + default headers, i.e. where credentials would go) and every request body, and
- * answers `post` with a canned response. Nothing leaves the JVM.
+ * answers `post` with a canned response and `sse` with canned `data:` payloads (none by
+ * default). Nothing leaves the JVM.
  */
 internal class CapturingHttpClientFactory(
+    // Before `respond`, so existing callers' trailing lambda still binds to `respond`.
+    private val stream: (clientName: String, path: String) -> List<String> = { _, _ -> emptyList() },
     private val respond: (clientName: String, path: String) -> String = { _, _ -> OPENAI_CHAT_OK },
 ) : KoogHttpClient.Factory {
 
@@ -88,7 +92,12 @@ internal class CapturingHttpClientFactory(
             headers: Map<String, String>,
         ): Flow<O> {
             record(path, requestBody)
-            return emptyFlow()
+            val events = stream(clientName, path)
+            return flow {
+                events.filter(dataFilter).forEach { raw ->
+                    processStreamingChunk(decodeStreamingResponse(raw))?.let { emit(it) }
+                }
+            }
         }
 
         override fun <T : Any> lines(
