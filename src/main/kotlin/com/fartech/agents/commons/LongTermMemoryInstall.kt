@@ -14,6 +14,7 @@ import ai.koog.rag.base.TextDocument
 import ai.koog.rag.base.storage.SearchStorage
 import ai.koog.rag.base.storage.WriteStorage
 import ai.koog.rag.base.storage.search.SearchRequest
+import com.fartech.agents.workflow.WorkflowHostPolicy
 import com.fartech.ftapp2.commonsKt.ConfigurationParameter
 import com.fartech.ftapp2.commonsKt.parameter
 import io.github.oshai.kotlinlogging.KotlinLogging
@@ -73,6 +74,12 @@ import java.util.concurrent.ConcurrentHashMap
  * scenarios where operators explicitly want shared cross-user memory
  * (tenant-wide product knowledge, etc.); operators providing a
  * custom namespace own their own cleanup path.
+ *
+ * On a multi-tenant host the namespace is user input, and every store
+ * (the Mongo collection as much as the in-memory map) is keyed by it alone.
+ * Once the host declared [WorkflowHostPolicy.requireTenantScopedStorage],
+ * a custom namespace is therefore confined under `ltm:<user_id>:` (see
+ * [resolveNamespace]), which also puts it within reach of [clearForUser].
  *
  * ## Default configuration
  *
@@ -210,7 +217,9 @@ object LongTermMemoryInstall {
      * segment so a user id of `alice` only clears `ltm:alice:…` namespaces
      * and can never stomp on `ltm:alice-admin:…`. Callers that override
      * the namespace template via `long_term_memory_namespace` must drive
-     * their own cleanup — we only know the default shape.
+     * their own cleanup — we only know the default shape — unless the host
+     * declared [WorkflowHostPolicy.requireTenantScopedStorage], which keeps
+     * every namespace under this prefix.
      *
      * Returns the number of namespaces cleared (0 when LTM is disabled
      * or the user has never triggered ingestion).
@@ -219,6 +228,53 @@ object LongTermMemoryInstall {
         val safe = userId.trim()
         if (safe.isEmpty()) return 0
         return clearNamespacesWithPrefix("ltm:$safe:")
+    }
+
+    /**
+     * The namespace an agent's memories are stored and retrieved under, or null when the agent
+     * gets no long-term memory on this host.
+     *
+     * Without [WorkflowHostPolicy.requireTenantScopedStorage], `long_term_memory_namespace` is
+     * used as given. With it, the namespace must lie under `ltm:<user_id>:` for the host-injected
+     * `user_id`: a custom value that does not is nested beneath that prefix (so
+     * `ltm:<other user>:<session>` becomes `ltm:<user>:ltm:<other user>:<session>`). An agent
+     * without a `user_id`, or with one containing `:` (which would make `ltm:a:` a prefix of
+     * user `a:b`'s namespaces), gets none.
+     */
+    internal fun resolveNamespace(parameters: List<ConfigurationParameter>): String? {
+        val sessionId = parameters.parameter("session_id", "default").trim()
+            .ifEmpty { "default" }
+        // `user_id` is injected by AssistantPipeline.buildParameters so the
+        // default namespace can be cleared via the site-level "forget me"
+        // button. CLI / workflow flows that never attach a user identity
+        // get the literal `agent-cli` segment — still collision-safe but
+        // NOT clearable from the admin UI (that's by design: no UI actor
+        // to drive the cleanup).
+        val hostUserId = parameters.parameter("user_id", "").trim()
+        val userId = hostUserId.ifEmpty { "agent-cli" }
+        val defaultNamespace = "ltm:$userId:$sessionId"
+        // Explicit `long_term_memory_namespace: ""` would key every caller
+        // into the same `inMemoryStores[""]` bucket and leak context across
+        // users — treat blank as "use the default template".
+        val requested = parameters.parameter("long_term_memory_namespace", defaultNamespace)
+            .trim()
+            .ifEmpty {
+                logger.warn {
+                    "LongTermMemory: blank `long_term_memory_namespace` would share state across users; " +
+                        "falling back to default namespace '$defaultNamespace'."
+                }
+                defaultNamespace
+            }
+        if (!WorkflowHostPolicy.requiresTenantScopedStorage) return requested
+
+        if (hostUserId.isEmpty() || ':' in hostUserId) {
+            logger.warn {
+                "LongTermMemory: disabled — this host scopes memory per user and the agent has no usable user_id."
+            }
+            return null
+        }
+        val userPrefix = "ltm:$hostUserId:"
+        return if (requested.startsWith(userPrefix)) requested else userPrefix + requested
     }
 
     /**
@@ -237,29 +293,7 @@ object LongTermMemoryInstall {
     ) {
         if (!parameters.parameter("long_term_memory_enabled", false)) return
 
-        val sessionId = parameters.parameter("session_id", "default").trim()
-            .ifEmpty { "default" }
-        // `user_id` is injected by AssistantPipeline.buildParameters so the
-        // default namespace can be cleared via the site-level "forget me"
-        // button. CLI / workflow flows that never attach a user identity
-        // get the literal `agent-cli` segment — still collision-safe but
-        // NOT clearable from the admin UI (that's by design: no UI actor
-        // to drive the cleanup).
-        val userId = parameters.parameter("user_id", "").trim()
-            .ifEmpty { "agent-cli" }
-        val defaultNamespace = "ltm:$userId:$sessionId"
-        // Explicit `long_term_memory_namespace: ""` would key every caller
-        // into the same `inMemoryStores[""]` bucket and leak context across
-        // users — treat blank as "use the default template".
-        val namespace = parameters.parameter("long_term_memory_namespace", defaultNamespace)
-            .trim()
-            .ifEmpty {
-                logger.warn {
-                    "LongTermMemory: blank `long_term_memory_namespace` would share state across users; " +
-                        "falling back to default namespace '$defaultNamespace'."
-                }
-                defaultNamespace
-            }
+        val namespace = resolveNamespace(parameters) ?: return
         // Resolution order:
         //   1. caller-supplied `customStorage` (test injection / explicit override)
         //   2. host-registered `storageProvider` (production Mongo backend when

@@ -8,6 +8,7 @@ import ai.koog.prompt.executor.clients.retry.RetryingLLMClient
 import ai.koog.prompt.executor.llms.MultiLLMPromptExecutor
 import ai.koog.prompt.executor.model.PromptExecutor
 import ai.koog.prompt.llm.LLMProvider
+import com.fartech.agents.workflow.WorkflowHostPolicy
 import com.fartech.ftapp2.commonsKt.AnsiColor
 import com.fartech.ftapp2.commonsKt.ConfigurationParameter
 import com.fartech.ftapp2.commonsKt.parameter
@@ -122,11 +123,12 @@ private fun clampPositive(name: String, value: Int, hardCap: Int, default: Int):
  *     (defaults to `.prompt_cache/`) with `max_files` entries (1024 default).
  *
  * Unknown values fall back to `memory` — we prefer "works but doesn't cache
- * across runs" over "fails to start".
+ * across runs" over "fails to start". So does `redis` once the host declared
+ * [WorkflowHostPolicy.requirePublicServiceEndpoints] (see [effectiveCachePolicy]).
  */
 fun determineCachePolicy(
     parameters: List<ConfigurationParameter>
-) = when (parameters.parameter("cache_policy", "memory")) {
+) = when (effectiveCachePolicy(parameters)) {
     "memory" -> InMemoryPromptCache(
         maxEntries = clampPositive(
             "memory_cache_max_entries",
@@ -161,6 +163,23 @@ fun determineCachePolicy(
             default = 4096,
         )
     )
+}
+
+/**
+ * The `cache_policy` to apply. On a host that declared
+ * [WorkflowHostPolicy.requirePublicServiceEndpoints], `redis` becomes `memory`: `redis_client_url`
+ * is user input there, and connecting to it would open a RESP session from the server into
+ * whatever network it can reach (its own Redis included).
+ */
+internal fun effectiveCachePolicy(parameters: List<ConfigurationParameter>): String {
+    val requested = parameters.parameter("cache_policy", "memory")
+    if (requested == "redis" && WorkflowHostPolicy.requiresPublicServiceEndpoints) {
+        promptExecutorFactoryLogger.warn {
+            "cache_policy=redis is not available on this host; redis_client_url is ignored and the in-memory prompt cache is used."
+        }
+        return "memory"
+    }
+    return requested
 }
 
 /**

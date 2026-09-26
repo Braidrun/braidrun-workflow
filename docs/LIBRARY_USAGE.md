@@ -87,11 +87,17 @@ WorkflowHostPolicy.requirePublicLlmEndpoints()                // no LLM / embedd
 WorkflowHostPolicy.requireExplicitKeysForCustomLlmEndpoints() // env keys never go to a user-set base_url
 WorkflowHostPolicy.requireSingleLlmChoice()                   // num_choices capped at 1, so every round is metered
 WorkflowHostPolicy.restrictSkillSideEffects()                 // no skill hooks, skill MCP servers or agent skill installs
+WorkflowHostPolicy.requirePublicServiceEndpoints()            // Langfuse / MCP URLs public https only; no user Redis cache
+WorkflowHostPolicy.refuseStdioMcpServers()                    // no mcp_servers that start a local process
+WorkflowHostPolicy.requireTenantScopedStorage()               // no user trace paths; LTM namespace stays under ltm:<user_id>:
 ```
 
 They are one-way and process-wide, deliberately not configuration parameters,
 because workflow YAML and parameters are user-controlled. See
-[Security](SECURITY.md#host-policy-latches) for what each one does. The CLI and
+[Security](SECURITY.md#host-policy-latches) for what each one does, and
+[Parameters that name host resources](SECURITY.md#parameters-that-name-host-resources)
+for the last three. `requireTenantScopedStorage()` relies on the `user_id`
+parameter you inject (keep it host-set, e.g. in the executor's base parameters). The CLI and
 plain library use set none of them. Per-skill MCP auto-start is off unless you
 call `WorkflowHostPolicy.allowSkillMcpAutoStart()`.
 

@@ -312,6 +312,7 @@ internal fun rejectTypeSafeChatProvider(provider: String) {
  *
  * Providers that are routed through OpenRouter (xAI, Qwen, Meta, Mistral, Perplexity)
  * are mapped to [LLMProvider.OpenRouter]. Unknown providers also default to OpenRouter.
+ * Either way the client only ever gets an OpenRouter key ([ApiKeySource.openRouterOrThrow]).
  * TypeSafe (Jev) ids are rejected — see [rejectTypeSafeChatProvider].
  */
 private fun mapProviderToLLMProvider(providerKey: String): LLMProvider = when (providerKey) {
@@ -571,8 +572,9 @@ private fun envVarNamesForProvider(provider: String): List<String> = when (provi
     "google" -> listOf("GOOGLE_API_KEY", "GOOGLE_GENAI_API_KEY", "GENAI_API_KEY")
     "anthropic" -> listOf("ANTHROPIC_API_KEY")
     "deepseek" -> listOf("DEEPSEEK_API_KEY")
-    "xai", "x-ai" -> listOf("XAI_API_KEY", "OPENROUTER_API_KEY") // xAI uses OpenRouter
-    "qwen" -> listOf("QWEN_API_KEY", "OPENROUTER_API_KEY") // Qwen via OpenRouter
+    // Served by openrouter.ai (see mapProviderToLLMProvider): only OpenRouter keys, never the vendor's own.
+    "xai", "x-ai", "qwen", "meta", "meta-llama", "mistral", "mistralai", "perplexity" ->
+        listOf("OPENROUTER_API_KEY", "OPEN_ROUTER_API_KEY")
     "qwen_direct", "dashscope" -> listOf("DASHSCOPE_API_KEY", "QWEN_API_KEY") // Qwen Direct via DashScope
     "kimi", "moonshot" -> listOf("KIMI_API_KEY", "MOONSHOT_API_KEY") // Kimi / Moonshot
     "minimax" -> listOf("MINIMAX_API_KEY") // MiniMax
@@ -580,9 +582,6 @@ private fun envVarNamesForProvider(provider: String): List<String> = when (provi
     "zai", "z.ai", "z_ai", "z-ai", "zhipuai", "zhipu_ai" -> listOf("ZAI_API_KEY", "Z_AI_API_KEY", "ZHIPUAI_API_KEY")
     "nvidia", "nvidia_nim", "nvidia-nim", "nim", "nvidia_build", "nvidia-build" ->
         listOf("NVIDIA_API_KEY", "NVIDIA_NIM_API_KEY", "NGC_API_KEY")
-    "meta", "meta-llama" -> listOf("OPENROUTER_API_KEY") // Meta uses OpenRouter
-    "mistral", "mistralai" -> listOf("MISTRAL_API_KEY", "OPENROUTER_API_KEY") // Mistral uses OpenRouter
-    "perplexity" -> listOf("PERPLEXITY_API_KEY", "OPENROUTER_API_KEY") // Perplexity uses OpenRouter
     "typesafe", "typesafe_ai", "typesafe-ai", "jev" -> listOf("TYPESAFE_API_KEY") // TypeSafe Jev (decision model, not chat)
     else -> emptyList()
 }
@@ -600,8 +599,10 @@ private fun providerKeyAliases(provider: String): List<String> = when (provider.
     "google" -> listOf("google")
     "anthropic" -> listOf("anthropic")
     "deepseek" -> listOf("deepseek")
-    "xai", "x-ai" -> listOf("xai", "x-ai", "openrouter", "open_router")
-    "qwen" -> listOf("qwen", "openrouter", "open_router")
+    // Served by openrouter.ai: a key stored under the vendor's name is the vendor's own key and
+    // must not be sent there (see envVarNamesForProvider).
+    "xai", "x-ai", "qwen", "meta", "meta-llama", "mistral", "mistralai", "perplexity" ->
+        listOf("openrouter", "open_router")
     "qwen_direct", "dashscope" -> listOf("qwen_direct", "dashscope")
     "kimi", "moonshot" -> listOf("kimi", "moonshot")
     "minimax" -> listOf("minimax")
@@ -609,9 +610,6 @@ private fun providerKeyAliases(provider: String): List<String> = when (provider.
     "zai", "z.ai", "z_ai", "z-ai", "zhipuai", "zhipu_ai" -> listOf("zai", "z.ai", "z_ai", "z-ai", "zhipuai", "zhipu_ai")
     "nvidia", "nvidia_nim", "nvidia-nim", "nim", "nvidia_build", "nvidia-build" ->
         listOf("nvidia", "nvidia_nim", "nvidia-nim", "nim", "nvidia_build", "nvidia-build")
-    "meta", "meta-llama" -> listOf("meta", "meta-llama", "openrouter", "open_router")
-    "mistral", "mistralai" -> listOf("mistral", "mistralai", "openrouter", "open_router")
-    "perplexity" -> listOf("perplexity", "openrouter", "open_router")
     "ollama", "local", "olla" -> listOf("ollama", "local", "olla")
     // Must match com.fartech.agents.jev.TYPESAFE_PROVIDER_ALIASES (and the web credential aliases).
     "typesafe", "typesafe_ai", "typesafe-ai", "jev" -> listOf("typesafe", "typesafe_ai", "jev")
@@ -693,12 +691,30 @@ private class ApiKeySource(
         resolveConfiguredApiKeyOrThrow(parameters, provider, keys)
     }
 
+    /**
+     * The OpenRouter key for a model whose [configProvider] is served by openrouter.ai. Only
+     * OpenRouter keys are looked up, whatever the configured provider: resolving under
+     * `mistral`, `cohere`, ... would send that vendor's own key (`MISTRAL_API_KEY`,
+     * `llm_provider_keys.mistral`, `cohere_api_key`) to a third party.
+     */
+    fun openRouterOrThrow(configProvider: String): String = try {
+        orThrow(OPENROUTER_KEY_PROVIDER)
+    } catch (e: IllegalStateException) {
+        if (configProvider in providerKeyAliases(OPENROUTER_KEY_PROVIDER)) throw e
+        throw IllegalStateException(
+            "Provider '$configProvider' is served through OpenRouter, which only accepts an OpenRouter key. ${e.message}",
+            e,
+        )
+    }
+
     private fun missingExplicitKey(provider: String) = IllegalStateException(
         "Missing API key for provider '$provider' with a custom base_url. This host does not use its own " +
             "environment keys for custom endpoints; pass one of ${providerApiKeyParameterNames(provider).joinToString(" / ")} " +
             "or set llm_provider_keys for: ${providerKeyAliases(provider).joinToString(" / ")}."
     )
 }
+
+private const val OPENROUTER_KEY_PROVIDER = "openrouter"
 
 /** Local servers that usually need no key. */
 private val KEYLESS_LLM_PROVIDERS = setOf("lmstudio", "lm-studio", "lm_studio", "ollama", "local", "olla")
@@ -932,7 +948,7 @@ fun createLLMClient(
         // ToolArgsFixingKoogHttpClient double-encoding shim is gone; see
         // ToolCallArgsUpstreamRegressionTest for the pin.
         LLMProvider.OpenRouter -> OpenRouterLLMClient(
-            apiKey = apiKeys.orThrow(configProvider),
+            apiKey = apiKeys.openRouterOrThrow(configProvider),
             settings = OpenRouterClientSettings(
                 baseUrl = baseUrl,
                 chatCompletionsPath = "/api/v1/chat/completions"

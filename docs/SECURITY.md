@@ -47,3 +47,27 @@ in the process, including ones built indirectly (sub-workflows, the agent
 `skills_config.hookScriptExecutionEnabled` can narrow what a latch allows, never
 widen it. Without any latch (CLI and plain library use) behavior is unchanged,
 except that per-skill MCP auto-start is off until `allowSkillMcpAutoStart()`.
+
+## Parameters that name host resources
+
+When the engine runs inside a server (braidrun-web runs every agent in its own JVM), workflow parameters are user input. `overrides:` and presets included, they can name things on the host itself. A host declares the following one-way `WorkflowHostPolicy` latches at startup, next to the ones above. They are never ConfigurationParameters, so a workflow cannot turn them off.
+
+```kotlin
+WorkflowHostPolicy.requirePublicServiceEndpoints()
+WorkflowHostPolicy.refuseStdioMcpServers()
+WorkflowHostPolicy.requireTenantScopedStorage()
+```
+
+| Parameter | Risk without the latch | Latch | Effect |
+|---|---|---|---|
+| `tracing_file_path` | Opened with `CREATE` from the host JVM: a workflow can write into any file the server user can | `requireTenantScopedStorage()` | Ignored; traces go to `.workflow-runs/traces/agent-<session_id>.ndjson` |
+| `long_term_memory_namespace` | Every LTM store (Mongo or in-memory) is keyed by namespace alone: `ltm:<other user>:…` reads or poisons another tenant's memory | `requireTenantScopedStorage()` | Confined under `ltm:<user_id>:` for the host-injected `user_id`; an agent with no `user_id` gets no LTM |
+| `langfuse_url`, `mcp_servers.<name>.url` | Server-side requests to any address (SSRF: metadata service, internal APIs) | `requirePublicServiceEndpoints()` | Must be `https` (`wss` for `type: websocket`) on a public host, or the agent fails to build |
+| `cache_policy: redis` + `redis_client_url` | A RESP connection from the server to any host, its own Redis included | `requirePublicServiceEndpoints()` | Falls back to the in-memory prompt cache |
+| `mcp_servers.<name>` without `url` (stdio) | `command` runs as a native process in the server JVM, outside `SubprocessExecutor` and Docker | `refuseStdioMcpServers()` | The agent fails to build before any process starts |
+
+Trace files are always opened for append, never truncated, with or without the latch.
+
+The public-endpoint checks resolve DNS when the agent is built. They do not pin the address used at connect time, the same limit `LlmEndpointPolicy` has.
+
+Independent of any latch, a model whose provider is served through OpenRouter (`xai`, `qwen`, `meta`, `mistral`, `perplexity` and unknown provider ids) authenticates only with an OpenRouter key: `openrouter_api_key`, `llm_provider_keys.openrouter` or `OPENROUTER_API_KEY`. A vendor's own key (`MISTRAL_API_KEY`, `llm_provider_keys.mistral`, `cohere_api_key`, …) is never sent to openrouter.ai.

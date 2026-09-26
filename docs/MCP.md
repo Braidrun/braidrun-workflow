@@ -43,3 +43,7 @@ the `tool_result_images_max_per_request` window; `tool_result_images_enabled:
 false` turns them off. See
 [Tool Result Images](WORKFLOW_GUIDE.md#tool-result-images) for defaults and
 size limits.
+
+## MCP servers inside a hosted server
+
+An agent's `mcp_servers` entry without a `url` is a stdio server: the engine starts its `command` as a local process. A host that runs other users' workflows in its own JVM declares `WorkflowHostPolicy.refuseStdioMcpServers()`, and such an agent then fails to build. Under `WorkflowHostPolicy.requirePublicServiceEndpoints()`, a `url` must be `https` (`wss` for `type: websocket`) on a public host. See [SECURITY.md](SECURITY.md#parameters-that-name-host-resources).

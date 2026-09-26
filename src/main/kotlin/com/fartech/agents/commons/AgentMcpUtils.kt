@@ -8,6 +8,7 @@ import ai.koog.agents.mcp.McpToolRegistryProvider
 // Import path is unchanged from 0.x.
 import ai.koog.agents.mcp.defaultStdioTransport
 import ai.koog.agents.mcp.metadata.McpServerInfo
+import com.fartech.agents.workflow.WorkflowHostPolicy
 import com.fartech.ftapp2.commonsKt.ConfigurationParameter
 import com.fartech.ftapp2.commonsKt.HttpAccess
 import com.fartech.ftapp2.commonsKt.AnsiColor
@@ -283,6 +284,38 @@ internal fun resolveMcpLaunch(
     )
 }
 
+/** An MCP server entry the host refused (see [requireAllowedMcpServers]). A configuration error. */
+class McpServerNotAllowedException(message: String) : IllegalArgumentException(message)
+
+/**
+ * Refuses, before any process starts or any connection opens, the `mcp_servers` entries this
+ * host does not allow. Under [WorkflowHostPolicy.refuseStdioMcpServers] an entry without a `url`
+ * is refused: [registerMcpTools] would start its `command` with a plain ProcessBuilder in this
+ * JVM, outside any sandbox. Under [WorkflowHostPolicy.requirePublicServiceEndpoints] a `url` must
+ * be `https` (`wss` for `type: websocket`) on a public host. These throw instead of being
+ * skipped like an unreachable server, so the author sees why the tools are missing.
+ */
+internal fun requireAllowedMcpServers(servers: Map<String, McpServerConfig>) {
+    servers.forEach { (serverName, server) ->
+        val url = server.url
+        if (url.isNullOrBlank()) {
+            if (WorkflowHostPolicy.refusesStdioMcpServers) {
+                throw McpServerNotAllowedException(
+                    "MCP server '$serverName' has no url, so it would run its command as a local process on this " +
+                        "host, which is not allowed here. Use an MCP server reachable over https instead."
+                )
+            }
+        } else {
+            val schemes = if (server.type?.lowercase() == "websocket") {
+                ServiceEndpointPolicy.HTTPS_OR_WSS
+            } else {
+                ServiceEndpointPolicy.HTTPS
+            }
+            ServiceEndpointPolicy.check(url, "MCP server '$serverName'", schemes)
+        }
+    }
+}
+
 /**
  * Registers MCP (Message Component Protocol) tools by processing the provided server configurations
  * and updating the given tool registry with the tools from each configured MCP server.
@@ -309,6 +342,7 @@ suspend fun registerMcpTools(
     mediaPolicy: ToolResultMediaPolicy = ToolResultMediaPolicy.forParameters(parameters),
 ): ToolRegistry {
     val mcpServersConfig = parameters.parameter("mcp_servers", mapOf<String, McpServerConfig>())
+    requireAllowedMcpServers(mcpServersConfig.getEnabledServers())
     val agentEnv = parameters.parameter("env", "").takeIf { it.isNotBlank() }
     val mcpRegistries = mutableSetOf<ToolRegistry>()
 
