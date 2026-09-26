@@ -4,7 +4,12 @@ import ai.koog.prompt.dsl.PromptBuilder
 import ai.koog.prompt.executor.clients.anthropic.AnthropicCacheControl
 import ai.koog.prompt.executor.clients.bedrock.BedrockCacheControl
 import ai.koog.prompt.message.CacheControl
+import ai.koog.prompt.message.Message
 import ai.koog.prompt.message.MessagePart
+import ai.koog.prompt.message.RequestMetaInfo
+import ai.koog.utils.time.KoogClock
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 
 /**
  * Prompt-cache-control helpers for stable long prefixes.
@@ -14,53 +19,93 @@ import ai.koog.prompt.message.MessagePart
  * Provider-side prompt caching (Anthropic's `cache_control`, Bedrock's
  * `CachePointBlock`) lets the provider bill long stable prefixes once and
  * then hit a token-level cache for subsequent requests that share the same
- * prefix. This is distinct from — and complementary to — our own
- * [ai.koog.prompt.executor.cached.CachedPromptExecutor] layer, which
- * deduplicates **identical** request envelopes; provider-side caching pays
- * off even when the trailing user message differs between calls.
+ * prefix. This is distinct from — and complementary to — our own response
+ * cache ([MeteringSafeCachedPromptExecutor]), which deduplicates **identical**
+ * request envelopes; provider-side caching pays off even when the trailing
+ * user message differs between calls.
  *
- * ## Koog 1.0.0 support matrix (verified against source)
+ * Direct Anthropic requests already get automatic breakpoints (tools, stable
+ * system prefix, tool-loop tail) from [PromptCachingLLMClient]; these helpers
+ * are for callers that want an extra, explicit read point — e.g. a long
+ * document shared by many questions.
+ *
+ * ## Koog 1.3.0 support matrix (verified against source)
  *
  * | Provider   | [CacheControl] honored? | TTL options |
  * |------------|-------------------------|-------------|
- * | **Anthropic** | **YES (new in 1.0.0)** | `Default` (= 5 min, no explicit TTL header), `OneHour` |
- * | **Bedrock**   | **YES**                | `Default`, `FiveMinutes`, `OneHour` |
- * | OpenRouter | NO (silent no-op)       | — |
- * | Others     | NO (silent no-op)       | — |
+ * | **Anthropic** | **YES** | `Default` (= 5 min, no explicit TTL), `OneHour` |
+ * | **Bedrock**   | **YES** | `Default`, `FiveMinutes`, `OneHour` |
+ * | Others     | NO                      | — |
  *
- * Koog 0.8.0 only honoured Bedrock; Koog 1.0.0 added native Anthropic
- * prompt caching via the `AnthropicCacheControl` subtype. The Anthropic
- * support is the headline win — every long system prompt going to
- * Claude (the assistant pipeline default, the workflow-author preset
- * recommendations, the skill-card prefix) now caches automatically on
- * the second request.
+ * ## Provider safety
  *
- * Setting a cache hint is **safe on every provider** (the field is a
- * marker interface; providers that don't understand a particular subtype
- * silently ignore it). The defaults here emit [AnthropicCacheControl]
- * because Claude is braidrun's most-used provider; pass an explicit
- * [Provider] when targeting Bedrock.
+ * A hint is **not** safe on every provider by itself: Koog's Anthropic client
+ * `require`s an [AnthropicCacheControl] and throws `IllegalStateException` on a
+ * [BedrockCacheControl] (and the Bedrock client does the reverse). Prompts built
+ * here are safe only because [PromptCachingLLMClient], applied to every client
+ * by [createLLMClient], removes markers of another provider's type before the
+ * request is serialized — which matters because a prompt is shared with
+ * fallback and cascade tiers on other providers.
+ *
+ * ## TTL and limits
+ *
+ * Anthropic allows at most 4 breakpoints per request (the automatic ones
+ * count), and the minimum cacheable prefix is 512–4096 tokens depending on the
+ * model — shorter prefixes silently don't cache. A 5-minute entry is refreshed
+ * by every read, so traffic that reuses a prefix within 5 minutes never needs
+ * the 1-hour TTL; a 1-hour write costs 2× input instead of 1.25×. braidrun-web
+ * prices cache writes at the 5-minute rate, so prefer [CacheTtl.Default].
  *
  * ## Usage pattern
  *
- * Build your `prompt { system { ... } ... }` as usual, then thread the
- * stable prefix (e.g. skill cards + tool guide + schema definition) through
- * [systemWithCacheHint] so the backend knows that block is cache-eligible:
- *
  * ```kotlin
  * prompt("chat") {
- *     systemWithCacheHint(longStableSkillPrompt, ttl = CacheTtl.OneHour)
- *     // Short, volatile tail without cache hint:
- *     system { +"User locale: zh-CN" }
+ *     systemWithVolatileTail(stable = longStableSkillPrompt, volatileTail = "\n\nDate: $now")
+ *     userWithCacheHint(longSharedDocument)
  *     user { +currentTurnPrompt }
  * }
  * ```
  *
  * Only the **cumulative prefix up to and including the cache-hinted block**
- * is cached by the provider; any subsequent system/user messages after the
- * hint are re-evaluated per request. This matches Anthropic's documented
- * `cache_control` semantic and Bedrock's `CachePointBlock` placement rule.
+ * is cached by the provider; anything after the hint is re-evaluated per
+ * request. This matches Anthropic's documented `cache_control` semantic and
+ * Bedrock's `CachePointBlock` placement rule.
  */
+
+/**
+ * `RequestMetaInfo.metadata` key on a system message built by [systemWithVolatileTail]: how
+ * many leading parts form its stable, cacheable prefix.
+ */
+const val STABLE_SYSTEM_PARTS_METADATA_KEY = "braidrun_stable_system_parts"
+
+/**
+ * Append a system message made of a [stable] prefix and a [volatileTail] (per-request content
+ * such as the current date) that must not be part of any cached prefix.
+ *
+ * Direct Anthropic requests get the two as separate system blocks with the stable-prefix
+ * breakpoint on the first, so a changing tail no longer invalidates the cached tools + system
+ * prefix. Every other provider receives the single text `stable + volatileTail`, exactly as if
+ * it had been built with `system(stable + volatileTail)` (see [PromptCachingLLMClient]).
+ *
+ * The tail still renders before the conversation, so a tail that changes between two requests
+ * invalidates the cached *messages* between them; put anything that changes within a
+ * conversation after it instead.
+ */
+fun PromptBuilder.systemWithVolatileTail(stable: String, volatileTail: String) {
+    if (stable.isBlank() || volatileTail.isEmpty()) {
+        system(stable + volatileTail)
+        return
+    }
+    message(
+        Message.System(
+            parts = listOf(MessagePart.Text(stable), MessagePart.Text(volatileTail)),
+            metaInfo = RequestMetaInfo(
+                timestamp = KoogClock.System.now(),
+                metadata = JsonObject(mapOf(STABLE_SYSTEM_PARTS_METADATA_KEY to JsonPrimitive(1))),
+            ),
+        )
+    )
+}
 
 /**
  * Cache-eligible provider; selects the concrete [CacheControl] subtype
@@ -77,8 +122,8 @@ enum class CacheProvider { Anthropic, Bedrock }
  *   Bedrock default).
  * [FiveMinutes] — short TTL. **Bedrock only** — Anthropic doesn't expose
  *   a discrete 5-min mode; map degrades to [Default].
- * [OneHour] — long TTL; for prefixes that are stable across many
- *   conversation turns (system prompt, skill card, tool schema).
+ * [OneHour] — long TTL (2× input write price); only pays off when the same
+ *   prefix is reused after gaps of 5–60 minutes.
  */
 enum class CacheTtl {
     Default,
@@ -105,23 +150,23 @@ private fun CacheTtl.toCacheControl(provider: CacheProvider): CacheControl = whe
  *
  * The [content] is emitted as a system message whose `cacheControl` is set
  * to the [ttl]-mapped [CacheControl] for the chosen [provider]. Providers
- * that don't honor the field ignore it silently — see the file-level KDoc
- * for the support matrix.
+ * that don't honor the field never see it ([PromptCachingLLMClient] removes it) —
+ * see the file-level KDoc for the support matrix.
  *
  * Prefer this over raw `system { +content }` at the **stable prefix**
  * boundary of a prompt (e.g. right after the baseline skill cards and tool
  * descriptions, before appending locale-specific or turn-specific context).
  *
  * @param content the system-message body. Must not be blank.
- * @param ttl cache tier hint; defaults to [CacheTtl.OneHour] which suits
- *   assistant-style long-prefix workloads.
+ * @param ttl cache tier hint; defaults to [CacheTtl.Default] (5 minutes,
+ *   refreshed on every read).
  * @param provider cache flavour to emit. Defaults to [CacheProvider.Anthropic]
  *   because Claude is the most-used provider in braidrun; pass
  *   [CacheProvider.Bedrock] explicitly when targeting AWS Bedrock.
  */
 fun PromptBuilder.systemWithCacheHint(
     content: String,
-    ttl: CacheTtl = CacheTtl.OneHour,
+    ttl: CacheTtl = CacheTtl.Default,
     provider: CacheProvider = CacheProvider.Anthropic,
 ) {
     require(content.isNotBlank()) { "systemWithCacheHint requires non-blank content" }
@@ -138,7 +183,7 @@ fun PromptBuilder.systemWithCacheHint(
  */
 fun PromptBuilder.userWithCacheHint(
     content: String,
-    ttl: CacheTtl = CacheTtl.OneHour,
+    ttl: CacheTtl = CacheTtl.Default,
     provider: CacheProvider = CacheProvider.Anthropic,
 ) {
     require(content.isNotBlank()) { "userWithCacheHint requires non-blank content" }
@@ -156,7 +201,7 @@ fun PromptBuilder.userWithCacheHint(
  */
 fun PromptBuilder.userPartsWithCacheHint(
     parts: List<MessagePart.RequestPart>,
-    ttl: CacheTtl = CacheTtl.OneHour,
+    ttl: CacheTtl = CacheTtl.Default,
     provider: CacheProvider = CacheProvider.Anthropic,
 ) {
     val cacheControl = ttl.toCacheControl(provider)

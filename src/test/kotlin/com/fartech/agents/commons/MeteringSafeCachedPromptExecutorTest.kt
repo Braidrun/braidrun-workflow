@@ -38,6 +38,7 @@ class MeteringSafeCachedPromptExecutorTest {
 
     private class CountingExecutor : PromptExecutor() {
         var calls = 0
+        var streamingCalls = 0
 
         override suspend fun execute(
             prompt: Prompt,
@@ -52,7 +53,11 @@ class MeteringSafeCachedPromptExecutorTest {
             prompt: Prompt,
             model: LLModel,
             tools: List<ToolDescriptor>
-        ): Flow<StreamFrame> = flow { error("the cache serves streaming through execute()") }
+        ): Flow<StreamFrame> = flow {
+            streamingCalls++
+            emit(StreamFrame.TextDelta("answer"))
+            emit(StreamFrame.End(finishReason = "stop", metaInfo = usage(input = 50, output = 5)))
+        }
 
         override suspend fun moderate(prompt: Prompt, model: LLModel): ModerationResult =
             error("not used")
@@ -88,19 +93,19 @@ class MeteringSafeCachedPromptExecutorTest {
     }
 
     @Test
-    fun `streamed cache hit ends without usage`() = runBlocking {
+    fun `streaming bypasses the cache and keeps the provider usage`() = runBlocking {
+        // Koog's cached streaming replays a non-streaming call as frames, which kills live typing.
         val nested = CountingExecutor()
         val executor = MeteringSafeCachedPromptExecutor(InMemoryPromptCache(maxEntries = 16), nested)
 
-        val missEnd = executor.executeStreaming(followUpPrompt, model, emptyList()).toList()
-            .filterIsInstance<StreamFrame.End>().single()
-        val hitEnd = executor.executeStreaming(followUpPrompt, model, emptyList()).toList()
-            .filterIsInstance<StreamFrame.End>().single()
+        val ends = List(2) {
+            executor.executeStreaming(followUpPrompt, model, emptyList()).toList()
+                .filterIsInstance<StreamFrame.End>().single()
+        }
 
-        assertEquals(1, nested.calls)
-        assertEquals(50, missEnd.metaInfo.inputTokensCount)
-        assertNull(hitEnd.metaInfo.inputTokensCount)
-        assertNull(hitEnd.metaInfo.outputTokensCount)
+        assertEquals(2, nested.streamingCalls, "every streamed request reaches the provider live")
+        assertEquals(0, nested.calls)
+        ends.forEach { assertEquals(50, it.metaInfo.inputTokensCount) }
     }
 
     /**

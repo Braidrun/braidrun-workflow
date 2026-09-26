@@ -17,8 +17,6 @@ import ai.koog.prompt.structure.json.generator.BasicJsonSchemaGenerator
 import ai.koog.prompt.structure.json.generator.StandardJsonSchemaGenerator
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -44,13 +42,19 @@ const val PROMPT_CACHE_HIT_METADATA_KEY = "braidrun_prompt_cache_hit"
  * that reaches `nested`, which records it on the per-call [CacheMissProbe] —
  * and gives a hit fresh metadata without token counts, flagged with
  * [PROMPT_CACHE_HIT_METADATA_KEY]. Misses pass through untouched.
+ *
+ * Entries are keyed by [responseCacheDigest] — model, full tool descriptors and prompt — through
+ * [ScopedResponseCache], not by Koog's 32-bit prompt hash that ignores the model.
+ *
+ * Streaming requests bypass the cache: Koog's cached `executeStreaming` answers with a
+ * non-streaming call replayed as frames, which would turn live typing into one burst at the end.
  */
 internal class MeteringSafeCachedPromptExecutor(
     cache: PromptCache,
-    nested: PromptExecutor,
+    private val nested: PromptExecutor,
 ) : PromptExecutor() {
 
-    private val cached = CachedPromptExecutor(cache = cache, nested = MissRecordingPromptExecutor(nested))
+    private val cached = CachedPromptExecutor(cache = ScopedResponseCache(cache), nested = MissRecordingPromptExecutor(nested))
 
     override suspend fun execute(
         prompt: Prompt,
@@ -58,7 +62,8 @@ internal class MeteringSafeCachedPromptExecutor(
         tools: List<ToolDescriptor>
     ): Message.Assistant {
         val probe = CacheMissProbe()
-        val response = withContext(probe) { cached.execute(prompt, model, tools) }
+        val key = ResponseCacheKey(responseCacheDigest(prompt, model, tools))
+        val response = withContext(probe + key) { cached.execute(prompt, model, tools) }
         return if (probe.missed) response else response.copy(metaInfo = response.metaInfo.asUnmeteredCacheHit())
     }
 
@@ -66,21 +71,7 @@ internal class MeteringSafeCachedPromptExecutor(
         prompt: Prompt,
         model: LLModel,
         tools: List<ToolDescriptor>
-    ): Flow<StreamFrame> = flow {
-        val probe = CacheMissProbe()
-        // The cached executor resolves hit/miss before it replays the first frame.
-        cached.executeStreaming(prompt, model, tools)
-            .flowOn(probe)
-            .collect { frame ->
-                emit(
-                    if (frame is StreamFrame.End && !probe.missed) {
-                        frame.copy(metaInfo = frame.metaInfo.asUnmeteredCacheHit())
-                    } else {
-                        frame
-                    }
-                )
-            }
-    }
+    ): Flow<StreamFrame> = nested.executeStreaming(prompt, model, tools)
 
     override suspend fun moderate(prompt: Prompt, model: LLModel): ModerationResult =
         cached.moderate(prompt, model)

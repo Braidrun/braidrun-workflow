@@ -27,19 +27,26 @@ MeteringSafeCachedPromptExecutor(cache = ToolResultMediaBypassingPromptCache(<ca
             └─ per provider: RetryingLLMClient
                    └─ ToolResultMediaAdaptingLLMClient
                         └─ ModelParamsSanitizingLLMClient
-                             └─ Koog provider client (Anthropic, OpenAI, Google, ...)
+                             └─ PromptCachingLLMClient
+                                  └─ Koog provider client (Anthropic, OpenAI, Google, ...)
+                                     (direct Anthropic: inside AnthropicStreamUsageRecoveringClient)
 ```
 
 - `createLLMClient` (`AgentModels.kt`) builds the provider client, checks its
   base URL with `LlmEndpointPolicy`, resolves keys (environment keys are
   withheld from custom base URLs under
   `requireExplicitKeysForCustomLlmEndpoints()`), and wraps it in
-  `ModelParamsSanitizingLLMClient`.
+  `ModelParamsSanitizingLLMClient` and `PromptCachingLLMClient` (Anthropic
+  prompt-cache breakpoints; see [Prompt Caching](PROMPT_CACHING.md)). The
+  direct Anthropic client is also wrapped in
+  `AnthropicStreamUsageRecoveringClient`, which restores the cache counts Koog
+  drops from streamed responses. All of these are `DelegatingLLMClient`s.
 - `createPromptExecutor` (`PromptExecutorFactory.kt`) adds
   `ToolResultMediaAdaptingLLMClient` and `RetryingLLMClient` (`retry_*`
   parameters, else `RetryConfig.PRODUCTION`) to every client of the primary
   and cascade tiers, composes them, and adds the provider-validation and cache
-  layers. `disable_cache_for_streaming=true` drops the cache layer.
+  layers. `disable_cache_for_streaming=true` drops the cache layer; streaming
+  requests bypass it either way.
 - `ProviderValidatingPromptExecutor` normalizes reasoning-only assistant
   messages that OpenAI-compatible APIs would reject.
 
@@ -69,7 +76,13 @@ tracing). Rounds with `num_choices > 1` use `executeMultipleChoices`, which is
 unmetered upstream; hosts that bill per token call
 `WorkflowHostPolicy.requireSingleLlmChoice()`. `MeteringSafeCachedPromptExecutor`
 reports cache hits with no token counts and the response metadata flag
-`braidrun_prompt_cache_hit=true`, so a hit is never billed twice.
+`braidrun_prompt_cache_hit=true`, so a hit is never billed twice, and keys its
+entries by a SHA-256 of model, full tool descriptors and prompt.
+
+Usage is normalized across providers (`LlmTokenUsage`): `inputTokens` excludes
+provider prompt-cache reads and writes, which `llm_call_completed` /
+`token_usage` events carry as `cacheReadTokens` / `cacheCreationTokens`. See
+[Prompt Caching and Token Accounting](PROMPT_CACHING.md).
 
 ### Multimodal tool results
 

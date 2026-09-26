@@ -2707,6 +2707,8 @@ data class WorkflowMetrics(
     fun getInputTokens(): Long = stepMetrics.values.sumOf { it.getInputTokens() }
     fun getOutputTokens(): Long = stepMetrics.values.sumOf { it.getOutputTokens() }
     fun getTotalTokens(): Long = stepMetrics.values.sumOf { it.getTotalTokens() }
+    fun getCacheReadTokens(): Long = stepMetrics.values.sumOf { it.getCacheReadTokens() }
+    fun getCacheCreationTokens(): Long = stepMetrics.values.sumOf { it.getCacheCreationTokens() }
 }
 
 /**
@@ -2730,8 +2732,15 @@ data class AgentEvent(
     /** 单次事件对应的输出 token 数（可选） */
     val outputTokens: Int? = null,
     /** 单次事件对应的总 token 数（可选） */
-    val totalTokens: Int? = null
+    val totalTokens: Int? = null,
+    /** 从 provider prompt cache 读取的 prompt token 数（可选）。不含在 [inputTokens] 与 [totalTokens] 中。 */
+    val cacheReadTokens: Int? = null,
+    /** 写入 provider prompt cache 的 prompt token 数（可选）。不含在 [inputTokens] 与 [totalTokens] 中。 */
+    val cacheCreationTokens: Int? = null,
 )
+
+/** `token_usage` display events duplicate the counts of the `llm_call_completed` event before them. */
+internal fun AgentEvent.isDisplayOnlyTokenEvent(): Boolean = type == "token_usage" || subCategory == "token"
 
 /**
  * 步骤执行指标
@@ -2773,13 +2782,19 @@ data class StepMetrics(
     var subWorkflowName: String? = null
 ) {
     fun getDuration(): Long = (endTime ?: System.currentTimeMillis()) - startTime
-    fun getInputTokens(): Long = synchronized(events) { events.sumOf { (it.inputTokens ?: 0).toLong() } }
-    fun getOutputTokens(): Long = synchronized(events) { events.sumOf { (it.outputTokens ?: 0).toLong() } }
-    fun getTotalTokens(): Long = synchronized(events) {
-        events.sumOf {
-            val total = it.totalTokens
-            if (total != null) total.toLong() else (it.inputTokens ?: 0).toLong() + (it.outputTokens ?: 0).toLong()
-        }
+    // `token_usage` events repeat the preceding `llm_call_completed` counts for display, so the
+    // sums skip them (as braidrun-web's metering does) instead of counting every call twice.
+    fun getInputTokens(): Long = sumMeteredEvents { it.inputTokens?.toLong() ?: 0L }
+    fun getOutputTokens(): Long = sumMeteredEvents { it.outputTokens?.toLong() ?: 0L }
+    fun getTotalTokens(): Long = sumMeteredEvents {
+        val total = it.totalTokens
+        if (total != null) total.toLong() else (it.inputTokens ?: 0).toLong() + (it.outputTokens ?: 0).toLong()
+    }
+    fun getCacheReadTokens(): Long = sumMeteredEvents { it.cacheReadTokens?.toLong() ?: 0L }
+    fun getCacheCreationTokens(): Long = sumMeteredEvents { it.cacheCreationTokens?.toLong() ?: 0L }
+
+    private inline fun sumMeteredEvents(selector: (AgentEvent) -> Long): Long = synchronized(events) {
+        events.sumOf { if (it.isDisplayOnlyTokenEvent()) 0L else selector(it) }
     }
 
     /**
