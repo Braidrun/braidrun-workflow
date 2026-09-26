@@ -29,6 +29,7 @@ import java.io.File
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlin.system.exitProcess
+import kotlin.time.Duration.Companion.milliseconds
 
 fun main(args: Array<String>) {
     // One local user: browser contexts stay shared across runs for the life of the process.
@@ -473,7 +474,7 @@ internal class InteractiveApprovalHandler(
         printLine("Response deadline: ${java.time.Instant.ofEpochMilli(nowMillis() + remaining)}")
         printLine("Type approve [comment] or reject [comment], then Enter. Approval accepts every listed item unchanged.")
         try {
-            val decision = withTimeoutOrNull(remaining) {
+            val decision = withTimeoutOrNull(remaining.milliseconds) {
                 awaitExplicitDecision(request)
             }
             if (decision == null) {
