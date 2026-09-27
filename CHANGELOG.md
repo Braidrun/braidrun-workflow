@@ -8,8 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.3.0]
 
 Koog upgrade (1.0.0 → 1.3.0) plus the model, metering, multimodal and skill
-work it enabled. 1.2.0 and 1.3.0 are not tagged yet; library consumers
-resolving from JitPack need the tag (or a local `publishToMavenLocal`).
+work it enabled. Tagged `1.3.0` and published on JitPack as
+`com.github.Braidrun:braidrun-workflow:1.3.0`. 1.2.0 was never tagged; its
+changes ship in 1.3.0.
 
 ### Upgrade notes
 
