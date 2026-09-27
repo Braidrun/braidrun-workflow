@@ -35,7 +35,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.put
-import mu.KotlinLogging
+import io.github.oshai.kotlinlogging.KotlinLogging
 import java.io.PrintStream
 import java.nio.charset.StandardCharsets
 import java.util.UUID
@@ -306,8 +306,8 @@ suspend fun startAgentMcpServer(
     }
 
     val transport = StdioServerTransport(
-        System.`in`.asInput(),
-        protocolOut.asSink().buffered()
+        input = System.`in`.asInput(),
+        output = protocolOut.asSink().buffered()
     )
 
     server.createSession(transport)

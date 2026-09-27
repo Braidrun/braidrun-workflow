@@ -27,7 +27,7 @@ import com.fartech.agents.tools.toLLM
 import com.fartech.agents.tools.toLLModel
 import com.fartech.ftapp2.commonsKt.*
 import io.ktor.client.*
-import mu.KotlinLogging
+import io.github.oshai.kotlinlogging.KotlinLogging
 import io.ktor.client.plugins.*
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.Serializable

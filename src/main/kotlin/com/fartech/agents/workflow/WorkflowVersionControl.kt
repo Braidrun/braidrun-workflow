@@ -1,6 +1,6 @@
 package com.fartech.agents.workflow
 
-import mu.KotlinLogging
+import io.github.oshai.kotlinlogging.KotlinLogging
 import java.io.File
 import java.security.MessageDigest
 import java.time.Instant

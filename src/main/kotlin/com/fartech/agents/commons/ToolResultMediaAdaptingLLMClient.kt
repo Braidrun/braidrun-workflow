@@ -18,7 +18,7 @@ import ai.koog.prompt.structure.json.generator.StandardJsonSchemaGenerator
 import com.fartech.ftapp2.commonsKt.ConfigurationParameter
 import kotlinx.coroutines.flow.Flow
 import kotlinx.serialization.json.JsonPrimitive
-import mu.KotlinLogging
+import io.github.oshai.kotlinlogging.KotlinLogging
 
 private val toolResultMediaLogger = KotlinLogging.logger("com.fartech.agents.commons.ToolResultMedia")
 

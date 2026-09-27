@@ -22,7 +22,7 @@ application {
 distributions {
     main {
         contents {
-            val cliSlf4jNop = (dependencies.create("org.slf4j:slf4j-nop:2.0.17") as ExternalModuleDependency).apply {
+            val cliSlf4jNop = (dependencies.create("org.slf4j:slf4j-nop:2.0.20") as ExternalModuleDependency).apply {
                 exclude(mapOf("group" to "org.slf4j", "module" to "slf4j-api"))
             }
             from(configurations.detachedConfiguration(cliSlf4jNop)) {
@@ -91,41 +91,46 @@ tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach 
 // transitive edge). Check maven-metadata.xml before moving a module between
 // the two constants below.
 //   - STABLE (`koogVersion` = 1.3.0): koog-agents umbrella, agents-features-
-//     memory / -snapshot / -tokenizer / -trace / -opentelemetry,
-//     embeddings-*, rag-base, http-client-*, prompt-processor,
-//     prompt-tokenizer, prompt-cache-files / -model, prompt-executor-model /
-//     -cached, and the openai / openai-base / anthropic / openrouter / bedrock
-//     / ollama clients.
+//     snapshot / -tokenizer / -trace / -opentelemetry, embeddings-*,
+//     rag-base, http-client-*, prompt-processor, prompt-tokenizer,
+//     prompt-cache-files / -model, prompt-executor-model / -cached, and the
+//     openai / openai-base / anthropic / openrouter / bedrock / ollama clients.
 //   - BETA (`koogBetaVersion` = 1.3.0-beta): agents-ext, agents-mcp, a2a-*,
-//     agents-features-a2a-*, agents-features-longterm-memory, rag-vector,
-//     prompt-cache-redis, and the google / deepseek / mistralai / dashscope /
-//     litert clients.
+//     agents-features-a2a-server, agents-features-longterm-memory,
+//     prompt-cache-redis, and the google / deepseek / mistralai clients.
 // Not used on purpose: `ai.koog:skills` (beta-only, Agent Skills catalog).
 // Braidrun's skill system stays in-house (SkillManager; see docs/SKILLS.md).
 val koogVersion = "1.3.0"
 val koogBetaVersion = "1.3.0-beta"
-val ktorVersion = "3.4.1"
-val vertxVersion = "4.5.18"
+val ktorVersion = "3.6.0"
+val jacksonVersion = "2.22.3"
+val poiVersion = "5.5.1"
+val commonmarkVersion = "0.30.0"
+val dockerJavaVersion = "3.7.1"
+val slf4jVersion = "2.0.20"
 
 dependencies {
-    // Kotlinx Coroutines
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3")
-    // Keep this aligned with Koog/AWS Smithy. kotlinx-datetime 0.7 migrated
-    // Instant to kotlin.time.Instant; using the old 0.4 binary API here causes
-    // NoClassDefFoundError when a consuming application resolves 0.7.x.
-    implementation("org.jetbrains.kotlinx:kotlinx-datetime:0.7.1")
+    // `api` marks what braidrun-web (and any other consumer) gets from this
+    // library: every dependency both projects use is declared here once, so
+    // the consumer never pins its own, possibly diverging, version. The two
+    // platforms below also align the Ktor and Netty modules the consumer adds
+    // on top (ktor-server-*), keeping one Ktor / one Netty across the stack.
+    api(platform("io.ktor:ktor-bom:$ktorVersion"))
+    // Ktor pulls Netty 4.2.x and Lettuce / the consumer's AWS SDK request
+    // 4.1.x; pin one patched Netty (4.2.17 fixed the last of ~20 published
+    // CVEs in Ktor's default 4.2.9: HTTP/1.1 request smuggling, HTTP/2 DoS).
+    api(platform("io.netty:netty-bom:4.2.18.Final"))
 
-    // Kotlinx Serialization
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
-
-    // Keep compatibility with shared commons helpers that expose Vert.x JsonObject/JsonArray.
-    implementation("io.vertx:vertx-core:$vertxVersion")
+    api("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
+    api("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
+    // Kotlinx IO for Path support in Koog attachments DSL and the MCP stdio server.
+    implementation("org.jetbrains.kotlinx:kotlinx-io-core:0.9.1")
 
     // YAML parsing for workflow definitions
-    implementation("com.charleskorn.kaml:kaml:0.71.0")
+    api("com.charleskorn.kaml:kaml:0.104.0")
 
     // Koog agents, using the Ktor versions resolved by Koog itself.
-    implementation("ai.koog:koog-agents:${koogVersion}")
+    api("ai.koog:koog-agents:${koogVersion}")
     // agents-ext (BETA stream) — homes the built-in tools (ExitTool,
     // ReadFileTool, ListDirectoryTool, EditFileTool, WriteFileTool,
     // ExecuteShellCommandTool, etc.) that are not part of the stable umbrella;
@@ -135,95 +140,86 @@ dependencies {
     // HTTP transports for talking to external MCP servers. Not part of the
     // stable koog-agents umbrella.
     implementation("ai.koog:agents-mcp:${koogBetaVersion}")
-    // Core A2A server library — all A2A modules are on the BETA stream.
+    // A2A server (AgentA2A.kt) — all A2A modules are on the BETA stream.
     api("ai.koog:a2a-server:${koogBetaVersion}")
     api("ai.koog:agents-features-a2a-server:${koogBetaVersion}")
-    api("ai.koog:agents-features-a2a-client:${koogBetaVersion}")
-
-    // HTTP JSON-RPC transport (most common) — also BETA stream.
+    // HTTP JSON-RPC transport, served by the CIO engine.
     api("ai.koog:a2a-transport-server-jsonrpc-http:${koogBetaVersion}")
-    api("ai.koog:a2a-transport-client-jsonrpc-http:${koogBetaVersion}")
+    api("io.ktor:ktor-server-cio")
 
-    // Ktor server engine (choose one that fits your needs)
-    api("io.ktor:ktor-server-cio:${ktorVersion}")
-    api("io.ktor:ktor-client-cio:${ktorVersion}")
-
-    // OpenAI client for OpenRouter
-    implementation("com.aallam.openai:openai-client:3.6.0")
-
-    // Kotlinx IO for Path support in Koog attachments DSL
-    implementation("org.jetbrains.kotlinx:kotlinx-io-core-jvm:0.3.1")
-
-    // Testing
-    testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")
+    // Testing. Test dependencies are not inherited by consumers, so
+    // braidrun-web declares the same set at the same versions.
+    testImplementation(platform("org.junit:junit-bom:6.1.3"))
+    testImplementation("org.junit.jupiter:junit-jupiter")
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
     testImplementation(kotlin("test"))
     // Ktor MockEngine for HTTP client tests (TypeSafe Jev client).
-    testImplementation("io.ktor:ktor-client-mock:${ktorVersion}")
+    testImplementation("io.ktor:ktor-client-mock")
     // Logging
-    implementation("org.slf4j:slf4j-api:2.0.9")
-    implementation("io.github.microutils:kotlin-logging:3.0.5")
-    testRuntimeOnly("org.slf4j:slf4j-simple:2.0.9")
+    api("org.slf4j:slf4j-api:$slf4jVersion")
+    api("io.github.oshai:kotlin-logging-jvm:8.0.4")
+    testRuntimeOnly("org.slf4j:slf4j-simple:$slf4jVersion")
+    // POI logs through the Log4j API; route it to SLF4J instead of Log4j's
+    // "could not find a logging provider" status error.
+    runtimeOnly("org.apache.logging.log4j:log4j-to-slf4j:2.26.1")
     implementation(kotlin("reflect"))
-    implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.17.2")
-    implementation("com.fasterxml.jackson.datatype:jackson-datatype-jsr310:2.17.2")
+    implementation("com.fasterxml.jackson.module:jackson-module-kotlin:$jacksonVersion")
+    implementation("com.fasterxml.jackson.datatype:jackson-datatype-jsr310:$jacksonVersion")
 
-    // Apache POI for Office documents (Word, Excel, PowerPoint)
-    implementation("org.apache.poi:poi:5.4.0")
-    implementation("org.apache.poi:poi-ooxml:5.4.0")
-    implementation("org.apache.poi:poi-scratchpad:5.4.0")
-    implementation("org.apache.pdfbox:pdfbox:3.0.2")
-    implementation("org.apache.commons:commons-csv:1.10.0")
-    implementation("org.commonmark:commonmark:0.22.0")
-    implementation("org.commonmark:commonmark-ext-gfm-tables:0.22.0")
-    implementation("org.commonmark:commonmark-ext-gfm-strikethrough:0.22.0")
+    // Apache POI for Office documents (Word, Excel, PowerPoint — OOXML plus
+    // legacy .xls via HSSF in the core artifact).
+    implementation("org.apache.poi:poi:$poiVersion")
+    implementation("org.apache.poi:poi-ooxml:$poiVersion")
+    implementation("org.apache.pdfbox:pdfbox:3.0.8")
+    implementation("org.apache.commons:commons-csv:1.14.1")
+    implementation("org.commonmark:commonmark:$commonmarkVersion")
+    implementation("org.commonmark:commonmark-ext-gfm-tables:$commonmarkVersion")
+    implementation("org.commonmark:commonmark-ext-gfm-strikethrough:$commonmarkVersion")
 
     // Apple plist parser
-    implementation("com.googlecode.plist:dd-plist:1.26")
+    implementation("com.googlecode.plist:dd-plist:1.30")
 
-    // Lettuce for Redis client
-    implementation("io.lettuce:lettuce-core:6.3.2.RELEASE")
+    // Lettuce client backing Koog's RedisPromptCache (`prompt_cache=redis`).
+    implementation("io.lettuce:lettuce-core:7.8.0.RELEASE")
 
-
-    // MongoDB (KMongo) support used by shared agent storage/state code.
-    implementation("org.litote.kmongo:kmongo:4.11.0")
-
-    // Redis (Jedis) for CLI — used by AgentDatabase.kt for blocking Redis access
-    implementation("redis.clients:jedis:5.2.0")
+    // MongoDB: KMongo for the agent storage/state helpers, and the sync driver
+    // itself (MongoDocumentStore, braidrun-web's Mongock changelogs).
+    implementation("org.litote.kmongo:kmongo:5.12.0")
+    api("org.mongodb:mongodb-driver-sync:5.13.0")
 
     // Jsoup for HTML parsing and web scraping
-    implementation("org.jsoup:jsoup:1.18.1")
+    implementation("org.jsoup:jsoup:1.23.2")
 
     // Microsoft Playwright for browser automation
-    implementation("com.microsoft.playwright:playwright:1.49.0")
+    implementation("com.microsoft.playwright:playwright:1.63.0")
 
-    // Jakarta Mail for email tools (SMTP/IMAP)
-    implementation("com.sun.mail:jakarta.mail:2.0.2")
+    // Jakarta Mail (Eclipse Angus implementation) for the email tools
+    // (SMTP/IMAP) and braidrun-web's transactional email.
+    api("org.eclipse.angus:angus-mail:2.0.5")
 
-    // SQLite JDBC driver for database tools
-    implementation("org.xerial:sqlite-jdbc:3.45.1.0")
-    implementation("org.postgresql:postgresql:42.7.7")
-    implementation("com.mysql:mysql-connector-j:9.3.0")
+    // JDBC drivers for the database tools. SQLite also backs SqliteDocumentStore;
+    // PostgreSQL / MySQL are only reached through user-supplied JDBC URLs.
+    implementation("org.xerial:sqlite-jdbc:3.53.4.0")
+    runtimeOnly("org.postgresql:postgresql:42.7.13")
+    runtimeOnly("com.mysql:mysql-connector-j:26.7.0")
 
-    // Koog RAG: embeddings + vector storage
-    // Note: `vector-storage` was renamed to `rag-vector` in Koog 0.8.0.
-    // `rag-vector` is on the BETA stream; the rest of the RAG surface
-    // (`rag-base`, `embeddings-*`) is STABLE.
+    // Koog RAG: embeddings + the storage interfaces (`rag-base`, STABLE).
     implementation("ai.koog:embeddings-base:${koogVersion}")
     implementation("ai.koog:embeddings-llm:${koogVersion}")
-    implementation("ai.koog:rag-vector:${koogBetaVersion}")
 
     // Koog LLM client modules (not bundled in the koog-agents umbrella, so
     // apps pay only for the providers they use). We use:
     //   STABLE (1.3.0):
     //     openai-client, openai-client-base (AbstractOpenAILLMClient base),
     //     anthropic-client (used for Claude direct + via OpenRouter mirror),
-    //     openrouter-client, bedrock-client (future), ollama-client.
+    //     openrouter-client, bedrock-client, ollama-client.
     //   BETA (1.3.0-beta):
     //     google-client (Gemini), deepseek-client (DeepSeek V3.1/V4),
-    //     mistralai-client (Mistral large), dashscope-client (Qwen direct),
-    //     litert-client (Google LiteRT local; opt-in).
-    // The bundled `prompt-executor-llms-all` BoM is BETA-only, so we stay on
-    // per-provider deps to keep the stable umbrella consistent.
+    //     mistralai-client (Mistral large).
+    // Qwen (DashScope) is reached through its OpenAI-compatible endpoint, so
+    // it needs no dedicated client. The bundled `prompt-executor-llms-all` BoM
+    // is BETA-only, so we stay on per-provider deps to keep the stable
+    // umbrella consistent.
     implementation("ai.koog:prompt-executor-openai-client:${koogVersion}")
     implementation("ai.koog:prompt-executor-openai-client-base:${koogVersion}")
     implementation("ai.koog:prompt-executor-anthropic-client:${koogVersion}")
@@ -233,10 +229,6 @@ dependencies {
     implementation("ai.koog:prompt-executor-google-client:${koogBetaVersion}")
     implementation("ai.koog:prompt-executor-deepseek-client:${koogBetaVersion}")
     implementation("ai.koog:prompt-executor-mistralai-client:${koogBetaVersion}")
-    implementation("ai.koog:prompt-executor-dashscope-client:${koogBetaVersion}")
-    // LiteRT local model client. Lets workflow authors run small on-device
-    // Google models without an external API.
-    implementation("ai.koog:prompt-executor-litert-client:${koogBetaVersion}")
     // STABLE LLM executor surface (CachedPromptExecutor + MultiLLMPromptExecutor).
     // MultiLLMPromptExecutor / RoutingLLMPromptExecutor / LLMClientRouter live
     // under `ai.koog.prompt.executor.llms.*` but are published in
@@ -252,7 +244,7 @@ dependencies {
     // via ServiceLoader in HttpClientFactoryResolver — required at runtime so
     // LLM clients constructed without an explicit factory work out of the box).
     implementation("ai.koog:http-client-core:${koogVersion}")
-    implementation("ai.koog:http-client-ktor:${koogVersion}")
+    runtimeOnly("ai.koog:http-client-ktor:${koogVersion}")
 
     // Koog observability + token accounting features (Tier-1 adoption, 2026-04):
     //   - agents-features-tokenizer: client-side token estimation facility exposed
@@ -269,10 +261,8 @@ dependencies {
     // Koog Tier-2 features (2026-04):
     //   - agents-features-longterm-memory (BETA): semantic retrieval over past
     //     conversations ("the assistant remembered what I asked last week"),
-    //     opt-in per workflow via `long_term_memory_enabled=true`.
-    //   - agents-features-memory (STABLE): structured-facts memory keyed by
-    //     subject/concept/scope, opt-in via `agent_memory_enabled=true`.
-    //     Plain text store by default; optional AES-256-GCM at rest.
+    //     opt-in per workflow via `long_term_memory_enabled=true`. braidrun-web
+    //     implements its Mongo-backed storage adapter against this API.
     //   - prompt-processor (STABLE): `ResponseProcessor` (constructor arg on
     //     AIAgent) — the hook weaker providers need to correct malformed
     //     tool-call JSON before the agent loop sees it; also hosts the bundled
@@ -289,14 +279,13 @@ dependencies {
     //     umbrella's transitive stable version). It is multiplatform, so the
     //     JVM-only extensions live in a separate `-jvm` artifact (resolved
     //     transitively).
-    implementation("ai.koog:agents-features-longterm-memory:${koogBetaVersion}")
-    implementation("ai.koog:agents-features-memory:${koogVersion}")
+    api("ai.koog:agents-features-longterm-memory:${koogBetaVersion}")
     implementation("ai.koog:agents-features-snapshot:${koogVersion}")
     implementation("ai.koog:agents-features-opentelemetry:${koogVersion}")
     implementation("ai.koog:prompt-processor:${koogVersion}")
     implementation("ai.koog:rag-base:${koogVersion}")
 
-    // MCP SDK 0.11.1 — split into client + server artifacts (the umbrella
+    // MCP SDK — split into client + server artifacts (the umbrella
     // `kotlin-sdk` jar is metadata-only). We host an MCP server **and** call
     // external MCP servers via `AgentMcpUtils`, so we need both:
     //   - `kotlin-sdk-server-jvm` — `Server`, `ServerOptions`, `ServerCapabilities`,
@@ -304,29 +293,28 @@ dependencies {
     //   - `kotlin-sdk-client-jvm` — `StdioClientTransport`, `SseClientTransport`,
     //     `WebSocketClientTransport`, `StreamableHttpClientTransport` used by
     //     AgentMcpUtils to consume external MCP servers.
-    // Matches the MCP SDK that agents-mcp 1.3.0-beta itself depends on
-    // (0.11.1); Streamable HTTP is the primary transport.
-    implementation("io.modelcontextprotocol:kotlin-sdk-server-jvm:0.11.1")
-    implementation("io.modelcontextprotocol:kotlin-sdk-client-jvm:0.11.1")
+    // Streamable HTTP is the primary transport.
+    implementation("io.modelcontextprotocol:kotlin-sdk-server-jvm:0.15.0")
+    implementation("io.modelcontextprotocol:kotlin-sdk-client-jvm:0.15.0")
 
-    // Ktor client pieces used by local HttpAccess
-    implementation("io.ktor:ktor-client-core:${ktorVersion}")
-    implementation("io.ktor:ktor-client-okhttp:${ktorVersion}")
-    implementation("io.ktor:ktor-client-content-negotiation:${ktorVersion}")
-    implementation("io.ktor:ktor-serialization-jackson:${ktorVersion}")
-    implementation("io.ktor:ktor-serialization-kotlinx-json:${ktorVersion}")
+    // Ktor client pieces used by local HttpAccess (versions from ktor-bom).
+    api("io.ktor:ktor-client-core")
+    api("io.ktor:ktor-client-okhttp")
+    api("io.ktor:ktor-client-content-negotiation")
+    implementation("io.ktor:ktor-serialization-jackson")
+    api("io.ktor:ktor-serialization-kotlinx-json")
 
     // Docker client for sandbox execution (Phase 3b: Docker-per-step)
-    implementation("com.github.docker-java:docker-java-core:3.7.1")
-    implementation("com.github.docker-java:docker-java-transport-httpclient5:3.7.1")
+    implementation("com.github.docker-java:docker-java-core:$dockerJavaVersion")
+    implementation("com.github.docker-java:docker-java-transport-httpclient5:$dockerJavaVersion")
 
-    // Console output utilities
-    implementation("org.jline:jline:3.30.6")
-    implementation("org.jline:jline-terminal-jansi:3.30.6")
+    // Console output utilities (line reader, terminal, ANSI). The bundle
+    // ships its own native terminal providers.
+    implementation("org.jline:jline:4.4.6")
 }
 
 group = "com.fartech.braidrun"
-version = "1.3.0"
+version = "1.4.0"
 description = "braidrun-workflow"
 
 tasks.named<Jar>("jar") {

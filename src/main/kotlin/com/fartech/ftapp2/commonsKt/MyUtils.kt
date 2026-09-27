@@ -6,8 +6,6 @@ import com.fasterxml.jackson.core.type.TypeReference
 import com.fasterxml.jackson.databind.SerializationFeature
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
-import io.vertx.core.json.JsonArray
-import io.vertx.core.json.JsonObject
 import java.util.UUID
 
 object MyUtils {
@@ -24,27 +22,11 @@ object MyUtils {
     fun toJsonStr(obj: Any?): String = mapper.writeValueAsString(obj)
 
     @JvmStatic
-    @Throws(JsonProcessingException::class)
-    fun toJsonObj(obj: Any?): JsonObject = JsonObject(mapper.writeValueAsString(obj))
-
-    @JvmStatic
-    @Throws(JsonProcessingException::class)
-    fun toJsonArrayObj(obj: Any?): JsonArray = JsonArray(mapper.writeValueAsString(obj))
-
-    @JvmStatic
     fun toMap(obj: Any?): Map<String, Any?> =
         mapper.convertValue(obj, object : TypeReference<Map<String, Any?>>() {})
 
     @JvmStatic
     fun <T> toObj(value: Any?, cls: Class<T>): T = mapper.convertValue(value, cls)
-
-    @JvmStatic
-    @Throws(JsonProcessingException::class)
-    fun <T> toObj(json: JsonObject, cls: Class<T>?): T = mapper.readValue(json.encode(), cls)
-
-    @JvmStatic
-    @Throws(JsonProcessingException::class)
-    fun <T> toObj(array: JsonArray, cls: Class<T>?): T = mapper.readValue(array.encode(), cls)
 
     @JvmStatic
     fun generateUniqueID(): String = UUID.randomUUID().toString().replace("-", "")

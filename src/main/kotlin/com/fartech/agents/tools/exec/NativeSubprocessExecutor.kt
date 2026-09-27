@@ -5,7 +5,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.runInterruptible
-import mu.KotlinLogging
+import io.github.oshai.kotlinlogging.KotlinLogging
 import java.io.File
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.TimeUnit

@@ -29,7 +29,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import mu.KotlinLogging
+import io.github.oshai.kotlinlogging.KotlinLogging
 import java.io.File
 import java.nio.channels.FileChannel
 import java.nio.file.Files

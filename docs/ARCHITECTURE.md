@@ -14,8 +14,8 @@ Code, shell, Git, browser, Claude Code, and Codex subprocesses run through the s
 ## LLM client and executor chain
 
 The embedded runtime is built on Koog 1.3.0 (stable stream; beta-only modules
-such as `agents-ext`, `agents-mcp` and the Google / DeepSeek / Mistral /
-DashScope clients at 1.3.0-beta, see `build.gradle.kts`). A Koog agent sends
+such as `agents-ext`, `agents-mcp` and the Google / DeepSeek / Mistral
+clients at 1.3.0-beta, see `build.gradle.kts`). A Koog agent sends
 every request through this stack, outermost first:
 
 ```text

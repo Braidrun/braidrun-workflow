@@ -8,7 +8,7 @@ import ai.koog.prompt.processor.ResponseProcessor
 import ai.koog.prompt.processor.ToolCallJsonConfig
 import com.fartech.ftapp2.commonsKt.ConfigurationParameter
 import com.fartech.ftapp2.commonsKt.parameter
-import mu.KotlinLogging
+import io.github.oshai.kotlinlogging.KotlinLogging
 
 private val weakModelToolCallFixLogger = KotlinLogging.logger("WeakModelToolCallFix")
 

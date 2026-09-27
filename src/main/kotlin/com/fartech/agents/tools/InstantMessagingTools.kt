@@ -11,7 +11,7 @@ import io.ktor.client.request.forms.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
 import kotlinx.serialization.json.*
-import mu.KotlinLogging
+import io.github.oshai.kotlinlogging.KotlinLogging
 import java.io.File
 import java.util.*
 import javax.crypto.Mac

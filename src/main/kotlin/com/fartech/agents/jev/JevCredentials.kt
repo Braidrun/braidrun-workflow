@@ -3,7 +3,7 @@ package com.fartech.agents.jev
 import com.fartech.agents.commons.resolveConfiguredApiKeyFromParams
 import com.fartech.ftapp2.commonsKt.ConfigurationParameter
 import com.fartech.ftapp2.commonsKt.parameter
-import mu.KotlinLogging
+import io.github.oshai.kotlinlogging.KotlinLogging
 
 private val logger = KotlinLogging.logger {}
 

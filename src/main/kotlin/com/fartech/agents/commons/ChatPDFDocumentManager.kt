@@ -1,6 +1,6 @@
 package com.fartech.agents.commons
 
-import mu.KotlinLogging
+import io.github.oshai.kotlinlogging.KotlinLogging
 import org.litote.kmongo.div
 import org.litote.kmongo.eq
 import org.openapitools.vertxweb.server.model.ChatPDFSnapshotDocumentObject

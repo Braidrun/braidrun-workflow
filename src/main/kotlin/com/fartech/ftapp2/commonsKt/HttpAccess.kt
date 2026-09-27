@@ -13,7 +13,7 @@ import io.ktor.http.*
 import io.ktor.serialization.jackson.*
 import io.ktor.serialization.kotlinx.json.*
 import kotlinx.serialization.json.Json
-import mu.KotlinLogging
+import io.github.oshai.kotlinlogging.KotlinLogging
 import java.io.File
 import java.util.concurrent.TimeUnit
 import kotlin.math.pow

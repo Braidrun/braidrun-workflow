@@ -8,7 +8,7 @@ import com.fartech.ftapp2.commonsKt.ConfigurationParameter
 import com.fartech.ftapp2.commonsKt.parameter
 import kotlinx.io.Source
 import kotlinx.io.Sink
-import mu.KotlinLogging
+import io.github.oshai.kotlinlogging.KotlinLogging
 import java.nio.file.Files
 import java.nio.file.Path
 

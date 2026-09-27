@@ -17,7 +17,7 @@ import io.modelcontextprotocol.kotlin.sdk.client.StreamableHttpClientTransport
 import io.modelcontextprotocol.kotlin.sdk.client.WebSocketClientTransport
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import mu.KotlinLogging
+import io.github.oshai.kotlinlogging.KotlinLogging
 import java.io.File
 
 private val mcpUtilsLogger = KotlinLogging.logger("com.fartech.agents.commons.AgentMcpUtils")

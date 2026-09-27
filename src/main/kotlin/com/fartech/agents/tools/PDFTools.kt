@@ -5,7 +5,7 @@ import ai.koog.agents.core.tools.annotations.Tool
 import ai.koog.agents.core.tools.reflect.ToolSet
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import com.fasterxml.jackson.module.kotlin.readValue
-import mu.KotlinLogging
+import io.github.oshai.kotlinlogging.KotlinLogging
 import org.apache.pdfbox.Loader
 import org.apache.pdfbox.multipdf.PDFMergerUtility
 import org.apache.pdfbox.multipdf.Splitter

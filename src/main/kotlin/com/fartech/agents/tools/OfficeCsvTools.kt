@@ -48,7 +48,7 @@ class CSVTools : ToolSet {
             b.setHeader() // use first record as header
             b.setSkipHeaderRecord(true)
         }
-        return b.build()
+        return b.get()
     }
 
     private fun parse(csvPath: String, delimiter: String?, hasHeader: Boolean?): Pair<CSVParser, Char> {
@@ -105,7 +105,7 @@ class CSVTools : ToolSet {
                             sb.append("Headers: ").append(headerNames.joinToString(", ")).append('\n')
                         }
                         val previewSb = StringBuilder()
-                        CSVPrinter(previewSb, CSVFormat.DEFAULT.builder().setDelimiter(delim).build()).use { printer ->
+                        CSVPrinter(previewSb, CSVFormat.DEFAULT.builder().setDelimiter(delim).get()).use { printer ->
                             if (hasHeader == true && headerNames.isNotEmpty()) {
                                 printer.printRecord(headerNames)
                             }
@@ -181,7 +181,7 @@ class CSVTools : ToolSet {
                     if (colIndices.isEmpty()) return "No valid columns resolved from: $columns"
                     CSVPrinter(
                         outFile.bufferedWriter(Charsets.UTF_8),
-                        CSVFormat.DEFAULT.builder().setDelimiter(delim).build()
+                        CSVFormat.DEFAULT.builder().setDelimiter(delim).get()
                     ).use { printer ->
                         val writeHeader = includeHeader ?: (hasHeader == true)
                         if (writeHeader) {
@@ -236,7 +236,7 @@ class CSVTools : ToolSet {
                     }
                     CSVPrinter(
                         outFile.writer(Charsets.UTF_8),
-                        CSVFormat.DEFAULT.builder().setDelimiter(delim).build()
+                        CSVFormat.DEFAULT.builder().setDelimiter(delim).get()
                     ).use { printer ->
                         if (writeHeader && header != null) printer.printRecord(header)
                         var matched = 0
@@ -273,7 +273,7 @@ class CSVTools : ToolSet {
             val firstFile = ToolPathSecurity.validateInputPath(sourcePaths.first())
             val outFile = ToolPathSecurity.validateOutputPath(outputPath)
             val outDelim = delimiter?.firstOrNull() ?: detectDelimiter(firstFile)
-            val outFmt = CSVFormat.DEFAULT.builder().setDelimiter(outDelim).build()
+            val outFmt = CSVFormat.DEFAULT.builder().setDelimiter(outDelim).get()
             CSVPrinter(outFile.writer(Charsets.UTF_8), outFmt).use { printer ->
                 var headerUnion: MutableList<String>? = null
                 for ((idx, path) in sourcePaths.withIndex()) {
@@ -372,7 +372,7 @@ class CSVTools : ToolSet {
         return try {
             val outFile = ToolPathSecurity.validateOutputPath(outputCsvPath)
             val delim = delimiter?.firstOrNull() ?: ','
-            val fmt = CSVFormat.DEFAULT.builder().setDelimiter(delim).build()
+            val fmt = CSVFormat.DEFAULT.builder().setDelimiter(delim).get()
             CSVPrinter(outFile.writer(Charsets.UTF_8), fmt).use { printer ->
                 FileInputStream(ToolPathSecurity.validateInputPath(xlsxPath)).use { fis ->
                     WorkbookFactory.create(fis).use { wb ->

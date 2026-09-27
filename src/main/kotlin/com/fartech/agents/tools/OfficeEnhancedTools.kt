@@ -3,11 +3,12 @@ package com.fartech.agents.tools
 import ai.koog.agents.core.tools.annotations.LLMDescription
 import ai.koog.agents.core.tools.annotations.Tool
 import ai.koog.agents.core.tools.reflect.ToolSet
+import org.apache.poi.common.usermodel.PictureType
 import org.apache.poi.util.Units
 import org.apache.poi.xwpf.model.XWPFHeaderFooterPolicy
 import org.apache.poi.xwpf.usermodel.*
 import org.openxmlformats.schemas.wordprocessingml.x2006.main.*
-import mu.KotlinLogging
+import io.github.oshai.kotlinlogging.KotlinLogging
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
@@ -59,15 +60,15 @@ class WordEnhancedTools : ToolSet {
     private fun parseColor(hex: String): String =
         hex.removePrefix("#").uppercase().padStart(6, '0')
 
-    private fun imageType(ext: String): Int = when (ext.lowercase()) {
-        "png" -> Document.PICTURE_TYPE_PNG
-        "jpg", "jpeg" -> Document.PICTURE_TYPE_JPEG
-        "gif" -> Document.PICTURE_TYPE_GIF
-        "bmp" -> Document.PICTURE_TYPE_BMP
-        "tiff", "tif" -> Document.PICTURE_TYPE_TIFF
-        "emf" -> Document.PICTURE_TYPE_EMF
-        "wmf" -> Document.PICTURE_TYPE_WMF
-        else -> Document.PICTURE_TYPE_PNG
+    private fun imageType(ext: String): PictureType = when (ext.lowercase()) {
+        "png" -> PictureType.PNG
+        "jpg", "jpeg" -> PictureType.JPEG
+        "gif" -> PictureType.GIF
+        "bmp" -> PictureType.BMP
+        "tiff", "tif" -> PictureType.TIFF
+        "emf" -> PictureType.EMF
+        "wmf" -> PictureType.WMF
+        else -> PictureType.PNG
     }
 
     private fun validateImageInputPath(imagePath: String): File {

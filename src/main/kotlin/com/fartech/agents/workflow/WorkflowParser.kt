@@ -3,7 +3,7 @@ package com.fartech.agents.workflow
 import com.charleskorn.kaml.Yaml
 import com.charleskorn.kaml.YamlConfiguration
 import kotlinx.serialization.SerializationException
-import mu.KotlinLogging
+import io.github.oshai.kotlinlogging.KotlinLogging
 import java.io.File
 
 private val parserLogger = KotlinLogging.logger {}

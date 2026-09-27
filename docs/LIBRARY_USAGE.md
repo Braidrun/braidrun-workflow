@@ -76,6 +76,12 @@ The library builds on Koog 1.3.0 (stable modules) and 1.3.0-beta (beta-only
 modules); see `build.gradle.kts` for which module is on which stream. If your
 build also depends on Koog directly, use the same versions.
 
+Koog, kotlinx coroutines / serialization, kaml, kotlin-logging and the SLF4J
+API, the Ktor client, the MongoDB sync driver and Jakarta Mail are `api`
+dependencies, and the Ktor and Netty BOMs are exported as platforms. Consumers
+get them at the library's versions and can declare further Ktor modules (for
+example `io.ktor:ktor-server-netty`) without a version.
+
 A server that runs other people's workflows should declare the host policy
 latches once at startup, before building any executor:
 

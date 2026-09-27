@@ -27,7 +27,7 @@ import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
-import mu.KotlinLogging
+import io.github.oshai.kotlinlogging.KotlinLogging
 import java.io.File
 import java.nio.charset.StandardCharsets
 

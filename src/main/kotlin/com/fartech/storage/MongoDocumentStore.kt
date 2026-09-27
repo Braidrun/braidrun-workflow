@@ -6,7 +6,7 @@ import com.mongodb.client.MongoCollection
 import com.mongodb.client.model.Filters
 import com.mongodb.client.model.Projections
 import com.mongodb.client.model.ReplaceOptions
-import mu.KotlinLogging
+import io.github.oshai.kotlinlogging.KotlinLogging
 import org.bson.Document
 import org.bson.conversions.Bson
 import org.litote.kmongo.KMongo

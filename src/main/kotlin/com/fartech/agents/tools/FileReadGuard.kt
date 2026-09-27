@@ -1,6 +1,6 @@
 package com.fartech.agents.tools
 
-import mu.KotlinLogging
+import io.github.oshai.kotlinlogging.KotlinLogging
 import java.io.File
 import java.nio.file.Path
 

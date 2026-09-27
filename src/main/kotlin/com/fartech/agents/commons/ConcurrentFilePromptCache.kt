@@ -5,7 +5,7 @@ import ai.koog.prompt.cache.model.PromptCache
 import ai.koog.prompt.message.Message
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import mu.KotlinLogging
+import io.github.oshai.kotlinlogging.KotlinLogging
 import java.nio.file.Path
 import java.util.concurrent.ConcurrentHashMap
 

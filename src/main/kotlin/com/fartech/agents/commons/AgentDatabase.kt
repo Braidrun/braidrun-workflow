@@ -7,8 +7,6 @@ import com.mongodb.client.MongoClient
 import com.mongodb.client.MongoCollection
 import org.litote.kmongo.KMongo
 import org.litote.kmongo.getCollection
-import redis.clients.jedis.Jedis
-import redis.clients.jedis.JedisPool
 import java.util.concurrent.ConcurrentHashMap
 
 data class NamedMongoEnvironment(
@@ -97,16 +95,7 @@ internal fun getOrCreateMongoClient(connectionString: String): MongoClient =
     mongoClientCache.computeIfAbsent(connectionString) { KMongo.createClient(it) }
 
 /**
- * Cached JedisPool instances by host:port to avoid creating a new pool per operation.
- */
-private val jedisPoolCache = ConcurrentHashMap<String, JedisPool>()
-
-@PublishedApi
-internal fun getOrCreateJedisPool(host: String, port: Int): JedisPool =
-    jedisPoolCache.computeIfAbsent("$host:$port") { JedisPool(host, port) }
-
-/**
- * Close every cached Mongo/Redis connection. Registered as a JVM shutdown hook so
+ * Close every cached Mongo connection. Registered as a JVM shutdown hook so
  * long-running processes (CLI, MCP server) don't leak client/connection pool resources
  * across repeated executions within the same JVM.
  */
@@ -115,11 +104,6 @@ fun closeAgentDatabaseConnections() {
     mongoClientCache.clear()
     mongoClients.forEach { (_, client) ->
         runCatching { client.close() }
-    }
-    val jedisPools = jedisPoolCache.entries.toList()
-    jedisPoolCache.clear()
-    jedisPools.forEach { (_, pool) ->
-        runCatching { pool.close() }
     }
 }
 
@@ -184,16 +168,4 @@ suspend inline fun <reified T : Any, reified R> withResolvedKMongo(
 ): R {
     val (connectionString, _) = resolveMongoConnection(env)
     return withKMongo(connectionString, dbName, collectionName, block)
-}
-
-suspend inline fun <reified R> withRedis(
-    parameters: List<ConfigurationParameter>,
-    crossinline block: suspend Jedis.() -> R
-): R {
-    val host = parameters.parameter("redis_srv", "localhost")
-    val port = parameters.parameter("redis_port", 6379)
-    val pool = getOrCreateJedisPool(host, port)
-    return pool.resource.use { jedis ->
-        block(jedis)
-    }
 }

@@ -7,7 +7,7 @@ import com.charleskorn.kaml.Yaml
 import com.charleskorn.kaml.YamlConfiguration
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import mu.KotlinLogging
+import io.github.oshai.kotlinlogging.KotlinLogging
 import java.io.File
 
 private val logger = KotlinLogging.logger {}

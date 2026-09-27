@@ -16,7 +16,7 @@ import jakarta.mail.search.BodyTerm
 import jakarta.mail.search.FromStringTerm
 import jakarta.mail.search.OrTerm
 import jakarta.mail.search.SubjectTerm
-import mu.KotlinLogging
+import io.github.oshai.kotlinlogging.KotlinLogging
 import java.util.*
 
 private val logger = KotlinLogging.logger {}

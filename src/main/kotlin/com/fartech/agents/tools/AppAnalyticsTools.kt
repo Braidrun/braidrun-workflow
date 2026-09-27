@@ -7,7 +7,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.encodeToJsonElement
-import mu.KotlinLogging
+import io.github.oshai.kotlinlogging.KotlinLogging
 
 private val appAnalyticsLogger = KotlinLogging.logger {}
 

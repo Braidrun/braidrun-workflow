@@ -8,7 +8,7 @@ import com.github.dockerjava.api.model.*
 import com.github.dockerjava.core.DefaultDockerClientConfig
 import com.github.dockerjava.core.DockerClientImpl
 import com.github.dockerjava.httpclient5.ApacheDockerHttpClient
-import mu.KotlinLogging
+import io.github.oshai.kotlinlogging.KotlinLogging
 import java.io.File
 import java.net.URI
 import java.util.concurrent.TimeUnit

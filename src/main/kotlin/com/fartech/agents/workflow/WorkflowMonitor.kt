@@ -1,6 +1,6 @@
 package com.fartech.agents.workflow
 
-import mu.KotlinLogging
+import io.github.oshai.kotlinlogging.KotlinLogging
 import java.util.concurrent.ConcurrentHashMap
 
 private val logger = KotlinLogging.logger {}

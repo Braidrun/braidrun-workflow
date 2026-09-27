@@ -5,6 +5,47 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0]
+
+Dependency cleanup: unused dependencies removed, every retained one upgraded
+to its latest release, and the dependencies shared with consumers exported
+from here so they never pin a second version.
+
+### Upgrade notes
+
+- **Removed APIs.** `withRedis` (and the Jedis dependency behind it) and the
+  Vert.x-typed `MyUtils` helpers (`toJsonObj`, `toJsonArrayObj`,
+  `toObj(JsonObject|JsonArray, …)`) had no callers and are gone. Use
+  `MyUtils.toJsonStr` / `toMap` / `toObj(Any?, Class)` instead.
+- **kotlin-logging moved to `io.github.oshai:kotlin-logging-jvm` 8.x** (the
+  maintained successor of `io.github.microutils:kotlin-logging`, which Koog
+  already used). Replace `import mu.KotlinLogging` with
+  `import io.github.oshai.kotlinlogging.KotlinLogging`; `isXxxEnabled` are
+  functions now. 8.0.4 prints an "initializing..." banner to stdout on first
+  use unless `-Dkotlin-logging.logStartupMessage=false`; the CLI sets it.
+- **`api` dependencies.** Koog (`koog-agents`, `agents-features-longterm-memory`),
+  kotlinx coroutines / serialization, kaml, kotlin-logging, `slf4j-api`, the
+  Ktor client (core, OkHttp, content negotiation, kotlinx-json), the MongoDB
+  sync driver and Jakarta Mail (now Eclipse Angus `angus-mail`) are exported,
+  together with the Ktor and Netty BOMs as platforms. Drop your own
+  declarations of these rather than pinning a different version.
+- **Dropped modules** (no code used them): Vert.x core, Jedis, the aallam
+  OpenAI client, `poi-scratchpad`, `jline-terminal-jansi`, `kotlinx-datetime`
+  (still resolved transitively), Koog `agents-features-memory`, `rag-vector`,
+  `agents-features-a2a-client`, `a2a-transport-client-jsonrpc-http`, the
+  DashScope and LiteRT clients, and `ktor-client-cio`. PostgreSQL / MySQL
+  JDBC drivers and `http-client-ktor` are now `runtimeOnly`.
+- **Upgrades:** Kotlin 2.4.20, Gradle 9.8.0, Ktor 3.6.0, kotlinx-coroutines
+  1.11.0, kotlinx-serialization 1.11.0, kotlinx-io 0.9.1, kaml 0.104.0,
+  MCP Kotlin SDK 0.15.0, Jackson 2.22.3, POI 5.5.1, PDFBox 3.0.8,
+  commons-csv 1.14.1, commonmark 0.30.0, dd-plist 1.30, Lettuce 7.8.0,
+  KMongo 5.12.0 with MongoDB driver 5.13.0, jsoup 1.23.2, Playwright 1.63.0,
+  SQLite JDBC 3.53.4.0, PostgreSQL JDBC 42.7.13, MySQL Connector/J 26.7.0,
+  JLine 4.4.6, SLF4J 2.0.20, JUnit 6.1.3. Koog stays on 1.3.0 / 1.3.0-beta
+  (latest) and docker-java on 3.7.1 (latest).
+- POI's Log4j API logging is bridged to SLF4J (`log4j-to-slf4j`) instead of
+  printing Log4j's "could not find a logging provider" error.
+
 ## [1.3.0]
 
 Koog upgrade (1.0.0 → 1.3.0) plus the model, metering, multimodal and skill

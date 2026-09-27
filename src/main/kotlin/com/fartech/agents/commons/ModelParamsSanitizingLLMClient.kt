@@ -14,7 +14,7 @@ import ai.koog.prompt.streaming.StreamFrame
 import ai.koog.prompt.structure.json.generator.BasicJsonSchemaGenerator
 import ai.koog.prompt.structure.json.generator.StandardJsonSchemaGenerator
 import kotlinx.coroutines.flow.Flow
-import mu.KotlinLogging
+import io.github.oshai.kotlinlogging.KotlinLogging
 
 private val logger = KotlinLogging.logger {}
 

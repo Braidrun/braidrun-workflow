@@ -5,7 +5,7 @@ import ai.koog.agents.core.tools.annotations.Tool
 import ai.koog.agents.core.tools.reflect.ToolSet
 import com.fartech.ftapp2.commonsKt.ConfigurationParameter
 import com.fartech.ftapp2.commonsKt.parameter
-import mu.KotlinLogging
+import io.github.oshai.kotlinlogging.KotlinLogging
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream

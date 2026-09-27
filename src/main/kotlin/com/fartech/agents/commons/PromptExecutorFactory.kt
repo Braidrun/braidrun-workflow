@@ -13,7 +13,7 @@ import com.fartech.ftapp2.commonsKt.AnsiColor
 import com.fartech.ftapp2.commonsKt.ConfigurationParameter
 import com.fartech.ftapp2.commonsKt.parameter
 import io.lettuce.core.RedisClient
-import mu.KotlinLogging
+import io.github.oshai.kotlinlogging.KotlinLogging
 import java.nio.file.Paths
 import java.time.format.DateTimeParseException
 import java.util.concurrent.ConcurrentHashMap

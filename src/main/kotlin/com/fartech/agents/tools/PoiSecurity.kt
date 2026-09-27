@@ -1,6 +1,6 @@
 package com.fartech.agents.tools
 
-import mu.KotlinLogging
+import io.github.oshai.kotlinlogging.KotlinLogging
 import org.apache.poi.openxml4j.util.ZipSecureFile
 import java.util.concurrent.atomic.AtomicBoolean
 

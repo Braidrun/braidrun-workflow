@@ -32,6 +32,11 @@ import kotlin.system.exitProcess
 import kotlin.time.Duration.Companion.milliseconds
 
 fun main(args: Array<String>) {
+    // kotlin-logging 8.0.4+ prints an "initializing..." banner to stdout when the
+    // first logger is created, which would corrupt the stdio MCP transport.
+    if (System.getProperty("kotlin-logging.logStartupMessage") == null) {
+        System.setProperty("kotlin-logging.logStartupMessage", "false")
+    }
     // One local user: browser contexts stay shared across runs for the life of the process.
     ToolRunScope.declareSingleUserProcess()
     val code = try {

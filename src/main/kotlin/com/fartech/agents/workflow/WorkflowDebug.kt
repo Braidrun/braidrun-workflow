@@ -2,7 +2,7 @@ package com.fartech.agents.workflow
 
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.channels.Channel
-import mu.KotlinLogging
+import io.github.oshai.kotlinlogging.KotlinLogging
 import java.util.UUID
 
 private val logger = KotlinLogging.logger {}

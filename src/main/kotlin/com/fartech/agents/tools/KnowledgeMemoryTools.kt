@@ -12,7 +12,7 @@ import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
-import mu.KotlinLogging
+import io.github.oshai.kotlinlogging.KotlinLogging
 import java.util.UUID
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock

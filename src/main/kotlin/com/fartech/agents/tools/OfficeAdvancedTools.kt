@@ -4,11 +4,11 @@ import ai.koog.agents.core.tools.annotations.LLMDescription
 import ai.koog.agents.core.tools.annotations.Tool
 import ai.koog.agents.core.tools.reflect.ToolSet
 import com.fartech.ftapp2.commonsKt.MarkdownToWordConverter
+import org.apache.poi.common.usermodel.PictureType
 import org.apache.poi.sl.usermodel.PictureData
 import org.apache.poi.ss.usermodel.WorkbookFactory
 import org.apache.poi.util.Units
 import org.apache.poi.xslf.usermodel.*
-import org.apache.poi.xwpf.usermodel.Document
 import org.apache.poi.xwpf.usermodel.ParagraphAlignment
 import org.apache.poi.xwpf.usermodel.XWPFDocument
 import java.awt.Dimension
@@ -69,10 +69,10 @@ class WordAdvancedTools : ToolSet {
                         run.addPicture(
                             iis,
                             when (safeImage.extension.lowercase()) {
-                                "png" -> Document.PICTURE_TYPE_PNG
-                                "jpg", "jpeg" -> Document.PICTURE_TYPE_JPEG
-                                "gif" -> Document.PICTURE_TYPE_GIF
-                                else -> Document.PICTURE_TYPE_PNG
+                                "png" -> PictureType.PNG
+                                "jpg", "jpeg" -> PictureType.JPEG
+                                "gif" -> PictureType.GIF
+                                else -> PictureType.PNG
                             },
                             safeImage.name,
                             Units.toEMU(widthPx.toDouble()),
