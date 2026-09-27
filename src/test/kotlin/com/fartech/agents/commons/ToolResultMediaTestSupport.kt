@@ -119,6 +119,9 @@ internal class CapturingLLMClient(
     override fun close() = Unit
 }
 
+/** Serializes typed request bodies the way a real HTTP client would (shared: `Json` instances are costly). */
+private val recordedBodyJson = kotlinx.serialization.json.Json { encodeDefaults = true }
+
 /** A [KoogHttpClient] that records request bodies and answers `post` through [respond]. */
 internal class RecordingKoogHttpClient(
     private val respond: (path: String, responseType: KClass<*>) -> Any,
@@ -174,6 +177,6 @@ internal class RecordingKoogHttpClient(
     @OptIn(kotlinx.serialization.InternalSerializationApi::class)
     @Suppress("UNCHECKED_CAST")
     private fun <T : Any> encodeBody(body: T, type: KClass<T>): String =
-        body as? String ?: kotlinx.serialization.json.Json { encodeDefaults = true }
+        body as? String ?: recordedBodyJson
             .encodeToString(kotlinx.serialization.serializer(type.java) as kotlinx.serialization.KSerializer<T>, body)
 }

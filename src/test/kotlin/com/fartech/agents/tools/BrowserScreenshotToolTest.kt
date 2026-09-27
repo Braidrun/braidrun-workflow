@@ -103,7 +103,7 @@ class BrowserScreenshotToolTest {
         val ready = result.image as? PreparedToolImage.Ready ?: error("not attached: ${result.image}")
         assertTrue(ready.image.bytes.size <= ToolResultImages.MAX_IMAGE_BYTES)
         assertTrue(ready.image.height!! <= ToolResultImages.MAX_EDGE_PX)
-        assertTrue(ready.image.height!! >= ToolResultImages.MIN_FALLBACK_EDGE_PX)
+        assertTrue(ready.image.height >= ToolResultImages.MIN_FALLBACK_EDGE_PX)
         val text = (tool.encodeResultToParts(result, serializer).first() as MessagePart.Text).text
         assertTrue(text.contains("downscaled from 1600x2000"), text)
     }
