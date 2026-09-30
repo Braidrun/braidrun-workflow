@@ -30,6 +30,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the rollout outlives the container; it is deleted after the run, and the
   tmpfs remains the fallback when the directory cannot be created. Native
   API-key runs still use the operator's own `CODEX_HOME` and are not recovered.
+- **Concurrent runs no longer act on a step that has not finished.** With
+  `concurrency.enabled`, a step was recorded as a satisfied dependency before
+  its `extract` landed, so a sibling finishing in that window let dependents
+  evaluate their `condition` against missing variables and skip as "condition
+  not met" (an approved Apple Ads bid change was never applied this way). The
+  same window also let a failed retry attempt fail its dependents
+  ("Dependencies failed"), let dependents of a `repeat_until` step start after
+  the first round, and skipped `on_success` / `on_failure` targets as
+  "transition not activated". The concurrent scheduler now treats a launched
+  step as unfinished until its completion, and step results (including
+  `iterate_over`) are recorded after their output, extract and
+  `publish_outputs`, with the variable savepoint.
+
 
 ## [1.4.0]
 

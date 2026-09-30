@@ -1536,7 +1536,8 @@ class WorkflowExecutor(
                     context = context,
                     continueOnError = continueOnError,
                     executionId = executionId,
-                    transitionTriggers = transitionTriggers
+                    transitionTriggers = transitionTriggers,
+                    inFlightSteps = runningSteps.keys
                 )
 
                 val selectedSteps = if (availableSlots() > 0) {
@@ -1589,13 +1590,23 @@ class WorkflowExecutor(
         }
     }
 
+    /**
+     * [inFlightSteps] are steps the concurrent runner launched but whose completion it has not
+     * received yet. They count as unfinished even when `context.stepResults` already has an
+     * entry for them: retry and repeat_until record every attempt and round there, and a
+     * step's on_success/on_failure targets are activated only after its entry exists. A scan
+     * triggered by a sibling's completion inside that window must not start, skip or fail the
+     * step's dependents on a result that is not final. Execution f15d26b4 skipped its approved
+     * execute steps that way when the entry was still written before the step's extract.
+     */
     private fun collectRunnableSteps(
         pendingSteps: MutableMap<String, WorkflowStep>,
         workflow: WorkflowDefinition,
         context: WorkflowExecutionContext,
         continueOnError: Boolean,
         executionId: String,
-        transitionTriggers: Map<String, List<IncomingTransitionTrigger>>
+        transitionTriggers: Map<String, List<IncomingTransitionTrigger>>,
+        inFlightSteps: Set<String> = emptySet()
     ): RunnableStepScan {
         var progressMade = false
         val runnableSteps = mutableListOf<WorkflowStep>()
@@ -1610,7 +1621,7 @@ class WorkflowExecutor(
 
             val transitionControlled = transitionTriggers.containsKey(step.step)
             if (transitionControlled && !isTransitionStepActivated(step.step, context)) {
-                if (shouldSkipInactiveTransitionStep(step.step, transitionTriggers, context)) {
+                if (shouldSkipInactiveTransitionStep(step.step, transitionTriggers, context, inFlightSteps)) {
                     markStepSkipped(workflow, context, executionId, step.step, "transition not activated")
                     stepsToRemove += step.step
                     progressMade = true
@@ -1618,7 +1629,7 @@ class WorkflowExecutor(
                 return@forEach
             }
 
-            when (evaluateDependencies(step, context)) {
+            when (evaluateDependencies(step, context, inFlightSteps)) {
                 DependencyStatus.FAILED -> {
                     if (continueOnError) {
                         markStepSkipped(workflow, context, executionId, step.step, "dependencies failed")
@@ -1772,7 +1783,12 @@ class WorkflowExecutor(
         return incoming
     }
 
-    private fun isStepResolved(stepName: String, context: WorkflowExecutionContext): Boolean {
+    private fun isStepResolved(
+        stepName: String,
+        context: WorkflowExecutionContext,
+        inFlightSteps: Set<String> = emptySet()
+    ): Boolean {
+        if (stepName in inFlightSteps) return false
         return context.stepResults.containsKey(stepName) || context.skippedSteps.contains(stepName)
     }
 
@@ -1783,18 +1799,20 @@ class WorkflowExecutor(
     private fun shouldSkipInactiveTransitionStep(
         stepName: String,
         transitionTriggers: Map<String, List<IncomingTransitionTrigger>>,
-        context: WorkflowExecutionContext
+        context: WorkflowExecutionContext,
+        inFlightSteps: Set<String> = emptySet()
     ): Boolean {
         val triggers = transitionTriggers[stepName].orEmpty()
         if (triggers.isEmpty() || isTransitionStepActivated(stepName, context)) {
             return false
         }
-        return triggers.all { trigger -> isStepResolved(trigger.sourceStep, context) }
+        return triggers.all { trigger -> isStepResolved(trigger.sourceStep, context, inFlightSteps) }
     }
 
     private fun evaluateDependencies(
         step: WorkflowStep,
-        context: WorkflowExecutionContext
+        context: WorkflowExecutionContext,
+        inFlightSteps: Set<String> = emptySet()
     ): DependencyStatus {
         var hasPending = false
         val activationSources = context.transitionActivationSources[step.step].orEmpty()
@@ -1802,6 +1820,7 @@ class WorkflowExecutor(
         step.dependsOn.forEach { dependency ->
             val result = context.stepResults[dependency]
             when {
+                dependency in inFlightSteps -> hasPending = true
                 result?.success == true -> Unit
                 dependency in activationSources -> Unit
                 dependency in context.skippedSteps -> Unit
@@ -2176,7 +2195,6 @@ class WorkflowExecutor(
                     error = result.error
                 )
 
-                context.stepResults[step.step] = stepResult
                 if (result.output != null) {
                     context.setStepOutput(step.step, result.output)
                     // 自动索引步骤输出到共享知识库
@@ -2188,6 +2206,10 @@ class WorkflowExecutor(
                     publishStepOutputs(step, workflow, context)
                 }
 
+                // Record the result once, only after its output, extracted variables and
+                // published outputs are in place: an entry in `stepResults` is what makes a
+                // step look finished to anything reading the context.
+                //
                 // Snapshot `context.variables` AFTER processExtract so the persisted
                 // step result acts as a savepoint for "restart from step N". Without
                 // this, variables set via `setVariable(...)` rather than via output-
@@ -4519,6 +4541,12 @@ class WorkflowExecutor(
             )
         }
 
+        context.setStepOutput(step.step, aggregatedOutput)
+
+        // 通用输出提取
+        processExtract(step, aggregatedOutput, context, workflow)
+
+        // Recorded after the extract, like executeStepOnce, and with the same savepoint.
         val stepResult = StepExecutionResult(
             stepName = step.step,
             agentName = step.displayAgentName,
@@ -4526,14 +4554,10 @@ class WorkflowExecutor(
             startTime = startTime,
             endTime = endTime,
             duration = duration,
-            output = aggregatedOutput
+            output = aggregatedOutput,
+            producedVariables = context.snapshotVariablesForPersistence()
         )
-
         context.stepResults[step.step] = stepResult
-        context.setStepOutput(step.step, aggregatedOutput)
-
-        // 通用输出提取
-        processExtract(step, aggregatedOutput, context, workflow)
 
         if (enableMonitoring) {
             WorkflowMonitor.completeStep(context.executionId, step.step, success = true, output = aggregatedOutput)
