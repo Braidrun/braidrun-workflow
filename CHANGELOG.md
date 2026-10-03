@@ -5,6 +5,27 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Codex runs that never report `turn.completed` are no longer metered at
+  zero.** `codex exec --json` prints usage only in its final event, so a run
+  killed by its timeout, cancelled by the step, exiting non-zero, or whose
+  stdout overflowed the 8 MiB capture published no tokens at all. The engine
+  now reads the last cumulative `token_count` from the run's session rollout
+  (`$CODEX_HOME/sessions/**/rollout-*-<thread id>.jsonl`, on the host and
+  before the per-run home is deleted) and emits it once as
+  `codex_sub_agent_usage_final` with `partial=true|false` and
+  `reason=timeout|failed|cancelled|missing_usage`. It is skipped whenever a
+  `turn.completed` usage was already seen, and a resumed thread is charged only
+  what the invocation added.
+- **Docker API-key Codex runs keep `CODEX_HOME` on a per-invocation host
+  directory** bind-mounted at `/codex-home` (instead of the container tmpfs), so
+  the rollout outlives the container; it is deleted after the run, and the
+  tmpfs remains the fallback when the directory cannot be created. Native
+  API-key runs still use the operator's own `CODEX_HOME` and are not recovered.
+
 ## [1.4.0]
 
 Dependency cleanup: unused dependencies removed, every retained one upgraded

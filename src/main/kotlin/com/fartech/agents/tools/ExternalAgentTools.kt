@@ -13,6 +13,7 @@ import com.fartech.ftapp2.commonsKt.AnsiColor
 import com.fartech.ftapp2.commonsKt.ConfigurationParameter
 import com.fartech.ftapp2.commonsKt.parameter
 import com.fartech.ftapp2.commonsKt.printlnColor
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -319,9 +320,11 @@ class ExternalAgentTools(
         val subscriptionCredentialLabel: String? = null,
         val subscriptionCredential: ClaudeCredentialProvider.Credential? = null,
         /**
-         * Codex subscription mode only: the host directory we materialised the
-         * tenant's `auth.json` into. [buildMounts] bind-mounts it into the
-         * container at [CODEX_HOME_CONTAINER_PATH]; null for every other mode.
+         * Codex only: the host directory used as this run's `CODEX_HOME` — the
+         * tenant's materialised `auth.json` in subscription mode, an empty
+         * per-invocation dir for API-key runs in Docker. [buildMounts] bind-mounts
+         * it into the container at [CODEX_HOME_CONTAINER_PATH]; null for Claude and
+         * for native API-key runs (which keep the operator's own CODEX_HOME).
          */
         val codexHomeHostDir: File? = null,
         val originalCodexAuthJson: String? = null,
@@ -433,6 +436,29 @@ class ExternalAgentTools(
             }
         } else null
 
+        // Codex usage recovery: always observe the stream (even with no emitter) so a
+        // killed run still knows its thread id and whether usage was already reported.
+        val codexObserver = if (engine == Engine.CODEX) CodexRunObserver() else null
+        val codexHome = codexUsageHome(engine, auth)
+        // A resumed thread's rollout already holds earlier runs' cumulative total.
+        val codexResumeBaseline = codexHome
+            ?.takeIf { ctx.resumeSessionId.isNotBlank() }
+            ?.let { home -> findCodexRollout(home.hostDir, ctx.resumeSessionId.trim(), exclusive = false) }
+            ?.let(::readCodexRolloutUsage)
+        val startedAtMillis = System.currentTimeMillis()
+        fun recoverCodexUsage(reason: String, partial: Boolean = true, durationMs: Long? = null) =
+            recoverCodexRolloutUsage(
+                home = codexHome,
+                observer = codexObserver,
+                resumeSessionId = ctx.resumeSessionId,
+                baseline = codexResumeBaseline,
+                reason = reason,
+                partial = partial,
+                resolvedName = resolvedName,
+                invocationId = invocationId,
+                durationMs = durationMs ?: (System.currentTimeMillis() - startedAtMillis)
+            )
+
         val request = ExecRequest(
             command = command,
             workingDir = workDir,
@@ -447,8 +473,13 @@ class ExternalAgentTools(
             mounts = buildMounts(auth),
             imageHint = "node",
             userId = userId,
-            stdoutLineCallback = streamEmitter?.let { emitter ->
-                { line -> emitter.handleLine(line) }
+            stdoutLineCallback = if (streamEmitter == null && codexObserver == null) {
+                null
+            } else {
+                { line ->
+                    codexObserver?.observe(line)
+                    streamEmitter?.handleLine(line)
+                }
             }
         )
 
@@ -463,6 +494,9 @@ class ExternalAgentTools(
             )
         } catch (e: Throwable) {
             logger.error(e) { "[ExternalAgent] ${engine.displayName} sub-agent '$resolvedName' subprocess failed" }
+            // Cancellation (e.g. the workflow step's own timeout) kills the process
+            // without a result; its usage is still in the rollout until finally.
+            recoverCodexUsage(reason = if (e is CancellationException) "cancelled" else "failed")
             emit(
                 type = engine.failedEventType(),
                 summary = "❌ ${engine.displayName} Sub Agent 失败: $invocationLabel",
@@ -477,6 +511,9 @@ class ExternalAgentTools(
         // DockerSubprocessExecutor's analogue). Surface a structured event so
         // the UI / monitoring layer can distinguish timeout from other failures.
         if (isSubprocessTimeout(result.exitCode, result.stderr)) {
+            if (engine == Engine.CODEX && parseSdkOutput(engine, result.stdout).usage == null) {
+                recoverCodexUsage(reason = "timeout", durationMs = result.durationMs)
+            }
             emit(
                 type = engine.timeoutEventType(),
                 summary = "⏱️ ${engine.displayName} Sub Agent 超时: $invocationLabel",
@@ -513,6 +550,10 @@ class ExternalAgentTools(
                         failedParsed.costUsd?.let { append(", cost_usd=${formatCost(it)}") }
                     }
                 )
+            }
+            if (engine == Engine.CODEX && failedParsed?.usage == null) {
+                // Before any replay below: the failed attempt's tokens were spent either way.
+                recoverCodexUsage(reason = "failed", durationMs = result.durationMs)
             }
             val tail = externalAgentFailureExcerpt(engine, result.stdout, result.stderr)
             val claudeUnavailable = engine == Engine.CLAUDE &&
@@ -705,6 +746,15 @@ class ExternalAgentTools(
         // The text the parent LLM sees is just the final assistant message — including
         // raw JSON or usage stats in the return value would pollute the parent's context.
         val parsed = parseSdkOutput(engine, result.stdout)
+        // A clean exit whose `turn.completed` never reached us — stdout is capped at
+        // MAX_STREAM_BYTES, and long --json runs can exceed it. The rollout's total is
+        // complete here, hence partial=false. The completed event below stays without
+        // tokens so the platform counts this invocation once.
+        val recoveredUsage = if (engine == Engine.CODEX && parsed.usage == null) {
+            recoverCodexUsage(reason = "missing_usage", partial = false, durationMs = result.durationMs)
+        } else {
+            null
+        }
         auth.subscriptionCredential?.let { credential ->
             runCatching {
                 subscriptionCredentialProvider(engine)?.markSucceeded(
@@ -745,8 +795,8 @@ class ExternalAgentTools(
         return ExternalAgentRunDetailedResult(
             text = parsed.text,
             sessionId = parsed.sessionId,
-            inputTokens = parsed.usage?.inputTokens,
-            outputTokens = parsed.usage?.outputTokens,
+            inputTokens = parsed.usage?.inputTokens ?: recoveredUsage?.inputTokens,
+            outputTokens = parsed.usage?.outputTokens ?: recoveredUsage?.outputTokens,
             costUsd = parsed.costUsd
         )
         } finally {
@@ -756,6 +806,108 @@ class ExternalAgentTools(
                 ?.takeIf { auth.deleteCodexHomeOnExit }
                 ?.let { dir -> runCatching { dir.deleteRecursively() } }
         }
+    }
+
+    /**
+     * Watches a Codex `--json` stdout stream for the two facts usage recovery needs
+     * even when the run never returns an exec result (cancellation): the thread id
+     * that names the session rollout, and whether `turn.completed` already reported
+     * usage live. Called from the executor's reader thread.
+     */
+    private class CodexRunObserver {
+        @Volatile
+        var threadId: String? = null
+            private set
+
+        @Volatile
+        var turnUsageReported: Boolean = false
+            private set
+
+        fun observe(line: String) {
+            val wantsThread = threadId == null && line.contains("\"thread.started\"")
+            val wantsUsage = !turnUsageReported && line.contains("\"turn.completed\"")
+            if (!wantsThread && !wantsUsage) return
+            val obj = parseJsonObjectOrNullStatic(line.trim()) ?: return
+            when (obj.stringField("type")) {
+                "thread.started" -> obj.stringField("thread_id")?.takeIf { it.isNotBlank() }?.let { threadId = it }
+                "turn.completed" -> {
+                    val usage = obj["usage"] as? JsonObject ?: return
+                    if ((usage.longField("input_tokens") ?: 0L) > 0L || (usage.longField("output_tokens") ?: 0L) > 0L) {
+                        turnUsageReported = true
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * The host directory this Codex invocation uses as `CODEX_HOME`, or null when the
+     * engine does not manage it (Claude, native API-key mode). [exclusive] homes were
+     * created for this invocation alone; shared/persistent homes are only searched
+     * for the run's own thread id.
+     */
+    private fun codexUsageHome(engine: Engine, auth: ResolvedExternalAuth): CodexUsageHome? {
+        if (engine != Engine.CODEX) return null
+        val dir = auth.codexHomeHostDir ?: return null
+        return CodexUsageHome(dir, exclusive = auth.deleteCodexHomeOnExit)
+    }
+
+    /**
+     * Codex reports usage only in the final `turn.completed` event, so a run killed by
+     * its timeout, cancelled, or exiting early never prints it and the invocation
+     * would be metered at zero. Its session rollout under CODEX_HOME still holds the
+     * cumulative `token_count`; read it (on the host, before cleanup deletes the
+     * per-run home) and publish it once as the invocation's final aggregate. Callers
+     * skip this when the run's stdout already carried a `turn.completed` usage.
+     * Returns the usage it published, or null.
+     */
+    private fun recoverCodexRolloutUsage(
+        home: CodexUsageHome?,
+        observer: CodexRunObserver?,
+        resumeSessionId: String,
+        baseline: CodexRolloutUsage?,
+        reason: String,
+        partial: Boolean,
+        resolvedName: String,
+        invocationId: String,
+        durationMs: Long
+    ): CodexRolloutUsage? {
+        if (observer == null || observer.turnUsageReported) return null
+        if (home == null) {
+            logger.debug { "[ExternalAgent] Codex sub-agent '$resolvedName' $reason; CODEX_HOME is not engine-managed, usage not recoverable" }
+            return null
+        }
+        return runCatching {
+            val threadId = observer.threadId ?: resumeSessionId.trim().takeIf { it.isNotEmpty() }
+            val rollout = findCodexRollout(home.hostDir, threadId, home.exclusive) ?: return null
+            val cumulative = readCodexRolloutUsage(rollout) ?: return null
+            // A resumed thread appends to its old rollout and keeps counting from the
+            // previous runs' total; charge only what this invocation added.
+            val usage = baseline?.let { cumulative - it } ?: cumulative
+            if (usage.isEmpty()) return null
+            logger.info {
+                "[ExternalAgent] Codex sub-agent '$resolvedName' $reason after ${durationMs}ms. " +
+                    "usage=${usage.toTokenUsage()}, reasoning_output_tokens=${usage.reasoningOutputTokens}, " +
+                    "partial=$partial, recovered_from=${rollout.name}"
+            }
+            emit(
+                type = Engine.CODEX.finalUsageEventType(),
+                summary = "🔤 Codex 最终 Token 用量（从会话记录恢复）: ${invocationLabel(resolvedName, invocationId)}",
+                detail = buildString {
+                    append("invocation_id=$invocationId")
+                    append(", input_tokens=${usage.inputTokens}")
+                    append(", output_tokens=${usage.outputTokens}")
+                    append(", total_tokens=${usage.inputTokens + usage.outputTokens}")
+                    append(", cache_read=${usage.cachedInputTokens}")
+                    append(", partial=$partial")
+                    append(", reason=$reason")
+                    append(", source=codex_rollout")
+                }
+            )
+            usage
+        }.onFailure { e ->
+            logger.warn(e) { "[ExternalAgent] Failed to recover Codex usage for '$resolvedName' from its session rollout" }
+        }.getOrNull()
     }
 
     private fun maybePublishRotatedCodexAuthJson(auth: ResolvedExternalAuth) {
@@ -1678,8 +1830,9 @@ class ExternalAgentTools(
         // touches HOME on startup. In the read-only-rootfs container both default to
         // the non-writable /home/runner, so codex aborts with "Permission denied
         // (os error 13)" regardless of auth mode. Point both at the writable tmpfs.
-        // Subscription mode already set CODEX_HOME to the bind-mounted auth dir
-        // (putIfAbsent keeps it); API-key mode gets a fresh tmpfs CODEX_HOME.
+        // Subscription and API-key mode normally already set CODEX_HOME to the
+        // bind-mounted per-run host dir (putIfAbsent keeps it); the tmpfs path is
+        // only the fallback when that dir could not be created.
         if (engine == Engine.CODEX && isDocker) {
             putIfAbsent("CODEX_HOME", "/tmp/codex-home")
             put("HOME", "/tmp")
@@ -1732,9 +1885,10 @@ class ExternalAgentTools(
     private fun buildMounts(auth: ResolvedExternalAuth): List<SubprocessExecutor.Mount> {
         if (!isDocker) return emptyList()
         val mounts = mutableListOf<SubprocessExecutor.Mount>()
-        // Codex subscription: bind the host dir holding the tenant's auth.json into
-        // the container so `codex` can read it via CODEX_HOME. RW because codex
-        // writes cache / session / state files there during the run.
+        // Codex: bind the per-run host CODEX_HOME (holding the tenant's auth.json in
+        // subscription mode, empty in API-key mode) into the container. RW because
+        // codex writes cache / session / state files there during the run, and the
+        // session rollout must stay readable from the host for usage recovery.
         auth.codexHomeHostDir?.let { homeDir ->
             val canonical = runCatching { homeDir.canonicalFile }.getOrDefault(homeDir.absoluteFile)
             mounts += SubprocessExecutor.Mount(
@@ -1922,9 +2076,20 @@ class ExternalAgentTools(
                     "or 'llm_provider_keys.${engine.providerKey}', " +
                     "or environment variable ${engine.apiKeyEnvVar}."
             )
+        // Docker API-key runs used to keep CODEX_HOME on the container's tmpfs, which
+        // disappears with the container — and with it the session rollout, the only
+        // usage record of a run killed before `turn.completed`. A per-invocation host
+        // dir bind-mounted into the container keeps it readable from the host until
+        // this invocation's cleanup deletes it. Native API-key runs keep the
+        // operator's own CODEX_HOME, which the engine does not manage.
+        val apiKeyCodexHome = if (engine == Engine.CODEX && isDocker) createEphemeralCodexHome(invocationId) else null
         return ResolvedExternalAuth(
             mode = ExternalAuthMode.API_KEY,
-            env = mapOf(engine.apiKeyEnvVar to apiKey)
+            env = buildMap {
+                put(engine.apiKeyEnvVar, apiKey)
+                if (apiKeyCodexHome != null) put("CODEX_HOME", CODEX_HOME_CONTAINER_PATH)
+            },
+            codexHomeHostDir = apiKeyCodexHome
         )
     }
 
@@ -2161,25 +2326,7 @@ class ExternalAgentTools(
         val base = if (configured.isNotEmpty()) {
             File(configured)
         } else {
-            val runId = context.executionId ?: context.sessionId ?: UUID.randomUUID().toString()
-            val userDir = File(
-                File(System.getProperty("java.io.tmpdir"), "braidrun-codex"),
-                safePathSegment(userId)
-            )
-            val invocationBase = File(
-                File(userDir, safePathSegment(runId)),
-                safePathSegment(
-                    listOfNotNull(context.stepName, context.sessionId)
-                        .joinToString("_")
-                        .ifBlank { "external-agent" }
-                )
-            )
-            // Ephemeral workflow calls can run concurrently from the same step. Each
-            // call deletes its CODEX_HOME in finally, so sharing invocationBase lets
-            // the first completed child remove auth/state underneath a sibling that
-            // is still starting. Add the real per-call id only for ephemeral homes;
-            // persistent conversation/resume homes must keep their stable path.
-            if (ephemeral) File(invocationBase, safePathSegment(invocationId)) else invocationBase
+            defaultCodexHomeDir(invocationId, ephemeral)
         }
         createDirectories(base, "Codex home")
         val authFile = File(base, "auth.json")
@@ -2187,6 +2334,43 @@ class ExternalAgentTools(
         applyCodexHomePermissions(base, authFile)
         return base
     }
+
+    private fun defaultCodexHomeDir(invocationId: String, ephemeral: Boolean): File {
+        val runId = context.executionId ?: context.sessionId ?: UUID.randomUUID().toString()
+        val userDir = File(
+            File(System.getProperty("java.io.tmpdir"), "braidrun-codex"),
+            safePathSegment(userId)
+        )
+        val invocationBase = File(
+            File(userDir, safePathSegment(runId)),
+            safePathSegment(
+                listOfNotNull(context.stepName, context.sessionId)
+                    .joinToString("_")
+                    .ifBlank { "external-agent" }
+            )
+        )
+        // Ephemeral workflow calls can run concurrently from the same step. Each
+        // call deletes its CODEX_HOME in finally, so sharing invocationBase lets
+        // the first completed child remove auth/state underneath a sibling that
+        // is still starting. Add the real per-call id only for ephemeral homes;
+        // persistent conversation/resume homes must keep their stable path.
+        return if (ephemeral) File(invocationBase, safePathSegment(invocationId)) else invocationBase
+    }
+
+    /**
+     * An empty per-invocation CODEX_HOME on the host (no auth.json) for API-key runs
+     * in Docker. Null when it cannot be created — the run then falls back to the
+     * container tmpfs and only loses usage recovery, never the run itself.
+     */
+    private fun createEphemeralCodexHome(invocationId: String): File? =
+        runCatching {
+            val dir = defaultCodexHomeDir(invocationId, ephemeral = true)
+            createDirectories(dir, "Codex home")
+            applyCodexHomePermissions(dir, authFile = null)
+            dir
+        }.onFailure { e ->
+            logger.warn(e) { "[ExternalAgent] Could not create a host CODEX_HOME; Codex usage recovery is unavailable for this run" }
+        }.getOrNull()
 
     /**
      * Docker mode runs the codex container as an unprivileged uid (2000:2000) that
@@ -2197,15 +2381,15 @@ class ExternalAgentTools(
      * per-run host temp dir that gets cleaned up). In native mode the same uid runs
      * codex, so keep it owner-only (0700 / 0600) to limit token exposure.
      */
-    private fun applyCodexHomePermissions(dir: File, authFile: File) {
+    private fun applyCodexHomePermissions(dir: File, authFile: File?) {
         runCatching {
             if (isDocker) {
                 dir.setReadable(true, false)
                 dir.setWritable(true, false)
                 dir.setExecutable(true, false)
-                authFile.setReadable(true, false)
-                authFile.setWritable(true, false)
-            } else {
+                authFile?.setReadable(true, false)
+                authFile?.setWritable(true, false)
+            } else if (authFile != null) {
                 authFile.setReadable(false, false)
                 authFile.setWritable(false, false)
                 authFile.setReadable(true, true)
@@ -2366,6 +2550,36 @@ class ExternalAgentTools(
         val cacheCreationInputTokens: Long?,
         val cacheReadInputTokens: Long?
     )
+
+    internal data class CodexUsageHome(val hostDir: File, val exclusive: Boolean)
+
+    /**
+     * A rollout `token_count.info.total_token_usage` snapshot, in raw Codex semantics:
+     * [inputTokens] includes [cachedInputTokens] and [outputTokens] includes
+     * [reasoningOutputTokens] — the same shape `turn.completed` reports.
+     */
+    internal data class CodexRolloutUsage(
+        val inputTokens: Long,
+        val cachedInputTokens: Long,
+        val outputTokens: Long,
+        val reasoningOutputTokens: Long
+    ) {
+        operator fun minus(other: CodexRolloutUsage) = CodexRolloutUsage(
+            inputTokens = (inputTokens - other.inputTokens).coerceAtLeast(0L),
+            cachedInputTokens = (cachedInputTokens - other.cachedInputTokens).coerceAtLeast(0L),
+            outputTokens = (outputTokens - other.outputTokens).coerceAtLeast(0L),
+            reasoningOutputTokens = (reasoningOutputTokens - other.reasoningOutputTokens).coerceAtLeast(0L)
+        )
+
+        fun isEmpty(): Boolean = inputTokens <= 0L && outputTokens <= 0L
+
+        fun toTokenUsage() = TokenUsage(
+            inputTokens = inputTokens,
+            outputTokens = outputTokens,
+            cacheCreationInputTokens = null,
+            cacheReadInputTokens = cachedInputTokens
+        )
+    }
 
     internal data class ExternalAgentRunDetailedResult(
         val text: String,
@@ -3001,6 +3215,76 @@ class ExternalAgentTools(
 
         private fun parseJsonObjectOrNullStatic(text: String): JsonObject? =
             runCatching { permissiveJson.parseToJsonElement(text).jsonObject }.getOrNull()
+
+        /** `sessions/YYYY/MM/DD/rollout-*.jsonl` sits four levels below `sessions`. */
+        private const val CODEX_ROLLOUT_MAX_DEPTH = 4
+
+        /**
+         * This invocation's session rollout under `<home>/sessions`. Codex names it
+         * `rollout-<local timestamp>-<thread id>.jsonl` (verified on codex-cli 0.159.0;
+         * `exec resume` appends to the original file). With a [threadId] the matching
+         * file wins; an [exclusive] home otherwise falls back to its newest rollout,
+         * while a shared home without a matching thread id yields nothing.
+         */
+        internal fun findCodexRollout(home: File, threadId: String?, exclusive: Boolean): File? {
+            val sessions = File(home, "sessions")
+            if (!sessions.isDirectory) return null
+            val rollouts = runCatching {
+                Files.walk(sessions.toPath(), CODEX_ROLLOUT_MAX_DEPTH).use { paths ->
+                    paths.filter { path ->
+                        val name = path.fileName.toString()
+                        name.startsWith("rollout-") && name.endsWith(".jsonl") &&
+                            Files.isRegularFile(path, NOFOLLOW_LINKS)
+                    }.toList()
+                }
+            }.getOrElse { return null }
+            val id = threadId?.trim()?.takeIf { it.isNotEmpty() }
+            val matching = id?.let { rollouts.filter { path -> path.fileName.toString().endsWith("-$it.jsonl") } }.orEmpty()
+            val candidates = when {
+                matching.isNotEmpty() -> matching
+                exclusive -> rollouts
+                else -> return null
+            }
+            return candidates
+                .map { path -> path to runCatching { Files.getLastModifiedTime(path, NOFOLLOW_LINKS).toMillis() }.getOrDefault(0L) }
+                .maxWithOrNull(compareBy<Pair<Path, Long>> { it.second }.thenBy { it.first.fileName.toString() })
+                ?.first
+                ?.toFile()
+        }
+
+        /**
+         * The last cumulative usage in a rollout: lines
+         * `{"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{…}}}}`.
+         * Malformed lines (including one cut off by a kill mid-write), `info: null`
+         * rate-limit updates and missing fields are ignored; null when nothing usable
+         * remains or the file cannot be read.
+         */
+        internal fun readCodexRolloutUsage(rollout: File): CodexRolloutUsage? = runCatching {
+            var last: CodexRolloutUsage? = null
+            rollout.bufferedReader(Charsets.UTF_8).useLines { lines ->
+                lines.filter { it.contains("\"token_count\"") }
+                    .mapNotNull(::parseCodexTokenCountLine)
+                    .forEach { last = it }
+            }
+            last
+        }.getOrNull()
+
+        private fun parseCodexTokenCountLine(line: String): CodexRolloutUsage? {
+            val obj = parseJsonObjectOrNullStatic(line.trim()) ?: return null
+            if (obj.stringField("type") != "event_msg") return null
+            val payload = obj["payload"] as? JsonObject ?: return null
+            if (payload.stringField("type") != "token_count") return null
+            val total = (payload["info"] as? JsonObject)?.get("total_token_usage") as? JsonObject ?: return null
+            val input = total.longField("input_tokens")
+            val output = total.longField("output_tokens")
+            if (input == null && output == null) return null
+            return CodexRolloutUsage(
+                inputTokens = input?.coerceAtLeast(0L) ?: 0L,
+                cachedInputTokens = total.longField("cached_input_tokens")?.coerceAtLeast(0L) ?: 0L,
+                outputTokens = output?.coerceAtLeast(0L) ?: 0L,
+                reasoningOutputTokens = total.longField("reasoning_output_tokens")?.coerceAtLeast(0L) ?: 0L
+            )
+        }
 
         internal val permissiveJson = Json {
             ignoreUnknownKeys = true
