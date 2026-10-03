@@ -2781,7 +2781,12 @@ class ExternalAgentTools(
         private const val DOCKER_SANDBOX_UID = 2000
         private const val DOCKER_SANDBOX_GID = 2000
         const val MIN_TIMEOUT_SECONDS = 10
-        const val MAX_TIMEOUT_SECONDS = 3600
+        // Ceiling on a single external agent CLI run. Templates set the real budget
+        // (App Factory developers and repairers use 7200 s); this only stops an
+        // absurd value from running unbounded. It was 3600, which silently cut every
+        // longer template budget to one hour. Four hours matches the longest
+        // execution callback token a code step can hold.
+        const val MAX_TIMEOUT_SECONDS = 14400
         internal const val MAX_COMMAND_ARGUMENT_BYTES = 96 * 1024
         internal const val MAX_COMMAND_TOTAL_BYTES = 512 * 1024
         private const val COMMAND_ARGUMENT_TRUNCATION_MARKER =

@@ -5,10 +5,15 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.4.1] - 2026-10-04
 
 ### Fixed
 
+- **External agent runs may now last up to four hours.** `MAX_TIMEOUT_SECONDS`
+  was 3600, so every template budget above one hour (App Factory developers,
+  repairers and visual reviewers ask for 7200 s, the designer for 5400 s) was
+  silently cut to one hour. The ceiling is now 14400 s; it still stops absurd
+  values, and the template value is used as configured below it.
 - **Codex runs that never report `turn.completed` are no longer metered at
   zero.** `codex exec --json` prints usage only in its final event, so a run
   killed by its timeout, cancelled by the step, exiting non-zero, or whose
