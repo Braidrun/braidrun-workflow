@@ -22,6 +22,8 @@ class RunnerCollectionHeadlessTest {
     @Test fun `closed root occurrence cannot reuse its completion while child begins`(@TempDir dir: Path) = runFixture(dir, "late-root")
     @Test fun `code completion with uncollected declared material cannot advance to child`(@TempDir dir: Path) = runFixture(dir, "early-exit")
 
+    @Test fun `same declaration occurrence cannot bypass original pending ACK with all fresh IDs`(@TempDir dir: Path) = runFixture(dir, "reidentified")
+
     private fun runFixture(dir: Path, mode: String) {
         Files.createDirectories(dir.resolve("run"))
         fun script(id: String) = "printf 'material-$id' > '${dir.resolve("run/$id.txt")}'; while [ ! -f '${dir.resolve("run/$id.release")}' ]; do sleep 0.01; done; printf 'gate-$id-opened'"
@@ -89,6 +91,13 @@ class RunnerCollectionHeadlessTest {
                             }
                             if (mode == "cancel") { base("cancel", buildJsonObject { put("commandId", "cancel-barrier"); put("reason", "fixture") }); continue }
                             indexed.putIfAbsent(detail.string("publicationId"), sha256(bytes))?.let { assertEquals(sha256(bytes), it) }
+                            if (mode == "reidentified") {
+                                val originalRequest = requests.getValue(id)
+                                send(JsonObject(originalRequest + mapOf("frameId" to JsonPrimitive("fresh-frame"), "payload" to JsonObject(originalRequest.obj("payload") + mapOf(
+                                    "requestId" to JsonPrimitive("fresh-request"), "publicationId" to JsonPrimitive("fresh-publication"), "artifactId" to JsonPrimitive("fresh-artifact")
+                                )))))
+                                continue // original index effect exists, original ACK is deliberately withheld
+                            }
                             val first = originalEvents.putIfAbsent(id, line)
                             if (id == "root" && first == null) {
                                 send(requests.getValue(id)) // simulate lost event/index ACK; original event must replay byte-for-byte
@@ -155,10 +164,11 @@ class RunnerCollectionHeadlessTest {
                     else -> fail("Unexpected frame ${frame.string("type")}")
                 }
             }
-            if (mode == "changed-request") {
+            if (mode in setOf("changed-request", "reidentified")) {
                 assertNull(result, "Rejected changed wire duplicate closes IPC; no remote verdict is fabricated")
                 assertTrue(engine.waitFor(3, TimeUnit.SECONDS)); assertEquals(2, engine.exitValue())
-                assertTrue(completeCounts.isEmpty()); assertTrue(indexed.isEmpty()); assertFalse(Files.exists(dir.resolve("run/root.release")))
+                assertTrue(completeCounts.isEmpty()); assertEquals(if (mode == "reidentified") 1 else 0, indexed.size); assertFalse(Files.exists(dir.resolve("run/root.release")))
+                assertEquals(1, allEvents.values.count { runnerJson.parseToJsonElement(it).jsonObject.obj("payload").string("type") == "artifact" })
                 val key = sha256((canonical(f.binding) + ":request-root").toByteArray())
                 val retained = runnerJson.parseToJsonElement(Files.readString(dir.resolve(".runner-state/artifact-collection/$key.json"))).jsonObject
                 assertEquals(requests.getValue("root"), retained.obj("request")); assertNull(retained["complete"])

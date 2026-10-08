@@ -1003,6 +1003,7 @@ class WorkflowExecutor(
     ) {
         val approvalWaitMs: AtomicLong = AtomicLong(0L)
         val resourceWaitClock = ResourceWaitClock()
+        fun remainingMillis(): Long = totalTimeoutMs - (System.currentTimeMillis() - startTime - approvalWaitMs.get() - resourceWaitClock.waitedMillis())
     }
     private val executionDeadlines = ConcurrentHashMap<String, ExecutionDeadline>()
 
@@ -1051,7 +1052,7 @@ class WorkflowExecutor(
             require(executionId == host.binding.executionId) { "Host root execution identity cannot be replaced" }
         }
         host?.admit(workflow, scope)
-        host?.bindArtifactProducer(workflow, scope)
+        host?.bindArtifactProducer(workflow, scope, staticInvocation = parentHostScope == null)
         host?.beforeOperation(scope, if (resumeState == null) "start" else "resume")
         val observer = host?.let { WorkflowMonitor.observe(executionId, it::monitor) }
         try {
@@ -1151,7 +1152,7 @@ class WorkflowExecutor(
             }
             try {
                 val deadline = executionDeadlines[executionId]
-                if (deadline != null) withResourceWaitClock(deadline.resourceWaitClock) { runWorkflowBody() }
+                if (deadline != null) withResourceWaitClock(deadline.resourceWaitClock) { withArtifactCompletionBudget(deadline::remainingMillis) { runWorkflowBody() } }
                 else runWorkflowBody()
             } finally {
                 executionDeadlines.remove(executionId)
@@ -2220,7 +2221,13 @@ class WorkflowExecutor(
             }
 
             host?.beforeOperation(hostScope(context, step.step), "step_after_approval")
-            // 支持步骤超时
+            val completionClock = ResourceWaitClock()
+            val completionStarted = System.nanoTime()
+            val remainingStep: (() -> Long)? = stepTimeoutMs?.let { timeout ->
+                { timeout - ((System.nanoTime() - completionStarted) / 1_000_000 - completionClock.waitedMillis()) }
+            }
+            withResourceWaitClock(completionClock) { withArtifactCompletionBudget(remainingStep) {
+            // The original budget includes a suspended artifact completion, without resetting after the model.
             val result = if (stepTimeoutMs != null) {
                 withResourceAwareTimeout(stepTimeoutMs) {
                     executeStepByType(step, workflow, context, dirIsolation)
@@ -2310,6 +2317,7 @@ class WorkflowExecutor(
 
                 resultWithSnapshot
             }
+            } }
 
         } catch (e: TimeoutCancellationException) {
             val endTime = System.currentTimeMillis()
@@ -5888,7 +5896,7 @@ class WorkflowExecutor(
             }
             try {
                 val deadline = executionDeadlines[derivedExecutionId]
-                if (deadline != null) withResourceWaitClock(deadline.resourceWaitClock) { runBody() }
+                if (deadline != null) withResourceWaitClock(deadline.resourceWaitClock) { withArtifactCompletionBudget(deadline::remainingMillis) { runBody() } }
                 else runBody()
             } finally {
                 executionDeadlines.remove(derivedExecutionId)

@@ -97,11 +97,12 @@ class RunnerCollectionPolicy(private val bundle: FrozenWorkflowBundle) {
         return declaration to execution
     }
     fun declarationsFor(workflowId: String, executionId: String, step: String): List<String> {
+        val candidates = declarations.filter { it.string("producerWorkflowId") == workflowId && it.string("producerStep") == step }
+        if (candidates.isEmpty()) return emptyList()
         val actual = childPath(bundle.taskBinding.string("executionId"), executionId).map { it.jsonPrimitive.content }
         val resolved = actualResolve(actual)
         require(resolved.first == workflowId)
-        return declarations.filter { it.string("producerWorkflowId") == workflowId && it.string("producerStep") == step &&
-            it.array("childSteps").map { part -> part.jsonPrimitive.content } == resolved.second }.map { it.string("declarationId") }
+        return candidates.filter { it.array("childSteps").map { part -> part.jsonPrimitive.content } == resolved.second }.map { it.string("declarationId") }
     }
     fun isCode(workflowId: String, step: String) = nodes(workflowId).single { it.name == step }.code
 }

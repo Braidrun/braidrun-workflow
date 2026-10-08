@@ -33,6 +33,7 @@ class RunnerWorkflowHost(
             "definitionHash" to binding.definitionHash, "runtimeHash" to binding.runtimeHash)
         require(pairs.all { (key, value) -> ipc.binding.string(key) == value } && ipc.binding.long("resumeEpoch") == binding.resumeEpoch) { "Host identity differs from IPC authority" }
     }
+    private val staticInvocations = java.util.concurrent.ConcurrentHashMap<String, Boolean>()
     private val admittedProducers = java.util.concurrent.ConcurrentHashMap<String, String>()
     private val producerStarts = java.util.concurrent.ConcurrentHashMap<Pair<String, String>, String>()
     private val codeProducerStarts = java.util.concurrent.ConcurrentHashMap<Pair<String, String>, String>()
@@ -54,7 +55,7 @@ class RunnerWorkflowHost(
         val child = body.array("childExecutionPath").map { it.jsonPrimitive.content }
         val execution = binding.executionId + if (child.isEmpty()) "" else "__" + child.joinToString("__")
         val workflowId = body.string("producerWorkflowId"); val step = body.string("producerStep")
-        require(admittedProducers[execution] == workflowId) { "Collection producer was not actually invoked" }
+        require(staticInvocations[execution] == true && admittedProducers[execution] == workflowId) { "Collection producer was not actually invoked" }
         val occurrence = (if (policy.isCode(workflowId, step)) activeCodeProducers else activeProducers)[execution to step]
             ?: error("Collection producer is closed or unknown")
         require(occurrence.eventId == body.string("producerStartEventId") && eventJournal.acknowledged() >= occurrence.eventSeq) { "Collection occurrence is stale or not durably ACKed" }
@@ -188,10 +189,12 @@ class RunnerWorkflowHost(
         val definitions = if (scope.executionId == binding.executionId) bundle.allDefinitions else listOf(workflow)
         definitions.forEach { definition -> checkRoutes(RunnerAdmission(bundle, capabilities).inspect(definition)) }
     }
-    override fun bindArtifactProducer(workflow: WorkflowDefinition, scope: WorkflowHostScope) {
+    override fun bindArtifactProducer(workflow: WorkflowDefinition, scope: WorkflowHostScope, staticInvocation: Boolean) {
         if (artifactPolicy == null && collectionPolicy == null) return
         require(scope.rootExecutionId == binding.executionId && bundle.contains(workflow)) { "Artifact producer outside frozen invocation" }
         childPath(binding.executionId, scope.executionId)
+        val lineage = staticInvocation && (scope.parentExecutionId == null || staticInvocations[scope.parentExecutionId] == true)
+        require(staticInvocations.putIfAbsent(scope.executionId, lineage)?.let { it == lineage } != false) { "Invocation lineage cannot change" }
         val identity = bundle.identityOf(workflow)
         require(admittedProducers.putIfAbsent(scope.executionId, identity)?.let { it == identity } != false) { "Producer definition changed within invocation" }
     }
@@ -215,12 +218,16 @@ class RunnerWorkflowHost(
             try {
                 gate.check(); collectionPolicy.verify()
                 val workflowId = requireNotNull(admittedProducers[scope.executionId])
+                if (staticInvocations[scope.executionId] == false) return // Known interpreter dynamic invocation: no static declarations apply.
                 val declared = collectionPolicy.declarationsFor(workflowId, scope.executionId, step.step)
                 if (declared.isNotEmpty()) {
                     val start = requireNotNull((if (step.code != null) codeProducerStarts else producerStarts)[scope.executionId to step.step])
-                    requireNotNull(collectionBarrier).requireCompleted(declared, start)
+                    if (step.code != null) requireNotNull(collectionBarrier).requireCompleted(declared, start)
+                    else requireNotNull(collectionBarrier).awaitCompleted(declared, start)
                 }
                 return // S exclusively reads/snapshots; never invoke the old injected fingerprint path.
+            } catch (failure: kotlinx.coroutines.CancellationException) {
+                gate.invalidate("RUNNER_DECLARED_ARTIFACTS_UNCONFIRMED"); throw failure
             } catch (_: Exception) { gate.invalidate("RUNNER_DECLARED_ARTIFACTS_UNCONFIRMED"); throw RunnerAuthorityLost() }
         }
         val policy = artifactPolicy ?: return

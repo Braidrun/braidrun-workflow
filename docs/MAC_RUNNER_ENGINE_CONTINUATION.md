@@ -265,3 +265,12 @@ validator及独立request/ACK pump；E仅校验声明和真实ACTIVE已ACK produ
 已修b96P2：所有event首次append/persist/enqueue统一原子边界、等待锁外；独立3项
 latch/并发/失败回归证据保留。详见新collection交接与event-order修复文档。
 37项相关测试通过，P2等待断言强化后另跑3项；下一固定包按本次源码构建。
+
+## ea441 三项 collection P2 定向修复
+
+已修无声明动态 invocation 误套静态路径、同语义 occurrence 换全IDs绕过、HTTP Agent
+write_to 后缺少 suspend completion 等待。25项针对性/相关回归通过，包括实际动态
+workflow tool、原ACK hold后全ID替换、组件ledger重建、受控HTTP模型真实JSON落盘后
+延迟采集及取消/原step/global deadline。详情和限制见
+`MAC_RUNNER_COLLECTION_EA441_REVIEW_FIXES.md`。不修改已关闭journal，不改正式schema，
+新包独立保存，ea441旧包保留；真实S/P联合验收和禁止部署约束不变。

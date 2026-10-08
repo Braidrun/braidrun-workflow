@@ -47,7 +47,7 @@ interface WorkflowHost {
     suspend fun beforeOperation(scope: WorkflowHostScope, operation: String)
     fun userInteraction(scope: WorkflowHostScope): UserInteractionHandler
     /** Bind the actual interpreter invocation after admission, never the parent's preflight scope. */
-    fun bindArtifactProducer(workflow: WorkflowDefinition, scope: WorkflowHostScope) {}
+    fun bindArtifactProducer(workflow: WorkflowDefinition, scope: WorkflowHostScope, staticInvocation: Boolean = true) {}
     /** Completion barrier for explicitly authorized files, before a subsequent gate/step.
      * Plain stdout paths and directory scans are never declarations. Default hosts do nothing. */
     suspend fun collectDeclaredArtifacts(workflow: WorkflowDefinition, step: WorkflowStep, scope: WorkflowHostScope,

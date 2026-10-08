@@ -22,6 +22,10 @@ internal class RunnerCollectionBarrier(
     }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val states = LinkedHashMap<String, State>()
+    private val occurrences = HashMap<String, String>()
+    private fun occurrence(body: JsonObject) = canonical(buildJsonObject {
+        put("binding", ipc.binding); put("declarationId", body.string("declarationId")); put("producerStartEventId", body.string("producerStartEventId"))
+    })
     private val publications = HashMap<String, String>()
     private val artifacts = HashMap<String, String>()
     private val invalidation = gate.onInvalidated { scope.cancel() }
@@ -59,8 +63,11 @@ internal class RunnerCollectionBarrier(
             }
             return
         }
+        val logicalIntent = occurrence(body)
+        require(occurrences[logicalIntent]?.let { it == requestId } != false) { "Declaration occurrence already has an original intent" }
         require(states.size < 4096) { "Collection intent bound exceeded" }
         require(publications[body.string("publicationId")]?.let { it == requestId } != false && artifacts[body.string("artifactId")]?.let { it == requestId } != false) { "Collection identity reused" }
+        occurrences[logicalIntent] = requestId
         publications[body.string("publicationId")] = requestId; artifacts[body.string("artifactId")] = requestId
         val state = State(request); states[requestId] = state
         scope.launch {
@@ -74,7 +81,7 @@ internal class RunnerCollectionBarrier(
     private suspend fun execute(state: State) {
         val request = state.request; val body = request.obj("payload"); val requestId = body.string("requestId")
         validate(request)
-        for ((kind, identity) in listOf("publication" to body.string("publicationId"), "artifact" to body.string("artifactId"))) {
+        for ((kind, identity) in listOf("occurrence" to occurrence(body), "publication" to body.string("publicationId"), "artifact" to body.string("artifactId"))) {
             val link = ".runner-state/artifact-collection/$kind-${sha256((canonical(ipc.binding) + identity).toByteArray())}.json"
             val value = buildJsonObject { put("requestId", requestId); put("requestHash", sha256(canonical(request).toByteArray())) }
             synchronized(this) {
@@ -139,12 +146,23 @@ internal class RunnerCollectionBarrier(
         for (key in listOf("requestId", "publicationId", "artifactId", "sha256", "size")) put(key, body.getValue(key))
         put("eventId", event.obj("payload").string("eventId")); put("eventSeq", event.obj("payload").long("eventSeq"))
     }
-    @Synchronized fun requireCompleted(declarations: List<String>, producerStartEventId: String) {
-        gate.check()
-        require(declarations.all { id -> states.values.any { state ->
-            state.complete != null && state.request.obj("payload").string("declarationId") == id &&
-                state.request.obj("payload").string("producerStartEventId") == producerStartEventId
-        } }) { "Declared material collection/index ACK is incomplete" }
+    @Synchronized private fun completed(declarations: List<String>, producerStartEventId: String): Boolean = declarations.all { id -> states.values.any { state ->
+        state.complete != null && state.request.obj("payload").string("declarationId") == id &&
+            state.request.obj("payload").string("producerStartEventId") == producerStartEventId
+    } }
+    fun requireCompleted(declarations: List<String>, producerStartEventId: String) {
+        gate.check(); require(completed(declarations, producerStartEventId)) { "Closed code producer has uncollected material" }
+    }
+    suspend fun awaitCompleted(declarations: List<String>, producerStartEventId: String) {
+        val budgets = currentCoroutineContext()[com.fartech.agents.workflow.ArtifactCompletionBudgets]?.remaining.orEmpty()
+        val fallback = System.nanoTime() + 30_000_000_000L // only when no original step/global budget exists
+        while (true) {
+            currentCoroutineContext().ensureActive(); gate.check()
+            val remaining = budgets.minOfOrNull { it() } ?: ((fallback - System.nanoTime()) / 1_000_000)
+            if (remaining <= 0) withTimeout(1) { awaitCancellation() }
+            if (completed(declarations, producerStartEventId)) return
+            delay(minOf(remaining, 20L).coerceAtLeast(1))
+        }
     }
     override fun close() { invalidation.close(); scope.cancel() }
 }
