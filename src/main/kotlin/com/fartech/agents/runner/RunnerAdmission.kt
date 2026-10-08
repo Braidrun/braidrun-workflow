@@ -19,6 +19,7 @@ class RunnerEnvironmentGate(
     private val now: () -> Instant = Instant::now,
     private val nanoTime: () -> Long = System::nanoTime
 ) {
+    private val knownCountries = java.util.Locale.getISOCountries().toSet()
     private data class Evidence(val expires: Long, val profileHash: String, val paths: Set<String>, val installedAt: Long, val checkId: String, val evidenceHash: String)
     private val evidence = AtomicReference<Evidence?>()
     private data class SeenEvidence(val hash: String, val firstReplyTo: String?)
@@ -79,7 +80,7 @@ class RunnerEnvironmentGate(
             return
         }
         if (seenEvidence.size >= 65536) throw RunnerAuthorityLost()
-        if (routes.any { it.string("countryCode") == "CN" || it.string("networkProfileHash") != profile ||
+        if (routes.any { (it.string("countryCode") == "CN" || it.string("countryCode") !in knownCountries) || it.string("networkProfileHash") != profile ||
                 Instant.parse(it.string("observedAt")) < checked || Instant.parse(it.string("observedAt")) > instant }) throw RunnerAuthorityLost()
         val conflict = routes.groupBy { it.string("pathId") to it.string("addressFamily") }
             .values.any { group -> group.map { it.string("countryCode") }.distinct().size > 1 }

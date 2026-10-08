@@ -453,7 +453,11 @@ class ExternalAgentTools(
             // DockerSubprocessExecutor uses StdinOnce and closes the attach after
             // writing, so the child reliably receives EOF without putting the
             // payload in execve argv.
-            stdin = ctx.prompt,
+            stdin = com.fartech.agents.workflow.WorkflowHostContext.current?.let { host ->
+                val scope = com.fartech.agents.workflow.WorkflowHostContext.scope
+                    ?: com.fartech.agents.workflow.WorkflowHostScope(host.binding.executionId, context.executionId ?: host.binding.executionId, stepName = context.stepName)
+                host.nativeAgentPrompt(scope, ctx.prompt)
+            } ?: ctx.prompt,
             timeoutSeconds = timeoutSeconds.toLong(),
             env = buildEnvironment(engine, auth, ctx),
             mounts = buildMounts(auth),

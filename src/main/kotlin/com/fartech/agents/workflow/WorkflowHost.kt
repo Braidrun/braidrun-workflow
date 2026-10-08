@@ -32,6 +32,7 @@ interface WorkflowHost {
     val claudeCredentials: ClaudeCredentialProvider? get() = null
     val codexCredentials: ClaudeCredentialProvider? get() = null
     val codexAuthRotation: ((String?, String) -> Unit)? get() = null
+    fun nativeAgentPrompt(scope: WorkflowHostScope, prompt: String): String = prompt
     val callbackToken: ((Long) -> String)? get() = null
     fun callbackTokenFor(scope: WorkflowHostScope, budget: Long): String =
         requireNotNull(callbackToken) { "Callback capability unavailable" }.invoke(budget)

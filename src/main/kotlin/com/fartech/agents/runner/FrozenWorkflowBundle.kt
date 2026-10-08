@@ -10,6 +10,7 @@ import java.nio.file.Path
 class FrozenWorkflowBundle(private val root: Path, val manifest: JsonObject, private val binding: JsonObject) : WorkflowResolver {
     private data class Entry(val id: String, val path: String, val hash: String, val definition: WorkflowDefinition)
     private val entries: List<Entry>
+    private val assetHashes = linkedMapOf<String, Pair<Long, String>>()
     private val skillHashes = java.util.concurrent.ConcurrentHashMap<String, String>()
     private val frozenFiles = java.util.concurrent.ConcurrentHashMap<String, ByteArray>()
     val executionDirectory: Path get() = root
@@ -29,13 +30,16 @@ class FrozenWorkflowBundle(private val root: Path, val manifest: JsonObject, pri
         val files = manifest.array("files").associate { item ->
             val file = item.jsonObject
             val relative = file.string("path")
-            require(paths.add(relative)) { "Duplicate bundle file" }
+            require(relative == Path.of(relative).normalize().toString() && !relative.startsWith(".runner-")) { "Noncanonical or private bundle path" }
+            val alias = java.text.Normalizer.normalize(relative, java.text.Normalizer.Form.NFC).lowercase(java.util.Locale.ROOT)
+            require(paths.add(alias)) { "Duplicate bundle file" }
             val path = confinedPath(root, relative)
             require(Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS) && Files.size(path) == file.long("size")) { "Invalid bundle file" }
             require(file.long("size") <= 256L * 1024 * 1024) { "Bundle file exceeds runtime limit" }
             val digest = java.security.MessageDigest.getInstance("SHA-256")
             Files.newInputStream(path).use { stream -> val buffer = ByteArray(8192); while (true) { val n = stream.read(buffer); if (n < 0) break; digest.update(buffer, 0, n) } }
             require(digest.digest().joinToString("") { "%02x".format(it) } == file.string("sha256")) { "Bundle file hash mismatch" }
+            assetHashes[relative] = file.long("size") to file.string("sha256")
             if (file.string("role") == "skill") {
                 require(relative.startsWith("skills/")) { "Skill asset is not under the scoped skill root" }
                 skillHashes[relative] = file.string("sha256")
@@ -92,6 +96,54 @@ class FrozenWorkflowBundle(private val root: Path, val manifest: JsonObject, pri
         require(sha256(Files.readAllBytes(confinedPath(root, relative))) == entry.hash) { "Dynamic definition hash changed" }
         return entry.definition
     }
+    /** Supervisor seals these namespaces; revalidate all declared bytes and closed inventories
+     * before host operations. Writable run outputs are deliberately outside this inventory. */
+    fun verifyPortableAssets() {
+        assetHashes.forEach { (relative, expected) ->
+            val path = confinedPath(root, relative)
+            require(Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS) && Files.size(path) == expected.first) { "Frozen asset missing or changed" }
+            val digest = java.security.MessageDigest.getInstance("SHA-256")
+            Files.newInputStream(path).use { stream ->
+                val buffer = ByteArray(8192)
+                while (true) { val n = stream.read(buffer); if (n < 0) break; digest.update(buffer, 0, n) }
+            }
+            require(digest.digest().joinToString("") { "%02x".format(it) } == expected.second) { "Frozen asset hash changed" }
+        }
+        for (namespace in listOf(".runtime/project", "inputs", "skills")) {
+            val folder = confinedPath(root, namespace)
+            if (!Files.exists(folder, LinkOption.NOFOLLOW_LINKS)) continue
+            require(Files.isDirectory(folder, LinkOption.NOFOLLOW_LINKS)) { "Frozen namespace is not a directory" }
+            Files.walk(folder).use { paths -> paths.forEach { path ->
+                require(!Files.isSymbolicLink(path)) { "Frozen asset symlink refused" }
+                if (!Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS)) {
+                    require(Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS) && root.relativize(path).toString() in assetHashes) { "Unlisted or special frozen asset" }
+                }
+            } }
+        }
+    }
+
+    /** Explicit text delivery for native CLIs; no CLI skill registry, hooks or HOME discovery. */
+    fun nativeSkillInstructions(config: com.fartech.agents.commons.SkillsConfiguration): String {
+        verifySkills()
+        if (!config.enabled) return ""
+        val selected = skillHashes.keys.sorted().filter { path ->
+            val parts = path.split('/')
+            parts.size == 3 && parts.last() == "SKILL.md" && config.isSkillEnabled(parts[1])
+        }
+        require(selected.size <= config.maxSkillsPerRequest.coerceIn(0, 32)) { "Too many selected native text skills" }
+        var total = 0L
+        return selected.joinToString("\n\n") { relative ->
+            val path = confinedPath(root, relative)
+            val size = Files.size(path)
+            total += size
+            require(size <= minOf(config.maxSkillContentSize, 128 * 1024L) && total <= 128 * 1024L) { "Native text skills exceed prompt budget" }
+            val bytes = Files.readAllBytes(path)
+            require(sha256(bytes) == skillHashes.getValue(relative)) { "Skill changed before native delivery" }
+            val content = Charsets.UTF_8.newDecoder().decode(java.nio.ByteBuffer.wrap(bytes)).toString()
+            "Frozen workflow skill: $relative\nResource directory: ${path.parent}\n$content"
+        }
+    }
+
     fun verifySkills() {
         val folder = root.resolve("skills")
         if (!Files.exists(folder, LinkOption.NOFOLLOW_LINKS)) { require(skillHashes.isEmpty()) { "Frozen skill assets missing" }; return }

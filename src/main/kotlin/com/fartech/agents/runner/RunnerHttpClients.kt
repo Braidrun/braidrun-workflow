@@ -24,7 +24,7 @@ class RunnerHttpClients(private val gate: RunnerEnvironmentGate, private val cre
             followRedirects(false); followSslRedirects(false)
             dns(HttpAccess.SsrfValidatingDns)
             addInterceptor { chain ->
-                gate.check(); credentialCheck()
+                gate.requirePaths(setOf("jvm-http")); credentialCheck()
                 HttpHostSafety.assertUrlIsPublic(chain.request().url.toString())
                 chain.proceed(chain.request())
             }

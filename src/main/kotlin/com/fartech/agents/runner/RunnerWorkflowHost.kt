@@ -19,7 +19,8 @@ class RunnerWorkflowHost(
     private val store: RunnerCheckpointStore,
     private val secrets: RunnerSecrets,
     private val validateDirectNetwork: () -> Unit = { RunnerHttpClients.requireDirect() },
-    private val interactiveBroker: RunnerInteractiveProcesses? = null
+    private val interactiveBroker: RunnerInteractiveProcesses? = null,
+    private val callbackEnabled: Boolean = false
 ) : WorkflowHost {
     init {
         require(bundle.taskBinding == ipc.binding) { "Bundle host binding differs from IPC authority" }
@@ -65,12 +66,29 @@ class RunnerWorkflowHost(
         return RunnerMcpTransport(session)
     }
     fun restoreHostState(state: WorkflowResumeState) { live.restore(state.hostState) }
+    private fun verifyAssets() {
+        try { bundle.verifyPortableAssets() } catch (_: Exception) {
+            gate.invalidate("RUNNER_ASSET_INTEGRITY_FAILED")
+            throw RunnerAuthorityLost()
+        }
+    }
+    private val nativeSkills = java.util.concurrent.ConcurrentHashMap<Pair<String, String?>, com.fartech.agents.commons.SkillsConfiguration>()
+    override fun nativeAgentPrompt(scope: WorkflowHostScope, prompt: String): String {
+        require(scope.rootExecutionId == binding.executionId) { "Native skill scope mismatch" }
+        gate.check(); verifyAssets()
+        val config = nativeSkills[scope.executionId to scope.stepName] ?: return prompt
+        val instructions = bundle.nativeSkillInstructions(config)
+        return if (instructions.isBlank()) prompt else "$instructions\n\nWorkflow request:\n$prompt"
+    }
     private val references = java.util.concurrent.ConcurrentHashMap<String, String>()
     private val network = RunnerHttpClients(gate) { live.checkAll() }
     override val llmHttpClientFactory get() = network.factory
     override suspend fun prepareAgentParameters(scope: WorkflowHostScope, parameters: List<com.fartech.ftapp2.commonsKt.ConfigurationParameter>): List<com.fartech.ftapp2.commonsKt.ConfigurationParameter> {
         gate.check()
-        bundle.verifySkills()
+        verifyAssets()
+        parameters.firstOrNull { it.key == "skills_config" }?.value?.takeUnless { it == JsonNull }?.let {
+            nativeSkills[scope.executionId to scope.stepName] = runnerJson.decodeFromJsonElement(com.fartech.agents.commons.SkillsConfiguration.serializer(), it)
+        } ?: nativeSkills.remove(scope.executionId to scope.stepName)
         suspend fun lease(value: JsonElement): JsonElement {
             if (value == JsonNull || value == JsonPrimitive("")) return value
             if (value is JsonObject) return JsonObject(value.mapValues { lease(it.value) })
@@ -118,7 +136,7 @@ class RunnerWorkflowHost(
         }
         return parameters.map { com.fartech.ftapp2.commonsKt.ConfigurationParameter(it.key, refs(it.value)) }
     }
-    fun close() { live.close(); network.close(); credentials.clear(); cliPools.clear(); references.clear() }
+    fun close() { live.close(); network.close(); credentials.clear(); cliPools.clear(); references.clear(); nativeSkills.clear() }
     private var sequence = 0L
     @Volatile private var acknowledged = 0L
     override val codeEnvironment: Map<String, String> = mapOf(
@@ -138,7 +156,7 @@ class RunnerWorkflowHost(
         if ("step.script.v1" in required) gate.requirePaths(setOf("subprocess"))
     }
     override suspend fun beforeOperation(scope: WorkflowHostScope, operation: String) {
-        require(scope.rootExecutionId == binding.executionId) { "Operation escaped root scope" }; gate.check(); bundle.verifySkills()
+        require(scope.rootExecutionId == binding.executionId) { "Operation escaped root scope" }; gate.check(); verifyAssets()
     }
     override fun scriptContents(path: String): String = bundle.script(path)
     override fun dynamicWorkflow(path: String, scope: WorkflowHostScope): WorkflowDefinition {
@@ -193,6 +211,9 @@ class RunnerWorkflowHost(
     override val outputPublisher: WorkflowOutputPublisher get() = outputs
     override val outputResolver: WorkflowOutputResolver get() = outputs
     private val tokens = RunnerCallbackTokens(ipc, gate, secrets)
-    override val callbackToken: ((Long) -> String)? = if ("control.callback.v1" in capabilities) ({ budget -> tokens.mint(WorkflowHostScope(binding.executionId, binding.executionId), budget) }) else null
-    override fun callbackTokenFor(scope: WorkflowHostScope, budget: Long): String = tokens.mint(scope, budget)
+    override val callbackToken: ((Long) -> String)? = if (callbackEnabled && "control.callback.v1" in capabilities) ({ budget -> tokens.mint(WorkflowHostScope(binding.executionId, binding.executionId), budget) }) else null
+    override fun callbackTokenFor(scope: WorkflowHostScope, budget: Long): String {
+        require(callbackEnabled && "control.callback.v1" in capabilities && scope.rootExecutionId == binding.executionId) { "Callback scope/capability not authorized" }
+        return tokens.mint(scope, budget)
+    }
 }

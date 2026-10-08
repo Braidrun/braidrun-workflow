@@ -72,16 +72,39 @@ class RunnerSubscriptionTest {
                       external_agent_codex_auth_mode: subscription
                       external_agent_codex_auth_json: credential:account@3
                       external_agent_codex_model: gpt-6-astra
+                      external_agent_codex_command: ${dir.resolve("fake-codex")}
+                      skills_config:
+                        enabledSkills: [frontend-design]
                 workflow:
                   - step: generate
                     agent: coder
                     input: Write fixture code
             """.trimIndent()
+            val skill = "Frozen native skill proof: use amber."
+            Files.createDirectories(dir.resolve("skills/frontend-design"))
+            Files.writeString(dir.resolve("skills/frontend-design/SKILL.md"), skill)
+            val fake = dir.resolve("fake-codex")
+            Files.writeString(fake, """
+                #!/bin/bash
+                set -eu
+                prompt=${'$'}(cat)
+                [[ "${'$'}prompt" == *"Frozen native skill proof: use amber."* ]]
+                [[ "${'$'}prompt" == *"Write fixture code"* ]]
+                [[ "${'$'}HOME" == *".runner-private"* ]]
+                [[ "${'$'}CODEX_HOME" == *".runner-private"* ]]
+                printf '%s' '$refreshed' > "${'$'}CODEX_HOME/auth-new.json"
+                mv "${'$'}CODEX_HOME/auth-new.json" "${'$'}CODEX_HOME/auth.json"
+                printf '%s\n' '{"result":"cli-host-proof"}'
+            """.trimIndent())
+            fake.toFile().setExecutable(true)
             Files.writeString(dir.resolve("root.yaml"), source); val hash = sha256(source.toByteArray())
             val binding = JsonObject(RunnerProtocolTest.binding() + ("definitionHash" to JsonPrimitive(hash)))
         IpcHarness(binding).use { h ->
             val metadata = buildJsonObject { put("rootWorkflowId", "root")
-                put("files", JsonArray(listOf(buildJsonObject { put("path", "root.yaml"); put("size", source.toByteArray().size); put("sha256", hash); put("role", "definition") })))
+                put("files", JsonArray(listOf(buildJsonObject { put("path", "root.yaml"); put("size", source.toByteArray().size); put("sha256", hash); put("role", "definition") },
+                    buildJsonObject { put("path", "skills/frontend-design/SKILL.md"); put("size", skill.toByteArray().size); put("sha256", sha256(skill.toByteArray())); put("role", "skill") },
+                    buildJsonObject { put("path", "fake-codex"); put("size", Files.size(fake)); put("sha256", sha256(Files.readAllBytes(fake))); put("role", "script") }
+                ).sortedBy { it.string("path") }))
                 put("definitions", JsonArray(listOf(buildJsonObject { put("workflowId", "root"); put("path", "root.yaml"); put("definitionHash", hash) }))) }
             val bundle = FrozenWorkflowBundle(dir, JsonObject(metadata + ("bundleHash" to JsonPrimitive(sha256(canonical(metadata).toByteArray())))), binding)
             val gate = RunnerEnvironmentGate(h.binding, setOf("agent-cli"))
@@ -94,9 +117,18 @@ class RunnerSubscriptionTest {
                     assertTrue(Path.of(request.env.getValue("HOME")).startsWith(dir.resolve(".runner-private")))
                     assertFalse(request.command.joinToString(" ").contains("fake-original"))
                     assertEquals(original, Files.readString(home!!.resolve("auth.json")))
-                    val temporary = home!!.resolve("auth-new.json")
-                    Files.writeString(temporary, refreshed)
-                    Files.move(temporary, home!!.resolve("auth.json"), java.nio.file.StandardCopyOption.ATOMIC_MOVE, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+                    assertTrue(request.stdin!!.contains("Frozen native skill proof: use amber."))
+                    assertFalse(request.command.joinToString(" ").contains("Frozen native skill proof"))
+                    val child = ProcessBuilder(request.command).directory(request.workingDir).apply {
+                        environment().clear(); environment()["PATH"] = "/usr/bin:/bin"
+                        environment().putAll(request.env)
+                    }.start()
+                    try {
+                        child.outputStream.use { it.write(request.stdin!!.toByteArray()) }
+                        assertTrue(child.waitFor(5, java.util.concurrent.TimeUnit.SECONDS))
+                        assertEquals(0, child.exitValue(), child.errorStream.bufferedReader().readText())
+                        assertTrue(child.inputStream.bufferedReader().readText().contains("cli-host-proof"))
+                    } finally { child.destroyForcibly() }
                     request.stdoutLineCallback?.invoke("""{"type":"item.completed","item":{"type":"command_execution","command":"fixture-command","aggregated_output":"fake-new-access fake-new-refresh","exit_code":0,"status":"completed"}}""")
                     return SubprocessExecutor.ExecResult(0, "{\"result\":\"cli-host-proof\"}", "", 1)
                 }

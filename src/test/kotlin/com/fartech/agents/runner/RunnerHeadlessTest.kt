@@ -11,7 +11,10 @@ import kotlin.test.*
 
 /** Real JVM and local bash process, synthetic trusted supervisor/egress. No external accounts. */
 class RunnerHeadlessTest {
-    @Test fun `real headless JVM executes through registered launch and protocol stdout only`(@TempDir directory: Path) {
+    @Test fun `real headless JVM executes through registered launch and protocol stdout only`(@TempDir directory: Path) = runFixture(directory, false)
+    @Test fun `authorized callback reaches code process without entering result or journal`(@TempDir directory: Path) = runFixture(directory, true)
+
+    private fun runFixture(directory: Path, callbackEnabled: Boolean) {
         Files.writeString(directory.resolve("root.yaml"), """
             name: headless-offline
             agents: {}
@@ -47,10 +50,12 @@ class RunnerHeadlessTest {
             val now = Instant.now()
             val baseEnvironment = RunnerProtocolTest.environment(binding, now)
             val environment = JsonObject(baseEnvironment + ("egress" to JsonArray(baseEnvironment.array("egress") + JsonObject(baseEnvironment.array("egress")[0].jsonObject + ("pathId" to JsonPrimitive("subprocess"))))))
-            val authorization = runnerJson.parseToJsonElement(RunnerProtocolTest.resource("fixtures/valid/claim.json")).jsonObject.obj("authorization")
+            val originalAuthorization = runnerJson.parseToJsonElement(RunnerProtocolTest.resource("fixtures/valid/claim.json")).jsonObject.obj("authorization")
+            val authorization = if (callbackEnabled) JsonObject(originalAuthorization + ("requiredCapabilities" to
+                JsonArray(originalAuthorization.array("requiredCapabilities") + JsonPrimitive("control.callback.v1")))) else originalAuthorization
             send("start", buildJsonObject { put("bundle", bundle); put("executionDirectory", directory.toString()); put("environment", environment)
                 put("authorization", authorization); put("lease", RunnerProtocolTest.lease(now)); put("inputs", JsonObject(emptyMap())) })
-            var launched = false; var stepProof = false; var approved = false; var result: JsonObject? = null
+            var callbackRequested = false; var launched = false; var stepProof = false; var approved = false; var result: JsonObject? = null
             while (true) {
                 val line = reader.readLine() ?: break
                 val frame = RunnerProtocol().parse(line) // any ordinary println on stdout fails this test
@@ -70,7 +75,17 @@ class RunnerHeadlessTest {
                             put("comment", JsonNull); put("decidedBy", "fixture-human"); put("decidedAt", Instant.now().toString())
                         }, frame.string("frameId"))
                     }
+                    "callbackTokenRequest" -> {
+                        assertTrue(callbackEnabled); assertFalse(callbackRequested); callbackRequested = true
+                        assertEquals(30, payload.long("operationBudgetSeconds"))
+                        send("callbackTokenGrant", buildJsonObject {
+                            put("requestId", payload.string("requestId")); put("token", "fake-code-callback-token")
+                            put("expiresAt", Instant.now().plusSeconds(90).toString()); put("operations", payload.array("operations"))
+                        }, frame.string("frameId"))
+                    }
                     "processLaunch" -> {
+                        assertEquals(callbackEnabled, payload.obj("environment").containsKey("WF_API_TOKEN"))
+                        if (callbackEnabled) assertEquals("fake-code-callback-token", payload.obj("environment").string("WF_API_TOKEN"))
                         assertFalse(launched); launched = true
                         val cwd = directory.resolve(payload.string("relativeCwd")).normalize()
                         assertTrue(cwd.startsWith(directory)); assertEquals("CODE_STEP", payload.string("purpose"))
@@ -95,6 +110,8 @@ class RunnerHeadlessTest {
                     else -> fail("Unexpected host frame: ${frame.string("type")}")
                 }
             }
+            assertEquals(callbackEnabled, callbackRequested)
+            assertFalse(Files.readString(directory.resolve(".runner-state/result.json")).contains("fake-code-callback-token"))
             assertTrue(approved, "Dedicated approval frame missing")
             assertTrue(launched, "No process launch; result=$result; stderr=" + Files.readString(directory.resolve("stderr.log")))
             assertTrue(stepProof, "No step proof; result=$result; stderr=" + Files.readString(directory.resolve("stderr.log")))
