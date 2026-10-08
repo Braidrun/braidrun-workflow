@@ -80,14 +80,55 @@ HTTP fixture with usage, and nested sandbox/Jev/library regressions. Real JVM/ba
 synthetic supervisor/egress data; model HTTP is MockEngine. These are not public egress, real
 subscription account, Apple, full platform E2E or production acceptance.
 
-Subscription CLI scope/lease renewal/rotation and App Factory local stage execution are the next
-necessary adaptations. MCP, skills/hooks, containers, RAG, browser and unported connector paths
+Subscription CLI scope/lease renewal/rotation is implemented below; App Factory local stage
+execution and platform credential integration still need complete cross-source acceptance.
+MCP, skills/hooks, containers, RAG, browser and unported connector paths
 remain explicit startup rejections until each has supervised launch, source/path portability,
 network, minimal credential and side-effect evidence. JVM capability readiness does not enable
 production; the platform is the only final integrator and release owner.
 
-Platform integrates the engine with `-PworkflowRuntimePath=<this worktree>`. Supervisor committed
-pin was 4752de49 when last inspected; refresh it to fdef2232 before formal cross-source acceptance.
+Platform integrates the engine with `-PworkflowRuntimePath=<this worktree>`. Supervisor now pins fdef2232 for its integration work; keep the exact same canonical resource
+hash in both runtime packages before formal acceptance.
 The earlier RunnerConnector nullable URL receiver compile issue is fixed; the current successful
 compile/test log supersedes that old platform-manifest failure. Keep evidence for tests, commits,
 cross-build, actual Mac/account acceptance, package, deployment and activation separate.
+
+## Subscription CLI and ACK-bound capture completion
+
+Codex/Claude subscription adapters now use explicit `external_agent_codex_auth_json` /
+`external_agent_claude_oauth_token` credential references plus explicit subscription auth mode.
+They select only that provider/ref in the current child/step scope. Grant permission is renewed
+while the CLI/model remains active; this does not ask the platform to refresh upstream tokens.
+Changed vault versions/material or failed renewal interrupt the attempt. Successful Codex local
+refresh uses version CAS and advances a nonsecret credential cursor in the host checkpoint.
+Rotation intent/material is fsynced under the private `.runner-private/pending-rotations` scope;
+normal ACK removes it, uncertainty retains it for authorized reconciliation. That directory is
+excluded from business artifact registration. Auth JSON tokens are recursively registered for
+redaction. Native CODEX_HOME and HOME are per-run private, never operator HOME; arbitrary local
+auth-file/home configuration, unmanaged MCP and unbound CLI session resume remain refused.
+Hosted rotation failures propagate and temporary Codex homes are removed even on that failure.
+The default ordinary CLI/library behavior remains compatible.
+
+`RunnerArtifactReader` consumes the supervisor-owned artifact index format from artifacts.py:
+`.runner-state/artifact-refs/<ACKed remote ID>.json`. It requires full binding, exact remote ID,
+format/ACK flag, complete ordered chunk receipts, raw/chunk sizes/hashes, immutable spool-relative
+path and the expected registered process capture path. Capture identity is recomputed from the
+canonical binding/path/raw hash. Unknown absolute/local IDs, changed spools, wrong attempts,
+missing chunks and symlink paths fail. Large stdout/stderr are read through this verified adapter;
+integrity failure latches interruption rather than falling through to another business step.
+Tests include real local >1 MiB bash output and tamper/cross-execution/symlink negatives. ACKs
+are fixture ACKs in engine unit tests; supervisor/platform normal upload acceptance is separate.
+
+New adapter evidence: 49 targeted tests passed (includes 11 native auth-file compatibility cases),
+plus compile and installDist. Current test log: `/tmp/mac-runner-engine-cli-test.log`.
+No real subscription account, public egress, Apple write or deployment was performed.
+
+Remaining exact integration requirements: CLI profiles must attest `agent-cli`, model profiles
+`jvm-http`, scripts `subprocess`, using their actual client config and environment. App Factory
+modules must invoke supervisor local stages instead of submitting remote stage queues, while
+preserving Apple dual gates and receipts (platform template ownership). Long-lived stdio MCP
+requires interactive stdin/output transport beyond the current processLaunch/exited contract;
+CLI progress currently reaches the JVM after registered exit/full capture. This transport gap
+must be completed by a coordinated platform/supervisor contract revision, not a private engine
+protocol. Skill hooks/MCP/containers and remaining connector modules are unfinished capability
+work, not considered complete by rejection. Keep feature disabled until complete acceptance.

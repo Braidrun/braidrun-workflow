@@ -11,6 +11,8 @@ class FrozenWorkflowBundle(private val root: Path, val manifest: JsonObject, pri
     private data class Entry(val id: String, val path: String, val hash: String, val definition: WorkflowDefinition)
     private val entries: List<Entry>
     private val frozenFiles = java.util.concurrent.ConcurrentHashMap<String, ByteArray>()
+    val executionDirectory: Path get() = root
+    val taskBinding: JsonObject get() = binding
     val rootWorkflowId: String = manifest.string("rootWorkflowId")
 
     init {
@@ -62,6 +64,7 @@ class FrozenWorkflowBundle(private val root: Path, val manifest: JsonObject, pri
         require(entries.single { it.id == rootWorkflowId }.hash == binding.string("definitionHash")) { "Root definition binding mismatch" }
     }
 
+    val allDefinitions: List<WorkflowDefinition> get() = entries.map { it.definition }
     val rootDefinition: WorkflowDefinition get() = entries.single { it.id == rootWorkflowId }.definition
     override fun resolve(reference: WorkflowReference): ResolvedWorkflow {
         val entry = when {

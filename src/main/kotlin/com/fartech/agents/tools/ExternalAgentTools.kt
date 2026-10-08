@@ -360,6 +360,10 @@ class ExternalAgentTools(
         val invocationId = invocationUuid.take(8)
         val invocationLabel = invocationLabel(resolvedName, invocationId)
         val workDir = resolveWorkingDir(ctx.workingDir)
+        com.fartech.agents.workflow.WorkflowHostContext.current?.privateDirectory?.let {
+            require(ctx.mcpServers.isEmpty()) { "Runner CLI MCP requires a supervised adapter" }
+            require(ctx.resumeSessionId.isBlank()) { "Runner CLI session resume needs a bound restore adapter" }
+        }
         val tempFiles = mutableListOf<File>()
 
         // Resolve authentication BEFORE building any subprocess so misconfiguration fails
@@ -750,11 +754,12 @@ class ExternalAgentTools(
             costUsd = parsed.costUsd
         )
         } finally {
-            maybePublishRotatedCodexAuthJson(auth)
-            tempFiles.forEach { file -> runCatching { file.delete() } }
-            auth.codexHomeHostDir
-                ?.takeIf { auth.deleteCodexHomeOnExit }
-                ?.let { dir -> runCatching { dir.deleteRecursively() } }
+            try { maybePublishRotatedCodexAuthJson(auth) } finally {
+                tempFiles.forEach { file -> runCatching { file.delete() } }
+                auth.codexHomeHostDir
+                    ?.takeIf { auth.deleteCodexHomeOnExit }
+                    ?.let { dir -> runCatching { dir.deleteRecursively() } }
+            }
         }
     }
 
@@ -782,8 +787,12 @@ class ExternalAgentTools(
                 // Pass the credential this run actually used: with a pool the
                 // rotated auth.json belongs to whichever candidate failover
                 // landed on, not to the first one the caller resolved.
-                runCatching { callback?.invoke(auth.subscriptionCredentialId, normalized) }
-                    .onFailure { e -> logger.warn(e) { "[ExternalAgent] Failed to publish rotated Codex auth.json" } }
+                if (com.fartech.agents.workflow.WorkflowHostContext.current != null) {
+                    callback?.invoke(auth.subscriptionCredentialId, normalized)
+                } else {
+                    runCatching { callback?.invoke(auth.subscriptionCredentialId, normalized) }
+                        .onFailure { e -> logger.warn(e) { "[ExternalAgent] Failed to publish rotated Codex auth.json" } }
+                }
             }
             .onFailure { e -> logger.warn(e) { "[ExternalAgent] Ignoring invalid rotated Codex auth.json" } }
     }
@@ -1674,6 +1683,17 @@ class ExternalAgentTools(
     private fun buildEnvironment(engine: Engine, auth: ResolvedExternalAuth, ctx: ExternalAgentContext): Map<String, String> = buildMap {
         putAll(auth.env)
         putAll(ctx.extraEnv)
+        com.fartech.agents.workflow.WorkflowHostContext.current?.privateDirectory?.let { privateRoot ->
+            val reserved = setOf("HOME", "CODEX_HOME", "CLAUDE_CONFIG_DIR", "CLAUDE_CODE_OAUTH_TOKEN", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY")
+            require(ctx.extraEnv.keys.none { it.uppercase() in reserved }) { "External Agent environment cannot override host account/network scope" }
+            val home = File(privateRoot, "home/${safePathSegment(context.executionId ?: "root")}/${safePathSegment(context.stepName ?: "agent")}")
+            createDirectories(home, "Runner scoped HOME")
+            java.nio.file.Files.setPosixFilePermissions(home.toPath(), java.nio.file.attribute.PosixFilePermissions.fromString("rwx------"))
+            put("HOME", home.absolutePath)
+            putAll(requireNotNull(com.fartech.agents.workflow.WorkflowHostContext.current).codeEnvironment)
+            context.executionId?.let { put("WF_EXECUTION_ID", it) }
+            context.stepName?.let { put("WF_STEP_NAME", it) }
+        }
         // Codex writes session / cache / state into CODEX_HOME (default ~/.codex) and
         // touches HOME on startup. In the read-only-rootfs container both default to
         // the non-writable /home/runner, so codex aborts with "Permission denied
@@ -2163,7 +2183,7 @@ class ExternalAgentTools(
         } else {
             val runId = context.executionId ?: context.sessionId ?: UUID.randomUUID().toString()
             val userDir = File(
-                File(System.getProperty("java.io.tmpdir"), "braidrun-codex"),
+                File(com.fartech.agents.workflow.WorkflowHostContext.current?.privateDirectory ?: File(System.getProperty("java.io.tmpdir")), "braidrun-codex"),
                 safePathSegment(userId)
             )
             val invocationBase = File(
@@ -2249,7 +2269,7 @@ class ExternalAgentTools(
             )
         }
 
-        val hostBase = File(System.getProperty("java.io.tmpdir"), "braidrun-claude")
+        val hostBase = File(com.fartech.agents.workflow.WorkflowHostContext.current?.privateDirectory ?: File(System.getProperty("java.io.tmpdir")), "braidrun-claude")
         val containerBase = if (isDocker) "/tmp/braidrun-claude" else hostBase.absolutePath
         val runId = context.executionId ?: context.sessionId ?: UUID.randomUUID().toString()
         val relative = File(safePathSegment(userId), safePathSegment(runId)).path

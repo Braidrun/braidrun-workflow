@@ -98,8 +98,18 @@ class RunnerAdmission(
             requireCapability("step.agent.v1")
             require(agent.agentRef == null) { "Unfrozen agent reference" }
             val preset = agent.preset?.let { AgentPresetRegistry.get(it) ?: error("Unknown agent preset") }
-            val effective = if (preset != null) AgentPresetRegistry.resolveParameters(preset.id, agent.overrides) else agent.overrides
-            require((effective["type"]?.jsonPrimitive?.content ?: agent.type) !in setOf("claude_code_agent", "codex_agent")) { "Subscription CLI adapter not yet admitted" }
+            val effective = agent.resolveParameters()
+            val type = effective["type"]?.jsonPrimitive?.content ?: agent.type
+            if (type in setOf("claude_code_agent", "codex_agent")) {
+                val provider = if (type == "codex_agent") "codex" else "claude"
+                requireCapability("agent.$provider.v1")
+                require(effective["external_agent_${provider}_auth_mode"]?.jsonPrimitive?.content == "subscription") { "Runner CLI requires explicit scoped subscription mode" }
+                val key = if (provider == "codex") "external_agent_codex_auth_json" else "external_agent_claude_oauth_token"
+                require(effective[key]?.jsonPrimitive?.content?.let { CREDENTIAL_REFERENCE.matches(it) } == true) { "Runner CLI requires a credential reference" }
+                for (field in listOf("external_agent_codex_auth_file", "external_agent_codex_home_dir", "external_agent_claude_config_dir")) {
+                    require(effective[field]?.jsonPrimitive?.content.isNullOrBlank()) { "Runner CLI cannot use unscoped local account state" }
+                }
+            } else requireCapability("model.http.v1")
             val tools = effective["tool_set"]?.let { v ->
                 require(v is JsonArray) { "Ambiguous tool set" }; v.map { it.jsonPrimitive.content }
             } ?: agent.tools
@@ -142,6 +152,7 @@ class RunnerAdmission(
             }
             workflow.agents.values.forEach(::inspectAgent)
             workflow.workflow.forEach { step ->
+                if (step.retry != null) require(step.idempotent) { "Runner retry requires an explicitly idempotent step" }
                 if (step.code != null) requireCapability("step.script.v1")
                 if (step.classifier?.jev != null || step.repeatUntil?.jev != null) requireCapability("decision.jev.v1")
                 if (step.classifier != null) requireCapability("step.classifier.v1")
@@ -167,6 +178,7 @@ class RunnerAdmission(
                 }
             }
         }
+        WorkflowParser.validateWorkflow(root, resolver)
         requireCapability("workflow.full.v1"); walk(root, 0)
         return required
     }

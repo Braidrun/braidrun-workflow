@@ -9,8 +9,7 @@ import java.io.PipedOutputStream
 import java.time.Instant
 import kotlin.test.*
 
-internal class IpcHarness : AutoCloseable {
-    val binding = RunnerProtocolTest.binding()
+internal class IpcHarness(val binding: JsonObject = RunnerProtocolTest.binding()) : AutoCloseable {
     val supervisorInput = PipedInputStream(2 * RunnerIpc.MAX_FRAME_BYTES)
     private val engineOutput = PipedOutputStream(supervisorInput)
     private val engineInput = PipedInputStream()

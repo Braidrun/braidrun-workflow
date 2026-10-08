@@ -67,5 +67,6 @@ class RunnerCredentials(
         // A version CAS succeeded. The old lease cannot be used again; reacquire the new version.
         leases.remove(lease.leaseId, lease)
     }
+    fun discard(lease: RunnerCredentialLease) { leases.remove(lease.leaseId, lease) }
     fun clear() { leases.clear() }
 }

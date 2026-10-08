@@ -5286,9 +5286,9 @@ class WorkflowExecutor(
             // direct agents and code steps. Otherwise external Claude/Codex
             // tools silently fall back to a native executor in production.
             externalAgentExecutor = codeStepExecutor,
-            claudeCredentialProvider = claudeCredentialProvider,
-            codexCredentialProvider = codexCredentialProvider,
-            onCodexAuthJsonRotated = onCodexAuthJsonRotated
+            claudeCredentialProvider = host?.claudeCredentialsFor(hostScope(context, step.step)) ?: claudeCredentialProvider,
+            codexCredentialProvider = host?.codexCredentialsFor(hostScope(context, step.step)) ?: codexCredentialProvider,
+            onCodexAuthJsonRotated = host?.codexAuthRotationFor(hostScope(context, step.step)) ?: onCodexAuthJsonRotated
         )
 
         // 构建监控 Features
@@ -6858,9 +6858,9 @@ class WorkflowExecutor(
             // external Claude/Codex tools instead of letting the managed-agent path
             // independently re-resolve subprocess_mode and silently fall back to native.
             externalAgentExecutor = codeStepExecutor,
-            claudeCredentialProvider = claudeCredentialProvider,
-            codexCredentialProvider = codexCredentialProvider,
-            onCodexAuthJsonRotated = onCodexAuthJsonRotated
+            claudeCredentialProvider = host?.claudeCredentialsFor(WorkflowHostScope(host.binding.executionId, executionId ?: host.binding.executionId, stepName = stepName)) ?: claudeCredentialProvider,
+            codexCredentialProvider = host?.codexCredentialsFor(WorkflowHostScope(host.binding.executionId, executionId ?: host.binding.executionId, stepName = stepName)) ?: codexCredentialProvider,
+            onCodexAuthJsonRotated = host?.codexAuthRotationFor(WorkflowHostScope(host.binding.executionId, executionId ?: host.binding.executionId, stepName = stepName)) ?: onCodexAuthJsonRotated
         )
 
         return PreparedAgentRuntime(
@@ -7488,8 +7488,8 @@ class WorkflowExecutor(
                 sessionId = sessionId
             ),
             onMonitorEvent = eventCallback,
-            claudeCredentialProvider = claudeCredentialProvider,
-            codexCredentialProvider = codexCredentialProvider,
+            claudeCredentialProvider = host?.claudeCredentialsFor(hostScope(context, stepName)) ?: claudeCredentialProvider,
+            codexCredentialProvider = host?.codexCredentialsFor(hostScope(context, stepName)) ?: codexCredentialProvider,
             trustExecutorSandbox = isDockerSubprocessMode()
         )
 
@@ -7577,8 +7577,8 @@ class WorkflowExecutor(
             // step too, and the pool is what names the credential a rotated
             // auth.json belongs to. `external_agent_codex_auth_json` stays the
             // fallback when the host supplies no pool.
-            codexCredentialProvider = codexCredentialProvider,
-            onCodexAuthJsonRotated = onCodexAuthJsonRotated,
+            codexCredentialProvider = host?.codexCredentialsFor(hostScope(context, stepName)) ?: codexCredentialProvider,
+            onCodexAuthJsonRotated = host?.codexAuthRotationFor(hostScope(context, stepName)) ?: onCodexAuthJsonRotated,
             trustExecutorSandbox = isDockerSubprocessMode()
         )
 

@@ -18,6 +18,7 @@ class RunnerCheckpointStore(private val root: Path, private val binding: JsonObj
         // JSON primitives/collections only: serializing an arbitrary object as a string changes
         // behavior on restoration. Reject unsupported runtime state instead of claiming recovery.
         validateVariables(checkpoint.state.variables)
+        validateVariables(checkpoint.state.hostState)
         val id = UUID.randomUUID().toString()
         val value = buildJsonObject {
             put("formatVersion", 1); put("binding", binding); put("executionDirectory", root.toAbsolutePath().normalize().toString()); put("workflowName", checkpoint.workflowName)

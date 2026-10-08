@@ -94,7 +94,7 @@ class WorkflowHostTest {
         val host = Host(dir)
         val child = WorkflowDefinition("unsafe", agents = mapOf("unknown" to AgentDefinition(tools = listOf("server_business_broker"))), workflow = listOf(WorkflowStep("unused", agent = "unknown", input = "ignored")))
         val resolver = InMemoryWorkflowResolver(byName = mapOf("unsafe" to child))
-        val root = WorkflowDefinition("root", agents = emptyMap(), workflow = listOf(WorkflowStep("dormant", condition = "false", subWorkflow = SubWorkflowConfig(name = "unsafe"))))
+        val root = WorkflowDefinition("root", agents = emptyMap(), workflow = listOf(WorkflowStep("dormant", condition = "enabled == true", subWorkflow = SubWorkflowConfig(name = "unsafe"))))
         assertFailsWith<IllegalArgumentException> { RunnerAdmission(resolver, setOf("workflow.full.v1", "step.subWorkflow.v1", "step.agent.v1")).inspect(root) }
         assertTrue(host.invocations.isEmpty())
     }

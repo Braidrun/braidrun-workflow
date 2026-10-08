@@ -16,6 +16,11 @@ class RunnerSecrets {
                 values.add(material.content)
                 values.add(java.net.URLEncoder.encode(material.content, Charsets.UTF_8))
                 values.add(JsonPrimitive(material.content).toString().removeSurrounding("\""))
+                if (material.content.startsWith("{") || material.content.startsWith("[")) {
+                    runCatching { runnerJson.parseToJsonElement(material.content) }.getOrNull()?.let { parsed ->
+                        if (parsed is JsonObject || parsed is JsonArray) register(parsed)
+                    }
+                }
             }
         }
     }

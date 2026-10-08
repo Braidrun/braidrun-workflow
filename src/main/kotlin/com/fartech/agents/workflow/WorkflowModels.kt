@@ -2404,7 +2404,9 @@ data class WorkflowResumeState(
     val stepOutputs: Map<String, String> = emptyMap(),
     val recoveredFailures: Set<String> = emptySet(),
     val approvalOccurrences: Map<String, Long> = emptyMap(),
-    val pendingApprovalIds: Map<String, String> = emptyMap()
+    val pendingApprovalIds: Map<String, String> = emptyMap(),
+    /** Host-owned nonsecret cursors, e.g. acknowledged credential rotations. */
+    val hostState: Map<String, Any> = emptyMap()
 )
 
 /**

@@ -12,6 +12,10 @@ interface WorkflowHost {
     val llmHttpClientFactory: ai.koog.http.client.KoogHttpClient.Factory? get() = null
     suspend fun prepareAgentParameters(scope: WorkflowHostScope, parameters: List<com.fartech.ftapp2.commonsKt.ConfigurationParameter>): List<com.fartech.ftapp2.commonsKt.ConfigurationParameter> = parameters
     fun nestedParameters(parameters: List<com.fartech.ftapp2.commonsKt.ConfigurationParameter>): List<com.fartech.ftapp2.commonsKt.ConfigurationParameter> = parameters
+    val privateDirectory: java.io.File? get() = null
+    fun claudeCredentialsFor(scope: WorkflowHostScope): ClaudeCredentialProvider? = claudeCredentials
+    fun codexCredentialsFor(scope: WorkflowHostScope): ClaudeCredentialProvider? = codexCredentials
+    fun codexAuthRotationFor(scope: WorkflowHostScope): ((String?, String) -> Unit)? = codexAuthRotation
     val binding: WorkflowHostBinding
     val approvalHandler: ApprovalHandler
     val outputPublisher: WorkflowOutputPublisher

@@ -86,7 +86,12 @@ class RunnerHostSession(
                 binding.string("executionId"), binding.string("runnerId"), binding.string("runnerInstanceId"), binding.long("resumeEpoch"),
                 binding.string("attemptId"), binding.string("definitionHash"), binding.string("runtimeHash"))
             val store = RunnerCheckpointStore(directory, binding, secrets)
-            val processAdapter = RunnerProcesses(ipc, directory, environment) { _ -> error("Captured stream artifact adapter unavailable") }
+            val artifactReader = RunnerArtifactReader(directory, binding, secrets)
+            val processAdapter = RunnerProcesses(ipc, directory, environment) { id, logicalPath ->
+                try { artifactReader.read(id, logicalPath) } catch (_: Exception) {
+                    environment.invalidate("RUNNER_CAPTURE_INTEGRITY_FAILED"); throw RunnerAuthorityLost()
+                }
+            }
             processes = processAdapter
             val runtime = RunnerWorkflowHost(ipc, identity, environment, bundle, CAPABILITIES, processAdapter, store, secrets)
             host = runtime
@@ -96,11 +101,13 @@ class RunnerHostSession(
                 put("systemLanguage", payload.obj("environment").getValue("systemLanguage")); put("languageSource", payload.obj("environment").getValue("languageSource"))
             })
             val required = RunnerAdmission(bundle, CAPABILITIES).inspect(bundle.rootDefinition)
-            if ("step.agent.v1" in required) { RunnerHttpClients.requireDirect(); environment.requirePaths(setOf("jvm-http")) }
+            if ("model.http.v1" in required) { RunnerHttpClients.requireDirect(); environment.requirePaths(setOf("jvm-http")) }
+            if (required.any { it in setOf("agent.codex.v1", "agent.claude.v1") }) { RunnerHttpClients.requireDirect(); environment.requirePaths(setOf("agent-cli")) }
             if ("step.script.v1" in required) environment.requirePaths(setOf("subprocess"))
             val restored = if (frame.string("type") == "resume") {
                 store.restore(payload.obj("checkpoint"), payload.obj("previousBinding"))
             } else null
+            restored?.let(runtime::restoreHostState)
             val monitor = launch(Dispatchers.Default) {
                 while (isActive) { delay(100); try { environment.check() } catch (_: RunnerAuthorityLost) { stop(); return@launch } }
             }
@@ -114,6 +121,7 @@ class RunnerHostSession(
                 execution = resultJob
                 if (stopped.get()) resultJob.cancel(RunnerAuthorityLost())
                 val result = try { resultJob.await() } catch (_: CancellationException) { null }
+                try { environment.check() } catch (_: RunnerAuthorityLost) { stop() }
                 val status = if (stopReason.get() == "CANCELLED") "CANCELLED" else if (stopped.get() || result == null) "INTERRUPTED" else if (result.success) "COMPLETED" else "FAILED"
                 val resultBytes = secrets.redact(buildJsonObject {
                     put("binding", binding); put("status", status)
@@ -143,6 +151,6 @@ class RunnerHostSession(
     }
     companion object {
         // Each optional adapter is deliberately absent until its transport and real acceptance pass.
-        val CAPABILITIES = linkedSetOf("workflow.full.v1", "step.agent.v1", "tool.exit.v1", "tool.workflow.v1", "tool.user_interaction.v1", "step.script.v1", "step.subWorkflow.v1", "step.stateMachine.v1", "interaction.approval.v1", "output.read.v1", "output.publish.v1")
+        val CAPABILITIES = linkedSetOf("workflow.full.v1", "step.agent.v1", "model.http.v1", "agent.codex.v1", "agent.claude.v1", "tool.exit.v1", "tool.workflow.v1", "tool.user_interaction.v1", "step.script.v1", "step.subWorkflow.v1", "step.stateMachine.v1", "interaction.approval.v1", "output.read.v1", "output.publish.v1")
     }
 }

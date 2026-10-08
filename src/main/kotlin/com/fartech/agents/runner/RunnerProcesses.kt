@@ -13,7 +13,7 @@ class RunnerProcesses(
     private val ipc: RunnerIpc,
     private val root: Path,
     private val gate: RunnerEnvironmentGate,
-    private val readArtifact: suspend (String) -> String
+    private val readArtifact: suspend (String, String) -> String
 ) : SubprocessExecutor {
     private val exits = ConcurrentHashMap<String, CompletableDeferred<JsonObject>>()
     private val received = ConcurrentHashMap<String, JsonObject>()
@@ -53,8 +53,8 @@ class RunnerProcesses(
             val exited = withTimeout(request.timeoutSeconds * 1000) { deferred.await() }
             require(exited["timedOut"] != JsonPrimitive(true)) { "Supervisor process timed out" }
             val truncated = exited["captureTruncated"] == JsonPrimitive(true)
-            val stdout = if (!truncated) exited.string("stdout") else exited["stdoutArtifactId"]?.takeUnless { it == JsonNull }?.jsonPrimitive?.content?.let { readArtifact(it) }.orEmpty()
-            val stderr = if (!truncated) exited.string("stderr") else exited["stderrArtifactId"]?.takeUnless { it == JsonNull }?.jsonPrimitive?.content?.let { readArtifact(it) }.orEmpty()
+            val stdout = if (!truncated) exited.string("stdout") else exited["stdoutArtifactId"]?.takeUnless { it == JsonNull }?.jsonPrimitive?.content?.let { readArtifact(it, "process-output/$registrationId.stdout") }.orEmpty()
+            val stderr = if (!truncated) exited.string("stderr") else exited["stderrArtifactId"]?.takeUnless { it == JsonNull }?.jsonPrimitive?.content?.let { readArtifact(it, "process-output/$registrationId.stderr") }.orEmpty()
             if (truncated) require(exited["stdoutArtifactId"] != JsonNull && exited["stderrArtifactId"] != JsonNull) { "Truncated captures need authorized artifact resolution" }
             require(stdout.toByteArray().size <= SubprocessExecutor.MAX_STREAM_BYTES && stderr.toByteArray().size <= SubprocessExecutor.MAX_STREAM_BYTES) { "Supervisor stream exceeds cap" }
             stdout.lineSequence().forEach { prepared.stdoutLineCallback?.invoke(it) }
