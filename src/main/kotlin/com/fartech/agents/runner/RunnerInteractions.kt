@@ -10,8 +10,9 @@ import java.util.UUID
 class RunnerApprovalHandler(private val ipc: RunnerIpc, private val gate: RunnerEnvironmentGate, private val requireFreshDecision: Boolean = true) : ApprovalHandler {
     override suspend fun requestApproval(request: ApprovalRequest): ApprovalDecision {
         gate.check()
-        val checkGeneration = gate.evidenceGeneration()
-        val decision = ipc.request("approval", buildJsonObject {
+        var requestFrameId: String? = null
+        try {
+        val reply = ipc.requestCorrelated("approval", buildJsonObject {
             put("idempotencyKey", request.approvalId); put("occurrenceId", request.occurrenceId ?: request.approvalId)
             put("childExecutionPath", childPath(ipc.binding.string("executionId"), request.executionId))
             put("stepId", request.stepName); put("title", request.workflowName)
@@ -27,18 +28,21 @@ class RunnerApprovalHandler(private val ipc: RunnerIpc, private val gate: Runner
             put("items", JsonArray(request.reviewableGroups.flatMap { group -> group.items.map { item ->
                 buildJsonObject { put("group", group.name); put("item", item) }
             } }))
-        }, "approvalDecision", (request.timeout?.toLongOrNull() ?: 86400L) * 1000)
+        }, "approvalDecision", (request.timeout?.toLongOrNull() ?: 86400L) * 1000, onRequest = { id ->
+            requestFrameId = id; if (requireFreshDecision) gate.beginInteraction(id)
+        })
+        val decision = reply.payload
         require(decision.string("idempotencyKey") == request.approvalId && decision.long("decisionVersion") >= 1 && decision.string("occurrenceId") == (request.occurrenceId ?: request.approvalId)) { "Approval decision does not match request" }
         val groups = request.reviewableGroups.map { it.name }.toSet()
         val edits = decision.array("editedItems").map { it.jsonObject }
         require(edits.all { it.string("group") in groups }) { "Decision edited unknown approval group" }
         val approved = decision.string("decision") == "APPROVE"
         require(decision.string("editMode") != "AS_IS" || edits.isEmpty()) { "Ambiguous approval edits" }
-        if (requireFreshDecision) gate.freshAfterDecision(checkGeneration) else gate.check()
+        if (requireFreshDecision) gate.freshForInteraction(reply.frameId) else gate.check()
         return ApprovalDecision(approved = approved,
             edits = if (!approved || decision.string("editMode") == "AS_IS") null else groups.associateWith { group -> edits.filter { it.string("group") == group }.map { it.getValue("item") } },
             comment = decision["comment"]?.takeUnless { it == JsonNull }?.jsonPrimitive?.content)
-
+        } finally { requestFrameId?.let(gate::endInteraction) }
     }
 }
 
@@ -58,11 +62,16 @@ class RunnerUserInteraction(
     override suspend fun askQuestion(question: String, timeoutMs: Long): String {
         gate.check()
         val request = payload("askUser", question)
-        val checkGeneration = gate.evidenceGeneration()
-        val response = ipc.request("userInteraction", request, "userResponse", timeoutMs)
+        var requestFrameId: String? = null
+        try {
+        val reply = ipc.requestCorrelated("userInteraction", request, "userResponse", timeoutMs, onRequest = { id ->
+            requestFrameId = id; if (requireFreshDecision) gate.beginInteraction(id)
+        })
+        val response = reply.payload
         require(response.string("idempotencyKey") == request.string("idempotencyKey")) { "User response scope mismatch" }
-        if (requireFreshDecision) gate.freshAfterDecision(checkGeneration) else gate.check()
+        if (requireFreshDecision) gate.freshForInteraction(reply.frameId) else gate.check()
         return response.string("response")
+        } finally { requestFrameId?.let(gate::endInteraction) }
     }
 }
 

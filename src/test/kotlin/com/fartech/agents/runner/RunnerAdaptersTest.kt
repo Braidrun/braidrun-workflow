@@ -16,11 +16,11 @@ class RunnerAdaptersTest {
             val pending = async { RunnerApprovalHandler(harness.ipc, gate, false).requestApproval(ApprovalRequest("approval-key", "flow", harness.binding.string("executionId"), "step", "Decide", emptyList(), 0, "30", groups)) }
             val request = harness.next(); assertEquals(2, request.obj("payload").array("editableColumns").size)
             assertEquals("approved", request.obj("payload").array("editableColumns")[0].jsonObject.obj("definition").string("outputVar"))
-            harness.ipc.accept(RunnerProtocolTest.frame(harness.binding, "approvalDecision", buildJsonObject {
+            harness.ipc.accept(harness.reply(request, "approvalDecision", buildJsonObject {
                 put("approvalId", "human"); put("occurrenceId", "approval-key"); put("idempotencyKey", "approval-key"); put("decisionVersion", 2); put("decision", "APPROVE")
                 put("editMode", "REPLACE"); put("editedItems", JsonArray(emptyList())); put("comment", "no selected rows")
                 put("decidedBy", "human"); put("decidedAt", Instant.now().toString())
-            })) // supervisor command path correlates by durable idempotencyKey
+            })) // Decision belongs to the original request frame as well as its occurrence/key.
             val result = pending.await(); assertTrue(result.approved); assertEquals(emptyList(), result.edits!!["bids"])
             assertEquals(emptyList(), result.edits!!["empty"]); assertEquals("no selected rows", result.comment)
         }
@@ -70,12 +70,13 @@ class RunnerAdaptersTest {
             assertEquals("42", read.await().outputs["answer"])
         }
     }
-    @Test fun `post approval continuation waits for a new evidence ID rather than accepting repeated observation`() = runBlocking {
+    @Test fun `continuation requires a distinct observation associated with the request`() = runBlocking {
         val binding = RunnerProtocolTest.binding(); val gate = RunnerEnvironmentGate(binding, setOf("engine-http"))
         val evidence = RunnerProtocolTest.environment(binding, Instant.now()); gate.install(evidence)
-        val mark = gate.evidenceGeneration(); val waiting = async { gate.freshAfterDecision(mark) }
-        gate.install(evidence); assertFalse(waiting.isCompleted)
-        gate.install(JsonObject(RunnerProtocolTest.environment(binding, Instant.now()) + ("environmentCheckId" to JsonPrimitive("new-check"))))
-        withTimeout(1000) { waiting.await() }
+        gate.beginInteraction("request")
+        val waiting = async { gate.freshForInteraction("request") }
+        gate.install(evidence, "request"); assertFalse(waiting.isCompleted)
+        gate.install(JsonObject(RunnerProtocolTest.environment(binding, Instant.now()) + ("environmentCheckId" to JsonPrimitive("new-check"))), "request")
+        withTimeout(1000) { waiting.await() }; gate.endInteraction("request")
     }
 }

@@ -48,7 +48,7 @@ class RunnerHostSession(
     private lateinit var ipc: RunnerIpc
     private fun stop(reason: String = "RUNNER_AUTHORITY_LOST") {
         stopReason.compareAndSet(null, reason)
-        stopped.set(true); gate?.invalidate("RUNNER_CONTROL_STOP"); start.cancel(); execution?.cancel(RunnerAuthorityLost())
+        stopped.set(true); gate?.invalidate("RUNNER_CONTROL_STOP"); interactive?.close(); start.cancel(); execution?.cancel(RunnerAuthorityLost())
     }
     private fun control(frame: JsonObject) {
         val payload = frame.obj("payload")
@@ -57,7 +57,7 @@ class RunnerHostSession(
             "cancel" -> stop("CANCELLED")
             "environmentInvalidated" -> stop("RUNNER_ENVIRONMENT_INVALIDATED")
             "error" -> stop("RUNNER_CONTROL_ERROR")
-            "environmentRefreshed" -> requireNotNull(gate).install(payload)
+            "environmentRefreshed" -> requireNotNull(gate).install(payload, frame["replyTo"]?.jsonPrimitive?.content)
             "leaseRenewed" -> requireNotNull(gate).installLease(payload.obj("lease"))
             "ack" -> requireNotNull(host).acknowledge(payload)
             "processExited" -> requireNotNull(processes).exited(payload)
@@ -77,6 +77,7 @@ class RunnerHostSession(
             val payload = frame.obj("payload")
             val environment = RunnerEnvironmentGate(binding, payload.obj("environment").array("egress").map { it.jsonObject.string("pathId") }.toSet())
             gate = environment
+            environment.onInvalidated { stop() }
             environment.installLease(payload.obj("lease")); environment.install(payload.obj("environment"))
             if (stopped.get()) throw RunnerAuthorityLost()
             val directory = Path.of(payload.string("executionDirectory")).toRealPath()

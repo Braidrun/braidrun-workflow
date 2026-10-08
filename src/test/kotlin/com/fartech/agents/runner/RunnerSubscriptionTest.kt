@@ -39,6 +39,29 @@ class RunnerSubscriptionTest {
             } finally { live.close(); credentials.clear() }
         }
     }
+    @Test fun `short grant expiry cancels a blocked CLI and late renewal cannot revive it`() = runBlocking {
+        IpcHarness().use { h ->
+            val gate = RunnerEnvironmentGate(h.binding, setOf("engine-http")); gate.install(RunnerProtocolTest.environment(h.binding, Instant.now()))
+            gate.installLease(RunnerProtocolTest.lease(Instant.now()))
+            val credentials = RunnerCredentials(h.ipc, gate, RunnerSecrets()); val live = RunnerLiveCredentials(credentials, gate)
+            val cli = launch { awaitCancellation() }; val listener = gate.onInvalidated { cli.cancel() }
+            try {
+                val scope = WorkflowHostScope(h.binding.string("executionId"), h.binding.string("executionId"), stepName = "short-cli")
+                val acquiring = async { live.acquire("credential:account@3", scope, "subscription.codex") }
+                val request = h.next(); val material = buildJsonObject { put("authJson", original) }
+                val response = grant(h, request, "short", material)
+                h.ipc.accept(JsonObject(response + ("payload" to JsonObject(response.obj("payload") + ("expiresAt" to JsonPrimitive(Instant.now().plusMillis(500).toString()))))))
+                val handle = acquiring.await()
+                val renewal = h.next() // Deliberately withhold its reply beyond the actual deadline.
+                withTimeout(1500) { cli.join() }
+                assertTrue(cli.isCancelled); assertFailsWith<RunnerAuthorityLost> { gate.check() }
+                h.ipc.accept(grant(h, renewal, "late", material))
+                delay(30)
+                assertEquals("short", handle.latest.get().leaseId)
+                assertFailsWith<RunnerAuthorityLost> { gate.check() }
+            } finally { listener.close(); cli.cancel(); live.close(); credentials.clear() }
+        }
+    }
     @Test fun `real external agent wiring scopes Codex HOME and persists local auth rotation before cleanup`(@TempDir dir: Path) = runBlocking {
             val source = """
                 name: codex-host-fixture
@@ -71,7 +94,10 @@ class RunnerSubscriptionTest {
                     assertTrue(Path.of(request.env.getValue("HOME")).startsWith(dir.resolve(".runner-private")))
                     assertFalse(request.command.joinToString(" ").contains("fake-original"))
                     assertEquals(original, Files.readString(home!!.resolve("auth.json")))
-                    Files.writeString(home!!.resolve("auth.json"), refreshed)
+                    val temporary = home!!.resolve("auth-new.json")
+                    Files.writeString(temporary, refreshed)
+                    Files.move(temporary, home!!.resolve("auth.json"), java.nio.file.StandardCopyOption.ATOMIC_MOVE, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+                    request.stdoutLineCallback?.invoke("""{"type":"item.completed","item":{"type":"command_execution","command":"fixture-command","aggregated_output":"fake-new-access fake-new-refresh","exit_code":0,"status":"completed"}}""")
                     return SubprocessExecutor.ExecResult(0, "{\"result\":\"cli-host-proof\"}", "", 1)
                 }
             }
@@ -98,6 +124,9 @@ class RunnerSubscriptionTest {
                 assertTrue(result.success, result.error); assertEquals("cli-host-proof", result.stepResults.getValue("generate").output)
                 assertTrue(rotated); assertFalse(Files.exists(home!!)); assertFalse(secrets.redact(refreshed).contains("fake-new-access"))
                 assertTrue(Files.list(dir.resolve(".runner-private/pending-rotations")).use { it.count() == 0L })
+                Files.walk(dir.resolve(".runner-state/events")).use { paths -> paths.filter { Files.isRegularFile(it) }.forEach { path ->
+                    val text = Files.readString(path); assertFalse(text.contains("fake-new-access") || text.contains("fake-new-refresh"), "New opaque tokens must be redacted before event persistence")
+                } }
             } finally { host.close(); pump.cancel(); h.supervisorInput.close() }
         }
     }

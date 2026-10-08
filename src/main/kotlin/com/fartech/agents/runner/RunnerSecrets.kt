@@ -8,6 +8,24 @@ import java.util.concurrent.CopyOnWriteArraySet
 /** Execution-local values, retained through cleanup so late logs are still redacted. */
 class RunnerSecrets {
     private val values = CopyOnWriteArraySet<String>()
+    private val credentialFiles = CopyOnWriteArraySet<java.nio.file.Path>()
+    fun observe(path: java.nio.file.Path): AutoCloseable {
+        credentialFiles.add(path)
+        refresh()
+        return AutoCloseable { credentialFiles.remove(path) }
+    }
+    private fun refresh(): Boolean {
+        var available = true
+        credentialFiles.forEach { path ->
+            try {
+                require(java.nio.file.Files.isRegularFile(path, java.nio.file.LinkOption.NOFOLLOW_LINKS) && !java.nio.file.Files.isSymbolicLink(path) && java.nio.file.Files.size(path) <= RunnerIpc.MAX_FRAME_BYTES)
+                val material = runnerJson.parseToJsonElement(java.nio.file.Files.readString(path))
+                require(material is JsonObject)
+                register(material)
+            } catch (_: Exception) { available = false }
+        }
+        return available
+    }
     fun register(material: JsonElement) {
         when (material) {
             is JsonObject -> material.values.forEach(::register)
@@ -24,17 +42,22 @@ class RunnerSecrets {
             }
         }
     }
-    fun redact(text: String): String {
+    fun redact(text: String): String = if (!refresh()) "[credential scope unavailable; output suppressed]" else scrub(text)
+    private fun scrub(text: String): String {
         var s = text
         values.sortedByDescending { it.length }.forEach { s = s.replace(it, "<redacted>") }
         return redactForLog(s)
     }
-    fun redact(value: JsonElement): JsonElement = when (value) {
-        is JsonObject -> JsonObject(value.mapValues { redact(it.value) })
-        is JsonArray -> JsonArray(value.map(::redact))
-        is JsonPrimitive -> if (value.isString) JsonPrimitive(redact(value.content)) else value
+    fun redact(value: JsonElement): JsonElement {
+        val available = refresh()
+        fun walk(v: JsonElement): JsonElement = when (v) {
+            is JsonObject -> JsonObject(v.mapValues { walk(it.value) })
+            is JsonArray -> JsonArray(v.map(::walk))
+            is JsonPrimitive -> if (v.isString) JsonPrimitive(if (available) scrub(v.content) else "[credential scope unavailable; output suppressed]") else v
+        }
+        return walk(value)
     }
-    fun containsSecret(value: JsonElement): Boolean = value.toString().let { raw -> values.any { raw.contains(it) } }
+    fun containsSecret(value: JsonElement): Boolean = !refresh() || value.toString().let { raw -> values.any { raw.contains(it) } }
     /** Bounded whole-line buffering prevents partial PrintStream writes splitting a token. */
     fun logStream(destination: OutputStream): OutputStream = object : OutputStream() {
         private val line = java.io.ByteArrayOutputStream()

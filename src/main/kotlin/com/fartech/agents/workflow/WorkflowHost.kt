@@ -13,6 +13,8 @@ interface WorkflowHost {
     suspend fun prepareAgentParameters(scope: WorkflowHostScope, parameters: List<com.fartech.ftapp2.commonsKt.ConfigurationParameter>): List<com.fartech.ftapp2.commonsKt.ConfigurationParameter> = parameters
     fun nestedParameters(parameters: List<com.fartech.ftapp2.commonsKt.ConfigurationParameter>): List<com.fartech.ftapp2.commonsKt.ConfigurationParameter> = parameters
     val privateDirectory: java.io.File? get() = null
+    /** Scoped CLI auth files may rotate before exit; publication must refresh their secrets. */
+    fun observeCredentialFile(scope: WorkflowHostScope, path: java.nio.file.Path): AutoCloseable = AutoCloseable { }
     fun claudeCredentialsFor(scope: WorkflowHostScope): ClaudeCredentialProvider? = claudeCredentials
     fun codexCredentialsFor(scope: WorkflowHostScope): ClaudeCredentialProvider? = codexCredentials
     fun codexAuthRotationFor(scope: WorkflowHostScope): ((String?, String) -> Unit)? = codexAuthRotation

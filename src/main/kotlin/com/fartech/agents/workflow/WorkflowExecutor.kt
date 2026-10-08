@@ -840,7 +840,7 @@ class WorkflowExecutor(
                 transitionActivationSources = context.transitionActivationSources.mapValues { it.value.toSet() },
                 variables = context.variables.toMap(), stepOutputs = context.stepOutputs.toMap(),
                 recoveredFailures = context.recoveredFailures.toSet(), approvalOccurrences = context.approvalOccurrences.toMap(),
-                pendingApprovalIds = context.pendingApprovalIds.toMap()
+                pendingApprovalIds = context.pendingApprovalIds.toMap(), childInvocationCounts = context.childInvocationCounts.toMap()
             ), safe, activeApprovals.values.map { it.request }
         )
 
@@ -1301,7 +1301,7 @@ class WorkflowExecutor(
         if (resumeState == null) return
         if (
             resumeState.variables.isEmpty() && resumeState.stepOutputs.isEmpty() &&
-            resumeState.recoveredFailures.isEmpty() && resumeState.approvalOccurrences.isEmpty() && resumeState.pendingApprovalIds.isEmpty() && resumeState.preservedStepResults.isEmpty() &&
+            resumeState.recoveredFailures.isEmpty() && resumeState.approvalOccurrences.isEmpty() && resumeState.pendingApprovalIds.isEmpty() && resumeState.childInvocationCounts.isEmpty() && resumeState.preservedStepResults.isEmpty() &&
             resumeState.skippedSteps.isEmpty() &&
             resumeState.activatedTransitionSteps.isEmpty() &&
             resumeState.transitionActivationSources.isEmpty()
@@ -1358,6 +1358,7 @@ class WorkflowExecutor(
         context.recoveredFailures.addAll(resumeState.recoveredFailures)
         context.approvalOccurrences.putAll(resumeState.approvalOccurrences)
         context.pendingApprovalIds.putAll(resumeState.pendingApprovalIds)
+        context.childInvocationCounts.putAll(resumeState.childInvocationCounts)
 
         // 重建 recoveredFailures:在 resume 之前的某次执行里,如果 step S 失败并触发了 on_failure
         // 转换,那么 S 会出现在 transitionActivationSources 的某个 value 集合中。
@@ -5429,7 +5430,11 @@ class WorkflowExecutor(
         }
 
         // 5. 构造独立 child context(派生 executionId 保证 monitor / 目录 / session 全局唯一)
-        val derivedExecutionId = "${parentContext.executionId}__${sanitizeStepNameForId(step.step)}"
+        val childBaseId = "${parentContext.executionId}__${sanitizeStepNameForId(step.step)}"
+        val derivedExecutionId = if (host == null) childBaseId else {
+            val invocation = parentContext.childInvocationCounts.merge(step.step, 1L) { a, b -> a + b }!!
+            "${childBaseId}__call_$invocation"
+        }
         val childContext = WorkflowExecutionContext(
             workflowName = effectiveChildDef.name,
             executionId = derivedExecutionId,

@@ -32,6 +32,14 @@ class RunnerWorkflowHost(
     override val approvalHandler: ApprovalHandler = RunnerApprovalHandler(ipc, gate)
     private val credentials = RunnerCredentials(ipc, gate, secrets)
     override val privateDirectory: java.io.File get() = bundle.executionDirectory.resolve(".runner-private").toFile()
+    override fun observeCredentialFile(scope: WorkflowHostScope, path: java.nio.file.Path): AutoCloseable {
+        require(scope.rootExecutionId == binding.executionId) { "Credential file scope mismatch" }
+        val root = privateDirectory.toPath().toAbsolutePath().normalize()
+        val candidate = path.toAbsolutePath().normalize()
+        require(candidate.startsWith(root) && candidate.fileName.toString() == "auth.json") { "Credential file outside scoped private directory" }
+        val safe = confinedPath(root, root.relativize(candidate).toString())
+        return secrets.observe(safe)
+    }
     private val live = RunnerLiveCredentials(credentials, gate, preserveRotation = { lease, material ->
         val path = ".runner-private/pending-rotations/${sha256((lease.credentialRef + ":" + lease.version).toByteArray())}.json"
         store.writePrivate(path, canonical(buildJsonObject { put("binding", ipc.binding); put("credentialRef", lease.credentialRef); put("expectedVersion", lease.version); put("material", material) }).toByteArray())

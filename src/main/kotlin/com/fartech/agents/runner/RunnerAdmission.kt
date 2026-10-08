@@ -22,6 +22,25 @@ class RunnerEnvironmentGate(
     private data class Evidence(val expires: Long, val profileHash: String, val paths: Set<String>, val installedAt: Long, val checkId: String, val evidenceHash: String)
     private val evidence = AtomicReference<Evidence?>()
     private val interrupted = AtomicReference<String?>()
+    private data class Interaction(val baselineCheck: String?, val proof: AtomicReference<Evidence?> = AtomicReference())
+    private val interactions = java.util.concurrent.ConcurrentHashMap<String, Interaction>()
+    fun beginInteraction(frameId: String) { check(); require(interactions.putIfAbsent(frameId, Interaction(evidence.get()?.checkId)) == null) }
+    fun endInteraction(frameId: String) { interactions.remove(frameId) }
+    suspend fun freshForInteraction(frameId: String) {
+        val interaction = interactions[frameId] ?: throw RunnerAuthorityLost()
+        kotlinx.coroutines.withTimeout(35_000) {
+            while (interaction.proof.get() == null) { check(); kotlinx.coroutines.delay(20) }
+        }
+        val proof = interaction.proof.get() ?: throw RunnerAuthorityLost()
+        if (proof.checkId == interaction.baselineCheck || nanoTime() >= proof.expires) throw RunnerAuthorityLost()
+        check()
+    }
+    private val invalidationListeners = java.util.concurrent.CopyOnWriteArrayList<() -> Unit>()
+    fun onInvalidated(listener: () -> Unit): AutoCloseable {
+        invalidationListeners.add(listener)
+        if (interrupted.get() != null) listener()
+        return AutoCloseable { invalidationListeners.remove(listener) }
+    }
     private data class Lease(val id: String, val expires: Long)
     private val lease = AtomicReference<Lease?>()
     private val leaseRequired = java.util.concurrent.atomic.AtomicBoolean(false)
@@ -38,7 +57,7 @@ class RunnerEnvironmentGate(
         lease.set(Lease(id, nanoTime() + minOf(duration, localRemaining))); leaseRequired.set(true)
     }
 
-    fun install(value: JsonObject) {
+    fun install(value: JsonObject, replyTo: String? = null) {
         RunnerProtocol().validate(value, "environment")
         if (interrupted.get() != null || value.obj("binding") != binding || value.string("decision") != "ALLOW") throw RunnerAuthorityLost()
         val checked = Instant.parse(value.string("checkedAt")); val valid = Instant.parse(value.string("validUntil"))
@@ -58,20 +77,17 @@ class RunnerEnvironmentGate(
         val conflict = routes.groupBy { it.string("pathId") to it.string("addressFamily") }
             .values.any { group -> group.map { it.string("countryCode") }.distinct().size > 1 }
         if (conflict) throw RunnerAuthorityLost()
-        evidence.set(Evidence(nanoTime() + java.time.Duration.between(instant, valid).toNanos(), profile, routes.map { it.string("pathId") }.toSet(), nanoTime(), value.string("environmentCheckId"), sha256(canonical(value).toByteArray())))
+        val accepted = Evidence(nanoTime() + java.time.Duration.between(instant, valid).toNanos(), profile, routes.map { it.string("pathId") }.toSet(), nanoTime(), value.string("environmentCheckId"), sha256(canonical(value).toByteArray()))
+        evidence.set(accepted)
+        replyTo?.let { frame -> interactions[frame]?.let { interaction ->
+            if (accepted.checkId != interaction.baselineCheck) interaction.proof.compareAndSet(null, accepted)
+        } }
     }
     fun requirePaths(paths: Set<String>) { check(); if (evidence.get()?.paths?.containsAll(paths) != true) throw RunnerAuthorityLost() }
-    fun evidenceGeneration(): Long = evidence.get()?.installedAt ?: Long.MIN_VALUE
-    suspend fun freshAfterDecision(boundary: Long) {
-        kotlinx.coroutines.withTimeout(35_000) {
-            while (evidence.get()?.installedAt?.let { it > boundary } != true) {
-                if (interrupted.get() != null || (leaseRequired.get() && lease.get()?.let { nanoTime() >= it.expires } != false)) throw RunnerAuthorityLost()
-                kotlinx.coroutines.delay(20)
-            }
-        }
-        check()
+    fun invalidate(reason: String) {
+        evidence.set(null)
+        if (interrupted.compareAndSet(null, reason)) invalidationListeners.forEach { listener -> runCatching { listener() } }
     }
-    fun invalidate(reason: String) { interrupted.compareAndSet(null, reason); evidence.set(null) }
     fun check() {
         if (interrupted.get() != null || evidence.get()?.let { nanoTime() >= it.expires } != false ||
             (leaseRequired.get() && lease.get()?.let { nanoTime() >= it.expires } != false)) throw RunnerAuthorityLost()

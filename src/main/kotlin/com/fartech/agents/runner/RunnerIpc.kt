@@ -53,13 +53,19 @@ class RunnerIpc(
         return frameId
     }
 
-    suspend fun request(type: String, payload: JsonObject, responseType: String, timeoutMs: Long = 30_000): JsonObject {
+    class CorrelatedReply(val frameId: String, val payload: JsonObject)
+    suspend fun request(type: String, payload: JsonObject, responseType: String, timeoutMs: Long = 30_000): JsonObject =
+        requestCorrelated(type, payload, responseType, timeoutMs).payload
+
+    suspend fun requestCorrelated(type: String, payload: JsonObject, responseType: String, timeoutMs: Long = 30_000,
+                                  onRequest: (String) -> Unit = {}): CorrelatedReply {
         val id = UUID.randomUUID().toString()
         val response = CompletableDeferred<JsonObject>()
         if (pending.size >= 128 || pending.putIfAbsent(id, Pending(responseType, payload["idempotencyKey"]?.jsonPrimitive?.content, response)) != null) throw RunnerProtocolException()
         try {
+            onRequest(id)
             send(type, payload, id)
-            return withTimeout(timeoutMs) { response.await() }
+            return CorrelatedReply(id, withTimeout(timeoutMs) { response.await() })
         } finally { pending.remove(id); response.cancel() }
     }
 
@@ -94,10 +100,7 @@ class RunnerIpc(
             }
         } else {
             if (frame.string("type") in setOf("approvalDecision", "userResponse")) {
-                val key = frame.obj("payload").string("idempotencyKey")
-                val requests = pending.entries.filter { it.value.type == frame.string("type") && it.value.correlation == key }
-                if (requests.size > 1) throw RunnerProtocolException()
-                requests.singleOrNull()?.let { pending.remove(it.key)?.response?.complete(frame.obj("payload")) }
+                throw RunnerProtocolException() // Human continuations require original request frame correlation.
             } else {
                 if (frame.string("type") in setOf("credentialGrant", "processStarted", "processInputAck", "outputValue", "outputAck", "callbackTokenGrant")) throw RunnerProtocolException()
                 onControl(frame)

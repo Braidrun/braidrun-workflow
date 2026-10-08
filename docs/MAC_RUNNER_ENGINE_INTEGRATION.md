@@ -5,7 +5,8 @@ production executions**. Development, tests and scoped commits are authorized. F
 acceptance remains an integration milestone; admission rejection is not completion of missing work.
 
 Engine baseline: `6330754b8d76674555e89f7994c17d88fab7e3ca`.
-Canonical contract: `81d611a65b7c93e3341c69db51c7736a1c411175`, protocol 1. Resources and
+Canonical semantics contract: `39a264aacca2f46ff8fb3e53232b2e76eee627ac`, protocol 1;
+schema shape/hash remains the 81d611 revision. Resources and
 15 positive/negative fixtures are copied from that immutable platform commit. No private wire
 protocol has been introduced. Platform and supervisor must pin this same commit/schema hash.
 
@@ -196,3 +197,46 @@ prior wider component tests are not claimed as rerun. No deployment/release/acti
 
 Compatibility evidence: 13 targeted tests, 0 failures/errors/skips, passed in
 `/tmp/mac-runner-engine-contract-81d-test.log`; current compile passed with these tests.
+
+## Independent 0d4f7de review repair evidence
+
+This batch addresses engine review `/Users/liguoliang/Documents/Codex/2026-10-08/mac-runner-development/reviews/engine-0d4f7de.md`.
+The engine now pins semantics commit `39a264aacca2f46ff8fb3e53232b2e76eee627ac`; schema bytes
+remain hash `09a3c3f6d6bd430a126303f25ad9795c5818d72eec62bc2896cfe84af40a504a` (81d shape).
+
+1. P1 static child reentry: hosted children get parent-owned monotonic invocation IDs
+   `root__step__call_N`; child invocation counts serialize/hydrate with typed savepoints.
+   Ordinary no-host child IDs retain legacy behavior. A real interpreter state-machine loop
+   child -> control -> child approves only the first occurrence; the second stays pending and
+   the effect count remains 1. Root boundary and checkpoint codec tests preserve counters.
+2. P1 credential expiry: renewal is scheduled from actual remaining grant TTL (bounded by the
+   prior interval), with an independent deadline guard. Expiry latches authority loss and signals
+   cancellation even if renewal RPC remains blocked. A received renewal cannot replace an expired
+   generation or revive a latched attempt. A short-TTL synthetic grant keeps root/environment
+   valid, blocks renewal, cancels the CLI by the credential deadline and rejects late revival.
+3. P1 EOF: local interactive pipes fail/wake independently of sending remote processCancel.
+   HostMain IPC/control loss closes them immediately; gate invalidation also reaches broker pipes.
+   Streaming root and blocked stdout/stderr readers complete within a bound without processClosed.
+   Local close never claims remote stop confirmation.
+4. P1 rotated secret publication: private scoped Codex auth.json is observed before CLI execution;
+   each event/log redaction refreshes and registers its current opaque tokens. Unreadable/invalid
+   scope files suppress output; exit-time registration is no longer the first protection. Fake
+   executor atomically rewrites auth.json, emits command output containing the new opaque tokens
+   through live callback, then exits: neither event frames nor durable events contain those tokens.
+   Supervisor wire/capture/spool publication must use the same pre-publication scoped-file refresh;
+   its current source has refresh_scoped_secrets hooks, but this batch does not substitute an engine
+   test for final supervisor fixed-SHA/combined acceptance.
+5. P2 fast normal exit: no-input EOF becomes a local no-op after a confirmed normal close;
+   processOpen continuation racing processClosed still returns exit 0, not a false failure.
+6. P2 session capacity: confirmed/failed sessions leave active capacity and enter bounded
+   tombstones preserving duplicate/late validation. Seventeen sequential open/close calls pass.
+7. P2 human freshness: official replyTo association replaces pre-request generation checks.
+   Only a distinct ALLOW proof correlated to the exact original request frame can release its
+   key/occurrence; periodic, unrelated, relabeled old receipt and old-epoch evidence cannot.
+   Associated pre-delivery checks work for approval and askUser. Human responses require replyTo.
+
+32 directed engine/library regression tests passed, 0 failures/errors/skips, with compilation.
+Log: `/tmp/mac-runner-engine-review-fixes.log`. Account credentials/probes/business are synthetic;
+no real account, Apple operation, deployment, publishing or feature activation occurred. Wider
+prior suites were not rerun without a new reason. This batch requires re-review and fixed-source
+package integration; it does not declare complete App Factory acceptance.

@@ -21,6 +21,14 @@ class RunnerInteractiveProcesses(
     private val ownerJob: Job? = null
 ) : AutoCloseable {
     private val sessions = ConcurrentHashMap<String, Session>()
+    private val retired = LinkedHashMap<String, Session>()
+    private val invalidation = gate.onInvalidated { close() }
+    @Synchronized private fun retire(session: Session) {
+        sessions.remove(session.requestId, session)
+        retired[session.requestId] = session
+        while (retired.size > 64) retired.remove(retired.keys.first())
+    }
+    @Synchronized private fun find(id: String): Session? = sessions[id] ?: retired[id]
     suspend fun open(scope: WorkflowHostScope, request: SubprocessExecutor.ExecRequest): WorkflowInteractiveProcess {
         gate.check(); require(scope.rootExecutionId == ipc.binding.string("executionId")) { "Interactive scope mismatch" }
         require(request.timeoutSeconds in 1..86400 && sessions.size < 16) { "Interactive capacity/timeout unsupported" }
@@ -45,9 +53,9 @@ class RunnerInteractiveProcesses(
             return session
         } catch (e: Exception) { session.fail(); sessions.remove(requestId); throw e }
     }
-    fun output(payload: JsonObject) { RunnerProtocol().validate(payload, "processOutput"); val session = sessions[payload.string("requestId")] ?: throw RunnerProtocolException(); session.output(payload) }
-    fun closed(payload: JsonObject) { RunnerProtocol().validate(payload, "processClosed"); val session = sessions[payload.string("requestId")] ?: return; session.closed(payload) }
-    override fun close() { sessions.values.forEach { it.fail() }; sessions.clear() }
+    fun output(payload: JsonObject) { RunnerProtocol().validate(payload, "processOutput"); val session = find(payload.string("requestId")) ?: throw RunnerProtocolException(); session.output(payload) }
+    fun closed(payload: JsonObject) { RunnerProtocol().validate(payload, "processClosed"); val session = find(payload.string("requestId")) ?: return; session.closed(payload) }
+    override fun close() { sessions.values.forEach { it.fail() }; sessions.clear(); synchronized(this) { retired.values.forEach { it.fail() }; retired.clear() } }
 
     private inner class Session(val requestId: String, val owner: Job?, val timeout: Long) : WorkflowInteractiveProcess {
         private val registration = CompletableDeferred<String>()
@@ -64,6 +72,7 @@ class RunnerInteractiveProcesses(
         private val consumed = sortedSetOf<Long>()
         private val inputLock = Any()
         private var closedBeforeStart: JsonObject? = null
+        private var confirmedClose: JsonObject? = null
         private val pendingBeforeStart = java.util.ArrayDeque<JsonObject>()
         @Synchronized fun start(id: String) {
             require(observedRegistration == null || observedRegistration == id) { "Interactive registration changed" }
@@ -77,12 +86,13 @@ class RunnerInteractiveProcesses(
                 require(pendingBeforeStart.size < 64 && (observedRegistration == null || observedRegistration == id)) { "Interactive start/output race overflow" }
                 observedRegistration = id; pendingBeforeStart.addLast(payload); return
             }
-            require(id == registrationId && !stopped.get()) { "Output belongs to another/closed process" }
+            require(id == registrationId) { "Output belongs to another process" }
             val sequence = payload.long("outputSeq")
             val bytes = Base64.getDecoder().decode(payload.string("dataBase64"))
             require(bytes.size <= 32768 && bytes.size.toLong() == payload.long("decodedBytes") && sha256(bytes) == payload.string("dataHash")) { "Interactive output bytes/hash mismatch" }
             val digest = sha256(canonical(payload).toByteArray())
             outputDigests[sequence]?.let { require(it == digest) { "Changed duplicate output" }; acknowledge(); return }
+            require(!stopped.get()) { "New output after process close" }
             require(sequence == outputSeq + 1 && sequence - acknowledged <= 64 && totalOutput + bytes.size <= 16 * 1024 * 1024) { "Interactive output gap/bounds" }
             outputDigests[sequence] = digest; outputSeq = sequence; totalOutput += bytes.size
             if (bytes.isEmpty()) { consumed(sequence); return }
@@ -96,12 +106,15 @@ class RunnerInteractiveProcesses(
         }
         private fun acknowledge() { ipc.send("processOutputAck", buildJsonObject { put("requestId", requestId); put("registrationId", registrationId); put("ackOutputSeq", acknowledged) }) }
         @Synchronized fun closed(payload: JsonObject) {
+            confirmedClose?.let { require(it == payload) { "Changed duplicate process close" }; return }
             if (!registration.isCompleted) { closedBeforeStart = payload; return }
             require(payload.string("registrationId") == (observedRegistration ?: payload.string("registrationId")) && payload.long("finalOutputSeq") == outputSeq) { "Interactive close/output sequence mismatch" }
             if (!registration.isCompleted) start(payload.string("registrationId"))
             require(payload["stopConfirmed"] == JsonPrimitive(true) && payload["unmanagedProcessDetected"] == JsonPrimitive(false) &&
                 payload.array("registeredProcesses").all { it.jsonObject.string("state") == "EXITED" }) { "Interactive stop remains unconfirmed" }
+            confirmedClose = payload
             stdoutPipe.eof(); stderrPipe.eof(); stopped.set(true)
+            retire(this)
             exited.complete(payload["exitCode"]?.takeUnless { it == JsonNull }?.jsonPrimitive?.int ?: -1)
         }
         fun fail() { stopped.set(true); stdoutPipe.fail(); stderrPipe.fail(); registration.cancel(); exited.cancel(RunnerAuthorityLost()) }
@@ -118,7 +131,7 @@ class RunnerInteractiveProcesses(
             override fun close() { sendInput(ByteArray(0), true) }
         }
         private fun sendInput(bytes: ByteArray, eof: Boolean) = synchronized(inputLock) { runBlocking(owner ?: kotlin.coroutines.EmptyCoroutineContext) {
-            if (eof && inputClosed) return@runBlocking
+            if (eof && (inputClosed || confirmedClose != null)) { inputClosed = true; return@runBlocking }
             gate.check(); require(!stopped.get() && !inputClosed) { "Input after process/EOF close" }
             val id = registration.await(); val sequence = ++inputSeq
             try {
@@ -134,9 +147,12 @@ class RunnerInteractiveProcesses(
         }
         override suspend fun awaitExit(): Int = withTimeout(timeout * 1000) { exited.await() }
         override fun close() {
-            if (!stopped.get() && registration.isCompleted && !registration.isCancelled) {
+            val requestRemoteStop = !stopped.get() && registration.isCompleted && !registration.isCancelled
+            // Local readers must unblock even if remote IPC is already dead. This is no stop proof.
+            if (confirmedClose == null) { fail(); retire(this) }
+            if (requestRemoteStop) runCatching {
                 ipc.send("processCancel", buildJsonObject {
-                    put("requestId", requestId); put("registrationId", registrationId); put("commandId", UUID.randomUUID().toString())
+                    put("requestId", requestId); put("registrationId", requireNotNull(observedRegistration)); put("commandId", UUID.randomUUID().toString())
                     put("reason", "HOST_CHANNEL_CLOSED"); put("gracePeriodMs", 3000)
                 })
             }

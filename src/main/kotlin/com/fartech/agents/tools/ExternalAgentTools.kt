@@ -379,6 +379,14 @@ class ExternalAgentTools(
             throw e
         }
 
+        val credentialFileObservation = auth.codexHomeHostDir?.let { directory ->
+            com.fartech.agents.workflow.WorkflowHostContext.current?.let { host ->
+                val scope = com.fartech.agents.workflow.WorkflowHostContext.scope
+                    ?: com.fartech.agents.workflow.WorkflowHostScope(host.binding.executionId, context.executionId ?: host.binding.executionId, stepName = context.stepName)
+                host.observeCredentialFile(scope, File(directory, "auth.json").toPath())
+            }
+        }
+
         // Wrap the rest so the per-run Codex auth.json (a live subscription token we
         // materialise on the host) is always removed once the subprocess finishes —
         // on success, failure, or timeout. Avoids leaving customer tokens on disk.
@@ -755,6 +763,7 @@ class ExternalAgentTools(
         )
         } finally {
             try { maybePublishRotatedCodexAuthJson(auth) } finally {
+                credentialFileObservation?.close()
                 tempFiles.forEach { file -> runCatching { file.delete() } }
                 auth.codexHomeHostDir
                     ?.takeIf { auth.deleteCodexHomeOnExit }

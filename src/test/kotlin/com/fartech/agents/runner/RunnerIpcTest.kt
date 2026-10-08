@@ -23,6 +23,7 @@ internal class IpcHarness(val binding: JsonObject = RunnerProtocolTest.binding()
         RunnerProtocol().parse(raw.toString(Charsets.UTF_8))
     }
     fun reply(request: JsonObject, type: String, payload: JsonObject): JsonObject = RunnerProtocolTest.frame(binding, type, payload, request.string("frameId"))
+    fun eof() { supervisorOutput.close() }
     override fun close() { ipc.close(); supervisorOutput.close(); supervisorInput.close(); engineInput.close(); engineOutput.close() }
 }
 

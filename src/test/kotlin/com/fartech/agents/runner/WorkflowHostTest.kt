@@ -60,9 +60,10 @@ class WorkflowHostTest {
         val root = WorkflowDefinition("parent", agents = emptyMap(), directoryIsolation = host.isolation(), workflow = listOf(WorkflowStep("nested", subWorkflow = SubWorkflowConfig(name = "child"))))
         val result = WorkflowExecutor(HttpAccess(), emptyList(), host = host).execute(root)
         assertTrue(result.success, result.error)
-        assertEquals("root__nested", host.approvals.single().executionId)
+        assertEquals("root__nested__call_1", host.approvals.single().executionId)
         assertEquals("root", host.invocations.single()["WF_ROOT_EXECUTION_ID"])
-        assertTrue(host.updates.any { it.executionId == "root__nested" && it.type == "step_started" })
+        assertTrue(host.updates.any { it.executionId == "root__nested__call_1" && it.type == "step_started" })
+        assertEquals(mapOf("nested" to 1L), host.checkpoints.last { it.scope.executionId == "root" && it.safeToResume }.state.childInvocationCounts)
         val tools = WorkflowTools(HttpAccess(), emptyList(), NestedWorkflowRuntime(host = host), WorkflowHostScope("root", "root", stepName = "agent"))
         assertTrue(tools.executeWorkflow("authorized.yaml").contains("success", true))
         assertTrue(host.approvals.last().executionId.startsWith("root__agent_dynamic_"))
@@ -71,6 +72,32 @@ class WorkflowHostTest {
         val before = host.invocations.size; host.dynamicAllowed = false
         assertTrue(tools.executeWorkflow("changed.yaml").contains("refused")); assertEquals(before, host.invocations.size)
         assertFailsWith<IllegalArgumentException> { WorkflowExecutor(HttpAccess(), emptyList(), host = host).execute(root, externalExecutionId = "different-root") }
+    }
+    @Test fun `state machine child reentry needs a new approval and preserves invocation counts`(@TempDir dir: Path) = runBlocking {
+        val base = Host(dir); base.child = base.workflow("child", true)
+        val second = CompletableDeferred<ApprovalRequest>(); val requests = mutableListOf<ApprovalRequest>()
+        val host = object : WorkflowHost by base {
+            override val approvalHandler = object : ApprovalHandler {
+                override suspend fun requestApproval(request: ApprovalRequest): ApprovalDecision {
+                    requests.add(request)
+                    if (requests.size == 1) return ApprovalDecision.APPROVED_AS_IS
+                    second.complete(request); awaitCancellation()
+                }
+            }
+        }
+        val root = WorkflowDefinition("loop-parent", agents = emptyMap(), directoryIsolation = base.isolation(), workflow = listOf(
+            WorkflowStep("machine", stateMachine = StateMachineConfig(states = mapOf(
+                "child" to StateDefinition("child", stepConfig = StateStepConfig(subWorkflow = SubWorkflowConfig(name = "child")), transitions = listOf(StateTransition("complete", "control"))),
+                "control" to StateDefinition("control", transitions = listOf(StateTransition("enter", "child")))
+            ), initialState = "child", maxTransitions = 5))
+        ))
+        val running = async { WorkflowExecutor(HttpAccess(), emptyList(), host = host).execute(root) }
+        withTimeout(2000) { second.await() }
+        assertEquals(1, base.invocations.size, "Second side effect must wait for its own human decision")
+        assertNotEquals(requests[0].approvalId, requests[1].approvalId)
+        assertTrue(requests[0].executionId.endsWith("__call_1")); assertTrue(requests[1].executionId.endsWith("__call_2"))
+        running.cancelAndJoin()
+        // In-flight FSM snapshots stay unsafe; the existing root boundary test below verifies persisted counters.
     }
     @Test fun `typed savepoint resumes without repeating a preserved effect`(@TempDir dir: Path) = runBlocking {
         val host = Host(dir); val workflow = host.workflow("resume")
@@ -101,7 +128,7 @@ class WorkflowHostTest {
     @Test fun `checkpoint hash typed variables old identity and leaked credential protections`(@TempDir dir: Path) {
         val old = RunnerProtocolTest.binding(); val secrets = RunnerSecrets()
         val store = RunnerCheckpointStore(dir, old, secrets)
-        val state = WorkflowResumeState(variables = mapOf("number" to 5, "bool" to true, "nested" to listOf("a", 2)), stepOutputs = mapOf("step" to "output"), activatedTransitionSteps = setOf("next"))
+        val state = WorkflowResumeState(variables = mapOf("number" to 5, "bool" to true, "nested" to listOf("a", 2)), stepOutputs = mapOf("step" to "output"), activatedTransitionSteps = setOf("next"), childInvocationCounts = mapOf("child" to 2L))
         val announcement = store.save(WorkflowHostCheckpoint(WorkflowHostScope(old.string("executionId"), old.string("executionId")), "test", state, true), 3)
         val new = JsonObject(old + mapOf("resumeEpoch" to JsonPrimitive(1), "attemptId" to JsonPrimitive("new-attempt"), "runnerInstanceId" to JsonPrimitive("new-instance")))
         val restored = RunnerCheckpointStore(dir, new, secrets).restore(announcement, old)

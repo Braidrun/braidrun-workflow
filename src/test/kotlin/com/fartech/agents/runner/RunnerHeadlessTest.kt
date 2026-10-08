@@ -63,7 +63,7 @@ class RunnerHeadlessTest {
                             "environmentCheckId" to JsonPrimitive("post-approval-check"))).let { fresh ->
                                 JsonObject(fresh + ("egress" to JsonArray(fresh.array("egress") + JsonObject(fresh.array("egress")[0].jsonObject + ("pathId" to JsonPrimitive("subprocess"))))))
                             }
-                        send("environmentRefreshed", refreshed)
+                        send("environmentRefreshed", refreshed, frame.string("frameId"))
                         send("approvalDecision", buildJsonObject {
                             put("approvalId", "human-fixture"); put("idempotencyKey", payload.string("idempotencyKey")); put("occurrenceId", payload.string("occurrenceId"))
                             put("decisionVersion", 1); put("decision", "APPROVE"); put("editMode", "AS_IS"); put("editedItems", JsonArray(emptyList()))
