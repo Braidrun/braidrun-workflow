@@ -90,3 +90,29 @@ java -cp 'runner-host.jar:lib/*' com.fartech.agents.runner.RunnerHttpProbeKt
 覆盖 JVM 失败。本批未修改网络、代理、DNS、系统语言；初次失败收据保留。
 P/S 可使用此受限工具获得自身绑定的 fresh probe，须自行验证确切 runtime/profile，
 不能将该诊断 JSON 直接当成环境授权。`network.http.v1` 继续不作笼统广告。
+
+## 固定批次证据与最新只读诊断
+
+证据根目录：`/Users/liguoliang/Documents/Codex/2026-10-08/mac-runner-development/engine-continuation-evidence/batches/`。
+每批 `<完整 SHA>/receipt.json` 记录原日志/XML/source.tar 的大小和 SHA-256。
+
+- `c69ff8a4441dea74f255fc329678bf8c21967f3c`：原 runner-host.jar 哈希
+  `05cfe4a67437c81338f00d98eeaa019344e550e4fcdcf9de74bfe3ccf262c627`。
+  原整套分发目录没有单独保存；`distributionAvailable=false`，使用时须由 P 按该源码
+  重建并记录新二进制哈希。现有 213 包绝不代表这份历史包。
+- `21350e3a5864bcda5e629dfd147476d1af8df23b`：`distribution/` 已保存只读快照，
+  257 个文件逐项核对复制前、复制后、源目录哈希一致；JAR 哈希
+  `8919106a1fa431354cd4d1e4c7b1aebfc97077cc3f9b38b4ec39e920c356d375`。
+  快照包含固定源码归档、测试、初次/后续 blocked 观测和 manifest，后续构建不覆盖。
+
+2026-10-08 23:18:04 上海时间，使用固定 213 分发包只读诊断：首个拒绝位置是
+`RunnerHttpClients.requireDirect`，`http.proxyHost`、`https.proxyHost`、`socksProxyHost`
+三个 JVM 属性已配置；`java.net.useSystemProxies` 为 null，代理环境变量未配置。
+仅记录属性名和是否配置，没有输出代理地址或认证值。该次检查尚未发出 HTTP 请求；
+`198.18.21.204` DNS 结果属于独立观测，不能当作这次异常的已证实触发点。
+保持 BLOCK_UNKNOWN / accepted=false；未修改任何 JVM/网络/代理/trust 设置。
+诊断入口源码和输出另行保留，不参与生产 runtime 或正式协议。
+
+最新 S 资源实现已只读对齐 `4115007571edf0128f45d3303c61f8c53bdcadcb`，
+证据提交 `d6204ee99125d8ec9360be3a2bcb6d2098f997da`。其 E545/411 F0/资源结果
+与本 engine 213 的能力及 JVM 阻断证据继续分开；平台拥有最终 bootstrap 接入与验收。
