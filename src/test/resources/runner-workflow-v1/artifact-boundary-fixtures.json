@@ -1,0 +1,96 @@
+[
+  {
+    "name": "agent-boundary",
+    "valid": true,
+    "value": {
+      "kind": "artifact_collection_ready",
+      "executionId": "root__child__call_1",
+      "stepName": "write",
+      "producerWorkflowId": "child-workflow",
+      "producerStartEventId": "original-agent-start",
+      "childExecutionPath": [
+        "child",
+        "call_1"
+      ],
+      "policySha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "declarationIds": [
+        "material"
+      ]
+    }
+  },
+  {
+    "name": "caller-file",
+    "valid": false,
+    "value": {
+      "kind": "artifact_collection_ready",
+      "executionId": "root__child__call_1",
+      "stepName": "write",
+      "producerWorkflowId": "child-workflow",
+      "producerStartEventId": "original-agent-start",
+      "childExecutionPath": [
+        "child",
+        "call_1"
+      ],
+      "policySha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "declarationIds": [
+        "material"
+      ],
+      "logicalPath": "run/guessed.json"
+    }
+  },
+  {
+    "name": "missing-start",
+    "valid": false,
+    "value": {
+      "kind": "artifact_collection_ready",
+      "executionId": "root__child__call_1",
+      "stepName": "write",
+      "producerWorkflowId": "child-workflow",
+      "childExecutionPath": [
+        "child",
+        "call_1"
+      ],
+      "policySha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "declarationIds": [
+        "material"
+      ]
+    }
+  },
+  {
+    "name": "duplicate-declaration",
+    "valid": false,
+    "value": {
+      "kind": "artifact_collection_ready",
+      "executionId": "root__child__call_1",
+      "stepName": "write",
+      "producerWorkflowId": "child-workflow",
+      "producerStartEventId": "original-agent-start",
+      "childExecutionPath": [
+        "child",
+        "call_1"
+      ],
+      "policySha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "declarationIds": [
+        "material",
+        "material"
+      ]
+    }
+  },
+  {
+    "name": "empty-boundary",
+    "valid": false,
+    "value": {
+      "kind": "artifact_collection_ready",
+      "executionId": "root__child__call_1",
+      "stepName": "write",
+      "producerWorkflowId": "child-workflow",
+      "producerStartEventId": "original-agent-start",
+      "childExecutionPath": [
+        "child",
+        "call_1"
+      ],
+      "policySha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "declarationIds": []
+    }
+  }
+]

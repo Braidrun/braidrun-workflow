@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:braidrun:artifact-boundary:v1",
+  "type": "object",
+  "properties": {
+    "kind": {
+      "const": "artifact_collection_ready"
+    },
+    "executionId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 32768
+    },
+    "stepName": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "producerWorkflowId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "producerStartEventId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "childExecutionPath": {
+      "type": "array",
+      "maxItems": 64,
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9_.-]{1,256}$"
+      }
+    },
+    "policySha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "declarationIds": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 64,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 128
+      }
+    }
+  },
+  "required": [
+    "kind",
+    "executionId",
+    "stepName",
+    "producerWorkflowId",
+    "producerStartEventId",
+    "childExecutionPath",
+    "policySha256",
+    "declarationIds"
+  ],
+  "additionalProperties": false
+}

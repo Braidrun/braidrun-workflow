@@ -424,6 +424,8 @@ val runnerHostJar = tasks.register<Jar>("runnerHostJar") {
         attributes(
             "Main-Class" to "com.fartech.agents.runner.RunnerHostMainKt",
             "Runner-Protocol-Version" to "1",
+            "Runner-Artifact-Boundary-Commit" to file("src/main/resources/runner-workflow-v1/artifact-boundary-origin.txt").readLines().first(),
+            "Runner-Artifact-Boundary-Schema-Sha256" to "0b92f10b13388180069457ef36e428ab698b25d9d397ca26528674b38919fd34",
             "Runner-Artifact-Collection-Commit" to file("src/main/resources/runner-workflow-v1/artifact-collection-origin.txt").readLines().first(),
             "Runner-Artifact-Collection-Schema-Sha256" to "26eee80c21e982a56d8d96897ca688c68d628e9935ec0839d34de8d89ddb66fa",
             "Runner-Artifact-Publication-Commit" to file("src/main/resources/runner-workflow-v1/artifact-publication-origin.txt").readLines().first(),
@@ -436,5 +438,11 @@ val runnerHostJar = tasks.register<Jar>("runnerHostJar") {
     }
 }
 distributions.main {
-    contents { from(runnerHostJar) { rename { "runner-host.jar" } } }
+    contents {
+        from(runnerHostJar) { rename { "runner-host.jar" } }
+        from("src/main/resources/runner-workflow-v1") {
+            include("artifact-boundary.schema.json", "artifact-boundary-origin.txt")
+            into("protocol")
+        }
+    }
 }

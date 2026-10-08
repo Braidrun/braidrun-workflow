@@ -9,14 +9,14 @@ import java.io.PipedOutputStream
 import java.time.Instant
 import kotlin.test.*
 
-internal class IpcHarness(val binding: JsonObject = RunnerProtocolTest.binding()) : AutoCloseable {
+internal class IpcHarness(val binding: JsonObject = RunnerProtocolTest.binding(), onControl: (JsonObject) -> Unit = {}) : AutoCloseable {
     val supervisorInput = PipedInputStream(2 * RunnerIpc.MAX_FRAME_BYTES)
     private val engineOutput = PipedOutputStream(supervisorInput)
     private val engineInput = PipedInputStream()
     private val supervisorOutput = PipedOutputStream(engineInput)
     val controls = mutableListOf<JsonObject>()
     var failed = false
-    val ipc = RunnerIpc(binding, engineInput, engineOutput, onControl = { synchronized(controls) { controls.add(it) } }, onFailure = { failed = true })
+    val ipc = RunnerIpc(binding, engineInput, engineOutput, onControl = { synchronized(controls) { controls.add(it) }; onControl(it) }, onFailure = { failed = true })
     init { ipc.start() }
     suspend fun next(): JsonObject = withContext(Dispatchers.IO) {
         val raw = RunnerIpc.readLine(supervisorInput) ?: error("EOF")

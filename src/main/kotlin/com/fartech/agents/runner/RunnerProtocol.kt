@@ -26,7 +26,7 @@ class RunnerProtocol internal constructor(private val schema: JsonObject) {
 
     init {
         fun checkRule(rule: JsonObject) {
-            val supported = setOf("\$schema", "\$id", "\$defs", "\$ref", "oneOf", "type", "properties", "required", "additionalProperties", "const", "enum", "items", "minLength", "maxLength", "pattern", "format", "minimum", "maximum", "minItems", "maxItems", "title", "description")
+            val supported = setOf("\$schema", "\$id", "\$defs", "\$ref", "oneOf", "type", "properties", "required", "additionalProperties", "const", "enum", "items", "minLength", "maxLength", "pattern", "format", "minimum", "maximum", "minItems", "maxItems", "uniqueItems", "title", "description")
             require(rule.keys.all { it in supported }) { "Pinned runner schema uses unsupported vocabulary" }
             rule["\$defs"]?.jsonObject?.values?.forEach { checkRule(it.jsonObject) }
             rule["properties"]?.jsonObject?.values?.forEach { checkRule(it.jsonObject) }
@@ -79,6 +79,7 @@ class RunnerProtocol internal constructor(private val schema: JsonObject) {
             if (properties.any { (k, r) -> value[k]?.let { !matches(it, r.jsonObject) } == true }) return false
         }
         if (value is JsonArray) {
+            if (rule["uniqueItems"] == JsonPrimitive(true) && value.map(::canonical).distinct().size != value.size) return false
             rule["minItems"]?.let { if (value.size < it.jsonPrimitive.int) return false }
             rule["maxItems"]?.let { if (value.size > it.jsonPrimitive.int) return false }
             rule["items"]?.let { r -> if (value.any { !matches(it, r.jsonObject) }) return false }

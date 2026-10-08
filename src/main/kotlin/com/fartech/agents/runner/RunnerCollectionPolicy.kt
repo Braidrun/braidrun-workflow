@@ -10,7 +10,7 @@ internal object RunnerCollectionProtocol {
     const val COMMIT = "b2a0e01b301a76f108f06e2b92e4ba8dfa26e7bd"
     const val SHA256 = "26eee80c21e982a56d8d96897ca688c68d628e9935ec0839d34de8d89ddb66fa"
     private fun bytes() = javaClass.getResourceAsStream("/runner-workflow-v1/artifact-collection.schema.json")?.use { it.readBytes() }
-    fun available() = bytes()?.let { sha256(it) == SHA256 } == true
+    fun available() = bytes()?.let { sha256(it) == SHA256 } == true && RunnerArtifactBoundaryProtocol.available()
     private val validator by lazy {
         val source = requireNotNull(bytes()); require(sha256(source) == SHA256)
         RunnerProtocol(runnerJson.parseToJsonElement(source.toString(Charsets.UTF_8)).jsonObject)
@@ -103,6 +103,10 @@ class RunnerCollectionPolicy(private val bundle: FrozenWorkflowBundle) {
         val resolved = actualResolve(actual)
         require(resolved.first == workflowId)
         return candidates.filter { it.array("childSteps").map { part -> part.jsonPrimitive.content } == resolved.second }.map { it.string("declarationId") }
+    }
+    fun declarationForPath(workflowId: String, executionId: String, step: String, logicalPath: String): String {
+        val applicable = declarationsFor(workflowId, executionId, step).toSet()
+        return declarations.single { it.string("declarationId") in applicable && it.string("logicalPath") == logicalPath }.string("declarationId")
     }
     fun isCode(workflowId: String, step: String) = nodes(workflowId).single { it.name == step }.code
 }

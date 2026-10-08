@@ -25,6 +25,8 @@ class RunnerHttpArtifactCompletionTest {
     @Test fun `HTTP artifact wait respects original step deadline rather than restarting after write`(@TempDir dir: Path) = runFixture(dir, "step-timeout")
     @Test fun `HTTP artifact wait respects original global deadline`(@TempDir dir: Path) = runFixture(dir, "global-timeout")
 
+    @Test fun `cancellation at the normal pre-write pause emits no ready boundary`(@TempDir dir: Path) = runFixture(dir, "cancel-before-write")
+
     private fun runFixture(dir: Path, mode: String) = runBlocking<Unit> {
         val output = dir.resolve("run/model.json")
         val source = """
@@ -73,13 +75,21 @@ class RunnerHttpArtifactCompletionTest {
             }
             respond(response.toString(), HttpStatusCode.OK, headersOf(HttpHeaders.ContentType, "application/json"))
         } } }
-        IpcHarness(binding).use { h ->
+        var controlTarget: RunnerWorkflowHost? = null
+        IpcHarness(binding) { frame ->
+            when (frame.string("type")) {
+                "ack" -> requireNotNull(controlTarget).acknowledge(frame.obj("payload"))
+                "artifactCollectRequest" -> requireNotNull(controlTarget).collectRequest(frame)
+            }
+        }.use { h ->
             h.ipc.enableArtifactCollection()
             val gate = RunnerEnvironmentGate(binding, setOf("jvm-http")); val evidence = RunnerProtocolTest.environment(binding, Instant.now())
             gate.install(JsonObject(evidence + ("egress" to JsonArray(evidence.array("egress").map { JsonObject(it.jsonObject + ("pathId" to JsonPrimitive("jvm-http"))) }))))
             val identity = WorkflowHostBinding(binding.string("ownerId"), binding.string("actorUserId"), "billing", binding.string("executionId"), binding.string("runnerId"), binding.string("runnerInstanceId"), binding.long("resumeEpoch"), binding.string("attemptId"), rootHash, binding.string("runtimeHash"))
             val secrets = RunnerSecrets(); secrets.register(JsonPrimitive("fixture-model-key"))
             val runtime = RunnerWorkflowHost(h.ipc, identity, gate, bundle, RunnerHostSession.CAPABILITIES, NativeSubprocessExecutor(), RunnerCheckpointStore(dir, binding, secrets), secrets, validateDirectNetwork = {}, collectionPolicy = policy)
+            controlTarget = runtime
+            val readyBoundary = Channel<JsonObject>(4)
             val host = object : WorkflowHost by runtime {
                 override val llmHttpClientFactory = KtorKoogHttpClient.Factory(http)
                 override suspend fun prepareAgentParameters(scope: WorkflowHostScope, parameters: List<ConfigurationParameter>) = parameters + listOf(
@@ -87,8 +97,13 @@ class RunnerHttpArtifactCompletionTest {
             }
             val started = CompletableDeferred<String>(); val completed = Channel<JsonObject>(1)
             var artifactEvents = 0
+            val atWrite = CompletableDeferred<Unit>(); val permitWrite = CompletableDeferred<Unit>()
+            val interpreter = WorkflowExecutor(HttpAccess(), emptyList(), host = host)
+            interpreter.beforeStructuredOutputWriteForTest = { path ->
+                assertEquals(output.toString(), path); atWrite.complete(Unit); permitWrite.await()
+            }
             val launchedAt = System.nanoTime()
-            val task = async { WorkflowExecutor(HttpAccess(), emptyList(), host = host).execute(bundle.rootDefinition) }
+            val task = async { interpreter.execute(bundle.rootDefinition) }
             val pump = launch {
                 while (isActive) {
                     val raw = withContext(Dispatchers.IO) { RunnerIpc.readLine(h.supervisorInput) } ?: break
@@ -105,14 +120,38 @@ class RunnerHttpArtifactCompletionTest {
                                 artifactEvents++
                                 assertEquals(sha256(Files.readAllBytes(output)), detail.string("sha256"))
                                 h.ipc.accept(h.reply(frame, "ack", ack))
-                            } else runtime.acknowledge(ack)
+                            } else {
+                                if (detail["kind"]?.jsonPrimitive?.content == "artifact_collection_ready") {
+                                    RunnerArtifactBoundaryProtocol.validate(detail)
+                                    assertTrue(started.isCompleted)
+                                    assertEquals(started.await(), detail.string("producerStartEventId"))
+                                    assertEquals(frame, runnerJson.parseToJsonElement(Files.readString(dir.resolve(".runner-state/events/${event.long("eventSeq")}.json"))))
+                                    h.ipc.accept(h.reply(frame, "ack", ack)) // separate P-ready ACK precedes fixture collection
+                                    readyBoundary.send(frame)
+                                } else h.ipc.accept(h.reply(frame, "ack", ack))
+                            }
                         }
                     }
                 }
             }
             try {
-                withTimeout(10000) { while (!Files.isRegularFile(output) || Files.size(output) == 0L) { if (task.isCompleted) fail(task.await().error); delay(10) } }
-                delay(150) // S intentionally has not snapshotted or issued collection yet.
+                withTimeout(10000) { atWrite.await() }
+                assertFalse(Files.exists(output), "No file before normal late write path")
+                assertTrue(readyBoundary.tryReceive().isFailure, "No ready event before writing")
+                if (mode == "cancel-before-write") {
+                    task.cancelAndJoin(); assertTrue(task.isCancelled)
+                    assertFalse(Files.exists(output)); assertTrue(readyBoundary.tryReceive().isFailure); assertEquals(0, artifactEvents)
+                    return@runBlocking
+                }
+                permitWrite.complete(Unit)
+                val boundaryFrame = withTimeout(10000) { readyBoundary.receive() }
+                val boundary = boundaryFrame.obj("payload").obj("payload")
+                assertEquals(policy.hash, boundary.string("policySha256"))
+                assertEquals("root", boundary.string("producerWorkflowId")); assertEquals(binding.string("executionId"), boundary.string("executionId"))
+                assertEquals("write", boundary.string("stepName")); assertEquals(listOf("decl-model"), boundary.array("declarationIds").map { it.jsonPrimitive.content })
+                assertEquals(withTimeout(1000) { started.await() }, boundary.string("producerStartEventId"))
+                assertTrue(Files.isRegularFile(output) && Files.size(output) > 0L, "Formal ready follows actual typed write_to; no polling authority")
+                delay(150) // Controlled S snapshot is triggered only after the separately ACKed formal notification.
                 assertFalse(task.isCompleted, "Agent must wait after its real write_to write"); assertTrue(modelCalls > 0)
                 if (mode == "cancel") {
                     task.cancelAndJoin(); assertTrue(task.isCancelled); assertEquals(0, artifactEvents)
@@ -124,9 +163,9 @@ class RunnerHttpArtifactCompletionTest {
                 } else {
                     val bytes = Files.readAllBytes(output)
                     val f = CollectionFixture(binding, bundleJson, policyJson, policy.hash)
-                    val original = collectFrame(f, "root", withTimeout(1000) { started.await() }, bytes.size, sha256(bytes))
+                    val original = collectFrame(f, "root", boundary.string("producerStartEventId"), bytes.size, sha256(bytes))
                     val request = JsonObject(original + ("payload" to JsonObject(original.obj("payload") + mapOf("declarationId" to JsonPrimitive("decl-model"), "producerStep" to JsonPrimitive("write"), "logicalPath" to JsonPrimitive("run/model.json")))))
-                    runtime.collectRequest(request)
+                    h.ipc.accept(request)
                     val complete = withTimeout(3000) { completed.receive() }
                     assertEquals(sha256(bytes), complete.obj("payload").string("sha256"))
                     val result = withTimeout(3000) { task.await() }; assertTrue(result.success, result.error); assertEquals(1, artifactEvents)

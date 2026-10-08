@@ -38,6 +38,7 @@ class RunnerWorkflowHost(
     private val producerStarts = java.util.concurrent.ConcurrentHashMap<Pair<String, String>, String>()
     private val codeProducerStarts = java.util.concurrent.ConcurrentHashMap<Pair<String, String>, String>()
     private data class ActiveProducer(val eventId: String, val eventSeq: Long)
+    private val agentReadySequences = java.util.concurrent.ConcurrentHashMap<Pair<String, String>, Long>()
     private val activeProducers = java.util.concurrent.ConcurrentHashMap<Pair<String, String>, ActiveProducer>()
     private val activeCodeProducers = java.util.concurrent.ConcurrentHashMap<Pair<String, String>, ActiveProducer>()
     private val collectionBarrier = collectionPolicy?.let { policy ->
@@ -59,6 +60,11 @@ class RunnerWorkflowHost(
         val occurrence = (if (policy.isCode(workflowId, step)) activeCodeProducers else activeProducers)[execution to step]
             ?: error("Collection producer is closed or unknown")
         require(occurrence.eventId == body.string("producerStartEventId") && eventJournal.acknowledged() >= occurrence.eventSeq) { "Collection occurrence is stale or not durably ACKed" }
+        if (!policy.isCode(workflowId, step)) {
+            val declaration = body["declarationId"]?.jsonPrimitive?.content ?: policy.declarationForPath(workflowId, execution, step, body.string("logicalPath"))
+            val readySeq = requireNotNull(agentReadySequences[occurrence.eventId to declaration]) { "Agent boundary is not ready" }
+            require(eventJournal.acknowledged() >= readySeq) { "Agent boundary is not durably ACKed" }
+        }
     }
     private val artifactPublications = artifactPolicy?.let {
         RunnerArtifactPublications(bundle.executionDirectory, ipc, gate, store, secrets,
@@ -223,7 +229,11 @@ class RunnerWorkflowHost(
                 if (declared.isNotEmpty()) {
                     val start = requireNotNull((if (step.code != null) codeProducerStarts else producerStarts)[scope.executionId to step.step])
                     if (step.code != null) requireNotNull(collectionBarrier).requireCompleted(declared, start)
-                    else requireNotNull(collectionBarrier).awaitCompleted(declared, start)
+                    else {
+                        val barrier = requireNotNull(collectionBarrier)
+                        announceArtifactReady(RunnerArtifactReadyBoundary(collectionPolicy.hash, workflowId, scope, start, declared))
+                        barrier.awaitCompleted(declared, start)
+                    }
                 }
                 return // S exclusively reads/snapshots; never invoke the old injected fingerprint path.
             } catch (failure: kotlinx.coroutines.CancellationException) {
@@ -243,6 +253,62 @@ class RunnerWorkflowHost(
         declared.forEach { requireNotNull(artifactPublications).publish(workflowId, scope, start, it) }
         } catch (failure: kotlinx.coroutines.CancellationException) { throw failure }
         catch (_: Exception) { gate.invalidate("RUNNER_ARTIFACT_PUBLICATION_UNCONFIRMED"); throw RunnerAuthorityLost() }
+    }
+    /** The whole partition set is persisted/enqueued before completion waiting, through one sequencer. */
+    @Synchronized internal fun announceArtifactReady(boundary: RunnerArtifactReadyBoundary) {
+        gate.check()
+        val policy = requireNotNull(collectionPolicy); policy.verify()
+        require(boundary.policySha256 == policy.hash && boundary.scope.rootExecutionId == binding.executionId)
+        val key = boundary.scope.executionId to requireNotNull(boundary.scope.stepName)
+        require(staticInvocations[key.first] == true && admittedProducers[key.first] == boundary.producerWorkflowId)
+        require(!policy.isCode(boundary.producerWorkflowId, key.second)) { "Ready notification is Agent-only" }
+        require(activeProducers[key]?.eventId == boundary.producerStartEventId) { "Ready occurrence is not active" }
+        val declared = policy.declarationsFor(boundary.producerWorkflowId, key.first, key.second)
+        require(declared.isNotEmpty() && boundary.declarationIds == declared)
+        fun estimatedFrame(payload: JsonObject) = buildJsonObject {
+            put("protocolVersion", 1); put("frameId", "0".repeat(36)); put("type", "event"); put("binding", ipc.binding)
+            put("payload", buildJsonObject { put("eventId", "0".repeat(36)); put("eventSeq", Long.MAX_VALUE); put("attemptId", binding.attemptId); put("resumeEpoch", binding.resumeEpoch); put("type", "step"); put("payload", payload) })
+        }
+        val parts = mutableListOf<JsonObject>()
+        fun partition(ids: List<String>) {
+            val payload = boundary.payload(ids); RunnerArtifactBoundaryProtocol.validate(payload)
+            if (canonical(estimatedFrame(payload)).toByteArray().size <= 65536) parts += payload
+            else {
+                require(ids.size > 1) { "Ready event cannot fit the server event limit" }
+                val half = ids.size / 2; partition(ids.take(half)); partition(ids.drop(half))
+            }
+        }
+        declared.chunked(64).forEach(::partition)
+        val context = buildJsonObject { put("binding", ipc.binding); put("boundary", boundary.payload()) }
+        require(!secrets.containsSecret(context)) { "Ready context contains secret material" }
+        val id = sha256(canonical(context).toByteArray())
+        val relative = ".runner-state/artifact-boundaries/$id.json"
+        val path = confinedPath(bundle.executionDirectory, relative)
+        if (java.nio.file.Files.exists(path)) {
+            val retained = runnerJson.parseToJsonElement(java.nio.file.Files.readString(path)).jsonObject
+            require(retained.obj("context") == context)
+            val frames = retained.array("frames").map { it.jsonObject }
+            require(frames.size == parts.size) { "Partial ready intent needs reconciliation; do not allocate replacement events" }
+            frames.zip(parts).forEach { (frame, payload) ->
+                RunnerProtocol().validate(frame, "ipcFrame"); require(frame.obj("binding") == ipc.binding && frame.string("type") == "event")
+                require(frame.obj("payload").string("type") == "step" && frame.obj("payload").obj("payload") == payload)
+                payload.array("declarationIds").forEach { id -> agentReadySequences[boundary.producerStartEventId to id.jsonPrimitive.content] = frame.obj("payload").long("eventSeq") }
+                gate.check(); ipc.sendFrame(frame)
+            }
+            return
+        }
+        val frames = mutableListOf<JsonObject>()
+        fun retain() { store.writePrivate(relative, canonical(buildJsonObject { put("context", context); put("frames", JsonArray(frames)) }).toByteArray()) }
+        retain()
+        parts.forEach { payload ->
+            gate.check()
+            require(secrets.redact(payload) == payload) { "Ready metadata cannot be redacted or changed" }
+            val frame = eventJournal.append("step", payload, beforePersist = { original ->
+                require(canonical(original).toByteArray().size <= 65536)
+                frames += original; retain()
+            })
+            payload.array("declarationIds").forEach { id -> agentReadySequences[boundary.producerStartEventId to id.jsonPrimitive.content] = frame.obj("payload").long("eventSeq") }
+        }
     }
     @Synchronized override fun monitor(update: WorkflowMonitorUpdate) {
         if (update.type in setOf("step_completed", "step_cancelled")) update.stepName?.let { live.release(update.executionId, it) }
@@ -266,7 +332,9 @@ class RunnerWorkflowHost(
             if (update.type == "step_started") { producerStarts[key] = occurrence.eventId; codeProducerStarts.remove(key); activeProducers[key] = occurrence; activeCodeProducers.remove(key) }
             if (update.event?.type == "code_step_started") { codeProducerStarts[key] = occurrence.eventId; activeCodeProducers[key] = occurrence }
             if (update.event?.type == "code_step_completed") activeCodeProducers.remove(key)
-            if (update.type in setOf("step_completed", "step_cancelled")) { producerStarts.remove(key); codeProducerStarts.remove(key); activeProducers.remove(key); activeCodeProducers.remove(key) }
+            if (update.type in setOf("step_completed", "step_cancelled")) {
+                producerStarts[key]?.let { original -> agentReadySequences.keys.removeIf { it.first == original } }
+                producerStarts.remove(key); codeProducerStarts.remove(key); activeProducers.remove(key); activeCodeProducers.remove(key) }
         }
     }
     fun emit(kind: String, payload: JsonObject) { eventJournal.append(kind, payload) }

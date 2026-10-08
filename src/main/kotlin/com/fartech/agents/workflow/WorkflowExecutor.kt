@@ -811,6 +811,8 @@ class WorkflowExecutor(
     /** Only trusted nested runtime sets this; root identity is never a workflow variable. */
     private val parentHostScope: WorkflowHostScope? = null
 ) {
+    /** Deterministic local test seam; not configurable from workflow parameters or wire. */
+    internal var beforeStructuredOutputWriteForTest: suspend (String) -> Unit = {}
     private val perCallCodeControl = host?.codeControlMode == WorkflowCodeControlMode.SUPERVISOR_PER_CALL
     private val baseParameters = if (perCallCodeControl) WorkflowCodeControlTokens.parameters(baseParameters) else baseParameters
     private val approvalHandler = host?.approvalHandler ?: approvalHandler
@@ -8227,7 +8229,7 @@ class WorkflowExecutor(
         }
     }
 
-    private fun <Output> persistStructuredOutput(
+    private suspend fun <Output> persistStructuredOutput(
         stepName: String,
         structuredOutput: StructuredOutputConfig,
         toJsonElement: (Output) -> JsonElement,
@@ -8239,6 +8241,7 @@ class WorkflowExecutor(
         val writeTo = structuredOutput.writeTo?.trim().orEmpty()
         if (writeTo.isNotBlank()) {
             val target = File(writeTo)
+            beforeStructuredOutputWriteForTest(writeTo)
             target.parentFile?.mkdirs()
             target.writeText(jsonText, Charsets.UTF_8)
         }
