@@ -5,10 +5,14 @@ production executions**. Development, tests and scoped commits are authorized. F
 acceptance remains an integration milestone; admission rejection is not completion of missing work.
 
 Engine baseline: `6330754b8d76674555e89f7994c17d88fab7e3ca`.
-Canonical semantics contract: `39a264aacca2f46ff8fb3e53232b2e76eee627ac`, protocol 1;
-schema shape/hash remains the 81d611 revision. Resources and
-15 positive/negative fixtures are copied from that immutable platform commit. No private wire
-protocol has been introduced. Platform and supervisor must pin this same commit/schema hash.
+Canonical wire/schema source: `81d611a65b7c93e3341c69db51c7736a1c411175`, protocol 1,
+SHA-256 `09a3c3f6d6bd430a126303f25ad9795c5818d72eec62bc2896cfe84af40a504a`.
+`contract-origin.txt` and the JAR `Runner-Contract-Commit` header identify this schema source;
+platform, supervisor and package builder must use that same wire/schema pin.
+Decision/environment semantics remain `39a264aacca2f46ff8fb3e53232b2e76eee627ac` and frozen
+child-scope semantics are `316ca337d550d7bb6e0300452392bb14f7205951`. Their separate provenance
+is packaged in `runner-workflow-v1/contract-semantics.txt`; neither changes schema bytes or
+introduces a wire field.
 
 ## Implemented core
 
@@ -240,3 +244,34 @@ Log: `/tmp/mac-runner-engine-review-fixes.log`. Account credentials/probes/busin
 no real account, Apple operation, deployment, publishing or feature activation occurred. Wider
 prior suites were not rerun without a new reason. This batch requires re-review and fixed-source
 package integration; it does not declare complete App Factory acceptance.
+
+
+## Checkpoint recovery after the a4f2dabb re-review
+
+This scoped recovery preserves the original four-file patch and prior 8-test evidence before
+applying it in an independent engine worktree. Environment receipt IDs retain their first hash
+and association for the entire attempt; an older periodic receipt cannot be relabeled for a
+human decision after newer receipts. Empty EOF checks its lifecycle after the gate probe under
+the confirmed-close monitor. Local reader closure retains process/output registration until
+remote `processClosed`, allowing bounded, validated TERM/grace output and evidence ACKs. Closing a reader settles the
+already accepted unread prefix so discarded bytes cannot leave a permanent ACK hole.
+
+Actual child invocation paths remain unchanged (`nested/call_N`, including real `call_1` step
+names followed by their own ordinal). Platform commit `316ca337d550d7bb6e0300452392bb14f7205951`
+resolves exact frozen parent/edge/hash/ordinal pairs to logical ACL lineage. Engine credentials,
+approvals and interactions continue to send the actual path; no generic marker stripping or
+additional client field is introduced.
+
+The wire/schema origin correction is source metadata, not a patch to an existing JAR. A rebuilt
+engine distribution and its manifest/resources must be verified before platform packaging.
+Engine compilation and the 8 focused tests are separate evidence from combined
+JVM/Python/HTTP/Mongo/package acceptance, which remains owned by platform. No deployment,
+activation, existing Runner upgrade, real-account/Apple action or Linux VM/container is involved.
+
+Recovery verification: compilation and `installDist` passed; 8 focused tests (3 decision freshness,
+4 stream lifecycle, 1 byte/ACK/input regression) passed with zero failures/errors/skips. The new
+installed `runner-host.jar` reports schema-source `81d611a65b7c93e3341c69db51c7736a1c411175`,
+contains the unchanged schema hash above and the separate semantics provenance. A standalone
+contract harness loaded this installed distribution and passed all 22 bundled positive/negative
+contract fixtures. These are engine distribution checks, not combined platform package acceptance.
+Evidence: `/Users/liguoliang/Documents/Codex/2026-10-08/mac-runner-development/engine-recovery-evidence/`.

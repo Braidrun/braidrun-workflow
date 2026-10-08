@@ -36,6 +36,60 @@ class RunnerStreamLifecycleReviewTest {
             } finally { broker.close() }
         }
     }
+    @Test fun `EOF gate probe overlapping confirmed exit atomically becomes a no-op`(@TempDir dir: Path) = runBlocking {
+        IpcHarness().use { h ->
+            val entered = java.util.concurrent.CountDownLatch(1); val release = java.util.concurrent.CountDownLatch(1)
+            val armed = java.util.concurrent.atomic.AtomicBoolean()
+            val gate = RunnerEnvironmentGate(h.binding, setOf("engine-http"), nanoTime = {
+                if (armed.get() && Thread.currentThread().name.startsWith("EOF-review")) {
+                    entered.countDown(); check(release.await(2, java.util.concurrent.TimeUnit.SECONDS))
+                }
+                System.nanoTime()
+            })
+            gate.install(RunnerProtocolTest.environment(h.binding, Instant.now()))
+            val broker = RunnerInteractiveProcesses(h.ipc, dir, gate, RunnerSecrets(), currentCoroutineContext()[Job])
+            val worker = java.util.concurrent.Executors.newSingleThreadExecutor { task -> Thread(task, "EOF-review") }
+            try {
+                val opening = async { broker.open(WorkflowHostScope(h.binding.string("executionId"), h.binding.string("executionId")), SubprocessExecutor.ExecRequest(listOf("fixture"), dir.toFile())) }
+                val request = h.next(); h.ipc.accept(started(h, request, "race")); val channel = opening.await()
+                armed.set(true)
+                val eof = worker.submit<Boolean> { channel.stdin.close(); true }
+                assertTrue(entered.await(1, java.util.concurrent.TimeUnit.SECONDS))
+                broker.closed(closed(request, "race")); release.countDown()
+                assertTrue(eof.get(1, java.util.concurrent.TimeUnit.SECONDS)); assertEquals(0, channel.awaitExit())
+            } finally { release.countDown(); worker.shutdownNow(); broker.close() }
+        }
+    }
+    @Test fun `local close releases readers but accepts legal output during remote grace`(@TempDir dir: Path) = runBlocking {
+        IpcHarness().use { h ->
+            val gate = RunnerEnvironmentGate(h.binding, setOf("engine-http")); gate.install(RunnerProtocolTest.environment(h.binding, Instant.now()))
+            val broker = RunnerInteractiveProcesses(h.ipc, dir, gate, RunnerSecrets(), currentCoroutineContext()[Job])
+            try {
+                val opening = async { broker.open(WorkflowHostScope(h.binding.string("executionId"), h.binding.string("executionId")), SubprocessExecutor.ExecRequest(listOf("fixture"), dir.toFile())) }
+                val request = h.next(); h.ipc.accept(started(h, request, "grace")); val channel = opening.await()
+                fun output(sequence: Long, stream: String, text: String): JsonObject {
+                    val bytes = text.toByteArray()
+                    return buildJsonObject { put("requestId", request.obj("payload").string("requestId")); put("registrationId", "grace"); put("outputSeq", sequence)
+                        put("channel", stream); put("encoding", "base64"); put("dataBase64", java.util.Base64.getEncoder().encodeToString(bytes))
+                        put("decodedBytes", bytes.size); put("dataHash", sha256(bytes)) }
+                }
+                // This unread prefix is discarded when the reader is released. It must not
+                // leave an ACK hole that exhausts the remote window during shutdown.
+                val pending = output(1, "stderr", "unread before close")
+                broker.output(pending)
+                val reader = async(Dispatchers.IO) { runCatching { channel.stdout.read() } }
+                channel.close(); assertTrue(withTimeout(1000) { reader.await() }.isFailure)
+                assertEquals(1L, h.next().obj("payload").long("ackOutputSeq"))
+                assertEquals("processCancel", h.next().string("type"))
+                val grace = output(2, "stdout", "late shutdown line")
+                broker.output(grace); assertEquals(2L, h.next().obj("payload").long("ackOutputSeq"))
+                broker.closed(JsonObject(closed(request, "grace") + ("finalOutputSeq" to JsonPrimitive(2))))
+                gate.check(); assertFalse(h.failed)
+                broker.output(pending); assertEquals(2L, h.next().obj("payload").long("ackOutputSeq"))
+                broker.output(grace); assertEquals(2L, h.next().obj("payload").long("ackOutputSeq"))
+            } finally { broker.close() }
+        }
+    }
     @Test fun `IPC EOF cancels the streaming root without waiting for blocked IO consumers`(@TempDir dir: Path) = runBlocking {
         IpcHarness().use { h ->
             val gate = RunnerEnvironmentGate(h.binding, setOf("engine-http")); gate.install(RunnerProtocolTest.environment(h.binding, Instant.now()))

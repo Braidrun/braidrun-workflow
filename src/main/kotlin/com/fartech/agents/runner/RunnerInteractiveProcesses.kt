@@ -65,6 +65,7 @@ class RunnerInteractiveProcesses(
         override val stderr get() = stderrPipe.input
         private val exited = CompletableDeferred<Int>()
         private val stopped = AtomicBoolean()
+        private val localReadersClosed = AtomicBoolean()
         private var outputSeq = 0L; private var acknowledged = 0L; private var inputSeq = 0L
         private var totalOutput = 0L; private var inputClosed = false
         private var observedRegistration: String? = null
@@ -95,11 +96,15 @@ class RunnerInteractiveProcesses(
             require(!stopped.get()) { "New output after process close" }
             require(sequence == outputSeq + 1 && sequence - acknowledged <= 64 && totalOutput + bytes.size <= 16 * 1024 * 1024) { "Interactive output gap/bounds" }
             outputDigests[sequence] = digest; outputSeq = sequence; totalOutput += bytes.size
-            if (bytes.isEmpty()) { consumed(sequence); return }
+            if (bytes.isEmpty() || localReadersClosed.get()) {
+                // Grace-period output remains evidence, but never reopens released local readers.
+                consumed(sequence); return
+            }
             val pipe = when(payload.string("channel")) { "stdout" -> stdoutPipe; "stderr" -> stderrPipe; else -> throw RunnerProtocolException() }
             try { pipe.offer(bytes) { consumed(sequence) } } catch (e: Exception) { fail(); gate.invalidate("INTERACTIVE_OUTPUT_BACKPRESSURE"); throw e }
         }
         @Synchronized private fun consumed(sequence: Long) {
+            if (sequence <= acknowledged) return // A reader callback may race local queue release.
             consumed.add(sequence)
             while (consumed.remove(acknowledged + 1)) acknowledged++
             acknowledge()
@@ -131,9 +136,15 @@ class RunnerInteractiveProcesses(
             override fun close() { sendInput(ByteArray(0), true) }
         }
         private fun sendInput(bytes: ByteArray, eof: Boolean) = synchronized(inputLock) { runBlocking(owner ?: kotlin.coroutines.EmptyCoroutineContext) {
-            if (eof && (inputClosed || confirmedClose != null)) { inputClosed = true; return@runBlocking }
-            gate.check(); require(!stopped.get() && !inputClosed) { "Input after process/EOF close" }
-            val id = registration.await(); val sequence = ++inputSeq
+            // A gate probe may overlap normal remote exit. Decide the complete local lifecycle
+            // only AFTER it returns, under the same monitor as closed(), never check-then-act.
+            gate.check()
+            val sequence = synchronized(this@Session) {
+                if (eof && (inputClosed || confirmedClose != null)) { inputClosed = true; return@runBlocking }
+                require(!stopped.get() && !localReadersClosed.get() && !inputClosed) { "Input after process/EOF close" }
+                ++inputSeq
+            }
+            val id = registration.await()
             try {
                 val ack = ipc.request("processInput", buildJsonObject {
                     put("requestId", requestId); put("registrationId", id); put("inputSeq", sequence); put("encoding", "base64")
@@ -147,9 +158,21 @@ class RunnerInteractiveProcesses(
         }
         override suspend fun awaitExit(): Int = withTimeout(timeout * 1000) { exited.await() }
         override fun close() {
-            val requestRemoteStop = !stopped.get() && registration.isCompleted && !registration.isCancelled
-            // Local readers must unblock even if remote IPC is already dead. This is no stop proof.
-            if (confirmedClose == null) { fail(); retire(this) }
+            val requestRemoteStop = synchronized(this) {
+                val first = localReadersClosed.compareAndSet(false, true)
+                if (confirmedClose == null) {
+                    stdoutPipe.fail(); stderrPipe.fail(); exited.cancel(RunnerAuthorityLost())
+                    if (outputSeq > acknowledged) {
+                        // fail() releases unread chunks without their callbacks. Settle that
+                        // accepted prefix so grace-period output cannot stall behind discarded IO.
+                        consumed.clear(); acknowledged = outputSeq
+                        runCatching { acknowledge() }
+                    }
+                }
+                // Reader cancellation is not remote termination. Keep registration/output fencing
+                // until processClosed while TERM/grace can still emit legitimate output.
+                first && !stopped.get() && registration.isCompleted && !registration.isCancelled
+            }
             if (requestRemoteStop) runCatching {
                 ipc.send("processCancel", buildJsonObject {
                     put("requestId", requestId); put("registrationId", requireNotNull(observedRegistration)); put("commandId", UUID.randomUUID().toString())

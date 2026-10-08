@@ -14,7 +14,10 @@ class RunnerDecisionFreshnessReviewTest {
             val gate = RunnerEnvironmentGate(h.binding, setOf("engine-http")); gate.install(fresh(h, "initial"))
             val approved = async { RunnerApprovalHandler(h.ipc, gate).requestApproval(ApprovalRequest("root:step:2", "flow", h.binding.string("executionId"), "step", "Approve second", emptyList(), 0, "30", occurrenceId = "2")) }
             val request = h.next(); val frameId = request.string("frameId")
-            gate.install(fresh(h, "periodic"))
+            val periodicB = fresh(h, "periodic-B")
+            gate.install(periodicB)
+            gate.install(fresh(h, "periodic-C"))
+            gate.install(periodicB, frameId) // A non-latest old receipt cannot acquire new provenance.
             h.ipc.accept(h.reply(request, "approvalDecision", buildJsonObject {
                 put("approvalId", "human-second"); put("idempotencyKey", "root:step:2"); put("occurrenceId", "2"); put("decisionVersion", 1)
                 put("decision", "APPROVE"); put("editMode", "AS_IS"); put("editedItems", JsonArray(emptyList())); put("comment", JsonNull)

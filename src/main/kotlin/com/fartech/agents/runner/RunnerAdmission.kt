@@ -21,6 +21,8 @@ class RunnerEnvironmentGate(
 ) {
     private data class Evidence(val expires: Long, val profileHash: String, val paths: Set<String>, val installedAt: Long, val checkId: String, val evidenceHash: String)
     private val evidence = AtomicReference<Evidence?>()
+    private data class SeenEvidence(val hash: String, val firstReplyTo: String?)
+    private val seenEvidence = LinkedHashMap<String, SeenEvidence>()
     private val interrupted = AtomicReference<String?>()
     private data class Interaction(val baselineCheck: String?, val proof: AtomicReference<Evidence?> = AtomicReference())
     private val interactions = java.util.concurrent.ConcurrentHashMap<String, Interaction>()
@@ -57,7 +59,7 @@ class RunnerEnvironmentGate(
         lease.set(Lease(id, nanoTime() + minOf(duration, localRemaining))); leaseRequired.set(true)
     }
 
-    fun install(value: JsonObject, replyTo: String? = null) {
+    @Synchronized fun install(value: JsonObject, replyTo: String? = null) {
         RunnerProtocol().validate(value, "environment")
         if (interrupted.get() != null || value.obj("binding") != binding || value.string("decision") != "ALLOW") throw RunnerAuthorityLost()
         val checked = Instant.parse(value.string("checkedAt")); val valid = Instant.parse(value.string("validUntil"))
@@ -68,16 +70,22 @@ class RunnerEnvironmentGate(
         val profile = value.string("networkProfileHash")
         val previous = evidence.get()
         if (previous?.profileHash != null && previous.profileHash != profile) throw RunnerAuthorityLost()
-        if (previous?.checkId == value.string("environmentCheckId")) {
-            if (previous.evidenceHash != sha256(canonical(value).toByteArray())) throw RunnerAuthorityLost()
+        val checkId = value.string("environmentCheckId")
+        val payloadHash = sha256(canonical(value).toByteArray())
+        seenEvidence[checkId]?.let { seen ->
+            if (seen.hash != payloadHash) throw RunnerAuthorityLost()
+            // IDs retain their first provenance for the entire attempt, even after newer probes.
+            // An unchanged retry never renews time or creates/reassigns interaction proof.
             return
         }
+        if (seenEvidence.size >= 65536) throw RunnerAuthorityLost()
         if (routes.any { it.string("countryCode") == "CN" || it.string("networkProfileHash") != profile ||
                 Instant.parse(it.string("observedAt")) < checked || Instant.parse(it.string("observedAt")) > instant }) throw RunnerAuthorityLost()
         val conflict = routes.groupBy { it.string("pathId") to it.string("addressFamily") }
             .values.any { group -> group.map { it.string("countryCode") }.distinct().size > 1 }
         if (conflict) throw RunnerAuthorityLost()
         val accepted = Evidence(nanoTime() + java.time.Duration.between(instant, valid).toNanos(), profile, routes.map { it.string("pathId") }.toSet(), nanoTime(), value.string("environmentCheckId"), sha256(canonical(value).toByteArray()))
+        seenEvidence[checkId] = SeenEvidence(payloadHash, replyTo)
         evidence.set(accepted)
         replyTo?.let { frame -> interactions[frame]?.let { interaction ->
             if (accepted.checkId != interaction.baselineCheck) interaction.proof.compareAndSet(null, accepted)
