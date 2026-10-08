@@ -10,6 +10,7 @@ import java.nio.file.Path
 class FrozenWorkflowBundle(private val root: Path, val manifest: JsonObject, private val binding: JsonObject) : WorkflowResolver {
     private data class Entry(val id: String, val path: String, val hash: String, val definition: WorkflowDefinition)
     private val entries: List<Entry>
+    private val skillHashes = java.util.concurrent.ConcurrentHashMap<String, String>()
     private val frozenFiles = java.util.concurrent.ConcurrentHashMap<String, ByteArray>()
     val executionDirectory: Path get() = root
     val taskBinding: JsonObject get() = binding
@@ -35,6 +36,10 @@ class FrozenWorkflowBundle(private val root: Path, val manifest: JsonObject, pri
             val digest = java.security.MessageDigest.getInstance("SHA-256")
             Files.newInputStream(path).use { stream -> val buffer = ByteArray(8192); while (true) { val n = stream.read(buffer); if (n < 0) break; digest.update(buffer, 0, n) } }
             require(digest.digest().joinToString("") { "%02x".format(it) } == file.string("sha256")) { "Bundle file hash mismatch" }
+            if (file.string("role") == "skill") {
+                require(relative.startsWith("skills/")) { "Skill asset is not under the scoped skill root" }
+                skillHashes[relative] = file.string("sha256")
+            }
             if (file.string("role") in setOf("definition", "script")) {
                 require(file.long("size") <= RunnerIpc.MAX_FRAME_BYTES) { "Executable bundle file exceeds limit" }
                 val bytes = Files.readAllBytes(path)
@@ -54,7 +59,7 @@ class FrozenWorkflowBundle(private val root: Path, val manifest: JsonObject, pri
             val bytes = Files.readAllBytes(confinedPath(root, path))
             require(bytes.size <= RunnerIpc.MAX_FRAME_BYTES && sha256(bytes) == def.string("definitionHash")) { "Definition changed during verification" }
             Entry(id, path, def.string("definitionHash"), WorkflowParser.parseYaml(bytes.toString(Charsets.UTF_8)).let { definition ->
-                definition.copy(directoryIsolation = DirectoryIsolationConfig(
+                definition.copy(agents = definition.agents.mapValues { RunnerSkillsPolicy.normalize(it.value, root) }, directoryIsolation = DirectoryIsolationConfig(
                     baseDir = root.resolve(".workflow-runs").toString(), sharedSkillsDir = root.resolve("skills").toString(),
                     sharedCacheDir = root.resolve(".prompt-cache").toString(), sharedHistoryDir = root.resolve(".agent-history").toString()
                 ))
@@ -86,6 +91,22 @@ class FrozenWorkflowBundle(private val root: Path, val manifest: JsonObject, pri
         val entry = entries.singleOrNull { it.path == relative } ?: error("Dynamic definition was not authorized")
         require(sha256(Files.readAllBytes(confinedPath(root, relative))) == entry.hash) { "Dynamic definition hash changed" }
         return entry.definition
+    }
+    fun verifySkills() {
+        val folder = root.resolve("skills")
+        if (!Files.exists(folder, LinkOption.NOFOLLOW_LINKS)) { require(skillHashes.isEmpty()) { "Frozen skill assets missing" }; return }
+        require(!Files.isSymbolicLink(folder)) { "Skill root is a symlink" }
+        val observed = HashSet<String>()
+        Files.walk(folder).use { paths -> paths.forEach { path ->
+            require(!Files.isSymbolicLink(path)) { "Skill asset symlink refused" }
+            if (Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)) {
+                val relative = root.relativize(path).toString()
+                val expected = skillHashes[relative] ?: error("Unlisted skill asset appeared after freeze")
+                require(Files.size(path) <= 256L * 1024 * 1024 && sha256(Files.readAllBytes(path)) == expected) { "Skill asset changed after freeze" }
+                observed.add(relative)
+            }
+        } }
+        require(observed == skillHashes.keys) { "Frozen skill inventory changed" }
     }
     fun script(path: String): String {
         val requested = Path.of(path)

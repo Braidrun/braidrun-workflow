@@ -36,7 +36,7 @@ class RunnerIpcTest {
             val request = harness.next()
             assertEquals("approval", request.string("type"))
             val decision = harness.reply(request, "approvalDecision", buildJsonObject {
-                put("approvalId", "human-approval"); put("idempotencyKey", "root:step"); put("decisionVersion", 1)
+                put("approvalId", "human-approval"); put("occurrenceId", "root:step"); put("idempotencyKey", "root:step"); put("decisionVersion", 1)
                 put("decision", "APPROVE"); put("comment", JsonNull); put("editMode", "AS_IS"); put("editedItems", JsonArray(emptyList())); put("decidedBy", "human"); put("decidedAt", Instant.now().toString())
             })
             harness.ipc.accept(decision); harness.ipc.accept(decision)

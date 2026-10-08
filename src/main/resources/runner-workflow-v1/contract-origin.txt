@@ -1,2 +1,2 @@
-fdef2232826517af77c1fb8d3d832b261960a53e
+261b43bbc9ccc492ad658e42cca821174da6ef5e
 braidrun-web/docs/contracts/runner-workflow-v1/protocol.schema.json

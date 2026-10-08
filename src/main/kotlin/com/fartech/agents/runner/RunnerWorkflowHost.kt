@@ -18,7 +18,8 @@ class RunnerWorkflowHost(
     override val subprocessExecutor: SubprocessExecutor,
     private val store: RunnerCheckpointStore,
     private val secrets: RunnerSecrets,
-    private val validateDirectNetwork: () -> Unit = { RunnerHttpClients.requireDirect() }
+    private val validateDirectNetwork: () -> Unit = { RunnerHttpClients.requireDirect() },
+    private val interactiveBroker: RunnerInteractiveProcesses? = null
 ) : WorkflowHost {
     init {
         require(bundle.taskBinding == ipc.binding) { "Bundle host binding differs from IPC authority" }
@@ -42,12 +43,26 @@ class RunnerWorkflowHost(
     override fun claudeCredentialsFor(scope: WorkflowHostScope) = cliPools[poolKey("claude", scope)]
     override fun codexCredentialsFor(scope: WorkflowHostScope) = cliPools[poolKey("codex", scope)]
     override fun codexAuthRotationFor(scope: WorkflowHostScope): ((String?, String) -> Unit)? = cliPools[poolKey("codex", scope)]?.let { pool -> { id, json -> pool.rotated(id, json) } }
+    override suspend fun interactiveProcess(scope: WorkflowHostScope, request: com.fartech.agents.tools.exec.SubprocessExecutor.ExecRequest): WorkflowInteractiveProcess =
+        requireNotNull(interactiveBroker) { "Interactive broker not assembled" }.open(scope, request)
+    override suspend fun mcpTransport(scope: WorkflowHostScope, name: String, config: com.fartech.agents.commons.McpServerConfig): io.modelcontextprotocol.kotlin.sdk.shared.Transport {
+        require(config.url.isNullOrBlank()) { "HTTP MCP needs a distinct client/network adapter" }
+        gate.requirePaths(setOf("mcp-stdio"))
+        val cwd = java.nio.file.Path.of(config.cwd ?: bundle.executionDirectory.toString()).let { if (it.isAbsolute) it else bundle.executionDirectory.resolve(it) }.normalize()
+        require(cwd.startsWith(bundle.executionDirectory)) { "MCP cwd escaped root" }
+        val session = interactiveProcess(scope, com.fartech.agents.tools.exec.SubprocessExecutor.ExecRequest(
+            command = listOf(requireNotNull(config.command)) + config.args.orEmpty(), workingDir = cwd.toFile(),
+            env = config.env.orEmpty() + codeEnvironment, timeoutSeconds = 86400, admissionKind = "MCP_STDIO"
+        ))
+        return RunnerMcpTransport(session)
+    }
     fun restoreHostState(state: WorkflowResumeState) { live.restore(state.hostState) }
     private val references = java.util.concurrent.ConcurrentHashMap<String, String>()
     private val network = RunnerHttpClients(gate) { live.checkAll() }
     override val llmHttpClientFactory get() = network.factory
     override suspend fun prepareAgentParameters(scope: WorkflowHostScope, parameters: List<com.fartech.ftapp2.commonsKt.ConfigurationParameter>): List<com.fartech.ftapp2.commonsKt.ConfigurationParameter> {
         gate.check()
+        bundle.verifySkills()
         suspend fun lease(value: JsonElement): JsonElement {
             if (value == JsonNull || value == JsonPrimitive("")) return value
             if (value is JsonObject) return JsonObject(value.mapValues { lease(it.value) })
@@ -64,12 +79,28 @@ class RunnerWorkflowHost(
                 cliPools[poolKey(provider, scope)] = RunnerSubscriptionPool(live, scope, provider, reference, secrets, ::emit)
             }
         }
+        suspend fun mcp(value: JsonElement): JsonElement {
+            return JsonObject(value.jsonObject.mapValues { (_, config) ->
+                val server = config.jsonObject
+                val env = server["env"]?.takeUnless { it == JsonNull }?.jsonObject?.mapValues { (_, entry) ->
+                    val ref = entry.jsonPrimitive.content
+                    if (RunnerAdmission.CREDENTIAL_REFERENCE.matches(ref)) {
+                        val handle = live.acquire(ref, scope, "mcp.invoke")
+                        val token = live.checked(handle, scope, "mcp.invoke").string("token")
+                        references[token] = ref; JsonPrimitive(token)
+                    } else entry
+                }
+                if (env == null) server else JsonObject(server + ("env" to JsonObject(env)))
+            })
+        }
         val result = parameters.filterNot { it.key in setOf("external_agent_codex_auth_json", "external_agent_claude_oauth_token") }.map { p ->
-            if (p.key.endsWith("_api_key") || p.key == "llm_provider_keys") com.fartech.ftapp2.commonsKt.ConfigurationParameter(p.key, lease(p.value)) else p
-        }.filterNot { it.key in setOf("user_id", "disable_skills", "disable_browser_tools") }
+            if (p.key == "mcp_servers") com.fartech.ftapp2.commonsKt.ConfigurationParameter(p.key, mcp(p.value))
+            else if (p.key.endsWith("_api_key") || p.key == "llm_provider_keys") com.fartech.ftapp2.commonsKt.ConfigurationParameter(p.key, lease(p.value)) else p
+        }.filterNot { it.key in setOf("user_id", "disable_skills", "disable_browser_tools", "clawhub_cache_dir") }
         return result + listOf(com.fartech.ftapp2.commonsKt.ConfigurationParameter("user_id", JsonPrimitive(binding.ownerId)),
-            com.fartech.ftapp2.commonsKt.ConfigurationParameter("disable_skills", JsonPrimitive(true)),
-            com.fartech.ftapp2.commonsKt.ConfigurationParameter("disable_browser_tools", JsonPrimitive(true)))
+            com.fartech.ftapp2.commonsKt.ConfigurationParameter("disable_skills", JsonPrimitive("skill.text.v1" !in capabilities)),
+            com.fartech.ftapp2.commonsKt.ConfigurationParameter("disable_browser_tools", JsonPrimitive(true)),
+            com.fartech.ftapp2.commonsKt.ConfigurationParameter("clawhub_cache_dir", JsonPrimitive(bundle.executionDirectory.resolve("skills").toString())))
     }
     override fun nestedParameters(parameters: List<com.fartech.ftapp2.commonsKt.ConfigurationParameter>): List<com.fartech.ftapp2.commonsKt.ConfigurationParameter> {
         fun refs(v: JsonElement): JsonElement = when(v) {
@@ -95,10 +126,11 @@ class RunnerWorkflowHost(
     private fun checkRoutes(required: Set<String>) {
         if ("model.http.v1" in required) { validateDirectNetwork(); gate.requirePaths(setOf("jvm-http")) }
         if (required.any { it in setOf("agent.codex.v1", "agent.claude.v1") }) { validateDirectNetwork(); gate.requirePaths(setOf("agent-cli")) }
+        if ("mcp.stdio.v1" in required) gate.requirePaths(setOf("mcp-stdio"))
         if ("step.script.v1" in required) gate.requirePaths(setOf("subprocess"))
     }
     override suspend fun beforeOperation(scope: WorkflowHostScope, operation: String) {
-        require(scope.rootExecutionId == binding.executionId) { "Operation escaped root scope" }; gate.check()
+        require(scope.rootExecutionId == binding.executionId) { "Operation escaped root scope" }; gate.check(); bundle.verifySkills()
     }
     override fun scriptContents(path: String): String = bundle.script(path)
     override fun dynamicWorkflow(path: String, scope: WorkflowHostScope): WorkflowDefinition {

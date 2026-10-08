@@ -12,7 +12,7 @@ class RunnerApprovalHandler(private val ipc: RunnerIpc, private val gate: Runner
         gate.check()
         val checkGeneration = gate.evidenceGeneration()
         val decision = ipc.request("approval", buildJsonObject {
-            put("idempotencyKey", request.approvalId)
+            put("idempotencyKey", request.approvalId); put("occurrenceId", request.occurrenceId ?: request.approvalId)
             put("childExecutionPath", childPath(ipc.binding.string("executionId"), request.executionId))
             put("stepId", request.stepName); put("title", request.workflowName)
             put("description", request.message.ifBlank { "Approval required" })
@@ -28,7 +28,7 @@ class RunnerApprovalHandler(private val ipc: RunnerIpc, private val gate: Runner
                 buildJsonObject { put("group", group.name); put("item", item) }
             } }))
         }, "approvalDecision", (request.timeout?.toLongOrNull() ?: 86400L) * 1000)
-        require(decision.string("idempotencyKey") == request.approvalId && decision.long("decisionVersion") >= 1) { "Approval decision does not match request" }
+        require(decision.string("idempotencyKey") == request.approvalId && decision.long("decisionVersion") >= 1 && decision.string("occurrenceId") == (request.occurrenceId ?: request.approvalId)) { "Approval decision does not match request" }
         val groups = request.reviewableGroups.map { it.name }.toSet()
         val edits = decision.array("editedItems").map { it.jsonObject }
         require(edits.all { it.string("group") in groups }) { "Decision edited unknown approval group" }

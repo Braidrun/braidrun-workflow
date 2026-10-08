@@ -13,7 +13,7 @@ import java.time.Instant
 import kotlin.test.*
 
 class WorkflowHostTest {
-    private class Host(private val directory: Path) : WorkflowHost {
+    internal class Host(private val directory: Path) : WorkflowHost {
         override val binding = WorkflowHostBinding("owner", "actor", "billing", "root", "runner", "instance", 0, "attempt", "a".repeat(64), "b".repeat(64))
         val checks = mutableListOf<Pair<WorkflowHostScope, String>>()
         val checkpoints = mutableListOf<WorkflowHostCheckpoint>()

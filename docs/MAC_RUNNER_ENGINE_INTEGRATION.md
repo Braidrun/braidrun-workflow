@@ -132,3 +132,44 @@ CLI progress currently reaches the JVM after registered exit/full capture. This 
 must be completed by a coordinated platform/supervisor contract revision, not a private engine
 protocol. Skill hooks/MCP/containers and remaining connector modules are unfinished capability
 work, not considered complete by rejection. Keep feature disabled until complete acceptance.
+
+Interactive preparation uses `WorkflowInteractiveProcess` and `RunnerBytePipe` with explicit
+bounded backlog, EOF and cancellation wakeup; no unapproved wire fields were added. Hosted MCP
+registration routes through `WorkflowHost.mcpTransport` and fails explicitly, never ProcessBuilder
+or silently missing tools. Hook execution routes through admitted script + scoped supervised
+executor, inheriting the current child/step and cancellation job. Static skill config is confined
+to frozen bundle skills; ambient HOME discovery, downloads/upgrades, hook auto-execution and
+skill admin mutation cannot widen it. Full hook/MCP activation still awaits the interactive
+protocol and per-client acceptance. Ordinary non-hosted hook/MCP behavior is retained.
+
+## Official interactive extension implementation
+
+Current wire pin: `261b43bbc9ccc492ad658e42cca821174da6ef5e` (22 shared fixtures).
+Approval payloads now carry explicit occurrenceId, and decisions must match it as well as the
+persisted key/version. Existing occurrence cursors and pending request state remain checkpointed.
+
+`RunnerInteractiveProcesses` uses only processOpen/Started/Output/OutputAck/Input/InputAck/
+Cancel/Closed from that pin. Binary chunks validate base64 length/hash and global per-process
+sequence; stdout/stderr consumption advances only the contiguous consumed prefix. Duplicate
+unchanged output can re-ACK without refeeding bytes. Input and EOF are chunked, written once,
+and require WRITTEN with exact sequence/length/eof; uncertain/rejected delivery latches authority
+loss without automatic resend. Registered close requires matching sequence and confirmed scope
+exit; it never proves the still-live root JVM stopped. Independent lease/environment supervision
+remains active. Per-process queues, chunks, total bytes and process count are bounded.
+
+The native adapter uses the interactive path for live stdout callbacks and large stdin; one-shot
+captures retain the verified ACK artifact reader. MCP SDK StdioClientTransport is backed by these
+registered channels, with owned close requests. Scope/job context reaches model tools, MCP and
+hooks. Static skills retain declared selection while HOME scanning, registry downloads/upgrades,
+script auto-execution and admin mutation are withheld; full skill inventory hashes are checked.
+Hook scripts have an injected supervised route and fail explicitly rather than spawning bare
+processes. HTTP MCP, bundled auto-start daemons, containers and browser remain unaccepted scope.
+
+Latest evidence: 77 scoped engine/library tests pass, including SDK MCP initialize/tool catalog
+through hosted byte channels, interactive binary order/consumption ACK, uncertain input no replay,
+bounded backlog/EOF/cancel wakeup, scoped hook delegation, static skill policy, 22 contract fixtures,
+subscription/capture tests and legacy hook/MCP/auth/sandbox/Jev regressions. Compile/installDist
+pass. Log `/tmp/mac-runner-engine-interactive-test.log`. These use controlled protocol/provider
+fixtures; platform owns actual fixed-source JVM/Python/HTTP/Mongo/package and full App Factory
+acceptance. This is a component implementation handoff, not a complete App Factory rollout or
+real-account acceptance. No deployment/publishing/activation/existing Runner upgrade occurred.

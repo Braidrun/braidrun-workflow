@@ -17,7 +17,7 @@ class RunnerAdaptersTest {
             val request = harness.next(); assertEquals(2, request.obj("payload").array("editableColumns").size)
             assertEquals("approved", request.obj("payload").array("editableColumns")[0].jsonObject.obj("definition").string("outputVar"))
             harness.ipc.accept(RunnerProtocolTest.frame(harness.binding, "approvalDecision", buildJsonObject {
-                put("approvalId", "human"); put("idempotencyKey", "approval-key"); put("decisionVersion", 2); put("decision", "APPROVE")
+                put("approvalId", "human"); put("occurrenceId", "approval-key"); put("idempotencyKey", "approval-key"); put("decisionVersion", 2); put("decision", "APPROVE")
                 put("editMode", "REPLACE"); put("editedItems", JsonArray(emptyList())); put("comment", "no selected rows")
                 put("decidedBy", "human"); put("decidedAt", Instant.now().toString())
             })) // supervisor command path correlates by durable idempotencyKey

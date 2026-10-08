@@ -69,7 +69,7 @@ class RunnerIpc(
         protocol.validate(frame, "ipcFrame")
         if (frame.obj("binding") != binding || closed.get()) throw RunnerProtocolException()
         val allowed = setOf("start", "resume", "ack", "approvalDecision", "userResponse", "credentialGrant", "cancel", "environmentInvalidated", "error",
-            "leaseRenewed", "environmentRefreshed", "processStarted", "processExited", "outputValue", "outputAck", "callbackTokenGrant")
+            "leaseRenewed", "environmentRefreshed", "processStarted", "processExited", "processOutput", "processInputAck", "processClosed", "outputValue", "outputAck", "callbackTokenGrant")
         if (frame.string("type") !in allowed) throw RunnerProtocolException()
         val id = frame.string("frameId")
         val digest = sha256(canonical(frame).toByteArray())
@@ -79,7 +79,7 @@ class RunnerIpc(
         if (seen.size >= MAX_INBOUND_IDENTITIES) throw RunnerProtocolException()
         seen[id] = digest
         val replyTo = frame["replyTo"]?.jsonPrimitive?.content
-        if (frame.string("type") in setOf("cancel", "environmentInvalidated", "leaseRenewed", "environmentRefreshed", "processExited")) {
+        if (frame.string("type") in setOf("cancel", "environmentInvalidated", "leaseRenewed", "environmentRefreshed", "processExited", "processOutput", "processClosed")) {
             onControl(frame)
         } else if (replyTo != null) {
             val request = pending[replyTo] ?: run {
@@ -99,7 +99,7 @@ class RunnerIpc(
                 if (requests.size > 1) throw RunnerProtocolException()
                 requests.singleOrNull()?.let { pending.remove(it.key)?.response?.complete(frame.obj("payload")) }
             } else {
-                if (frame.string("type") in setOf("credentialGrant", "processStarted", "outputValue", "outputAck", "callbackTokenGrant")) throw RunnerProtocolException()
+                if (frame.string("type") in setOf("credentialGrant", "processStarted", "processInputAck", "outputValue", "outputAck", "callbackTokenGrant")) throw RunnerProtocolException()
                 onControl(frame)
             }
         }

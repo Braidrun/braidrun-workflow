@@ -615,6 +615,22 @@ class BraidrunHookExecutor(private val config: SkillsConfiguration = SkillsConfi
 
         return try {
             val contextJson = buildContextJson(context)
+            com.fartech.agents.workflow.WorkflowHostContext.current?.let { host ->
+                val scope = com.fartech.agents.workflow.WorkflowHostContext.scope
+                    ?: com.fartech.agents.workflow.WorkflowHostScope(host.binding.executionId, host.binding.executionId)
+                host.scriptContents(scriptPath.toAbsolutePath().toString()) // admitted immutable script, not an arbitrary host file
+                val result = kotlinx.coroutines.runBlocking(com.fartech.agents.workflow.WorkflowHostContext.job ?: kotlin.coroutines.EmptyCoroutineContext) {
+                    host.beforeOperation(scope, "skill_hook")
+                    host.subprocessExecutor.execute(com.fartech.agents.tools.exec.SubprocessExecutor.ExecRequest(
+                        command = cmd, workingDir = java.io.File(context.workspaceDir.ifBlank { scriptPath.parent.toString() }),
+                        stdin = contextJson, timeoutSeconds = config.hookTimeoutSeconds.toLong(), env = host.codeEnvironment,
+                        admissionKind = "SKILL_HOOK"
+                    ))
+                }
+                check(result.exitCode == 0) { "Supervised hook failed" }
+                require(result.stdout.toByteArray().size <= MAX_HOOK_STREAM_BYTES) { "Supervised hook output exceeds limit" }
+                return parseScriptResult(result.stdout)
+            }
             val process = ProcessBuilder(cmd).redirectErrorStream(false).start()
 
             // Write context JSON to stdin, then close the stream so the script sees EOF.
@@ -668,6 +684,7 @@ class BraidrunHookExecutor(private val config: SkillsConfiguration = SkillsConfi
             logProgress(AnsiColor.GREEN, "Hooks", "✓ Executed handler ($ext): ${hook.name}")
             parseScriptResult(stdout)
         } catch (e: Exception) {
+            if (com.fartech.agents.workflow.WorkflowHostContext.current != null) throw e
             logProgress(AnsiColor.YELLOW, "Hooks", "⚠ Failed to run handler [${hook.name}]: ${e.message}")
             null
         }

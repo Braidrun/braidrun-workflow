@@ -7390,9 +7390,9 @@ class WorkflowExecutor(
         stepName: String,
         input: String,
         directoryIsolation: DirectoryIsolationConfig = DirectoryIsolationConfig()
-    ): String {
+    ): String = WorkflowHostContext.withScope(hostScope(context, stepName)) {
         if (agentDef.isClaudeCodeAgent()) {
-            return runClaudeCodeAgentStep(
+            return@withScope runClaudeCodeAgentStep(
                 agentName = agentName,
                 agentDef = agentDef,
                 context = context,
@@ -7403,7 +7403,7 @@ class WorkflowExecutor(
         }
 
         if (agentDef.isCodexAgent()) {
-            return runCodexAgentStep(
+            return@withScope runCodexAgentStep(
                 agentName = agentName,
                 agentDef = agentDef,
                 context = context,
@@ -7421,7 +7421,7 @@ class WorkflowExecutor(
             directoryIsolation = directoryIsolation
         )
         val output = runManagedAgent(managedAgent, input)
-        return enrichAgentOutputWithExitToolPayload(context.executionId, stepName, output)
+        enrichAgentOutputWithExitToolPayload(context.executionId, stepName, output)
     }
 
     private suspend fun runClaudeCodeAgentStep(
@@ -9203,7 +9203,8 @@ class WorkflowExecutor(
             approvers = approvalConfig.approvers,
             requestedAt = System.currentTimeMillis(),
             timeout = approvalConfig.timeout.toString(),
-            reviewableGroups = reviewableGroups
+            reviewableGroups = reviewableGroups,
+            occurrenceId = if (host != null) approvalId.substringAfterLast(':') else null
         )
 
         host?.checkpoint(hostSavepoint(
@@ -9746,7 +9747,8 @@ data class ApprovalRequest(
      * 文件读出来塞进 items,审批 UI 直接渲染即可。每组保留 outputVar 以便审批人决定后引擎
      * 把编辑结果写回对应输出变量。
      */
-    val reviewableGroups: List<ReviewablePayloadGroup> = emptyList()
+    val reviewableGroups: List<ReviewablePayloadGroup> = emptyList(),
+    val occurrenceId: String? = null
 )
 
 /**

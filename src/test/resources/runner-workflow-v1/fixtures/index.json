@@ -13,5 +13,12 @@
   "invalid/secret-in-environment.json": "environment",
   "invalid/unknown-version.json": "ipcFrame",
   "invalid/unknown-frame.json": "ipcFrame",
-  "invalid/report-execution-authority.json": "report"
+  "invalid/report-execution-authority.json": "report",
+  "valid/process-output.json": "processOutput",
+  "valid/process-input-eof.json": "processInput",
+  "valid/process-uncertain-input.json": "processInputAck",
+  "invalid/process-zero-sequence.json": "processOutput",
+  "invalid/process-secret-channel.json": "processOutput",
+  "invalid/process-oversize-chunk.json": "processOutput",
+  "valid/process-output-frame.json": "ipcFrame"
 }

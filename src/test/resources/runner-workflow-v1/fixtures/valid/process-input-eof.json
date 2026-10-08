@@ -1,0 +1,10 @@
+{
+  "requestId": "interactive-1",
+  "registrationId": "registered-1",
+  "inputSeq": 1,
+  "encoding": "base64",
+  "dataBase64": "",
+  "decodedBytes": 0,
+  "dataHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "eof": true
+}

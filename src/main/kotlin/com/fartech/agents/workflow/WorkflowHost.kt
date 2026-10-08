@@ -16,6 +16,10 @@ interface WorkflowHost {
     fun claudeCredentialsFor(scope: WorkflowHostScope): ClaudeCredentialProvider? = claudeCredentials
     fun codexCredentialsFor(scope: WorkflowHostScope): ClaudeCredentialProvider? = codexCredentials
     fun codexAuthRotationFor(scope: WorkflowHostScope): ((String?, String) -> Unit)? = codexAuthRotation
+    suspend fun interactiveProcess(scope: WorkflowHostScope, request: SubprocessExecutor.ExecRequest): WorkflowInteractiveProcess =
+        throw IllegalStateException("Host interactive process transport is not adapted")
+    suspend fun mcpTransport(scope: WorkflowHostScope, name: String, config: com.fartech.agents.commons.McpServerConfig): io.modelcontextprotocol.kotlin.sdk.shared.Transport =
+        throw IllegalStateException("Host MCP transport is not adapted")
     val binding: WorkflowHostBinding
     val approvalHandler: ApprovalHandler
     val outputPublisher: WorkflowOutputPublisher

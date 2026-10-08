@@ -25,7 +25,7 @@ class RunnerCheckpointStore(private val root: Path, private val binding: JsonObj
             put("executionId", checkpoint.scope.executionId); put("safeToResume", checkpoint.safeToResume)
             put("state", state)
             put("pendingApprovals", JsonArray(checkpoint.pendingApprovals.map { request -> buildJsonObject {
-                put("approvalId", request.approvalId); put("workflowName", request.workflowName); put("executionId", request.executionId)
+                put("approvalId", request.approvalId); put("occurrenceId", request.occurrenceId?.let(::JsonPrimitive) ?: JsonNull); put("workflowName", request.workflowName); put("executionId", request.executionId)
                 put("stepName", request.stepName); put("message", request.message); put("approvers", JsonArray(request.approvers.map(::JsonPrimitive)))
                 put("requestedAt", request.requestedAt); put("timeout", request.timeout?.let(::JsonPrimitive) ?: JsonNull)
                 put("reviewableGroups", JsonArray(request.reviewableGroups.map { group -> buildJsonObject {

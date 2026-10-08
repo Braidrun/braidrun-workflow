@@ -84,7 +84,7 @@ class RunnerEnvironmentGate(
 class RunnerAdmission(
     private val resolver: WorkflowResolver,
     private val capabilities: Set<String>,
-    private val approvedTools: Set<String> = setOf("exit", "user_interaction", "workflow"),
+    private val approvedTools: Set<String> = setOf("exit", "user_interaction", "workflow", "skill_tools"),
     private val maximumDepth: Int = WorkflowExecutor.DEFAULT_MAX_SUB_WORKFLOW_DEPTH
 ) {
     fun inspect(root: WorkflowDefinition): Set<String> {
@@ -120,10 +120,26 @@ class RunnerAdmission(
             val json = runnerJson.encodeToJsonElement(AgentDefinition.serializer(), agent)
             fun services(node: JsonElement) {
                 if (node is JsonObject) node.forEach { (key, value) ->
-                    if (key in setOf("mcp_servers", "skills_config", "redis_client_url", "langfuse_url", "mongo_connection_string", "sql_jdbc_url") && value != JsonNull) {
+                    if (key == "skills_config" && value != JsonNull) {
+                        val config = runnerJson.decodeFromJsonElement(com.fartech.agents.commons.SkillsConfiguration.serializer(), value)
+                        if (config.enabled) requireCapability("skill.text.v1")
+                        require(!config.scanStandardPaths && config.additionalSkillPaths.isEmpty() && !config.autoSearchDownload && !config.autoUpgrade && !config.hookScriptExecutionEnabled) { "Skill side effects/ambient discovery need separate supervised admission" }
+                    }
+                    if (key == "mcp_servers" && value != JsonNull) {
+                        requireCapability("service.mcp_servers.v1")
+                        val servers = value.jsonObject
+                        servers.values.forEach { server ->
+                            val config = runnerJson.decodeFromJsonElement(com.fartech.agents.commons.McpServerConfig.serializer(), server)
+                            if (config.enabled) {
+                                require(config.url.isNullOrBlank()) { "HTTP MCP adapter not yet accepted" }
+                                requireCapability("mcp.stdio.v1")
+                            }
+                        }
+                    }
+                    if (key in setOf("redis_client_url", "langfuse_url", "mongo_connection_string", "sql_jdbc_url") && value != JsonNull) {
                         requireCapability("service.$key.v1")
                     }
-                    if ((key.endsWith("_api_key") || key.endsWith("_secret") || key.endsWith("_password") || key.endsWith("_token") || key.endsWith("_auth_json") || key == "llm_provider_keys") && value != JsonNull && value.toString() !in setOf("{}", "\"\"")) {
+                    if ((key.lowercase() in setOf("token", "api_key", "password", "authorization", "authjson") || key.lowercase().endsWith("_api_key") || key.lowercase().endsWith("_secret") || key.lowercase().endsWith("_password") || key.lowercase().endsWith("_token") || key.lowercase().endsWith("_auth_json") || key == "llm_provider_keys") && value != JsonNull && value.toString() !in setOf("{}", "\"\"")) {
                         val refs = if (value is JsonObject) value.values else listOf(value)
                         require(refs.all { it is JsonPrimitive && it.isString && CREDENTIAL_REFERENCE.matches(it.content) }) { "Secrets must be leased at runtime" }
                     }

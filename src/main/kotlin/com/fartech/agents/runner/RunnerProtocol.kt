@@ -26,7 +26,7 @@ class RunnerProtocol {
 
     init {
         fun checkRule(rule: JsonObject) {
-            val supported = setOf("\$schema", "\$id", "\$defs", "\$ref", "oneOf", "type", "properties", "required", "additionalProperties", "const", "enum", "items", "minLength", "pattern", "format", "minimum", "maximum", "minItems", "maxItems", "title", "description")
+            val supported = setOf("\$schema", "\$id", "\$defs", "\$ref", "oneOf", "type", "properties", "required", "additionalProperties", "const", "enum", "items", "minLength", "maxLength", "pattern", "format", "minimum", "maximum", "minItems", "maxItems", "title", "description")
             require(rule.keys.all { it in supported }) { "Pinned runner schema uses unsupported vocabulary" }
             rule["\$defs"]?.jsonObject?.values?.forEach { checkRule(it.jsonObject) }
             rule["properties"]?.jsonObject?.values?.forEach { checkRule(it.jsonObject) }
@@ -82,6 +82,7 @@ class RunnerProtocol {
         if (value is JsonPrimitive && value.isString) {
             val s = value.content
             rule["minLength"]?.let { if (s.codePointCount(0, s.length) < it.jsonPrimitive.int) return false }
+            rule["maxLength"]?.let { if (s.codePointCount(0, s.length) > it.jsonPrimitive.int) return false }
             rule["pattern"]?.let { if (!Regex(it.jsonPrimitive.content).containsMatchIn(s)) return false }
             if (rule["format"] == JsonPrimitive("date-time") && runCatching { Instant.parse(s) }.isFailure) return false
         }

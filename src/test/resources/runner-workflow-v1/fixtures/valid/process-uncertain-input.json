@@ -1,0 +1,8 @@
+{
+  "requestId": "interactive-1",
+  "registrationId": "registered-1",
+  "inputSeq": 1,
+  "writtenBytes": 0,
+  "eof": false,
+  "state": "DELIVERY_UNCERTAIN"
+}

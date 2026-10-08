@@ -44,6 +44,7 @@ class RunnerHostSession(
     @Volatile private var execution: Job? = null
     @Volatile private var host: RunnerWorkflowHost? = null
     @Volatile private var processes: RunnerProcesses? = null
+    @Volatile private var interactive: RunnerInteractiveProcesses? = null
     private lateinit var ipc: RunnerIpc
     private fun stop(reason: String = "RUNNER_AUTHORITY_LOST") {
         stopReason.compareAndSet(null, reason)
@@ -60,6 +61,8 @@ class RunnerHostSession(
             "leaseRenewed" -> requireNotNull(gate).installLease(payload.obj("lease"))
             "ack" -> requireNotNull(host).acknowledge(payload)
             "processExited" -> requireNotNull(processes).exited(payload)
+            "processOutput" -> requireNotNull(interactive).output(payload)
+            "processClosed" -> requireNotNull(interactive).closed(payload)
             else -> throw RunnerProtocolException()
         }
     }
@@ -87,13 +90,15 @@ class RunnerHostSession(
                 binding.string("attemptId"), binding.string("definitionHash"), binding.string("runtimeHash"))
             val store = RunnerCheckpointStore(directory, binding, secrets)
             val artifactReader = RunnerArtifactReader(directory, binding, secrets)
-            val processAdapter = RunnerProcesses(ipc, directory, environment) { id, logicalPath ->
+            val channels = RunnerInteractiveProcesses(ipc, directory, environment, secrets, ownerJob = currentCoroutineContext()[Job])
+            interactive = channels
+            val processAdapter = RunnerProcesses(ipc, directory, environment, interactive = channels) { id, logicalPath ->
                 try { artifactReader.read(id, logicalPath) } catch (_: Exception) {
                     environment.invalidate("RUNNER_CAPTURE_INTEGRITY_FAILED"); throw RunnerAuthorityLost()
                 }
             }
             processes = processAdapter
-            val runtime = RunnerWorkflowHost(ipc, identity, environment, bundle, CAPABILITIES, processAdapter, store, secrets)
+            val runtime = RunnerWorkflowHost(ipc, identity, environment, bundle, CAPABILITIES, processAdapter, store, secrets, interactiveBroker = channels)
             host = runtime
             runtime.emit("environment", buildJsonObject {
                 put("environmentCheckId", payload.obj("environment").string("environmentCheckId"))
@@ -140,7 +145,7 @@ class RunnerHostSession(
                 })
                 ipc.drain()
                 if (status == "COMPLETED") 0 else 1
-            } finally { monitor.cancel(); execution = null; runtime.close() }
+            } finally { monitor.cancel(); execution = null; channels.close(); runtime.close() }
         } finally { ipc.close() }
     }
     private fun unconfirmedReceipt(): JsonObject = buildJsonObject {
@@ -151,6 +156,6 @@ class RunnerHostSession(
     }
     companion object {
         // Each optional adapter is deliberately absent until its transport and real acceptance pass.
-        val CAPABILITIES = linkedSetOf("workflow.full.v1", "step.agent.v1", "model.http.v1", "agent.codex.v1", "agent.claude.v1", "tool.exit.v1", "tool.workflow.v1", "tool.user_interaction.v1", "step.script.v1", "step.subWorkflow.v1", "step.stateMachine.v1", "interaction.approval.v1", "output.read.v1", "output.publish.v1")
+        val CAPABILITIES = linkedSetOf("workflow.full.v1", "step.agent.v1", "model.http.v1", "agent.codex.v1", "agent.claude.v1", "tool.exit.v1", "tool.workflow.v1", "tool.user_interaction.v1", "skill.text.v1", "tool.skill_tools.v1", "service.mcp_servers.v1", "mcp.stdio.v1", "process.interactive.v1", "step.script.v1", "step.subWorkflow.v1", "step.stateMachine.v1", "interaction.approval.v1", "output.read.v1", "output.publish.v1")
     }
 }

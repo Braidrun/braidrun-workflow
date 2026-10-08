@@ -141,7 +141,7 @@ object WorkflowHostPolicy {
 
     /** Whether the mutating skill tools may be registered for, and called by, a model. */
     val allowsSkillAdminTools: Boolean
-        get() = !skillSideEffectsRestricted
+        get() = !skillSideEffectsRestricted && WorkflowHostContext.current == null
 
     /** True once the host declared [requirePublicServiceEndpoints]. */
     val requiresPublicServiceEndpoints: Boolean

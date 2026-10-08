@@ -689,6 +689,10 @@
             ],
             "additionalProperties": false
           }
+        },
+        "occurrenceId": {
+          "type": "string",
+          "minLength": 1
         }
       },
       "required": [
@@ -698,7 +702,8 @@
         "title",
         "description",
         "editableColumns",
-        "items"
+        "items",
+        "occurrenceId"
       ],
       "additionalProperties": false
     },
@@ -764,6 +769,10 @@
             "AS_IS",
             "REPLACE"
           ]
+        },
+        "occurrenceId": {
+          "type": "string",
+          "minLength": 1
         }
       },
       "required": [
@@ -775,7 +784,8 @@
         "decidedBy",
         "decidedAt",
         "comment",
-        "editMode"
+        "editMode",
+        "occurrenceId"
       ],
       "additionalProperties": false
     },
@@ -2838,6 +2848,237 @@
             "payload"
           ],
           "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "protocolVersion": {
+              "const": 1
+            },
+            "frameId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "type": {
+              "const": "processOpen"
+            },
+            "binding": {
+              "$ref": "#/$defs/binding"
+            },
+            "replyTo": {
+              "type": "string",
+              "minLength": 1
+            },
+            "payload": {
+              "$ref": "#/$defs/processOpen"
+            }
+          },
+          "required": [
+            "protocolVersion",
+            "frameId",
+            "type",
+            "binding",
+            "payload"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "protocolVersion": {
+              "const": 1
+            },
+            "frameId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "type": {
+              "const": "processOutput"
+            },
+            "binding": {
+              "$ref": "#/$defs/binding"
+            },
+            "replyTo": {
+              "type": "string",
+              "minLength": 1
+            },
+            "payload": {
+              "$ref": "#/$defs/processOutput"
+            }
+          },
+          "required": [
+            "protocolVersion",
+            "frameId",
+            "type",
+            "binding",
+            "payload"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "protocolVersion": {
+              "const": 1
+            },
+            "frameId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "type": {
+              "const": "processOutputAck"
+            },
+            "binding": {
+              "$ref": "#/$defs/binding"
+            },
+            "replyTo": {
+              "type": "string",
+              "minLength": 1
+            },
+            "payload": {
+              "$ref": "#/$defs/processOutputAck"
+            }
+          },
+          "required": [
+            "protocolVersion",
+            "frameId",
+            "type",
+            "binding",
+            "payload"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "protocolVersion": {
+              "const": 1
+            },
+            "frameId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "type": {
+              "const": "processInput"
+            },
+            "binding": {
+              "$ref": "#/$defs/binding"
+            },
+            "replyTo": {
+              "type": "string",
+              "minLength": 1
+            },
+            "payload": {
+              "$ref": "#/$defs/processInput"
+            }
+          },
+          "required": [
+            "protocolVersion",
+            "frameId",
+            "type",
+            "binding",
+            "payload"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "protocolVersion": {
+              "const": 1
+            },
+            "frameId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "type": {
+              "const": "processInputAck"
+            },
+            "binding": {
+              "$ref": "#/$defs/binding"
+            },
+            "replyTo": {
+              "type": "string",
+              "minLength": 1
+            },
+            "payload": {
+              "$ref": "#/$defs/processInputAck"
+            }
+          },
+          "required": [
+            "protocolVersion",
+            "frameId",
+            "type",
+            "binding",
+            "payload"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "protocolVersion": {
+              "const": 1
+            },
+            "frameId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "type": {
+              "const": "processCancel"
+            },
+            "binding": {
+              "$ref": "#/$defs/binding"
+            },
+            "replyTo": {
+              "type": "string",
+              "minLength": 1
+            },
+            "payload": {
+              "$ref": "#/$defs/processCancel"
+            }
+          },
+          "required": [
+            "protocolVersion",
+            "frameId",
+            "type",
+            "binding",
+            "payload"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "protocolVersion": {
+              "const": 1
+            },
+            "frameId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "type": {
+              "const": "processClosed"
+            },
+            "binding": {
+              "$ref": "#/$defs/binding"
+            },
+            "replyTo": {
+              "type": "string",
+              "minLength": 1
+            },
+            "payload": {
+              "$ref": "#/$defs/processClosed"
+            }
+          },
+          "required": [
+            "protocolVersion",
+            "frameId",
+            "type",
+            "binding",
+            "payload"
+          ],
+          "additionalProperties": false
         }
       ]
     },
@@ -3110,6 +3351,327 @@
         "leaseId",
         "expectedRevision",
         "frame"
+      ],
+      "additionalProperties": false
+    },
+    "processOpen": {
+      "type": "object",
+      "properties": {
+        "requestId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "argv": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "relativeCwd": {
+          "type": "string",
+          "minLength": 1
+        },
+        "environment": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "purpose": {
+          "type": "string",
+          "minLength": 1
+        },
+        "timeoutSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 86400
+        },
+        "maxOutputBytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 16777216
+        },
+        "maxPendingBytes": {
+          "type": "integer",
+          "minimum": 32768,
+          "maximum": 2097152
+        },
+        "channelEncoding": {
+          "const": "base64"
+        }
+      },
+      "required": [
+        "requestId",
+        "argv",
+        "relativeCwd",
+        "environment",
+        "purpose",
+        "timeoutSeconds",
+        "maxOutputBytes",
+        "maxPendingBytes",
+        "channelEncoding"
+      ],
+      "additionalProperties": false
+    },
+    "processOutput": {
+      "type": "object",
+      "properties": {
+        "requestId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "registrationId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "outputSeq": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "channel": {
+          "type": "string",
+          "enum": [
+            "stdout",
+            "stderr"
+          ]
+        },
+        "encoding": {
+          "const": "base64"
+        },
+        "dataBase64": {
+          "type": "string",
+          "maxLength": 43692
+        },
+        "decodedBytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 32768
+        },
+        "dataHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      },
+      "required": [
+        "requestId",
+        "registrationId",
+        "outputSeq",
+        "channel",
+        "encoding",
+        "dataBase64",
+        "decodedBytes",
+        "dataHash"
+      ],
+      "additionalProperties": false
+    },
+    "processOutputAck": {
+      "type": "object",
+      "properties": {
+        "requestId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "registrationId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "ackOutputSeq": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "requestId",
+        "registrationId",
+        "ackOutputSeq"
+      ],
+      "additionalProperties": false
+    },
+    "processInput": {
+      "type": "object",
+      "properties": {
+        "requestId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "registrationId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "inputSeq": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "encoding": {
+          "const": "base64"
+        },
+        "dataBase64": {
+          "type": "string",
+          "maxLength": 43692
+        },
+        "decodedBytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 32768
+        },
+        "dataHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "eof": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "requestId",
+        "registrationId",
+        "inputSeq",
+        "encoding",
+        "dataBase64",
+        "decodedBytes",
+        "dataHash",
+        "eof"
+      ],
+      "additionalProperties": false
+    },
+    "processInputAck": {
+      "type": "object",
+      "properties": {
+        "requestId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "registrationId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "inputSeq": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "writtenBytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 32768
+        },
+        "eof": {
+          "type": "boolean"
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "WRITTEN",
+            "DELIVERY_UNCERTAIN",
+            "REJECTED"
+          ]
+        }
+      },
+      "required": [
+        "requestId",
+        "registrationId",
+        "inputSeq",
+        "writtenBytes",
+        "eof",
+        "state"
+      ],
+      "additionalProperties": false
+    },
+    "processCancel": {
+      "type": "object",
+      "properties": {
+        "requestId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "registrationId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "commandId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "gracePeriodMs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 5000
+        }
+      },
+      "required": [
+        "requestId",
+        "registrationId",
+        "commandId",
+        "reason",
+        "gracePeriodMs"
+      ],
+      "additionalProperties": false
+    },
+    "processClosed": {
+      "type": "object",
+      "properties": {
+        "requestId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "registrationId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "exitCode": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "finalOutputSeq": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "stopConfirmed": {
+          "type": "boolean"
+        },
+        "registeredProcesses": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/registeredProcess"
+          }
+        },
+        "unmanagedProcessDetected": {
+          "type": "boolean"
+        },
+        "stdoutArtifactId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "stderrArtifactId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "requestId",
+        "registrationId",
+        "exitCode",
+        "finalOutputSeq",
+        "stopConfirmed",
+        "registeredProcesses",
+        "unmanagedProcessDetected",
+        "stdoutArtifactId",
+        "stderrArtifactId",
+        "reason"
       ],
       "additionalProperties": false
     }
