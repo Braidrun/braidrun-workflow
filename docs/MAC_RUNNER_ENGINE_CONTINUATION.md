@@ -195,3 +195,41 @@ schema。默认仍为原模式；正式 selector 提交后才能接入 mutually-
 真实 start/root/child 新模式。原 NDJSON81d 与哈希完全不变，不缩短 code timeout/budget。
 本批 main 源码已变化，但没有重复 installDist；固定213包仍是旧213实现。集成人应
 按本次源码 SHA 构建，不能将旧分发包标为包含内部新模式。
+
+## cdc4 正式 selector / NDJSON 接线与 8fa P1 修复
+
+P 正式提交 `cdc4f7aea47e282336dce46548a34a716b967c88` 已接入。
+HTTP supplement 原字节嵌入 engine resource，SHA-256
+`13e3d91d1e582253a9f56d5e6de8aae5eac3ee574fd152ea3abec3c336a6b892`；单独 origin 文件
+和 Runner-Late-Control-* JAR 头记录该语义版本。原 NDJSON81d/schema09a3c3f6 未改变。
+
+RunnerHostSession 在业务环境事件/资产执行前解析 requiredCapabilities：
+`control.perCall.v1` 选择内部逐调用模式，与 `control.callback.v1` 互斥。
+ready 只有在本机嵌入补充 schema 哈希精确匹配时才广告 perCall。
+固定拒绝原因码区分 REQUIRED_CAPABILITY_UNAVAILABLE、CONTROL_MODE_CONFLICT 和
+CONTROL_SUPPLEMENT_UNAVAILABLE（均以 RUNNER_ 为前缀，不含输入/秘密）。
+没有 selector 不会隐式启用 perCall；不需要此控制的旧任务保持原行为。
+需要 perCall 的任务缺 selector/具体 provider/补充契约，仍由 S 在 JVM 启动前做正式
+provider 准入；E 不编造一个未定义的 provider-ready 字段或代替 S kernel peer 证明。
+S 当前对应实现仍在其自有分支开发，本批不把只读看到的 WIP 当已完成集成验收。
+
+本机真实 NDJSON/JVM/Bash 夹具验证：perCall root 保留 7000 秒、child 保留 7200 秒，
+实际执行短脚本并完成；短 code 同样不 mint/inject 静态 token。互斥配置、隔离测试资源
+缺少补充 schema 时均在任何业务事件/进程之前拒绝。负例仅使用独立测试资源副本，
+没有修改真实 JAR/资源目录。原始 code_start 所属 RunnerEvent.eventId 在本机事件文件
+持久化后发送，值与 IPC frameId 不同，原 child invocation/step 均保留；测试核对逐字节
+落盘 frame 和启动顺序。S 必须取得 P 的原事件持久 ACK 才发 grant，本批只模拟 ACK，
+没有把本地 durable 文件冒充平台 HTTP/Mongo 持久化。
+
+8fa 限定复核 P1 已修复：reserved() 先剥离真实 `__FILE` 再处理兼容 `_FILE`，覆盖
+WF_API_TOKEN__FILE、WF_VAR_WF_API_TOKEN__FILE、WF_VAR_EXECUTION_API_TOKEN__FILE。
+测试在参数、root/input/static/dynamic child 变量、final overlay 和 prepare 返回值中
+注入指向可读假 token 文件的真实别名。root/static/dynamic 的普通大业务变量都实际
+spill，Bash 桥之后无 callback authority；Python/Node 实际桥读取大业务值正常、无法
+恢复旧 token。没有关闭普通 spill，没有裁剪 timeout，也未修改 SERVER legacy 路径。
+复核原文：coordination 同级 `reviews/engine-percall-8fa0dd9a.md`。
+
+最终 4 类 / 22 tests 全通过，零失败/错误/跳过：headless 10、negotiation 3、
+late-code/spill/cancel 6、legacy callback 3。仅定向测试，不全面重跑。
+新源码需新 installDist；新包/hash 与固定源码由独立批次 receipt 和 coordination 记录。
+原213不含8fa/cdc4接线，不能复用其哈希宣称本批分发完成。无部署/启用/存量升级。

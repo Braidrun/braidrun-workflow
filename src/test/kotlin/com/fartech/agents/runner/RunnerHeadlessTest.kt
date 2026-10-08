@@ -19,8 +19,16 @@ class RunnerHeadlessTest {
     @Test fun `authorized root callback completes when result does not echo token`(@TempDir directory: Path) = runFixture(directory, true, false, false)
     @Test fun `authorized child callback completes with its signed invocation scope`(@TempDir directory: Path) = runFixture(directory, true, true, false)
 
-    private fun runFixture(directory: Path, callbackEnabled: Boolean, childScope: Boolean = false, echoSecret: Boolean = callbackEnabled) {
+    @Test fun `per-call NDJSON root retains 7000 timeout without static callback token`(@TempDir directory: Path) = runFixture(directory, false, perCall = true, codeTimeout = 7000)
+    @Test fun `per-call NDJSON child retains 7200 timeout and durable original code event identity`(@TempDir directory: Path) = runFixture(directory, false, childScope = true, perCall = true, codeTimeout = 7200)
+    @Test fun `per-call short code also receives no static token`(@TempDir directory: Path) = runFixture(directory, false, perCall = true)
+    @Test fun `conflicting callback modes refuse NDJSON start before any business event`(@TempDir directory: Path) = runFixture(directory, true, echoSecret = false, perCall = true, rejectStart = true)
+
+    @Test fun `missing packaged supplement refuses per-call NDJSON before business execution`(@TempDir directory: Path) = runFixture(directory, false, perCall = true, rejectStart = true, missingSupplement = true)
+
+    private fun runFixture(directory: Path, callbackEnabled: Boolean, childScope: Boolean = false, echoSecret: Boolean = callbackEnabled, perCall: Boolean = false, codeTimeout: Int = 30, rejectStart: Boolean = false, missingSupplement: Boolean = false) {
         val callbackEcho = if (echoSecret) "printf \"%s\\n\" \"${'$'}WF_API_TOKEN\"; printf \"%s\\n\" \"${'$'}WF_API_TOKEN\" >&2; " else ""
+        val absence = if (perCall) "test -z \"${'$'}{WF_API_TOKEN+x}\"; test -z \"${'$'}{WF_VAR_WF_API_TOKEN+x}\"; " else ""
         val body = """
             name: headless-offline
             agents: {}
@@ -32,7 +40,8 @@ class RunnerHeadlessTest {
                   approval_message: Offline fixture approval
                 code:
                   language: bash
-                  script: '${callbackEcho}printf "engine-local-proof\\n"; pwd'
+                  timeout: $codeTimeout
+                  script: '${absence}${callbackEcho}printf "engine-local-proof\\n"; pwd'
         """.trimIndent()
         Files.writeString(directory.resolve("root.yaml"), if (childScope) """
             name: callback-parent
@@ -45,6 +54,8 @@ class RunnerHeadlessTest {
         if (childScope) Files.writeString(directory.resolve("child.yaml"), body)
         val bytes = Files.readAllBytes(directory.resolve("root.yaml")); val hash = sha256(bytes)
         val binding = JsonObject(RunnerProtocolTest.binding() + ("definitionHash" to JsonPrimitive(hash)))
+        val oldTokenFile = directory.resolve(".runner-private/old-token")
+        if (perCall) { Files.createDirectories(oldTokenFile.parent); Files.writeString(oldTokenFile, "STALE_ndjson_file_secret") }
         val bindingPath = directory.resolve("binding.json"); Files.writeString(bindingPath, binding.toString())
         val definitionFiles = if (childScope) listOf("root" to "root.yaml", "child" to "child.yaml") else listOf("root" to "root.yaml")
         val manifest = buildJsonObject {
@@ -58,7 +69,24 @@ class RunnerHeadlessTest {
             } }))
         }
         val bundle = JsonObject(manifest + ("bundleHash" to JsonPrimitive(sha256(canonical(manifest).toByteArray()))))
-        val classpath = requireNotNull(System.getProperty("runner.test.runtimeClasspath"))
+        var classpath = requireNotNull(System.getProperty("runner.test.runtimeClasspath"))
+        if (missingSupplement) {
+            // Negative packaging fixture only: never edit the real resource tree or installed JAR.
+            val original = Path.of(javaClass.getResource("/runner-workflow-v1/late-control.schema.json")!!.toURI()).parent.parent.toRealPath()
+            val replacement = directory.resolve("fixture-resources")
+            Files.walk(original).use { paths -> paths.forEach { source ->
+                val relative = original.relativize(source)
+                if (relative.toString() != "runner-workflow-v1/late-control.schema.json") {
+                    val target = replacement.resolve(relative)
+                    if (Files.isDirectory(source)) Files.createDirectories(target) else Files.copy(source, target)
+                }
+            } }
+            var replaced = false
+            classpath = classpath.split(java.io.File.pathSeparator).joinToString(java.io.File.pathSeparator) { entry ->
+                if (Files.exists(Path.of(entry)) && Path.of(entry).toRealPath() == original) { replaced = true; replacement.toString() } else entry
+            }
+            assertTrue(replaced)
+        }
         val process = ProcessBuilder(Path.of(System.getProperty("java.home"), "bin", "java").toString(), "-cp", classpath, "com.fartech.agents.runner.RunnerHostMainKt", "--binding", bindingPath.toString())
             .directory(directory.toFile()).redirectError(directory.resolve("stderr.log").toFile()).start()
         val scheduler = java.util.concurrent.Executors.newSingleThreadScheduledExecutor()
@@ -73,10 +101,21 @@ class RunnerHeadlessTest {
             val baseEnvironment = RunnerProtocolTest.environment(binding, now)
             val environment = JsonObject(baseEnvironment + ("egress" to JsonArray(baseEnvironment.array("egress") + JsonObject(baseEnvironment.array("egress")[0].jsonObject + ("pathId" to JsonPrimitive("subprocess"))))))
             val originalAuthorization = runnerJson.parseToJsonElement(RunnerProtocolTest.resource("fixtures/valid/claim.json")).jsonObject.obj("authorization")
-            val authorization = if (callbackEnabled) JsonObject(originalAuthorization + ("requiredCapabilities" to
-                JsonArray(originalAuthorization.array("requiredCapabilities") + JsonPrimitive("control.callback.v1")))) else originalAuthorization
+            assertEquals(!missingSupplement, ready.obj("payload").array("capabilities").any { it.jsonPrimitive.content == "control.perCall.v1" })
+            val requested = originalAuthorization.array("requiredCapabilities") +
+                (if (callbackEnabled) listOf(JsonPrimitive("control.callback.v1")) else emptyList()) +
+                (if (perCall) listOf(JsonPrimitive("control.perCall.v1")) else emptyList())
+            val authorization = JsonObject(originalAuthorization + ("requiredCapabilities" to JsonArray(requested)))
             send("start", buildJsonObject { put("bundle", bundle); put("executionDirectory", directory.toString()); put("environment", environment)
-                put("authorization", authorization); put("lease", RunnerProtocolTest.lease(now)); put("inputs", JsonObject(emptyMap())) })
+                put("authorization", authorization); put("lease", RunnerProtocolTest.lease(now)); put("inputs", if (perCall) buildJsonObject { put("WF_API_TOKEN", "STALE_ndjson_input"); put("execution_api_token", "STALE_ndjson_alias"); put("WF_API_TOKEN__FILE", oldTokenFile.toString()); put("WF_VAR_WF_API_TOKEN__FILE", oldTokenFile.toString()); put("WF_VAR_EXECUTION_API_TOKEN__FILE", oldTokenFile.toString()); put("large", "spill-proof-".repeat(20000)) } else JsonObject(emptyMap())) })
+            if (rejectStart) {
+                assertNull(reader.readLine(), "Rejected negotiation must produce no business frames")
+                assertTrue(process.waitFor(5, TimeUnit.SECONDS)); assertEquals(2, process.exitValue())
+                assertFalse(Files.exists(directory.resolve(".runner-state/events")))
+                assertTrue(Files.readString(directory.resolve("stderr.log")).contains(if (missingSupplement) "RUNNER_CONTROL_SUPPLEMENT_UNAVAILABLE" else "RUNNER_CONTROL_MODE_CONFLICT"))
+                return
+            }
+            var codeStartEvent: JsonObject? = null
             var redactedEchoEvent = false; var callbackRequested = false; var launched = false; var stepProof = false; var approved = false; var result: JsonObject? = null
             while (true) {
                 val line = reader.readLine() ?: break
@@ -108,6 +147,16 @@ class RunnerHeadlessTest {
                         }, frame.string("frameId"))
                     }
                     "processLaunch" -> {
+                        assertEquals(codeTimeout.toLong(), payload.long("timeoutSeconds"))
+                        val originalEvent = assertNotNull(codeStartEvent, "Code start must precede registered launch")
+                        assertNotEquals(originalEvent.string("frameId"), originalEvent.obj("payload").string("eventId"))
+                        if (perCall) {
+                            assertFalse(payload.toString().contains("STALE_ndjson"))
+                            assertFalse(payload.obj("environment").toString().contains(oldTokenFile.toString()))
+                            Files.walk(directory.resolve(payload.string("relativeCwd"))).use { paths -> paths.filter { Files.isRegularFile(it) }.forEach { path ->
+                                assertFalse(Files.readString(path).contains("STALE_ndjson"), "Old token entered script/spill")
+                            } }
+                        }
                         assertEquals(callbackEnabled, payload.obj("environment").containsKey("WF_API_TOKEN"))
                         if (callbackEnabled) assertEquals("fake-code-callback-token", payload.obj("environment").string("WF_API_TOKEN"))
                         assertFalse(launched); launched = true
@@ -127,6 +176,15 @@ class RunnerHeadlessTest {
                             put("captureTruncated", false); put("timedOut", false) })
                     }
                     "event" -> {
+                        if ((payload.obj("payload")["event"] as? JsonObject)?.get("type")?.jsonPrimitive?.content == "code_step_started") {
+                            codeStartEvent = frame
+                            val stored = runnerJson.parseToJsonElement(Files.readString(directory.resolve(".runner-state/events/${payload.long("eventSeq")}.json")))
+                            assertEquals(frame, stored)
+                            assertEquals(if (childScope) "${binding.string("executionId")}__nested__call_1" else binding.string("executionId"), payload.obj("payload").string("executionId"))
+                            assertEquals("host-proof", payload.obj("payload").string("stepName"))
+                        }
+                        // Synthetic durable ACK only; actual platform persistence remains S/P-owned.
+                        send("ack", buildJsonObject { put("ackSeq", payload.long("eventSeq")); put("revision", 1); put("serverTime", Instant.now().toString()) })
                         assertFalse(frame.toString().contains("fake-code-callback-token"))
                         if (frame.toString().contains("<redacted>")) redactedEchoEvent = true
                         assertNotEquals("approval", payload.string("type"), "Approval must never enter the event batch")

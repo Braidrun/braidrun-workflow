@@ -26,6 +26,8 @@ fun main(args: Array<String>) {
         require(Files.size(bindingPath) <= RunnerIpc.MAX_FRAME_BYTES) { "Binding file too large" }
         val binding = RunnerProtocol().parse(Files.readString(bindingPath), "binding")
         runBlocking { RunnerHostSession(binding, System.`in`, protocolOutput, secrets).run() }
+    } catch (failure: RunnerNegotiationException) {
+        System.err.println("Runner host refused startup: ${failure.reason.name}"); 2
     } catch (_: Exception) { System.err.println("Runner host refused startup or lost authority"); 2 }
     exitProcess(code)
 }
@@ -75,6 +77,9 @@ class RunnerHostSession(
             })
             val frame = withTimeout(30_000) { start.await() }
             val payload = frame.obj("payload")
+            val authorization = payload.obj("authorization")
+            val requiredCapabilities = authorization.array("requiredCapabilities").map { it.jsonPrimitive.content }.toSet()
+            val codeControlMode = RunnerCodeControlNegotiation.select(requiredCapabilities, CAPABILITIES)
             val environment = RunnerEnvironmentGate(binding, payload.obj("environment").array("egress").map { it.jsonObject.string("pathId") }.toSet())
             gate = environment
             environment.onInvalidated { stop() }
@@ -85,8 +90,6 @@ class RunnerHostSession(
             require(directory == Path.of("").toRealPath()) { "Supervisor must launch JVM in execution directory" }
             val bundle = FrozenWorkflowBundle(directory, payload.obj("bundle"), binding)
             bundle.verifyPortableAssets()
-            val authorization = payload.obj("authorization")
-            require(authorization.array("requiredCapabilities").all { it.jsonPrimitive.content in CAPABILITIES }) { "Required capability unavailable" }
             val identity = WorkflowHostBinding(binding.string("ownerId"), binding.string("actorUserId"), authorization.string("billingOwnerId"),
                 binding.string("executionId"), binding.string("runnerId"), binding.string("runnerInstanceId"), binding.long("resumeEpoch"),
                 binding.string("attemptId"), binding.string("definitionHash"), binding.string("runtimeHash"))
@@ -101,7 +104,7 @@ class RunnerHostSession(
             }
             processes = processAdapter
             val runtime = RunnerWorkflowHost(ipc, identity, environment, bundle, CAPABILITIES, processAdapter, store, secrets, interactiveBroker = channels,
-                callbackEnabled = authorization.array("requiredCapabilities").any { it.jsonPrimitive.content == "control.callback.v1" })
+                callbackEnabled = RunnerCodeControlNegotiation.LEGACY in requiredCapabilities, codeControlMode = codeControlMode)
             host = runtime
             runtime.emit("environment", buildJsonObject {
                 put("environmentCheckId", payload.obj("environment").string("environmentCheckId"))
@@ -159,6 +162,6 @@ class RunnerHostSession(
     }
     companion object {
         // Engine adapter inventory; platform/supervisor admission and runtime dependency receipts remain separate.
-        val CAPABILITIES = linkedSetOf("bundle.portableAssets.v1", "control.callback.v1", "workflow.full.v1", "step.agent.v1", "model.http.v1", "agent.codex.v1", "agent.claude.v1", "tool.exit.v1", "tool.workflow.v1", "tool.user_interaction.v1", "skill.text.v1", "tool.skill_tools.v1", "service.mcp_servers.v1", "mcp.stdio.v1", "process.interactive.v1", "step.script.v1", "step.subWorkflow.v1", "step.stateMachine.v1", "interaction.approval.v1", "output.read.v1", "output.publish.v1")
+        val CAPABILITIES = linkedSetOf("bundle.portableAssets.v1", "control.callback.v1", "workflow.full.v1", "step.agent.v1", "model.http.v1", "agent.codex.v1", "agent.claude.v1", "tool.exit.v1", "tool.workflow.v1", "tool.user_interaction.v1", "skill.text.v1", "tool.skill_tools.v1", "service.mcp_servers.v1", "mcp.stdio.v1", "process.interactive.v1", "step.script.v1", "step.subWorkflow.v1", "step.stateMachine.v1", "interaction.approval.v1", "output.read.v1", "output.publish.v1").apply { if (RunnerCodeControlNegotiation.supplementAvailable()) add(RunnerCodeControlNegotiation.PER_CALL) }
     }
 }

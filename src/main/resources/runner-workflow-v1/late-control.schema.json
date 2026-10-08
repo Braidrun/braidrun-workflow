@@ -1,0 +1,857 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:braidrun:late-control-http:v1",
+  "$defs": {
+    "binding": {
+      "type": "object",
+      "properties": {
+        "protocolVersion": {
+          "const": 1
+        },
+        "ownerId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "actorUserId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "executionId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "runnerId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "runnerInstanceId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "resumeEpoch": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "attemptId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "definitionHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "runtimeHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "ownerId",
+        "actorUserId",
+        "executionId",
+        "runnerId",
+        "runnerInstanceId",
+        "resumeEpoch",
+        "attemptId",
+        "definitionHash",
+        "runtimeHash"
+      ],
+      "additionalProperties": false
+    },
+    "identity": {
+      "type": "object",
+      "properties": {
+        "appTitle": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "category": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "direction": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "paletteReason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "palette": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "typography": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "layoutMotif": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "material": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "motion": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "styleTags": {
+          "type": "object",
+          "maxProperties": 16,
+          "propertyNames": {
+            "maxLength": 128
+          },
+          "additionalProperties": {
+            "type": "string",
+            "maxLength": 1024
+          }
+        },
+        "visualSignature": {
+          "type": "string",
+          "maxLength": 1024
+        }
+      },
+      "required": [
+        "appTitle"
+      ],
+      "additionalProperties": false
+    },
+    "outputReadFrame": {
+      "type": "object",
+      "properties": {
+        "protocolVersion": {
+          "const": 1
+        },
+        "frameId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "type": {
+          "const": "outputRead"
+        },
+        "binding": {
+          "$ref": "#/$defs/binding"
+        },
+        "replyTo": {
+          "type": "string"
+        },
+        "payload": {
+          "type": "object",
+          "properties": {
+            "requestId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "workflowId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "outputName": {
+              "type": "string",
+              "minLength": 1
+            },
+            "childExecutionPath": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "selector": {
+              "$ref": "#/$defs/outputSelector"
+            },
+            "sourceExecutionId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "outputNames": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "targetWorkflowName": {
+              "type": "string",
+              "minLength": 1
+            },
+            "targetExecutionId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "targetStepName": {
+              "type": "string",
+              "minLength": 1
+            },
+            "missingPolicy": {
+              "type": "string",
+              "enum": [
+                "fail",
+                "skip_step",
+                "use_default"
+              ]
+            },
+            "requireWorkflowStatus": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "allowPartialExecution": {
+              "type": "boolean"
+            },
+            "sourceWorkflowId": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "requestId",
+            "childExecutionPath",
+            "selector",
+            "sourceExecutionId",
+            "outputNames",
+            "targetWorkflowName",
+            "targetExecutionId",
+            "targetStepName",
+            "missingPolicy",
+            "requireWorkflowStatus",
+            "allowPartialExecution",
+            "sourceWorkflowId"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "frameId",
+        "type",
+        "binding",
+        "payload"
+      ],
+      "additionalProperties": false
+    },
+    "outputPublishFrame": {
+      "type": "object",
+      "properties": {
+        "protocolVersion": {
+          "const": 1
+        },
+        "frameId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "type": {
+          "const": "outputPublish"
+        },
+        "binding": {
+          "$ref": "#/$defs/binding"
+        },
+        "replyTo": {
+          "type": "string"
+        },
+        "payload": {
+          "type": "object",
+          "properties": {
+            "requestId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "outputName": {
+              "type": "string",
+              "minLength": 1
+            },
+            "value": {},
+            "childExecutionPath": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "outputType": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "contractVersion": {
+              "type": "string",
+              "minLength": 1
+            },
+            "visibility": {
+              "type": "object"
+            },
+            "sourceExpression": {
+              "type": "string",
+              "minLength": 1
+            },
+            "workflowId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "workflowName": {
+              "type": "string",
+              "minLength": 1
+            },
+            "workflowVersion": {
+              "type": "string",
+              "minLength": 1
+            },
+            "executionId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "stepName": {
+              "type": "string",
+              "minLength": 1
+            },
+            "workflowStatusAtPublish": {
+              "type": "string",
+              "minLength": 1
+            },
+            "publishedAt": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "requestId",
+            "outputName",
+            "value",
+            "childExecutionPath",
+            "outputType",
+            "description",
+            "contractVersion",
+            "visibility",
+            "sourceExpression",
+            "workflowId",
+            "workflowName",
+            "workflowVersion",
+            "executionId",
+            "stepName",
+            "workflowStatusAtPublish",
+            "publishedAt"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "frameId",
+        "type",
+        "binding",
+        "payload"
+      ],
+      "additionalProperties": false
+    },
+    "userInteractionFrame": {
+      "type": "object",
+      "properties": {
+        "protocolVersion": {
+          "const": 1
+        },
+        "frameId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "type": {
+          "const": "userInteraction"
+        },
+        "binding": {
+          "$ref": "#/$defs/binding"
+        },
+        "replyTo": {
+          "type": "string",
+          "minLength": 1
+        },
+        "payload": {
+          "$ref": "#/$defs/userInteraction"
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "frameId",
+        "type",
+        "binding",
+        "payload"
+      ],
+      "additionalProperties": false
+    },
+    "identity_read_arguments": {
+      "type": "object",
+      "properties": {
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 6
+        },
+        "excludeCurrent": {
+          "const": true
+        }
+      },
+      "required": [
+        "limit",
+        "excludeCurrent"
+      ],
+      "additionalProperties": false
+    },
+    "identity_propose_arguments": {
+      "type": "object",
+      "properties": {
+        "identity": {
+          "$ref": "#/$defs/identity"
+        }
+      },
+      "required": [
+        "identity"
+      ],
+      "additionalProperties": false
+    },
+    "filegate_submit_arguments": {
+      "type": "object",
+      "properties": {
+        "gateId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "occurrenceId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16384
+        },
+        "timeoutSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3600
+        },
+        "materials": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "type": "object",
+            "properties": {
+              "artifactId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "sha256": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              }
+            },
+            "required": [
+              "artifactId",
+              "sha256"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "gateId",
+        "occurrenceId",
+        "title",
+        "message",
+        "timeoutSeconds",
+        "materials"
+      ],
+      "additionalProperties": false
+    },
+    "filegate_read_arguments": {
+      "type": "object",
+      "properties": {
+        "gateId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "occurrenceId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        }
+      },
+      "required": [
+        "gateId",
+        "occurrenceId"
+      ],
+      "additionalProperties": false
+    },
+    "feedback_read_arguments": {
+      "type": "object",
+      "properties": {
+        "gateId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "occurrenceId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        }
+      },
+      "required": [
+        "gateId",
+        "occurrenceId"
+      ],
+      "additionalProperties": false
+    },
+    "source_read_arguments": {
+      "type": "object",
+      "properties": {
+        "sourceExecutionId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "sourceArtifactId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      },
+      "required": [
+        "sourceExecutionId",
+        "sourceArtifactId",
+        "sha256"
+      ],
+      "additionalProperties": false
+    },
+    "locale-cost_read_arguments": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    },
+    "artifact_read_arguments": {
+      "type": "object",
+      "properties": {
+        "artifactId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      },
+      "required": [
+        "artifactId",
+        "sha256"
+      ],
+      "additionalProperties": false
+    },
+    "artifact_publish_arguments": {
+      "type": "object",
+      "properties": {
+        "artifactChunk": {
+          "$ref": "#/$defs/artifactChunk"
+        }
+      },
+      "required": [
+        "artifactChunk"
+      ],
+      "additionalProperties": false
+    },
+    "output_read_arguments": {
+      "type": "object",
+      "properties": {
+        "frame": {
+          "$ref": "#/$defs/outputReadFrame"
+        }
+      },
+      "required": [
+        "frame"
+      ],
+      "additionalProperties": false
+    },
+    "output_publish_arguments": {
+      "type": "object",
+      "properties": {
+        "frame": {
+          "$ref": "#/$defs/outputPublishFrame"
+        }
+      },
+      "required": [
+        "frame"
+      ],
+      "additionalProperties": false
+    },
+    "interaction_request_arguments": {
+      "type": "object",
+      "properties": {
+        "frame": {
+          "$ref": "#/$defs/userInteractionFrame"
+        }
+      },
+      "required": [
+        "frame"
+      ],
+      "additionalProperties": false
+    },
+    "controlGrant": {
+      "type": "object",
+      "properties": {
+        "invocationId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "purpose": {
+          "enum": [
+            "identity.read",
+            "identity.propose",
+            "filegate.submit",
+            "filegate.read",
+            "feedback.read",
+            "source.read",
+            "locale-cost.read",
+            "artifact.read",
+            "artifact.publish",
+            "output.read",
+            "output.publish",
+            "interaction.request"
+          ]
+        },
+        "stepName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "childExecutionPath": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          }
+        },
+        "processScope": {
+          "type": "string",
+          "pattern": "^tool:[A-Za-z0-9_.-]{1,128}$"
+        },
+        "requestHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "requestedTtlSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 60
+        },
+        "operationBudgetSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 30
+        },
+        "codeStartEventId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        }
+      },
+      "required": [
+        "invocationId",
+        "purpose",
+        "stepName",
+        "childExecutionPath",
+        "processScope",
+        "requestHash",
+        "requestedTtlSeconds",
+        "operationBudgetSeconds",
+        "codeStartEventId"
+      ],
+      "additionalProperties": false
+    },
+    "grantOperation": {
+      "type": "object",
+      "properties": {
+        "binding": {
+          "$ref": "#/$defs/binding"
+        },
+        "leaseId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "expectedRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "controlGrant": {
+          "$ref": "#/$defs/controlGrant"
+        }
+      },
+      "required": [
+        "binding",
+        "leaseId",
+        "expectedRevision",
+        "controlGrant"
+      ],
+      "additionalProperties": false
+    },
+    "artifactChunk": {
+      "type": "object",
+      "properties": {
+        "artifactId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "logicalPath": {
+          "type": "string",
+          "minLength": 1
+        },
+        "chunkIndex": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "chunkCount": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "contentBase64": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "artifactId",
+        "logicalPath",
+        "chunkIndex",
+        "chunkCount",
+        "sha256",
+        "size",
+        "contentBase64"
+      ],
+      "additionalProperties": false
+    },
+    "outputSelector": {
+      "type": "object",
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": [
+            "execution_id",
+            "latest_successful",
+            "input_variable"
+          ]
+        },
+        "execution_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "execution_id_variable": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "step": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "mode",
+        "execution_id",
+        "execution_id_variable",
+        "step"
+      ],
+      "additionalProperties": false
+    },
+    "userInteraction": {
+      "type": "object",
+      "properties": {
+        "idempotencyKey": {
+          "type": "string",
+          "minLength": 1
+        },
+        "childExecutionPath": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "operation": {
+          "type": "string",
+          "enum": [
+            "askUser",
+            "tellUser"
+          ]
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "options": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "required": [
+        "idempotencyKey",
+        "childExecutionPath",
+        "operation",
+        "message",
+        "options"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$ref": "#/$defs/grantOperation"
+}

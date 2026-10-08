@@ -13,7 +13,7 @@ internal object WorkflowCodeControlTokens {
     private val json = Json { ignoreUnknownKeys = true }
     fun reserved(key: String): Boolean {
         val canonical = key.uppercase(java.util.Locale.ROOT).replace(Regex("[^A-Z0-9_]"), "_")
-        return canonical.removePrefix("WF_VAR_").removeSuffix("_FILE") in setOf("WF_API_TOKEN", "EXECUTION_API_TOKEN")
+        return canonical.removePrefix("WF_VAR_").removeSuffix("__FILE").removeSuffix("_FILE") in setOf("WF_API_TOKEN", "EXECUTION_API_TOKEN")
     }
     fun parameters(values: List<ConfigurationParameter>): List<ConfigurationParameter> = values.filterNot { reserved(it.key) }
         .map { ConfigurationParameter(it.key, element(it.value)) }
