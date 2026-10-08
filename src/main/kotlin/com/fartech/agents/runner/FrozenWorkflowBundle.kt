@@ -170,6 +170,16 @@ class FrozenWorkflowBundle(private val root: Path, val manifest: JsonObject, pri
         require(sha256(Files.readAllBytes(confinedPath(root, relative))) == sha256(bytes)) { "Script changed since admission" }
         return bytes.toString(Charsets.UTF_8)
     }
+    fun definition(id: String): WorkflowDefinition = entries.single { it.id == id }.definition
+    fun definitionHashes(): Set<String> = entries.map { it.hash }.toSet()
+    fun hasFile(path: String): Boolean = manifest.array("files").any { it.jsonObject.string("path") == path }
+    fun runtimeBytes(path: String): ByteArray {
+        val declaration = manifest.array("files").map { it.jsonObject }.single { it.string("path") == path }
+        require(declaration.string("role") == "runtime" && declaration.long("size") <= 16 * 1024 * 1024) { "Runtime policy declaration invalid" }
+        val file = confinedPath(root, path)
+        require(Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS) && Files.size(file) == declaration.long("size"))
+        return Files.readAllBytes(file).also { require(sha256(it) == declaration.string("sha256")) { "Runtime policy bytes changed" } }
+    }
     fun identityOf(definition: WorkflowDefinition): String = (entries.singleOrNull { it.definition === definition }
         ?: entries.single { it.definition == definition }).id
     fun contains(definition: WorkflowDefinition): Boolean = entries.any { it.definition == definition }

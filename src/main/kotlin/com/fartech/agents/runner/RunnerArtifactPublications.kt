@@ -22,7 +22,7 @@ fun interface RunnerArtifactFingerprinter { suspend fun fingerprint(intent: Runn
 internal class RunnerArtifactPublications(
     private val root: Path, private val ipc: RunnerIpc, private val gate: RunnerEnvironmentGate,
     private val store: RunnerCheckpointStore, private val secrets: RunnerSecrets,
-    private val reader: RunnerArtifactFingerprinter, private val recordEvent: (JsonObject) -> JsonObject,
+    private val reader: RunnerArtifactFingerprinter, private val recordEvent: (JsonObject, String, (JsonObject) -> Unit) -> JsonObject,
     private val acceptAck: (JsonObject) -> Unit,
     private val ackTimeoutMs: Long = 30_000
 ) {
@@ -63,7 +63,8 @@ internal class RunnerArtifactPublications(
                 require(Files.exists(eventPath)) { "Artifact ACK has no original event" }
                 gate.check(); return@withLock
             }
-            val frame = if (Files.exists(eventPath)) {
+            var pendingPayload: JsonObject? = null
+            var frame: JsonObject? = if (Files.exists(eventPath)) {
                 runnerJson.parseToJsonElement(Files.readString(eventPath)).jsonObject.also {
                     require(it.obj("binding") == ipc.binding && it.obj("payload").obj("payload").string("publicationId") == intent.publicationId)
                 }
@@ -79,19 +80,37 @@ internal class RunnerArtifactPublications(
                     put("producerStartEventId", producerStartEventId); put("codeSourceSha256", JsonNull)
                 }
                 require(!secrets.containsSecret(payload)) { "Artifact declaration contains secret material" }
-                recordEvent(payload).also { store.writePrivate("$prefix.event.json", canonical(it).toByteArray()) }
+                pendingPayload = payload
+                null
             }
-            RunnerProtocol().validate(frame, "ipcFrame")
-            val event = frame.obj("payload")
-            val publication = event.obj("payload")
-            require(frame.obj("binding") == ipc.binding && frame.string("type") == "event" && event.string("type") == "artifact") { "Stored publication is not the original artifact event" }
-            require(event.string("attemptId") == ipc.binding.string("attemptId") && event.long("resumeEpoch") == ipc.binding.long("resumeEpoch")) { "Stored publication epoch changed" }
-            require(publication.string("publicationId") == intent.publicationId && publication.string("artifactId") == intent.artifactId &&
-                publication.string("logicalPath") == path && publication.string("producerWorkflowId") == workflowId && publication.string("producerStep") == scope.stepName &&
-                publication.string("producerStartEventId") == producerStartEventId && publication.array("childExecutionPath") == child && publication["codeSourceSha256"] == JsonNull &&
-                publication.long("schemaVersion") == 1L && publication.long("size") in 0..declaration.maximumBytes && publication.string("sha256").matches(Regex("[a-f0-9]{64}"))) { "Stored publication context changed" }
-            require(!secrets.containsSecret(publication)) { "Stored publication contains secret material" }
-            val reply = ipc.requestCorrelated("event", event, "ack", ackTimeoutMs, frameId = frame.string("frameId"))
+            fun validateOriginal(original: JsonObject) {
+                RunnerProtocol().validate(original, "ipcFrame")
+                val event = original.obj("payload")
+                val publication = event.obj("payload")
+                require(original.obj("binding") == ipc.binding && original.string("type") == "event" && event.string("type") == "artifact") { "Stored publication is not the original artifact event" }
+                require(event.string("attemptId") == ipc.binding.string("attemptId") && event.long("resumeEpoch") == ipc.binding.long("resumeEpoch")) { "Stored publication epoch changed" }
+                require(publication.string("publicationId") == intent.publicationId && publication.string("artifactId") == intent.artifactId &&
+                    publication.string("logicalPath") == path && publication.string("producerWorkflowId") == workflowId && publication.string("producerStep") == scope.stepName &&
+                    publication.string("producerStartEventId") == producerStartEventId && publication.array("childExecutionPath") == child && publication["codeSourceSha256"] == JsonNull &&
+                    publication.long("schemaVersion") == 1L && publication.long("size") in 0..declaration.maximumBytes && publication.string("sha256").matches(Regex("[a-f0-9]{64}"))) { "Stored publication context changed" }
+                require(!secrets.containsSecret(publication)) { "Stored publication contains secret material" }
+            }
+            val frameId = frame?.string("frameId") ?: java.util.UUID.randomUUID().toString()
+            val reply = ipc.awaitReply("ack", ackTimeoutMs, frameId) {
+                if (frame == null) {
+                    frame = recordEvent(requireNotNull(pendingPayload), frameId) { original ->
+                        validateOriginal(original)
+                        store.writePrivate("$prefix.event.json", canonical(original).toByteArray())
+                    }
+                } else {
+                    val saved = requireNotNull(frame)
+                    validateOriginal(saved); gate.check()
+                    ipc.sendFrame(saved)
+                } // replay the exact existing frame, never reserve another sequence
+            }
+            val original = requireNotNull(frame)
+            validateOriginal(original)
+            val event = original.obj("payload")
             require(reply.payload.long("ackSeq") >= event.long("eventSeq")) { "Artifact ACK does not cover original event" }
             acceptAck(reply.payload)
             gate.check()

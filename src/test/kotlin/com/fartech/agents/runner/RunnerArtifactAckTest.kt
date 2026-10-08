@@ -18,10 +18,12 @@ class RunnerArtifactAckTest {
             var reads = 0; var sequence = 0L
             val publisher = RunnerArtifactPublications(dir, h.ipc, gate, store, secrets,
                 RunnerArtifactFingerprinter { reads++; RunnerArtifactFingerprint(5, sha256("bytes".toByteArray())) },
-                recordEvent = { payload ->
+                recordEvent = { payload, frameId, before ->
                     sequence++
                     val event = buildJsonObject { put("eventId", "original-event-$sequence"); put("eventSeq", sequence); put("attemptId", h.binding.string("attemptId")); put("resumeEpoch", h.binding.long("resumeEpoch")); put("type", "artifact"); put("payload", payload) }
-                    RunnerProtocolTest.frame(h.binding, "event", event).also { store.writePrivate(".runner-state/events/$sequence.json", canonical(it).toByteArray()) }
+                    JsonObject(RunnerProtocolTest.frame(h.binding, "event", event) + ("frameId" to JsonPrimitive(frameId))).also {
+                        before(it); store.writePrivate(".runner-state/events/$sequence.json", canonical(it).toByteArray()); h.ipc.sendFrame(it)
+                    }
                 }, acceptAck = { require(it.long("ackSeq") <= sequence) })
             val scope = WorkflowHostScope(h.binding.string("executionId"), h.binding.string("executionId"), stepName = "produce")
             val pending = async { publisher.publish("root", scope, "original-start", RunnerDeclaredArtifact("run/file.txt", 100)) }
@@ -37,7 +39,7 @@ class RunnerArtifactAckTest {
             val eventPath = dir.resolve(".runner-state/artifact-intents/${payload.string("publicationId").removePrefix("publication_")}.event.json")
             Files.writeString(eventPath, JsonObject(frame + ("payload" to JsonObject(frame.obj("payload") + ("type" to JsonPrimitive("log"))))).toString())
             val recovered = RunnerArtifactPublications(dir, h.ipc, gate, store, secrets,
-                RunnerArtifactFingerprinter { error("Never recollect a persisted intent") }, recordEvent = { error("Never allocate a replacement event") }, acceptAck = {})
+                RunnerArtifactFingerprinter { error("Never recollect a persisted intent") }, recordEvent = { _, _, _ -> error("Never allocate a replacement event") }, acceptAck = {})
             assertFailsWith<RunnerAuthorityLost> { recovered.publish("root", scope, "original-start", RunnerDeclaredArtifact("run/file.txt", 100)) }
         }
     }
@@ -46,9 +48,9 @@ class RunnerArtifactAckTest {
             val gate = gate(h); val secrets = RunnerSecrets(); val store = RunnerCheckpointStore(dir, h.binding, secrets)
             val publisher = RunnerArtifactPublications(dir, h.ipc, gate, store, secrets,
                 RunnerArtifactFingerprinter { RunnerArtifactFingerprint(0, sha256(byteArrayOf())) },
-                recordEvent = { payload -> RunnerProtocolTest.frame(h.binding, "event", buildJsonObject {
+                recordEvent = { payload, frameId, before -> JsonObject(RunnerProtocolTest.frame(h.binding, "event", buildJsonObject {
                     put("eventId", "original-event"); put("eventSeq", 2); put("attemptId", h.binding.string("attemptId")); put("resumeEpoch", h.binding.long("resumeEpoch")); put("type", "artifact"); put("payload", payload)
-                }) }, acceptAck = {})
+                }) + ("frameId" to JsonPrimitive(frameId))).also { before(it); h.ipc.sendFrame(it) } }, acceptAck = {})
             val scope = WorkflowHostScope(h.binding.string("executionId"), h.binding.string("executionId"), stepName = "produce")
             val pending = async { runCatching { publisher.publish("root", scope, "start", RunnerDeclaredArtifact("run/file", 100)) } }
             val frame = h.next(); h.ipc.accept(h.reply(frame, "ack", buildJsonObject { put("ackSeq", 1); put("revision", 9); put("serverTime", Instant.now().toString()) }))
@@ -63,7 +65,7 @@ class RunnerArtifactAckTest {
             var reads = 0; var events = 0
             val publisher = RunnerArtifactPublications(dir, h.ipc, gate, store, secrets,
                 RunnerArtifactFingerprinter { reads++; RunnerArtifactFingerprint(101, "a".repeat(64)) },
-                recordEvent = { events++; error("Must not publish") }, acceptAck = {})
+                recordEvent = { _, _, _ -> events++; error("Must not publish") }, acceptAck = {})
             val scope = WorkflowHostScope(h.binding.string("executionId"), h.binding.string("executionId"), stepName = "produce")
             for (path in listOf("../other", "/outside", ".runner-private/auth.json", "process-output/stdio", "inputs/brief.txt")) {
                 assertFailsWith<IllegalArgumentException> { publisher.publish("root", scope, "start", RunnerDeclaredArtifact(path, 100)) }

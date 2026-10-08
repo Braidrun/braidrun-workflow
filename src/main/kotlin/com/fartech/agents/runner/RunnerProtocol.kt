@@ -18,10 +18,10 @@ internal fun JsonObject.array(key: String): JsonArray = getValue(key).jsonArray
  * This does not authorize a frame. Binding, direction, monotonicity and service permissions are
  * independently validated by the session. The canonical schema is copied byte-for-byte from Git.
  */
-class RunnerProtocol {
-    private val schema = runnerJson.parseToJsonElement(requireNotNull(javaClass.getResourceAsStream(
+class RunnerProtocol internal constructor(private val schema: JsonObject) {
+    constructor() : this(runnerJson.parseToJsonElement(requireNotNull(RunnerProtocol::class.java.getResourceAsStream(
         "/runner-workflow-v1/protocol.schema.json"
-    )).use { it.readBytes().toString(Charsets.UTF_8) }).jsonObject
+    )).use { it.readBytes().toString(Charsets.UTF_8) }).jsonObject)
     private val mapper = JsonMapper.builder().enable(StreamReadFeature.STRICT_DUPLICATE_DETECTION).build()
 
     init {
@@ -38,15 +38,19 @@ class RunnerProtocol {
     }
 
     fun parse(line: String, definition: String = "ipcFrame"): JsonObject = try {
+        val value = decode(line)
+        validate(value, definition)
+        value
+    } catch (_: Exception) { throw RunnerProtocolException() }
+
+    internal fun decode(line: String): JsonObject = try {
         val parser = mapper.factory.createParser(line)
         val tree = parser.use {
             val value = mapper.readTree<com.fasterxml.jackson.databind.JsonNode>(it)
             if (it.nextToken() != null) throw RunnerProtocolException()
             value
         }
-        val value = runnerJson.parseToJsonElement(tree.toString()).jsonObject
-        validate(value, definition)
-        value
+        runnerJson.parseToJsonElement(tree.toString()).jsonObject
     } catch (_: Exception) { throw RunnerProtocolException() }
 
     fun validate(value: JsonElement, definition: String) {

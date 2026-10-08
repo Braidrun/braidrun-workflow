@@ -255,3 +255,13 @@ R18 的真实文件生成/声明、普通步骤及状态机 child 上下文、E/
 fake CLI root-child structured-output 及 gate-before-ACK 阻断。生产声明策略/安全 reader
 未组装；S snapshot/chunks 与 P index ACK 是夹具。已提出策略载体及同-code gate 前正式
 收集命令的精确缺口，没有借用 stdout/env、改事件序号或编造完整文件 hash。
+
+## b2a 正式载体/收集 barrier 与事件写入器修复
+
+已消费b2a固定bundle策略文件，按explicit artifact.collection.v1启用独立supplement
+validator及独立request/ACK pump；E仅校验声明和真实ACTIVE已ACK producer并生成
+原序事件/Complete，S独占文件snapshot。旧81d/publication99/lateCC字节不改。
+同-code root/child和丢回复/拒绝/取消定向夹具通过，未声称真实P/S联合验收。
+已修b96P2：所有event首次append/persist/enqueue统一原子边界、等待锁外；独立3项
+latch/并发/失败回归证据保留。详见新collection交接与event-order修复文档。
+37项相关测试通过，P2等待断言强化后另跑3项；下一固定包按本次源码构建。

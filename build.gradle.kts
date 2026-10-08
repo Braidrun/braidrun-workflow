@@ -424,6 +424,8 @@ val runnerHostJar = tasks.register<Jar>("runnerHostJar") {
         attributes(
             "Main-Class" to "com.fartech.agents.runner.RunnerHostMainKt",
             "Runner-Protocol-Version" to "1",
+            "Runner-Artifact-Collection-Commit" to file("src/main/resources/runner-workflow-v1/artifact-collection-origin.txt").readLines().first(),
+            "Runner-Artifact-Collection-Schema-Sha256" to "26eee80c21e982a56d8d96897ca688c68d628e9935ec0839d34de8d89ddb66fa",
             "Runner-Artifact-Publication-Commit" to file("src/main/resources/runner-workflow-v1/artifact-publication-origin.txt").readLines().first(),
             "Runner-Artifact-Publication-Schema-Sha256" to "d3cbb764d096ca9a68ba5a74adafe543a668f79e6273a65287acad3aaff9af09",
             "Runner-Late-Control-Commit" to file("src/main/resources/runner-workflow-v1/late-control-origin.txt").readLines().first(),

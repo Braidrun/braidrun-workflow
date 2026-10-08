@@ -3,7 +3,8 @@ package com.fartech.agents.runner
 import com.fartech.agents.workflow.WorkflowCodeControlMode
 
 internal enum class RunnerNegotiationReason {
-    RUNNER_REQUIRED_CAPABILITY_UNAVAILABLE, RUNNER_CONTROL_MODE_CONFLICT, RUNNER_CONTROL_SUPPLEMENT_UNAVAILABLE
+    RUNNER_REQUIRED_CAPABILITY_UNAVAILABLE, RUNNER_CONTROL_MODE_CONFLICT, RUNNER_CONTROL_SUPPLEMENT_UNAVAILABLE,
+    RUNNER_ARTIFACT_CAPABILITY_REQUIRED, RUNNER_ARTIFACT_POLICY_INVALID
 }
 internal class RunnerNegotiationException(val reason: RunnerNegotiationReason) : IllegalArgumentException(reason.name)
 

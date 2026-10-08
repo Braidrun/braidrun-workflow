@@ -23,7 +23,8 @@ class RunnerWorkflowHost(
     private val callbackEnabled: Boolean = false,
     override val codeControlMode: WorkflowCodeControlMode = WorkflowCodeControlMode.LEGACY_STEP_TOKEN,
     private val artifactPolicy: RunnerArtifactPolicy? = null,
-    artifactFingerprinter: RunnerArtifactFingerprinter? = null
+    artifactFingerprinter: RunnerArtifactFingerprinter? = null,
+    private val collectionPolicy: RunnerCollectionPolicy? = null
 ) : WorkflowHost {
     init {
         require(bundle.taskBinding == ipc.binding) { "Bundle host binding differs from IPC authority" }
@@ -35,10 +36,33 @@ class RunnerWorkflowHost(
     private val admittedProducers = java.util.concurrent.ConcurrentHashMap<String, String>()
     private val producerStarts = java.util.concurrent.ConcurrentHashMap<Pair<String, String>, String>()
     private val codeProducerStarts = java.util.concurrent.ConcurrentHashMap<Pair<String, String>, String>()
+    private data class ActiveProducer(val eventId: String, val eventSeq: Long)
+    private val activeProducers = java.util.concurrent.ConcurrentHashMap<Pair<String, String>, ActiveProducer>()
+    private val activeCodeProducers = java.util.concurrent.ConcurrentHashMap<Pair<String, String>, ActiveProducer>()
+    private val collectionBarrier = collectionPolicy?.let { policy ->
+        RunnerCollectionBarrier(bundle.executionDirectory, ipc, store, gate, policy, secrets, ::checkCollectionProducer,
+            recordEvent = { payload, replyTo, frameId, before -> synchronized(this) {
+                checkCollectionProducer(payload)
+                eventJournal.append("artifact", payload, frameId, replyTo, before)
+            } }, acknowledge = ::acknowledge,
+            guardedComplete = { body, action -> synchronized(this) { checkCollectionProducer(body); action() } })
+    }
+    fun collectRequest(frame: JsonObject) { requireNotNull(collectionBarrier) { "Artifact collection was not negotiated" }.receive(frame) }
+    @Synchronized private fun checkCollectionProducer(body: JsonObject) {
+        gate.check()
+        val policy = requireNotNull(collectionPolicy)
+        val child = body.array("childExecutionPath").map { it.jsonPrimitive.content }
+        val execution = binding.executionId + if (child.isEmpty()) "" else "__" + child.joinToString("__")
+        val workflowId = body.string("producerWorkflowId"); val step = body.string("producerStep")
+        require(admittedProducers[execution] == workflowId) { "Collection producer was not actually invoked" }
+        val occurrence = (if (policy.isCode(workflowId, step)) activeCodeProducers else activeProducers)[execution to step]
+            ?: error("Collection producer is closed or unknown")
+        require(occurrence.eventId == body.string("producerStartEventId") && eventJournal.acknowledged() >= occurrence.eventSeq) { "Collection occurrence is stale or not durably ACKed" }
+    }
     private val artifactPublications = artifactPolicy?.let {
         RunnerArtifactPublications(bundle.executionDirectory, ipc, gate, store, secrets,
             requireNotNull(artifactFingerprinter) { "Declared artifacts require a trusted fingerprint reader" },
-            recordEvent = { payload -> persistEvent("artifact", payload) }, acceptAck = ::acknowledge)
+            recordEvent = { payload, frameId, before -> eventJournal.append("artifact", payload, frameId, beforePersist = before) }, acceptAck = ::acknowledge)
     }
     override val workflowResolver: WorkflowResolver get() = bundle
     override val approvalHandler: ApprovalHandler = RunnerApprovalHandler(ipc, gate)
@@ -147,9 +171,13 @@ class RunnerWorkflowHost(
         }
         return parameters.map { com.fartech.ftapp2.commonsKt.ConfigurationParameter(it.key, refs(it.value)) }
     }
-    fun close() { live.close(); network.close(); credentials.clear(); cliPools.clear(); references.clear(); nativeSkills.clear() }
-    private var sequence = 0L
-    @Volatile private var acknowledged = 0L
+    fun close() { collectionBarrier?.close(); live.close(); network.close(); credentials.clear(); cliPools.clear(); references.clear(); nativeSkills.clear() }
+    private val eventJournal = RunnerEventJournal(ipc.binding, secrets,
+        write = { path, bytes -> store.writePrivate(path, bytes); Unit }, enqueue = { frame ->
+            if (frame.obj("payload").string("type") == "artifact") gate.check()
+            ipc.sendFrame(frame); Unit
+        },
+        failed = { gate.invalidate("RUNNER_EVENT_JOURNAL_FAILED") })
     override val codeEnvironment: Map<String, String> = mapOf(
         "WF_RUNNER_ID" to binding.runnerId, "WF_ROOT_EXECUTION_ID" to binding.executionId,
         "WF_OWNER_ID" to binding.ownerId, "WF_ACTOR_USER_ID" to binding.actorUserId,
@@ -161,7 +189,7 @@ class RunnerWorkflowHost(
         definitions.forEach { definition -> checkRoutes(RunnerAdmission(bundle, capabilities).inspect(definition)) }
     }
     override fun bindArtifactProducer(workflow: WorkflowDefinition, scope: WorkflowHostScope) {
-        if (artifactPolicy == null) return
+        if (artifactPolicy == null && collectionPolicy == null) return
         require(scope.rootExecutionId == binding.executionId && bundle.contains(workflow)) { "Artifact producer outside frozen invocation" }
         childPath(binding.executionId, scope.executionId)
         val identity = bundle.identityOf(workflow)
@@ -183,6 +211,18 @@ class RunnerWorkflowHost(
     }
     override fun userInteraction(scope: WorkflowHostScope): UserInteractionHandler = RunnerUserInteraction(ipc, gate, scope, secrets)
     override suspend fun collectDeclaredArtifacts(workflow: WorkflowDefinition, step: WorkflowStep, scope: WorkflowHostScope, candidates: List<WorkflowArtifactCandidate>) {
+        if (collectionPolicy != null) {
+            try {
+                gate.check(); collectionPolicy.verify()
+                val workflowId = requireNotNull(admittedProducers[scope.executionId])
+                val declared = collectionPolicy.declarationsFor(workflowId, scope.executionId, step.step)
+                if (declared.isNotEmpty()) {
+                    val start = requireNotNull((if (step.code != null) codeProducerStarts else producerStarts)[scope.executionId to step.step])
+                    requireNotNull(collectionBarrier).requireCompleted(declared, start)
+                }
+                return // S exclusively reads/snapshots; never invoke the old injected fingerprint path.
+            } catch (_: Exception) { gate.invalidate("RUNNER_DECLARED_ARTIFACTS_UNCONFIRMED"); throw RunnerAuthorityLost() }
+        }
         val policy = artifactPolicy ?: return
         try {
         require(scope.rootExecutionId == binding.executionId && scope.stepName == step.step) { "Artifact boundary scope mismatch" }
@@ -212,43 +252,20 @@ class RunnerWorkflowHost(
             }) }
         }
         val kind = if (update.event?.let { !it.isDisplayOnlyTokenEvent() && (it.inputTokens != null || it.totalTokens != null) } == true) "usage" else "step"
-        val frame = persistEvent(kind, payload)
+        val frame = eventJournal.append(kind, payload)
         update.stepName?.let { step ->
             val key = update.executionId to step
-            if (update.type == "step_started") { producerStarts[key] = frame.obj("payload").string("eventId"); codeProducerStarts.remove(key) }
-            if (update.event?.type == "code_step_started") codeProducerStarts[key] = frame.obj("payload").string("eventId")
-            if (update.type in setOf("step_completed", "step_cancelled")) { producerStarts.remove(key); codeProducerStarts.remove(key) }
+            val occurrence = ActiveProducer(frame.obj("payload").string("eventId"), frame.obj("payload").long("eventSeq"))
+            if (update.type == "step_started") { producerStarts[key] = occurrence.eventId; codeProducerStarts.remove(key); activeProducers[key] = occurrence; activeCodeProducers.remove(key) }
+            if (update.event?.type == "code_step_started") { codeProducerStarts[key] = occurrence.eventId; activeCodeProducers[key] = occurrence }
+            if (update.event?.type == "code_step_completed") activeCodeProducers.remove(key)
+            if (update.type in setOf("step_completed", "step_cancelled")) { producerStarts.remove(key); codeProducerStarts.remove(key); activeProducers.remove(key); activeCodeProducers.remove(key) }
         }
-        ipc.send("event", frame.obj("payload"), frame.string("frameId"))
     }
-    @Synchronized fun emit(kind: String, payload: JsonObject) {
-        val frame = persistEvent(kind, payload)
-        ipc.send("event", frame.obj("payload"), frame.string("frameId"))
-    }
-    @Synchronized private fun persistEvent(kind: String, payload: JsonObject): JsonObject {
-        require(kind != "approval") { "Approval requests use the dedicated host-request channel" }
-        if (kind == "artifact") require(secrets.redact(payload) == payload) { "Artifact metadata cannot be redacted or altered" }
-        val eventSequence = sequence + 1
-        val id = UUID.randomUUID().toString()
-        val event = buildJsonObject {
-            put("eventId", id); put("eventSeq", eventSequence)
-            put("attemptId", binding.attemptId); put("resumeEpoch", binding.resumeEpoch); put("type", kind)
-            put("payload", secrets.redact(payload))
-        }
-        val frameId = UUID.randomUUID().toString()
-        val frame = buildJsonObject {
-            put("protocolVersion", 1); put("frameId", frameId); put("type", "event"); put("binding", ipc.binding); put("payload", event)
-        }
-        store.writePrivate(".runner-state/events/$eventSequence.json", canonical(frame).toByteArray(Charsets.UTF_8))
-        sequence = eventSequence
-        return frame
-    }
-    @Synchronized fun acknowledge(payload: JsonObject) {
-        val seq = payload.long("ackSeq")
-        require(seq <= sequence) { "ACK exceeds emitted contiguous sequence" }
-        if (seq > acknowledged) acknowledged = seq
-    }
-    @Synchronized fun finalEventSeq(): Long = sequence
+    fun emit(kind: String, payload: JsonObject) { eventJournal.append(kind, payload) }
+
+    fun acknowledge(payload: JsonObject) = eventJournal.acknowledge(payload)
+    fun finalEventSeq(): Long = eventJournal.lastSequence()
     override suspend fun checkpoint(checkpoint: WorkflowHostCheckpoint) {
         ipc.send("checkpoint", store.save(checkpoint.copy(state = checkpoint.state.copy(hostState = live.state())), finalEventSeq()))
     }

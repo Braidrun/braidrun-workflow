@@ -65,6 +65,7 @@ class RunnerHostSession(
             "processExited" -> requireNotNull(processes).exited(payload)
             "processOutput" -> requireNotNull(interactive).output(payload)
             "processClosed" -> requireNotNull(interactive).closed(payload)
+            "artifactCollectRequest" -> requireNotNull(host).collectRequest(frame)
             else -> throw RunnerProtocolException()
         }
     }
@@ -90,6 +91,12 @@ class RunnerHostSession(
             require(directory == Path.of("").toRealPath()) { "Supervisor must launch JVM in execution directory" }
             val bundle = FrozenWorkflowBundle(directory, payload.obj("bundle"), binding)
             bundle.verifyPortableAssets()
+            val collectionSelected = RunnerCollectionProtocol.CAPABILITY in requiredCapabilities
+            if (bundle.hasFile(RunnerCollectionPolicy.PATH) && !collectionSelected) throw RunnerNegotiationException(RunnerNegotiationReason.RUNNER_ARTIFACT_CAPABILITY_REQUIRED)
+            val collectionPolicy = if (!collectionSelected) null else try {
+                require(RunnerCollectionProtocol.available())
+                RunnerCollectionPolicy(bundle)
+            } catch (_: Exception) { throw RunnerNegotiationException(RunnerNegotiationReason.RUNNER_ARTIFACT_POLICY_INVALID) }
             val identity = WorkflowHostBinding(binding.string("ownerId"), binding.string("actorUserId"), authorization.string("billingOwnerId"),
                 binding.string("executionId"), binding.string("runnerId"), binding.string("runnerInstanceId"), binding.long("resumeEpoch"),
                 binding.string("attemptId"), binding.string("definitionHash"), binding.string("runtimeHash"))
@@ -104,8 +111,9 @@ class RunnerHostSession(
             }
             processes = processAdapter
             val runtime = RunnerWorkflowHost(ipc, identity, environment, bundle, CAPABILITIES, processAdapter, store, secrets, interactiveBroker = channels,
-                callbackEnabled = RunnerCodeControlNegotiation.LEGACY in requiredCapabilities, codeControlMode = codeControlMode)
+                callbackEnabled = RunnerCodeControlNegotiation.LEGACY in requiredCapabilities, codeControlMode = codeControlMode, collectionPolicy = collectionPolicy)
             host = runtime
+            if (collectionSelected) ipc.enableArtifactCollection()
             runtime.emit("environment", buildJsonObject {
                 put("environmentCheckId", payload.obj("environment").string("environmentCheckId"))
                 put("decision", payload.obj("environment").string("decision")); put("warnings", payload.obj("environment").array("warnings"))
@@ -162,6 +170,6 @@ class RunnerHostSession(
     }
     companion object {
         // Engine adapter inventory; platform/supervisor admission and runtime dependency receipts remain separate.
-        val CAPABILITIES = linkedSetOf("bundle.portableAssets.v1", "control.callback.v1", "workflow.full.v1", "step.agent.v1", "model.http.v1", "agent.codex.v1", "agent.claude.v1", "tool.exit.v1", "tool.workflow.v1", "tool.user_interaction.v1", "skill.text.v1", "tool.skill_tools.v1", "service.mcp_servers.v1", "mcp.stdio.v1", "process.interactive.v1", "step.script.v1", "step.subWorkflow.v1", "step.stateMachine.v1", "interaction.approval.v1", "output.read.v1", "output.publish.v1").apply { if (RunnerCodeControlNegotiation.supplementAvailable()) add(RunnerCodeControlNegotiation.PER_CALL) }
+        val CAPABILITIES = linkedSetOf("bundle.portableAssets.v1", "control.callback.v1", "workflow.full.v1", "step.agent.v1", "model.http.v1", "agent.codex.v1", "agent.claude.v1", "tool.exit.v1", "tool.workflow.v1", "tool.user_interaction.v1", "skill.text.v1", "tool.skill_tools.v1", "service.mcp_servers.v1", "mcp.stdio.v1", "process.interactive.v1", "step.script.v1", "step.subWorkflow.v1", "step.stateMachine.v1", "interaction.approval.v1", "output.read.v1", "output.publish.v1").apply { if (RunnerCodeControlNegotiation.supplementAvailable()) add(RunnerCodeControlNegotiation.PER_CALL); if (RunnerCollectionProtocol.available()) add(RunnerCollectionProtocol.CAPABILITY) }
     }
 }

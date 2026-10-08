@@ -29,6 +29,15 @@ class RunnerIpc(
     private val pending = ConcurrentHashMap<String, Pending>()
     private val outbound = ArrayBlockingQueue<ByteArray>(128)
     private val closed = AtomicBoolean()
+    @Volatile private var artifactCollectionEnabled = false
+    fun enableArtifactCollection() { require(RunnerCollectionProtocol.available()); artifactCollectionEnabled = true }
+    private fun validateFrame(frame: JsonObject, outbound: Boolean) {
+        when (frame["type"]?.jsonPrimitive?.content) {
+            "artifactCollectRequest" -> { if (!artifactCollectionEnabled || outbound) throw RunnerProtocolException(); RunnerCollectionProtocol.validate(frame, "collectionRequest") }
+            "artifactCollectComplete" -> { if (!artifactCollectionEnabled || !outbound) throw RunnerProtocolException(); RunnerCollectionProtocol.validate(frame, "collectionComplete") }
+            else -> protocol.validate(frame, "ipcFrame")
+        }
+    }
     private val seen = LinkedHashMap<String, String>()
     private val sent = java.util.concurrent.atomic.AtomicLong()
     private val written = java.util.concurrent.atomic.AtomicLong()
@@ -38,19 +47,24 @@ class RunnerIpc(
     init { protocol.validate(binding, "binding") }
     fun start() { writer.start(); reader.start() }
 
-    fun send(type: String, payload: JsonObject, frameId: String = UUID.randomUUID().toString()): String {
+    fun send(type: String, payload: JsonObject, frameId: String = UUID.randomUUID().toString(), replyTo: String? = null): String {
         if (closed.get()) throw RunnerProtocolException()
         val frame = buildJsonObject {
             put("protocolVersion", 1); put("frameId", frameId); put("type", type)
             put("binding", binding); put("payload", payload)
+            replyTo?.let { put("replyTo", it) }
         }
-        protocol.validate(frame, "ipcFrame")
-        val bytes = (frame.toString() + "\n").toByteArray(Charsets.UTF_8)
+        return sendFrame(frame)
+    }
+    fun sendFrame(frame: JsonObject): String {
+        if (closed.get() || frame.obj("binding") != binding) throw RunnerProtocolException()
+        validateFrame(frame, true)
+        val bytes = (canonical(frame) + "\n").toByteArray(Charsets.UTF_8)
         if (bytes.size > MAX_FRAME_BYTES || !outbound.offer(bytes, 1, TimeUnit.SECONDS)) {
             fail(); throw RunnerProtocolException()
         }
         sent.incrementAndGet()
-        return frameId
+        return frame.string("frameId")
     }
 
     class CorrelatedReply(val frameId: String, val payload: JsonObject)
@@ -58,35 +72,45 @@ class RunnerIpc(
         requestCorrelated(type, payload, responseType, timeoutMs).payload
 
     suspend fun requestCorrelated(type: String, payload: JsonObject, responseType: String, timeoutMs: Long = 30_000,
-                                  frameId: String = UUID.randomUUID().toString(),
+                                  frameId: String = UUID.randomUUID().toString(), replyTo: String? = null,
                                   onRequest: (String) -> Unit = {}): CorrelatedReply {
-        val id = frameId
+        return awaitReply(responseType, timeoutMs, frameId, payload["idempotencyKey"]?.jsonPrimitive?.content) {
+            onRequest(frameId); send(type, payload, frameId, replyTo)
+        }
+    }
+
+    /** Register a waiter BEFORE the shared event writer persists/enqueues its original frame. */
+    suspend fun awaitReply(responseType: String, timeoutMs: Long = 30_000, frameId: String = UUID.randomUUID().toString(),
+                           correlation: String? = null, dispatch: () -> Unit): CorrelatedReply {
         val response = CompletableDeferred<JsonObject>()
-        if (pending.size >= 128 || pending.putIfAbsent(id, Pending(responseType, payload["idempotencyKey"]?.jsonPrimitive?.content, response)) != null) throw RunnerProtocolException()
+        if (pending.size >= 128 || pending.putIfAbsent(frameId, Pending(responseType, correlation, response)) != null) throw RunnerProtocolException()
         try {
-            onRequest(id)
-            send(type, payload, id)
-            return CorrelatedReply(id, withTimeout(timeoutMs) { response.await() })
-        } finally { pending.remove(id); response.cancel() }
+            dispatch()
+            return CorrelatedReply(frameId, withTimeout(timeoutMs) { response.await() })
+        } finally { pending.remove(frameId); response.cancel() }
     }
 
     /** Public for deterministic transport tests; complete binding equality fences old epochs. */
     @Synchronized
     fun accept(frame: JsonObject) {
-        protocol.validate(frame, "ipcFrame")
+        validateFrame(frame, false)
         if (frame.obj("binding") != binding || closed.get()) throw RunnerProtocolException()
         val allowed = setOf("start", "resume", "ack", "approvalDecision", "userResponse", "credentialGrant", "cancel", "environmentInvalidated", "error",
-            "leaseRenewed", "environmentRefreshed", "processStarted", "processExited", "processOutput", "processInputAck", "processClosed", "outputValue", "outputAck", "callbackTokenGrant")
+            "leaseRenewed", "environmentRefreshed", "processStarted", "processExited", "processOutput", "processInputAck", "processClosed", "outputValue", "outputAck", "callbackTokenGrant", "artifactCollectRequest")
         if (frame.string("type") !in allowed) throw RunnerProtocolException()
         val id = frame.string("frameId")
         val digest = sha256(canonical(frame).toByteArray())
-        seen[id]?.let { if (it != digest) throw RunnerProtocolException(); return }
+        seen[id]?.let {
+            if (it != digest) throw RunnerProtocolException()
+            if (frame.string("type") == "artifactCollectRequest") onControl(frame)
+            return
+        }
         // Never evict dedupe identities and accidentally reaccept an old control. Refuse the
         // attempt at the explicit bound; future contract can add compactable durable sequences.
         if (seen.size >= MAX_INBOUND_IDENTITIES) throw RunnerProtocolException()
         seen[id] = digest
         val replyTo = frame["replyTo"]?.jsonPrimitive?.content
-        if (frame.string("type") in setOf("cancel", "environmentInvalidated", "leaseRenewed", "environmentRefreshed", "processExited", "processOutput", "processClosed")) {
+        if (frame.string("type") in setOf("cancel", "environmentInvalidated", "leaseRenewed", "environmentRefreshed", "processExited", "processOutput", "processClosed", "artifactCollectRequest")) {
             onControl(frame)
         } else if (replyTo != null) {
             val request = pending[replyTo] ?: run {
@@ -115,7 +139,7 @@ class RunnerIpc(
                 val bytes = readLine(input) ?: throw RunnerProtocolException()
                 val text = Charsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT)
                     .onUnmappableCharacter(CodingErrorAction.REPORT).decode(ByteBuffer.wrap(bytes)).toString()
-                accept(protocol.parse(text))
+                accept(protocol.decode(text))
             }
         } catch (_: Exception) { fail() }
     }
