@@ -25,4 +25,35 @@ class RunnerCodeControlNegotiationTest {
             RunnerCodeControlNegotiation.select(setOf(RunnerCodeControlNegotiation.PER_CALL, RunnerCodeControlNegotiation.LEGACY), RunnerHostSession.CAPABILITIES)
         }
     }
+    @Test fun `feedback context uses explicit per-call negotiation without claiming supervisor availability`() {
+        val required = setOf(RunnerCodeControlNegotiation.FEEDBACK_CONTEXT, RunnerCodeControlNegotiation.PER_CALL)
+        assertTrue(RunnerHostSession.CAPABILITIES.containsAll(required))
+        assertEquals(WorkflowCodeControlMode.SUPERVISOR_PER_CALL,
+            RunnerCodeControlNegotiation.select(required, RunnerHostSession.CAPABILITIES))
+        for (missing in required) {
+            val failure = assertFailsWith<RunnerNegotiationException> {
+                RunnerCodeControlNegotiation.select(required, RunnerHostSession.CAPABILITIES - missing)
+            }
+            assertEquals(RunnerNegotiationReason.RUNNER_REQUIRED_CAPABILITY_UNAVAILABLE, failure.reason)
+        }
+    }
+    @Test fun `feedback context without per-call or with legacy selector fails closed`() {
+        val feedback = RunnerCodeControlNegotiation.FEEDBACK_CONTEXT
+        for (required in listOf(setOf(feedback), setOf(feedback, RunnerCodeControlNegotiation.LEGACY))) {
+            val failure = assertFailsWith<RunnerNegotiationException> {
+                RunnerCodeControlNegotiation.select(required, RunnerHostSession.CAPABILITIES)
+            }
+            assertEquals(RunnerNegotiationReason.RUNNER_FEEDBACK_CONTEXT_REQUIRES_PER_CALL, failure.reason)
+        }
+        val conflict = assertFailsWith<RunnerNegotiationException> {
+            RunnerCodeControlNegotiation.select(setOf(feedback, RunnerCodeControlNegotiation.PER_CALL,
+                RunnerCodeControlNegotiation.LEGACY), RunnerHostSession.CAPABILITIES)
+        }
+        assertEquals(RunnerNegotiationReason.RUNNER_CONTROL_MODE_CONFLICT, conflict.reason)
+        val unknown = assertFailsWith<RunnerNegotiationException> {
+            RunnerCodeControlNegotiation.select(setOf(RunnerCodeControlNegotiation.PER_CALL, "control.unknown.v1"), RunnerHostSession.CAPABILITIES)
+        }
+        assertEquals(RunnerNegotiationReason.RUNNER_REQUIRED_CAPABILITY_UNAVAILABLE, unknown.reason)
+    }
+
 }

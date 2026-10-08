@@ -4,7 +4,7 @@ import com.fartech.agents.workflow.WorkflowCodeControlMode
 
 internal enum class RunnerNegotiationReason {
     RUNNER_REQUIRED_CAPABILITY_UNAVAILABLE, RUNNER_CONTROL_MODE_CONFLICT, RUNNER_CONTROL_SUPPLEMENT_UNAVAILABLE,
-    RUNNER_ARTIFACT_CAPABILITY_REQUIRED, RUNNER_ARTIFACT_POLICY_INVALID
+    RUNNER_ARTIFACT_CAPABILITY_REQUIRED, RUNNER_ARTIFACT_POLICY_INVALID, RUNNER_FEEDBACK_CONTEXT_REQUIRES_PER_CALL
 }
 internal class RunnerNegotiationException(val reason: RunnerNegotiationReason) : IllegalArgumentException(reason.name)
 
@@ -13,6 +13,8 @@ internal class RunnerNegotiationException(val reason: RunnerNegotiationReason) :
 internal object RunnerCodeControlNegotiation {
     const val PER_CALL = "control.perCall.v1"
     const val LEGACY = "control.callback.v1"
+    // P/S metadata travels through the existing guarded CC feedback.read adapter, never a new E IPC frame.
+    const val FEEDBACK_CONTEXT = "control.feedbackContext.v1"
     const val CONTRACT_COMMIT = "cc684f0a28b6b3f3106b91e486244843f979aa83"
     const val SCHEMA_SHA256 = "7951e39556624737701dad352209c332954fed84066b5653beddf2f9c34c9c2f"
 
@@ -20,6 +22,7 @@ internal object RunnerCodeControlNegotiation {
         bytes != null && sha256(bytes) == SCHEMA_SHA256
 
     fun select(required: Set<String>, available: Set<String>): WorkflowCodeControlMode {
+        if (FEEDBACK_CONTEXT in required && PER_CALL !in required) throw RunnerNegotiationException(RunnerNegotiationReason.RUNNER_FEEDBACK_CONTEXT_REQUIRES_PER_CALL)
         if (PER_CALL in required && LEGACY in required) throw RunnerNegotiationException(RunnerNegotiationReason.RUNNER_CONTROL_MODE_CONFLICT)
         if (PER_CALL in required && !supplementAvailable()) throw RunnerNegotiationException(RunnerNegotiationReason.RUNNER_CONTROL_SUPPLEMENT_UNAVAILABLE)
         if (!available.containsAll(required)) throw RunnerNegotiationException(RunnerNegotiationReason.RUNNER_REQUIRED_CAPABILITY_UNAVAILABLE)
