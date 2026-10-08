@@ -425,7 +425,7 @@ val runnerHostJar = tasks.register<Jar>("runnerHostJar") {
             "Main-Class" to "com.fartech.agents.runner.RunnerHostMainKt",
             "Runner-Protocol-Version" to "1",
             "Runner-Late-Control-Commit" to file("src/main/resources/runner-workflow-v1/late-control-origin.txt").readLines().first(),
-            "Runner-Late-Control-Schema-Sha256" to "13e3d91d1e582253a9f56d5e6de8aae5eac3ee574fd152ea3abec3c336a6b892",
+            "Runner-Late-Control-Schema-Sha256" to "7951e39556624737701dad352209c332954fed84066b5653beddf2f9c34c9c2f",
             "Runner-Contract-Commit" to file("src/main/resources/runner-workflow-v1/contract-origin.txt").readLines().first(),
             "Class-Path" to configurations.runtimeClasspath.get().files.sortedBy { it.name }.joinToString(" ") { "lib/${it.name}" }
         )

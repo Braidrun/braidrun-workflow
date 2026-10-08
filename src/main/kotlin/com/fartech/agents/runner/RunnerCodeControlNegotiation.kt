@@ -7,13 +7,13 @@ internal enum class RunnerNegotiationReason {
 }
 internal class RunnerNegotiationException(val reason: RunnerNegotiationReason) : IllegalArgumentException(reason.name)
 
-/** cdc4 HTTP supplement. Engine capability proves its adapter + pinned supplement, not
+/** Pinned HTTP supplement; selector semantics remain those introduced by cdc4. Engine capability proves its adapter + pinned supplement, not
  * supervisor peer availability. The trusted supervisor must admit its provider before start. */
 internal object RunnerCodeControlNegotiation {
     const val PER_CALL = "control.perCall.v1"
     const val LEGACY = "control.callback.v1"
-    const val CONTRACT_COMMIT = "cdc4f7aea47e282336dce46548a34a716b967c88"
-    const val SCHEMA_SHA256 = "13e3d91d1e582253a9f56d5e6de8aae5eac3ee574fd152ea3abec3c336a6b892"
+    const val CONTRACT_COMMIT = "cc684f0a28b6b3f3106b91e486244843f979aa83"
+    const val SCHEMA_SHA256 = "7951e39556624737701dad352209c332954fed84066b5653beddf2f9c34c9c2f"
 
     fun supplementAvailable(bytes: ByteArray? = javaClass.getResourceAsStream("/runner-workflow-v1/late-control.schema.json")?.use { it.readBytes() }): Boolean =
         bytes != null && sha256(bytes) == SCHEMA_SHA256

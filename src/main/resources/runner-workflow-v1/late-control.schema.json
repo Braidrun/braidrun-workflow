@@ -82,27 +82,7 @@
           "minLength": 1,
           "maxLength": 4096
         },
-        "palette": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 4096
-        },
         "typography": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 4096
-        },
-        "layoutMotif": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 4096
-        },
-        "material": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 4096
-        },
-        "motion": {
           "type": "string",
           "minLength": 1,
           "maxLength": 4096
@@ -110,17 +90,57 @@
         "styleTags": {
           "type": "object",
           "maxProperties": 16,
-          "propertyNames": {
-            "maxLength": 128
-          },
-          "additionalProperties": {
-            "type": "string",
-            "maxLength": 1024
+          "additionalProperties": false,
+          "properties": {
+            "palette_family": {
+              "type": "string",
+              "maxLength": 1024
+            },
+            "illustration_style": {
+              "type": "string",
+              "maxLength": 1024
+            },
+            "rendering": {
+              "type": "string",
+              "maxLength": 1024
+            },
+            "layout_archetype": {
+              "type": "string",
+              "maxLength": 1024
+            },
+            "icon_formula": {
+              "type": "string",
+              "maxLength": 1024
+            },
+            "type_voice": {
+              "type": "string",
+              "maxLength": 1024
+            },
+            "empty_state": {
+              "type": "string",
+              "maxLength": 1024
+            }
           }
         },
         "visualSignature": {
           "type": "string",
           "maxLength": 1024
+        },
+        "illustrationRole": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "navigation": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "appIcon": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "productSummary": {
+          "type": "string",
+          "maxLength": 4096
         }
       },
       "required": [
@@ -454,7 +474,7 @@
         "timeoutSeconds": {
           "type": "integer",
           "minimum": 1,
-          "maximum": 3600
+          "maximum": 86400
         },
         "materials": {
           "type": "array",
@@ -649,7 +669,8 @@
             "artifact.publish",
             "output.read",
             "output.publish",
-            "interaction.request"
+            "interaction.request",
+            "filegate.close"
           ]
         },
         "stepName": {
@@ -849,6 +870,50 @@
         "operation",
         "message",
         "options"
+      ],
+      "additionalProperties": false
+    },
+    "filegate_close_arguments": {
+      "type": "object",
+      "properties": {
+        "gateId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "occurrenceId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "reason": {
+          "enum": [
+            "timeout",
+            "auto_continued",
+            "superseded",
+            "consumed",
+            "cancelled"
+          ]
+        }
+      },
+      "required": [
+        "gateId",
+        "occurrenceId",
+        "reason"
+      ],
+      "additionalProperties": false
+    },
+    "source_stream_arguments": {
+      "type": "object",
+      "properties": {
+        "readRefId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        }
+      },
+      "required": [
+        "readRefId"
       ],
       "additionalProperties": false
     }

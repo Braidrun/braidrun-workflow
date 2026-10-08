@@ -233,3 +233,16 @@ spill，Bash 桥之后无 callback authority；Python/Node 实际桥读取大业
 late-code/spill/cancel 6、legacy callback 3。仅定向测试，不全面重跑。
 新源码需新 installDist；新包/hash 与固定源码由独立批次 receipt 和 coordination 记录。
 原213不含8fa/cdc4接线，不能复用其哈希宣称本批分发完成。无部署/启用/存量升级。
+
+## CC HTTP 补充 pin 同步与 R18 只读边界
+
+P 新正式 `cc684f0a28b6b3f3106b91e486244843f979aa83` 的 late-control.schema.json
+SHA-256 为 `7951e39556624737701dad352209c332954fed84066b5653beddf2f9c34c9c2f`。
+因本实现嵌入并强校验补充 schema，本批从精确 Git 对象同步资源、origin、Negotiation
+常量与 manifest 源码，随后按新提交构建；不修改475旧JAR、不放松hash校验。
+475旧包仍为CDC/13e3，不能称为CC/7951。selector/codeStartEventId及wire81d均未改变。
+仅必要的 contract/ready 检查与 installDist；不重复业务全矩阵。
+
+R18 的真实文件生成/声明、普通步骤及状态机 child 上下文、E/S 快照/生产归属责任已
+只读定位，见 `MAC_RUNNER_ARTIFACT_COLLECTION_BOUNDARIES.md`。未定义私有 artifact payload，
+未实现 collector 或扫描目录；等待 P 冻结既有 artifact 事件的正式语义再接线。
