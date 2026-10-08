@@ -246,3 +246,12 @@ SHA-256 为 `7951e39556624737701dad352209c332954fed84066b5653beddf2f9c34c9c2f`�
 R18 的真实文件生成/声明、普通步骤及状态机 child 上下文、E/S 快照/生产归属责任已
 只读定位，见 `MAC_RUNNER_ARTIFACT_COLLECTION_BOUNDARIES.md`。未定义私有 artifact payload，
 未实现 collector 或扫描目录；等待 P 冻结既有 artifact 事件的正式语义再接线。
+
+## 99e55 artifact 事件内部接线
+
+已按正式99e55实现解释器声明候选、实际 producer invocation 绑定、原 durable start
+归属、稳定 intent 和既有 event/关联 ACK 屏障，详见
+`MAC_RUNNER_ARTIFACT_PUBLICATION_HANDOFF.md`。21 项定向测试通过，包含实际文件/Bash/
+fake CLI root-child structured-output 及 gate-before-ACK 阻断。生产声明策略/安全 reader
+未组装；S snapshot/chunks 与 P index ACK 是夹具。已提出策略载体及同-code gate 前正式
+收集命令的精确缺口，没有借用 stdout/env、改事件序号或编造完整文件 hash。

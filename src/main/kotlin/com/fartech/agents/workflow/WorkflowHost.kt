@@ -46,6 +46,12 @@ interface WorkflowHost {
     /** Fail closed on invalid lease, cancellation or stale/unknown environment evidence. */
     suspend fun beforeOperation(scope: WorkflowHostScope, operation: String)
     fun userInteraction(scope: WorkflowHostScope): UserInteractionHandler
+    /** Bind the actual interpreter invocation after admission, never the parent's preflight scope. */
+    fun bindArtifactProducer(workflow: WorkflowDefinition, scope: WorkflowHostScope) {}
+    /** Completion barrier for explicitly authorized files, before a subsequent gate/step.
+     * Plain stdout paths and directory scans are never declarations. Default hosts do nothing. */
+    suspend fun collectDeclaredArtifacts(workflow: WorkflowDefinition, step: WorkflowStep, scope: WorkflowHostScope,
+                                         candidates: List<WorkflowArtifactCandidate>) {}
     /** Resolve only an authorized definition, binding its bytes/hash before execution. */
     fun scriptContents(path: String): String = throw IllegalStateException("Host script resolver unavailable")
     fun dynamicWorkflow(path: String, scope: WorkflowHostScope): WorkflowDefinition

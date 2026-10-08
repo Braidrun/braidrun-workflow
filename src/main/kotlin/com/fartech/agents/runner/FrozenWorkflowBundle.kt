@@ -170,6 +170,8 @@ class FrozenWorkflowBundle(private val root: Path, val manifest: JsonObject, pri
         require(sha256(Files.readAllBytes(confinedPath(root, relative))) == sha256(bytes)) { "Script changed since admission" }
         return bytes.toString(Charsets.UTF_8)
     }
+    fun identityOf(definition: WorkflowDefinition): String = (entries.singleOrNull { it.definition === definition }
+        ?: entries.single { it.definition == definition }).id
     fun contains(definition: WorkflowDefinition): Boolean = entries.any { it.definition == definition }
 }
 

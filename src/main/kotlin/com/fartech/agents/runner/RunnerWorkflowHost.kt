@@ -21,7 +21,9 @@ class RunnerWorkflowHost(
     private val validateDirectNetwork: () -> Unit = { RunnerHttpClients.requireDirect() },
     private val interactiveBroker: RunnerInteractiveProcesses? = null,
     private val callbackEnabled: Boolean = false,
-    override val codeControlMode: WorkflowCodeControlMode = WorkflowCodeControlMode.LEGACY_STEP_TOKEN
+    override val codeControlMode: WorkflowCodeControlMode = WorkflowCodeControlMode.LEGACY_STEP_TOKEN,
+    private val artifactPolicy: RunnerArtifactPolicy? = null,
+    artifactFingerprinter: RunnerArtifactFingerprinter? = null
 ) : WorkflowHost {
     init {
         require(bundle.taskBinding == ipc.binding) { "Bundle host binding differs from IPC authority" }
@@ -29,6 +31,14 @@ class RunnerWorkflowHost(
             "runnerId" to binding.runnerId, "runnerInstanceId" to binding.runnerInstanceId, "attemptId" to binding.attemptId,
             "definitionHash" to binding.definitionHash, "runtimeHash" to binding.runtimeHash)
         require(pairs.all { (key, value) -> ipc.binding.string(key) == value } && ipc.binding.long("resumeEpoch") == binding.resumeEpoch) { "Host identity differs from IPC authority" }
+    }
+    private val admittedProducers = java.util.concurrent.ConcurrentHashMap<String, String>()
+    private val producerStarts = java.util.concurrent.ConcurrentHashMap<Pair<String, String>, String>()
+    private val codeProducerStarts = java.util.concurrent.ConcurrentHashMap<Pair<String, String>, String>()
+    private val artifactPublications = artifactPolicy?.let {
+        RunnerArtifactPublications(bundle.executionDirectory, ipc, gate, store, secrets,
+            requireNotNull(artifactFingerprinter) { "Declared artifacts require a trusted fingerprint reader" },
+            recordEvent = { payload -> persistEvent("artifact", payload) }, acceptAck = ::acknowledge)
     }
     override val workflowResolver: WorkflowResolver get() = bundle
     override val approvalHandler: ApprovalHandler = RunnerApprovalHandler(ipc, gate)
@@ -150,6 +160,13 @@ class RunnerWorkflowHost(
         val definitions = if (scope.executionId == binding.executionId) bundle.allDefinitions else listOf(workflow)
         definitions.forEach { definition -> checkRoutes(RunnerAdmission(bundle, capabilities).inspect(definition)) }
     }
+    override fun bindArtifactProducer(workflow: WorkflowDefinition, scope: WorkflowHostScope) {
+        if (artifactPolicy == null) return
+        require(scope.rootExecutionId == binding.executionId && bundle.contains(workflow)) { "Artifact producer outside frozen invocation" }
+        childPath(binding.executionId, scope.executionId)
+        val identity = bundle.identityOf(workflow)
+        require(admittedProducers.putIfAbsent(scope.executionId, identity)?.let { it == identity } != false) { "Producer definition changed within invocation" }
+    }
     private fun checkRoutes(required: Set<String>) {
         if ("model.http.v1" in required) { validateDirectNetwork(); gate.requirePaths(setOf("jvm-http")) }
         if (required.any { it in setOf("agent.codex.v1", "agent.claude.v1") }) { validateDirectNetwork(); gate.requirePaths(setOf("agent-cli")) }
@@ -165,6 +182,21 @@ class RunnerWorkflowHost(
         return bundle.dynamic(path).also { checkRoutes(RunnerAdmission(bundle, capabilities).inspect(it)) }
     }
     override fun userInteraction(scope: WorkflowHostScope): UserInteractionHandler = RunnerUserInteraction(ipc, gate, scope, secrets)
+    override suspend fun collectDeclaredArtifacts(workflow: WorkflowDefinition, step: WorkflowStep, scope: WorkflowHostScope, candidates: List<WorkflowArtifactCandidate>) {
+        val policy = artifactPolicy ?: return
+        try {
+        require(scope.rootExecutionId == binding.executionId && scope.stepName == step.step) { "Artifact boundary scope mismatch" }
+        gate.check(); verifyAssets()
+        val workflowId = requireNotNull(admittedProducers[scope.executionId]) { "Artifact producer was not admitted" }
+        val declared = policy.declared(workflowId, scope, candidates.toList())
+        require(declared.size <= 64 && declared.map { it.logicalPath }.distinct().size == declared.size) { "Artifact declaration count or identity invalid" }
+        if (declared.isEmpty()) return
+        val key = scope.executionId to step.step
+        val start = requireNotNull((if (step.code != null) codeProducerStarts else producerStarts)[key]) { "Original durable producer start missing" }
+        declared.forEach { requireNotNull(artifactPublications).publish(workflowId, scope, start, it) }
+        } catch (failure: kotlinx.coroutines.CancellationException) { throw failure }
+        catch (_: Exception) { gate.invalidate("RUNNER_ARTIFACT_PUBLICATION_UNCONFIRMED"); throw RunnerAuthorityLost() }
+    }
     @Synchronized override fun monitor(update: WorkflowMonitorUpdate) {
         if (update.type in setOf("step_completed", "step_cancelled")) update.stepName?.let { live.release(update.executionId, it) }
         val payload = buildJsonObject {
@@ -180,10 +212,22 @@ class RunnerWorkflowHost(
             }) }
         }
         val kind = if (update.event?.let { !it.isDisplayOnlyTokenEvent() && (it.inputTokens != null || it.totalTokens != null) } == true) "usage" else "step"
-        emit(kind, payload)
+        val frame = persistEvent(kind, payload)
+        update.stepName?.let { step ->
+            val key = update.executionId to step
+            if (update.type == "step_started") { producerStarts[key] = frame.obj("payload").string("eventId"); codeProducerStarts.remove(key) }
+            if (update.event?.type == "code_step_started") codeProducerStarts[key] = frame.obj("payload").string("eventId")
+            if (update.type in setOf("step_completed", "step_cancelled")) { producerStarts.remove(key); codeProducerStarts.remove(key) }
+        }
+        ipc.send("event", frame.obj("payload"), frame.string("frameId"))
     }
     @Synchronized fun emit(kind: String, payload: JsonObject) {
+        val frame = persistEvent(kind, payload)
+        ipc.send("event", frame.obj("payload"), frame.string("frameId"))
+    }
+    @Synchronized private fun persistEvent(kind: String, payload: JsonObject): JsonObject {
         require(kind != "approval") { "Approval requests use the dedicated host-request channel" }
+        if (kind == "artifact") require(secrets.redact(payload) == payload) { "Artifact metadata cannot be redacted or altered" }
         val eventSequence = sequence + 1
         val id = UUID.randomUUID().toString()
         val event = buildJsonObject {
@@ -197,7 +241,7 @@ class RunnerWorkflowHost(
         }
         store.writePrivate(".runner-state/events/$eventSequence.json", canonical(frame).toByteArray(Charsets.UTF_8))
         sequence = eventSequence
-        ipc.send("event", event, frameId)
+        return frame
     }
     @Synchronized fun acknowledge(payload: JsonObject) {
         val seq = payload.long("ackSeq")

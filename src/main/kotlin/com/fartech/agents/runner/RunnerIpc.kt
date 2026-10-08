@@ -58,8 +58,9 @@ class RunnerIpc(
         requestCorrelated(type, payload, responseType, timeoutMs).payload
 
     suspend fun requestCorrelated(type: String, payload: JsonObject, responseType: String, timeoutMs: Long = 30_000,
+                                  frameId: String = UUID.randomUUID().toString(),
                                   onRequest: (String) -> Unit = {}): CorrelatedReply {
-        val id = UUID.randomUUID().toString()
+        val id = frameId
         val response = CompletableDeferred<JsonObject>()
         if (pending.size >= 128 || pending.putIfAbsent(id, Pending(responseType, payload["idempotencyKey"]?.jsonPrimitive?.content, response)) != null) throw RunnerProtocolException()
         try {

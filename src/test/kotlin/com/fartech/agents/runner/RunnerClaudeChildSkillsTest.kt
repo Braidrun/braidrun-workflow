@@ -18,8 +18,18 @@ class RunnerClaudeChildSkillsTest {
     @Test fun `Claude root and static child receive only selected frozen skill stdin and own scoped token`(@TempDir dir: Path) = runFixture(dir, false)
     @Test fun `Claude secret echo is redacted from persisted events and refuses credential checkpoint`(@TempDir dir: Path) = runFixture(dir, true)
 
-    private fun runFixture(dir: Path, echoSecret: Boolean) = runBlocking<Unit> {
+    @Test fun `CLI structured write targets become scoped artifact declarations after actual persistence`(@TempDir dir: Path) = runFixture(dir, false, true)
+
+    private fun runFixture(dir: Path, echoSecret: Boolean, structured: Boolean = false) = runBlocking<Unit> {
         val fake = dir.resolve("fake-claude")
+        val persist = if (structured) """
+            mkdir -p '${dir.resolve("run")}'
+            if [[ "${'$'}WF_EXECUTION_ID" == *"__nested__call_1" ]]; then
+              printf '{"fixture":"child"}' > '${dir.resolve("run/claude-child.json")}'
+            else
+              printf '{"fixture":"root"}' > '${dir.resolve("run/claude-root.json")}'
+            fi
+        """.trimIndent() else ""
         val executable = """
             #!/bin/bash
             set -eu
@@ -36,6 +46,7 @@ class RunnerClaudeChildSkillsTest {
               [[ "${'$'}prompt" != *"CHILD_ONLY_FROZEN_SKILL"* ]]
               [[ "${'$'}CLAUDE_CODE_OAUTH_TOKEN" == "fixture-claude-root-secret" ]]
             fi
+            ${persist.replace("\n", "\n            ")}
             printf '{"type":"result","is_error":false,"result":"claude-proof %s %s"}\n' "${'$'}WF_EXECUTION_ID" "${if (echoSecret) "${'$'}CLAUDE_CODE_OAUTH_TOKEN" else "clean-result"}"
         """.trimIndent().replace("${'$'}CODEX_HOME:-", "${'$'}{CODEX_HOME:-}")
         fun definition(name: String, selected: String, account: String) = """
@@ -53,7 +64,7 @@ class RunnerClaudeChildSkillsTest {
               - step: write
                 agent: writer
                 input: Follow the selected frozen skill.
-        """.trimIndent()
+        """.trimIndent() + if (structured) "\n    structured_output:\n      schema: ai_commentary_parts\n      write_to: ${dir.resolve("run/$name.json")}\n" else ""
         val root = definition("claude-root", "root-only", "root-account") + "\n  - step: nested\n    sub_workflow:\n      workflow_id: child\n"
         val content = linkedMapOf(
             "root.yaml" to ("definition" to root), "child.yaml" to ("definition" to definition("claude-child", "child-only", "child-account")),
@@ -100,8 +111,19 @@ class RunnerClaudeChildSkillsTest {
             }
             val identity = WorkflowHostBinding(binding.string("ownerId"), binding.string("actorUserId"), "billing", binding.string("executionId"),
                 binding.string("runnerId"), binding.string("runnerInstanceId"), binding.long("resumeEpoch"), binding.string("attemptId"), hash, binding.string("runtimeHash"))
+            val publications = mutableListOf<JsonObject>(); val starts = mutableMapOf<String, String>()
             val host = RunnerWorkflowHost(h.ipc, identity, gate, bundle, RunnerHostSession.CAPABILITIES, executor, RunnerCheckpointStore(dir, binding, secrets), secrets,
-                validateDirectNetwork = { RunnerHttpClients.requireDirect(emptyMap(), java.util.Properties()) })
+                validateDirectNetwork = { RunnerHttpClients.requireDirect(emptyMap(), java.util.Properties()) },
+                artifactPolicy = if (!structured) null else RunnerArtifactPolicy { workflowId, scope, candidates ->
+                    if (scope.stepName != "write") emptyList() else {
+                        val logical = "run/claude-$workflowId.json"
+                        assertEquals(listOf(WorkflowArtifactCandidate(dir.resolve(logical).toString(), WorkflowArtifactCandidate.Declaration.STRUCTURED_OUTPUT)), candidates)
+                        listOf(RunnerDeclaredArtifact(logical, 1024))
+                    }
+                }, artifactFingerprinter = if (!structured) null else RunnerArtifactFingerprinter { intent ->
+                    val bytes = Files.readAllBytes(dir.resolve(intent.declaration.logicalPath))
+                    RunnerArtifactFingerprint(bytes.size.toLong(), sha256(bytes))
+                })
             val task = async { WorkflowExecutor(HttpAccess(), emptyList(), host = host).execute(bundle.rootDefinition) }
             val pump = launch {
                 while (isActive) {
@@ -117,7 +139,20 @@ class RunnerClaudeChildSkillsTest {
                                 put("material", buildJsonObject { put("token", if (ref == "root-account") "fixture-claude-root-secret" else "fixture-claude-child-secret") })
                             }))
                         }
-                        "event", "checkpoint" -> assertFalse(frame.toString().contains(Regex("fixture-claude-(root|child)-secret")))
+                        "event", "checkpoint" -> {
+                            assertFalse(frame.toString().contains(Regex("fixture-claude-(root|child)-secret")))
+                            if (frame.string("type") == "event") {
+                                val detail = body.obj("payload")
+                                if (detail["kind"]?.jsonPrimitive?.content == "step_started" && detail["stepName"]?.jsonPrimitive?.content == "write") starts[detail.string("executionId")] = body.string("eventId")
+                                if (body.string("type") == "artifact") {
+                                    publications += detail
+                                    val execution = if (detail.string("producerWorkflowId") == "root") identity.executionId else "${identity.executionId}__nested__call_1"
+                                    assertEquals(starts.getValue(execution), detail.string("producerStartEventId"))
+                                    assertEquals(sha256(Files.readAllBytes(dir.resolve(detail.string("logicalPath")))), detail.string("sha256"))
+                                    h.ipc.accept(h.reply(frame, "ack", buildJsonObject { put("ackSeq", body.long("eventSeq")); put("revision", publications.size); put("serverTime", Instant.now().toString()) }))
+                                }
+                            }
+                        }
                         else -> fail("Unexpected fixture frame ${frame.string("type")}")
                     }
                 }
@@ -129,6 +164,7 @@ class RunnerClaudeChildSkillsTest {
                 assertEquals(if (echoSecret) listOf(identity.executionId) else listOf(identity.executionId, "${identity.executionId}__nested__call_1"), invocations.map { it.getValue("WF_EXECUTION_ID") })
                 assertEquals(if (echoSecret) 1 else 2, invocations.map { it.getValue("HOME") }.toSet().size)
                 assertEquals(if (echoSecret) 1 else 2, invocations.map { it.getValue("CLAUDE_CONFIG_DIR") }.toSet().size)
+                assertEquals(if (structured) listOf("root", "child") else emptyList(), publications.map { it.string("producerWorkflowId") })
                 Files.walk(dir.resolve(".runner-state")).use { paths -> paths.filter { Files.isRegularFile(it) }.forEach { path ->
                     assertFalse(Files.readString(path).contains(Regex("fixture-claude-(root|child)-secret")), "Secret persisted at $path")
                 } }

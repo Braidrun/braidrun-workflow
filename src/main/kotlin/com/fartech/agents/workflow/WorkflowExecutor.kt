@@ -1051,6 +1051,7 @@ class WorkflowExecutor(
             require(executionId == host.binding.executionId) { "Host root execution identity cannot be replaced" }
         }
         host?.admit(workflow, scope)
+        host?.bindArtifactProducer(workflow, scope)
         host?.beforeOperation(scope, if (resumeState == null) "start" else "resume")
         val observer = host?.let { WorkflowMonitor.observe(executionId, it::monitor) }
         try {
@@ -2268,6 +2269,7 @@ class WorkflowExecutor(
                     // 通用结构化输出提取
                     processExtract(step, result.output, context, workflow)
                 }
+                if (result.success) collectDeclaredArtifacts(workflow, step, context, result)
                 if (result.success && step.publishOutputs.isNotEmpty()) {
                     publishStepOutputs(step, workflow, context)
                 }
@@ -2494,7 +2496,10 @@ class WorkflowExecutor(
             workingDir = workingDir
         )
 
-        return StepResult(success = true, output = output)
+        return StepResult(success = true, output = output,
+            artifactCandidates = resolvedStructuredOutput?.writeTo?.takeIf { it.isNotBlank() }?.let {
+                listOf(WorkflowArtifactCandidate(it, WorkflowArtifactCandidate.Declaration.STRUCTURED_OUTPUT))
+            }.orEmpty())
     }
 
     /**
@@ -2726,6 +2731,7 @@ class WorkflowExecutor(
                 processExtract(stateStep, output, context, workflow)
             }
 
+            if (result.success) collectDeclaredArtifacts(workflow, stateStep, context, result)
             if (enableMonitoring) {
                 WorkflowMonitor.completeStep(context.executionId, subStepName, true, result.output)
                 WorkflowMonitor.addEvent(
@@ -4121,6 +4127,15 @@ class WorkflowExecutor(
         logger.info { "[Extract] Step '${step.step}': remapped container output path in '$variableName' -> '$remapped'" }
     }
 
+    private suspend fun collectDeclaredArtifacts(workflow: WorkflowDefinition, step: WorkflowStep,
+                                                 context: WorkflowExecutionContext, result: StepResult) {
+        val target = host ?: return
+        val candidates = result.artifactCandidates + step.publishOutputs.filter { it.type in setOf("file", "markdown_file", "json_file") }.map {
+            WorkflowArtifactCandidate(resolveTemplate(it.source, context), WorkflowArtifactCandidate.Declaration.PUBLISHED_FILE)
+        }
+        target.collectDeclaredArtifacts(workflow, step, hostScope(context, step.step), candidates.distinct())
+    }
+
     private suspend fun publishStepOutputs(
         step: WorkflowStep,
         workflow: WorkflowDefinition,
@@ -5445,6 +5460,7 @@ class WorkflowExecutor(
             val invocation = parentContext.childInvocationCounts.merge(step.step, 1L) { a, b -> a + b }!!
             "${childBaseId}__call_$invocation"
         }
+        host?.bindArtifactProducer(childDefBase, WorkflowHostScope(host.binding.executionId, derivedExecutionId, parentContext.executionId))
         val childContext = WorkflowExecutionContext(
             workflowName = effectiveChildDef.name,
             executionId = derivedExecutionId,
@@ -9838,7 +9854,8 @@ private data class StepResult(
     val success: Boolean,
     val output: String? = null,
     val error: String? = null,
-    val skipped: Boolean = false
+    val skipped: Boolean = false,
+    val artifactCandidates: List<WorkflowArtifactCandidate> = emptyList()
 )
 
 private data class StateExecutionResult(
