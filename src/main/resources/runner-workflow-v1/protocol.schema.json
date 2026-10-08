@@ -1,0 +1,3155 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://braidrun.com/contracts/runner-workflow-v1/protocol.schema.json",
+  "title": "Runner full workflow v1",
+  "$defs": {
+    "executionTarget": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "SERVER"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "RUNNER"
+            },
+            "runnerId": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "kind",
+            "runnerId"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "binding": {
+      "type": "object",
+      "properties": {
+        "protocolVersion": {
+          "const": 1
+        },
+        "ownerId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "actorUserId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "executionId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "runnerId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "runnerInstanceId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "resumeEpoch": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "attemptId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "definitionHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "runtimeHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "ownerId",
+        "actorUserId",
+        "executionId",
+        "runnerId",
+        "runnerInstanceId",
+        "resumeEpoch",
+        "attemptId",
+        "definitionHash",
+        "runtimeHash"
+      ],
+      "additionalProperties": false
+    },
+    "authorization": {
+      "type": "object",
+      "properties": {
+        "billingOwnerId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "hostScope": {
+          "type": "string",
+          "enum": [
+            "USER",
+            "TEAM"
+          ]
+        },
+        "hostScopeId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "runnerEnrollmentOwnerId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "profileId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "profileRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "requiredCapabilities": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "required": [
+        "billingOwnerId",
+        "hostScope",
+        "hostScopeId",
+        "runnerEnrollmentOwnerId",
+        "profileId",
+        "profileRevision",
+        "revision",
+        "requiredCapabilities"
+      ],
+      "additionalProperties": false
+    },
+    "lease": {
+      "type": "object",
+      "properties": {
+        "leaseId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "leaseExpiresAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "serverTime": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "renewAfterSeconds": {
+          "const": 15
+        },
+        "leaseDurationSeconds": {
+          "const": 60
+        }
+      },
+      "required": [
+        "leaseId",
+        "leaseExpiresAt",
+        "serverTime",
+        "renewAfterSeconds",
+        "leaseDurationSeconds"
+      ],
+      "additionalProperties": false
+    },
+    "file": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\)(?!.*\\u0000).+"
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "role": {
+          "type": "string",
+          "enum": [
+            "definition",
+            "input",
+            "skill",
+            "script",
+            "runtime"
+          ]
+        }
+      },
+      "required": [
+        "path",
+        "size",
+        "sha256",
+        "role"
+      ],
+      "additionalProperties": false
+    },
+    "definition": {
+      "type": "object",
+      "properties": {
+        "workflowId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "definitionHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "workflowId",
+        "definitionHash",
+        "path"
+      ],
+      "additionalProperties": false
+    },
+    "bundle": {
+      "type": "object",
+      "properties": {
+        "bundleHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/file"
+          }
+        },
+        "definitions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/definition"
+          }
+        },
+        "rootWorkflowId": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "bundleHash",
+        "files",
+        "definitions",
+        "rootWorkflowId"
+      ],
+      "additionalProperties": false
+    },
+    "egress": {
+      "type": "object",
+      "properties": {
+        "pathId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "addressFamily": {
+          "type": "string",
+          "enum": [
+            "IPv4",
+            "IPv6"
+          ]
+        },
+        "ip": {
+          "type": "string",
+          "minLength": 1
+        },
+        "countryCode": {
+          "type": "string",
+          "pattern": "^[A-Z]{2}$"
+        },
+        "source": {
+          "type": "string",
+          "minLength": 1
+        },
+        "observedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "networkProfileHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      },
+      "required": [
+        "pathId",
+        "addressFamily",
+        "ip",
+        "countryCode",
+        "source",
+        "observedAt",
+        "networkProfileHash"
+      ],
+      "additionalProperties": false
+    },
+    "environment": {
+      "type": "object",
+      "properties": {
+        "binding": {
+          "$ref": "#/$defs/binding"
+        },
+        "environmentCheckId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "policyVersion": {
+          "const": "runner-environment-v1"
+        },
+        "checkedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "validUntil": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "networkProfileHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "decision": {
+          "type": "string",
+          "enum": [
+            "ALLOW",
+            "BLOCK_CN",
+            "BLOCK_UNVERIFIED",
+            "BLOCK_DEPENDENCY"
+          ]
+        },
+        "reasons": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "systemLanguage": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "languageSource": {
+          "type": "string",
+          "minLength": 1
+        },
+        "effectiveLocale": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "egress": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/egress"
+          }
+        }
+      },
+      "required": [
+        "binding",
+        "environmentCheckId",
+        "policyVersion",
+        "checkedAt",
+        "validUntil",
+        "networkProfileHash",
+        "decision",
+        "reasons",
+        "warnings",
+        "systemLanguage",
+        "languageSource",
+        "effectiveLocale",
+        "egress"
+      ],
+      "additionalProperties": false
+    },
+    "event": {
+      "type": "object",
+      "properties": {
+        "eventId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "eventSeq": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "attemptId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "resumeEpoch": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "log",
+            "step",
+            "usage",
+            "approval",
+            "userInteraction",
+            "checkpoint",
+            "externalEffect",
+            "artifact",
+            "environment",
+            "result",
+            "stopReceipt"
+          ]
+        },
+        "payload": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "eventId",
+        "eventSeq",
+        "attemptId",
+        "resumeEpoch",
+        "type",
+        "payload"
+      ],
+      "additionalProperties": false
+    },
+    "command": {
+      "type": "object",
+      "properties": {
+        "commandId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "commandSeq": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "attemptId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "resumeEpoch": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "cancel",
+            "approvalDecision",
+            "userResponse",
+            "debug",
+            "environmentInvalidated"
+          ]
+        },
+        "payload": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "commandId",
+        "commandSeq",
+        "attemptId",
+        "resumeEpoch",
+        "type",
+        "payload"
+      ],
+      "additionalProperties": false
+    },
+    "registeredProcess": {
+      "type": "object",
+      "properties": {
+        "pid": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "processGroupId": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "startIdentity": {
+          "type": "string",
+          "minLength": 1
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "EXITED",
+            "ALIVE",
+            "UNKNOWN"
+          ]
+        }
+      },
+      "required": [
+        "pid",
+        "processGroupId",
+        "startIdentity",
+        "state"
+      ],
+      "additionalProperties": false
+    },
+    "stopReceipt": {
+      "type": "object",
+      "properties": {
+        "binding": {
+          "$ref": "#/$defs/binding"
+        },
+        "receiptId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "recordedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "confirmed": {
+          "type": "boolean"
+        },
+        "engineStarted": {
+          "type": "boolean"
+        },
+        "registeredProcesses": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/registeredProcess"
+          }
+        },
+        "unmanagedProcessDetected": {
+          "type": "boolean"
+        },
+        "journalHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      },
+      "required": [
+        "binding",
+        "receiptId",
+        "recordedAt",
+        "reason",
+        "confirmed",
+        "engineStarted",
+        "registeredProcesses",
+        "unmanagedProcessDetected",
+        "journalHash"
+      ],
+      "additionalProperties": false
+    },
+    "result": {
+      "type": "object",
+      "properties": {
+        "binding": {
+          "$ref": "#/$defs/binding"
+        },
+        "finalEventSeq": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "resultHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "artifactManifestHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "COMPLETED",
+            "FAILED",
+            "CANCELLED",
+            "INTERRUPTED"
+          ]
+        },
+        "terminationReason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "stopReceipt": {
+          "$ref": "#/$defs/stopReceipt"
+        }
+      },
+      "required": [
+        "binding",
+        "finalEventSeq",
+        "resultHash",
+        "artifactManifestHash",
+        "status",
+        "terminationReason",
+        "stopReceipt"
+      ],
+      "additionalProperties": false
+    },
+    "approval": {
+      "type": "object",
+      "properties": {
+        "idempotencyKey": {
+          "type": "string",
+          "minLength": 1
+        },
+        "childExecutionPath": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "stepId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        },
+        "editableColumns": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "group": {
+                "type": "string",
+                "minLength": 1
+              },
+              "definition": {
+                "$ref": "#/$defs/approvalGroup"
+              }
+            },
+            "required": [
+              "group",
+              "definition"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "group": {
+                "type": "string",
+                "minLength": 1
+              },
+              "item": {
+                "type": "object"
+              }
+            },
+            "required": [
+              "group",
+              "item"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "idempotencyKey",
+        "childExecutionPath",
+        "stepId",
+        "title",
+        "description",
+        "editableColumns",
+        "items"
+      ],
+      "additionalProperties": false
+    },
+    "approvalDecision": {
+      "type": "object",
+      "properties": {
+        "approvalId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "idempotencyKey": {
+          "type": "string",
+          "minLength": 1
+        },
+        "decisionVersion": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "decision": {
+          "type": "string",
+          "enum": [
+            "APPROVE",
+            "REJECT"
+          ]
+        },
+        "editedItems": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "group": {
+                "type": "string",
+                "minLength": 1
+              },
+              "item": {
+                "type": "object"
+              }
+            },
+            "required": [
+              "group",
+              "item"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "decidedBy": {
+          "type": "string",
+          "minLength": 1
+        },
+        "decidedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "comment": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "editMode": {
+          "type": "string",
+          "enum": [
+            "AS_IS",
+            "REPLACE"
+          ]
+        }
+      },
+      "required": [
+        "approvalId",
+        "idempotencyKey",
+        "decisionVersion",
+        "decision",
+        "editedItems",
+        "decidedBy",
+        "decidedAt",
+        "comment",
+        "editMode"
+      ],
+      "additionalProperties": false
+    },
+    "userInteraction": {
+      "type": "object",
+      "properties": {
+        "idempotencyKey": {
+          "type": "string",
+          "minLength": 1
+        },
+        "childExecutionPath": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "operation": {
+          "type": "string",
+          "enum": [
+            "askUser",
+            "tellUser"
+          ]
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "options": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "required": [
+        "idempotencyKey",
+        "childExecutionPath",
+        "operation",
+        "message",
+        "options"
+      ],
+      "additionalProperties": false
+    },
+    "checkpoint": {
+      "type": "object",
+      "properties": {
+        "checkpointId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "checkpointHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "relativePath": {
+          "type": "string",
+          "minLength": 1
+        },
+        "eventSeq": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "formatVersion": {
+          "const": 1
+        }
+      },
+      "required": [
+        "checkpointId",
+        "checkpointHash",
+        "relativePath",
+        "eventSeq",
+        "formatVersion"
+      ],
+      "additionalProperties": false
+    },
+    "credentialRequest": {
+      "type": "object",
+      "properties": {
+        "requestId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "credentialRef": {
+          "type": "string",
+          "minLength": 1
+        },
+        "childExecutionPath": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "purpose": {
+          "type": "string",
+          "minLength": 1
+        },
+        "expectedVersion": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "requestId",
+        "credentialRef",
+        "childExecutionPath",
+        "purpose",
+        "expectedVersion"
+      ],
+      "additionalProperties": false
+    },
+    "credentialGrant": {
+      "type": "object",
+      "properties": {
+        "requestId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "credentialLeaseId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "credentialRef": {
+          "type": "string",
+          "minLength": 1
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "expiresAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "material": {
+          "type": "object"
+        },
+        "allowedOperations": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "requestId",
+        "credentialLeaseId",
+        "credentialRef",
+        "version",
+        "expiresAt",
+        "material",
+        "allowedOperations",
+        "revision"
+      ],
+      "additionalProperties": false
+    },
+    "credentialRotation": {
+      "type": "object",
+      "properties": {
+        "credentialLeaseId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "credentialRef": {
+          "type": "string",
+          "minLength": 1
+        },
+        "expectedVersion": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "material": {
+          "type": "object"
+        },
+        "receiptHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      },
+      "required": [
+        "credentialLeaseId",
+        "credentialRef",
+        "expectedVersion",
+        "material",
+        "receiptHash"
+      ],
+      "additionalProperties": false
+    },
+    "artifactChunk": {
+      "type": "object",
+      "properties": {
+        "artifactId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "logicalPath": {
+          "type": "string",
+          "minLength": 1
+        },
+        "chunkIndex": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "chunkCount": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "contentBase64": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "artifactId",
+        "logicalPath",
+        "chunkIndex",
+        "chunkCount",
+        "sha256",
+        "size",
+        "contentBase64"
+      ],
+      "additionalProperties": false
+    },
+    "reportGrant": {
+      "type": "object",
+      "properties": {
+        "reportAuthorizationId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "binding": {
+          "$ref": "#/$defs/binding"
+        },
+        "expiresAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "allowedKinds": {
+          "const": [
+            "journal",
+            "stopReceipt",
+            "externalEffect",
+            "artifact"
+          ]
+        },
+        "serverTime": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "reportAuthorizationId",
+        "binding",
+        "expiresAt",
+        "allowedKinds",
+        "serverTime"
+      ],
+      "additionalProperties": false
+    },
+    "report": {
+      "type": "object",
+      "properties": {
+        "reportAuthorizationId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "binding": {
+          "$ref": "#/$defs/binding"
+        },
+        "reportId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "journal",
+            "stopReceipt",
+            "externalEffect",
+            "artifact"
+          ]
+        },
+        "recordedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "contentHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "payload": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "reportAuthorizationId",
+        "binding",
+        "reportId",
+        "kind",
+        "recordedAt",
+        "contentHash",
+        "payload"
+      ],
+      "additionalProperties": false
+    },
+    "error": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "minLength": 1
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "retryable": {
+          "type": "boolean"
+        },
+        "serverTime": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "retryable",
+        "serverTime"
+      ],
+      "additionalProperties": false
+    },
+    "claimRequest": {
+      "type": "object",
+      "properties": {
+        "protocolVersion": {
+          "const": 1
+        },
+        "runnerId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "runnerInstanceId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "runtimeHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "capabilities": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "runnerId",
+        "runnerInstanceId",
+        "runtimeHash",
+        "capabilities"
+      ],
+      "additionalProperties": false
+    },
+    "claimResponse": {
+      "type": "object",
+      "properties": {
+        "binding": {
+          "$ref": "#/$defs/binding"
+        },
+        "authorization": {
+          "$ref": "#/$defs/authorization"
+        },
+        "lease": {
+          "$ref": "#/$defs/lease"
+        },
+        "bundle": {
+          "$ref": "#/$defs/bundle"
+        },
+        "phase": {
+          "const": "PREFLIGHT"
+        },
+        "inputs": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "binding",
+        "authorization",
+        "lease",
+        "bundle",
+        "phase",
+        "inputs"
+      ],
+      "additionalProperties": false
+    },
+    "operation": {
+      "type": "object",
+      "properties": {
+        "binding": {
+          "$ref": "#/$defs/binding"
+        },
+        "leaseId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "expectedRevision": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "binding",
+        "leaseId",
+        "expectedRevision"
+      ],
+      "additionalProperties": false
+    },
+    "renewRequest": {
+      "type": "object",
+      "properties": {
+        "binding": {
+          "$ref": "#/$defs/binding"
+        },
+        "leaseId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "expectedRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ackCommandSeq": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "binding",
+        "leaseId",
+        "expectedRevision",
+        "ackCommandSeq"
+      ],
+      "additionalProperties": false
+    },
+    "renewResponse": {
+      "type": "object",
+      "properties": {
+        "lease": {
+          "$ref": "#/$defs/lease"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "commands": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/command"
+          }
+        }
+      },
+      "required": [
+        "lease",
+        "revision",
+        "commands"
+      ],
+      "additionalProperties": false
+    },
+    "eventBatch": {
+      "type": "object",
+      "properties": {
+        "binding": {
+          "$ref": "#/$defs/binding"
+        },
+        "leaseId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "expectedRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "events": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/event"
+          }
+        }
+      },
+      "required": [
+        "binding",
+        "leaseId",
+        "expectedRevision",
+        "events"
+      ],
+      "additionalProperties": false
+    },
+    "ack": {
+      "type": "object",
+      "properties": {
+        "ackSeq": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "serverTime": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "ackSeq",
+        "revision",
+        "serverTime"
+      ],
+      "additionalProperties": false
+    },
+    "ipcFrame": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "protocolVersion": {
+              "const": 1
+            },
+            "frameId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "type": {
+              "const": "ready"
+            },
+            "binding": {
+              "$ref": "#/$defs/binding"
+            },
+            "replyTo": {
+              "type": "string",
+              "minLength": 1
+            },
+            "payload": {
+              "type": "object",
+              "properties": {
+                "runtimeHash": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "capabilities": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              },
+              "required": [
+                "runtimeHash",
+                "capabilities"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "protocolVersion",
+            "frameId",
+            "type",
+            "binding",
+            "payload"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "protocolVersion": {
+              "const": 1
+            },
+            "frameId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "type": {
+              "const": "start"
+            },
+            "binding": {
+              "$ref": "#/$defs/binding"
+            },
+            "replyTo": {
+              "type": "string",
+              "minLength": 1
+            },
+            "payload": {
+              "type": "object",
+              "properties": {
+                "bundle": {
+                  "$ref": "#/$defs/bundle"
+                },
+                "executionDirectory": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "environment": {
+                  "$ref": "#/$defs/environment"
+                },
+                "authorization": {
+                  "$ref": "#/$defs/authorization"
+                },
+                "lease": {
+                  "$ref": "#/$defs/lease"
+                },
+                "inputs": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "bundle",
+                "executionDirectory",
+                "environment",
+                "authorization",
+                "lease",
+                "inputs"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "protocolVersion",
+            "frameId",
+            "type",
+            "binding",
+            "payload"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "protocolVersion": {
+              "const": 1
+            },
+            "frameId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "type": {
+              "const": "event"
+            },
+            "binding": {
+              "$ref": "#/$defs/binding"
+            },
+            "replyTo": {
+              "type": "string",
+              "minLength": 1
+            },
+            "payload": {
+              "$ref": "#/$defs/event"
+            }
+          },
+          "required": [
+            "protocolVersion",
+            "frameId",
+            "type",
+            "binding",
+            "payload"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "protocolVersion": {
+              "const": 1
+            },
+            "frameId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "type": {
+              "const": "ack"
+            },
+            "binding": {
+              "$ref": "#/$defs/binding"
+            },
+            "replyTo": {
+              "type": "string",
+              "minLength": 1
+            },
+            "payload": {
+              "$ref": "#/$defs/ack"
+            }
+          },
+          "required": [
+            "protocolVersion",
+            "frameId",
+            "type",
+            "binding",
+            "payload"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "protocolVersion": {
+              "const": 1
+            },
+            "frameId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "type": {
+              "const": "approval"
+            },
+            "binding": {
+              "$ref": "#/$defs/binding"
+            },
+            "replyTo": {
+              "type": "string",
+              "minLength": 1
+            },
+            "payload": {
+              "$ref": "#/$defs/approval"
+            }
+          },
+          "required": [
+            "protocolVersion",
+            "frameId",
+            "type",
+            "binding",
+            "payload"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "protocolVersion": {
+              "const": 1
+            },
+            "frameId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "type": {
+              "const": "approvalDecision"
+            },
+            "binding": {
+              "$ref": "#/$defs/binding"
+            },
+            "replyTo": {
+              "type": "string",
+              "minLength": 1
+            },
+            "payload": {
+              "$ref": "#/$defs/approvalDecision"
+            }
+          },
+          "required": [
+            "protocolVersion",
+            "frameId",
+            "type",
+            "binding",
+            "payload"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "protocolVersion": {
+              "const": 1
+            },
+            "frameId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "type": {
+              "const": "userInteraction"
+            },
+            "binding": {
+              "$ref": "#/$defs/binding"
+            },
+            "replyTo": {
+              "type": "string",
+              "minLength": 1
+            },
+            "payload": {
+              "$ref": "#/$defs/userInteraction"
+            }
+          },
+          "required": [
+            "protocolVersion",
+            "frameId",
+            "type",
+            "binding",
+            "payload"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "protocolVersion": {
+              "const": 1
+            },
+            "frameId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "type": {
+              "const": "userResponse"
+            },
+            "binding": {
+              "$ref": "#/$defs/binding"
+            },
+            "replyTo": {
+              "type": "string",
+              "minLength": 1
+            },
+            "payload": {
+              "type": "object",
+              "properties": {
+                "idempotencyKey": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "response": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "idempotencyKey",
+                "response"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "protocolVersion",
+            "frameId",
+            "type",
+            "binding",
+            "payload"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "protocolVersion": {
+              "const": 1
+            },
+            "frameId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "type": {
+              "const": "credentialRequest"
+            },
+            "binding": {
+              "$ref": "#/$defs/binding"
+            },
+            "replyTo": {
+              "type": "string",
+              "minLength": 1
+            },
+            "payload": {
+              "$ref": "#/$defs/credentialRequest"
+            }
+          },
+          "required": [
+            "protocolVersion",
+            "frameId",
+            "type",
+            "binding",
+            "payload"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "protocolVersion": {
+              "const": 1
+            },
+            "frameId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "type": {
+              "const": "credentialGrant"
+            },
+            "binding": {
+              "$ref": "#/$defs/binding"
+            },
+            "replyTo": {
+              "type": "string",
+              "minLength": 1
+            },
+            "payload": {
+              "$ref": "#/$defs/credentialGrant"
+            }
+          },
+          "required": [
+            "protocolVersion",
+            "frameId",
+            "type",
+            "binding",
+            "payload"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "protocolVersion": {
+              "const": 1
+            },
+            "frameId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "type": {
+              "const": "credentialRotation"
+            },
+            "binding": {
+              "$ref": "#/$defs/binding"
+            },
+            "replyTo": {
+              "type": "string",
+              "minLength": 1
+            },
+            "payload": {
+              "$ref": "#/$defs/credentialRotation"
+            }
+          },
+          "required": [
+            "protocolVersion",
+            "frameId",
+            "type",
+            "binding",
+            "payload"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "protocolVersion": {
+              "const": 1
+            },
+            "frameId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "type": {
+              "const": "checkpoint"
+            },
+            "binding": {
+              "$ref": "#/$defs/binding"
+            },
+            "replyTo": {
+              "type": "string",
+              "minLength": 1
+            },
+            "payload": {
+              "$ref": "#/$defs/checkpoint"
+            }
+          },
+          "required": [
+            "protocolVersion",
+            "frameId",
+            "type",
+            "binding",
+            "payload"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "protocolVersion": {
+              "const": 1
+            },
+            "frameId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "type": {
+              "const": "cancel"
+            },
+            "binding": {
+              "$ref": "#/$defs/binding"
+            },
+            "replyTo": {
+              "type": "string",
+              "minLength": 1
+            },
+            "payload": {
+              "type": "object",
+              "properties": {
+                "commandId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "reason": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "commandId",
+                "reason"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "protocolVersion",
+            "frameId",
+            "type",
+            "binding",
+            "payload"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "protocolVersion": {
+              "const": 1
+            },
+            "frameId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "type": {
+              "const": "environmentInvalidated"
+            },
+            "binding": {
+              "$ref": "#/$defs/binding"
+            },
+            "replyTo": {
+              "type": "string",
+              "minLength": 1
+            },
+            "payload": {
+              "type": "object",
+              "properties": {
+                "environmentCheckId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "reason": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "environmentCheckId",
+                "reason"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "protocolVersion",
+            "frameId",
+            "type",
+            "binding",
+            "payload"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "protocolVersion": {
+              "const": 1
+            },
+            "frameId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "type": {
+              "const": "result"
+            },
+            "binding": {
+              "$ref": "#/$defs/binding"
+            },
+            "replyTo": {
+              "type": "string",
+              "minLength": 1
+            },
+            "payload": {
+              "$ref": "#/$defs/result"
+            }
+          },
+          "required": [
+            "protocolVersion",
+            "frameId",
+            "type",
+            "binding",
+            "payload"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "protocolVersion": {
+              "const": 1
+            },
+            "frameId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "type": {
+              "const": "stopReceipt"
+            },
+            "binding": {
+              "$ref": "#/$defs/binding"
+            },
+            "replyTo": {
+              "type": "string",
+              "minLength": 1
+            },
+            "payload": {
+              "$ref": "#/$defs/stopReceipt"
+            }
+          },
+          "required": [
+            "protocolVersion",
+            "frameId",
+            "type",
+            "binding",
+            "payload"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "protocolVersion": {
+              "const": 1
+            },
+            "frameId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "type": {
+              "const": "error"
+            },
+            "binding": {
+              "$ref": "#/$defs/binding"
+            },
+            "replyTo": {
+              "type": "string",
+              "minLength": 1
+            },
+            "payload": {
+              "$ref": "#/$defs/error"
+            }
+          },
+          "required": [
+            "protocolVersion",
+            "frameId",
+            "type",
+            "binding",
+            "payload"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "protocolVersion": {
+              "const": 1
+            },
+            "frameId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "type": {
+              "const": "leaseRenewed"
+            },
+            "binding": {
+              "$ref": "#/$defs/binding"
+            },
+            "replyTo": {
+              "type": "string"
+            },
+            "payload": {
+              "type": "object",
+              "properties": {
+                "lease": {
+                  "$ref": "#/$defs/lease"
+                }
+              },
+              "required": [
+                "lease"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "protocolVersion",
+            "frameId",
+            "type",
+            "binding",
+            "payload"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "protocolVersion": {
+              "const": 1
+            },
+            "frameId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "type": {
+              "const": "environmentRefreshed"
+            },
+            "binding": {
+              "$ref": "#/$defs/binding"
+            },
+            "replyTo": {
+              "type": "string"
+            },
+            "payload": {
+              "$ref": "#/$defs/environment"
+            }
+          },
+          "required": [
+            "protocolVersion",
+            "frameId",
+            "type",
+            "binding",
+            "payload"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "protocolVersion": {
+              "const": 1
+            },
+            "frameId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "type": {
+              "const": "processLaunch"
+            },
+            "binding": {
+              "$ref": "#/$defs/binding"
+            },
+            "replyTo": {
+              "type": "string"
+            },
+            "payload": {
+              "type": "object",
+              "properties": {
+                "requestId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "argv": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "relativeCwd": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "environment": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                },
+                "purpose": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "stdin": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "timeoutSeconds": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 86400
+                },
+                "captureLimitBytes": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 16777216
+                }
+              },
+              "required": [
+                "requestId",
+                "argv",
+                "relativeCwd",
+                "environment",
+                "purpose",
+                "stdin",
+                "timeoutSeconds",
+                "captureLimitBytes"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "protocolVersion",
+            "frameId",
+            "type",
+            "binding",
+            "payload"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "protocolVersion": {
+              "const": 1
+            },
+            "frameId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "type": {
+              "const": "processStarted"
+            },
+            "binding": {
+              "$ref": "#/$defs/binding"
+            },
+            "replyTo": {
+              "type": "string"
+            },
+            "payload": {
+              "type": "object",
+              "properties": {
+                "requestId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "registrationId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "pid": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "processGroupId": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "startIdentity": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "requestId",
+                "registrationId",
+                "pid",
+                "processGroupId",
+                "startIdentity"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "protocolVersion",
+            "frameId",
+            "type",
+            "binding",
+            "payload"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "protocolVersion": {
+              "const": 1
+            },
+            "frameId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "type": {
+              "const": "processExited"
+            },
+            "binding": {
+              "$ref": "#/$defs/binding"
+            },
+            "replyTo": {
+              "type": "string"
+            },
+            "payload": {
+              "type": "object",
+              "properties": {
+                "registrationId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "exitCode": {
+                  "type": "integer"
+                },
+                "stdoutArtifactId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "stderrArtifactId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "stdout": {
+                  "type": "string"
+                },
+                "stderr": {
+                  "type": "string"
+                },
+                "captureTruncated": {
+                  "type": "boolean"
+                },
+                "timedOut": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "registrationId",
+                "exitCode",
+                "stdoutArtifactId",
+                "stderrArtifactId",
+                "stdout",
+                "stderr",
+                "captureTruncated",
+                "timedOut"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "protocolVersion",
+            "frameId",
+            "type",
+            "binding",
+            "payload"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "protocolVersion": {
+              "const": 1
+            },
+            "frameId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "type": {
+              "const": "outputRead"
+            },
+            "binding": {
+              "$ref": "#/$defs/binding"
+            },
+            "replyTo": {
+              "type": "string"
+            },
+            "payload": {
+              "type": "object",
+              "properties": {
+                "requestId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "workflowId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "outputName": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "childExecutionPath": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "selector": {
+                  "$ref": "#/$defs/outputSelector"
+                },
+                "sourceExecutionId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "outputNames": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "targetWorkflowName": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "targetExecutionId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "targetStepName": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "missingPolicy": {
+                  "type": "string",
+                  "enum": [
+                    "fail",
+                    "skip_step",
+                    "use_default"
+                  ]
+                },
+                "requireWorkflowStatus": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "allowPartialExecution": {
+                  "type": "boolean"
+                },
+                "sourceWorkflowId": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "requestId",
+                "childExecutionPath",
+                "selector",
+                "sourceExecutionId",
+                "outputNames",
+                "targetWorkflowName",
+                "targetExecutionId",
+                "targetStepName",
+                "missingPolicy",
+                "requireWorkflowStatus",
+                "allowPartialExecution",
+                "sourceWorkflowId"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "protocolVersion",
+            "frameId",
+            "type",
+            "binding",
+            "payload"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "protocolVersion": {
+              "const": 1
+            },
+            "frameId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "type": {
+              "const": "outputValue"
+            },
+            "binding": {
+              "$ref": "#/$defs/binding"
+            },
+            "replyTo": {
+              "type": "string"
+            },
+            "payload": {
+              "type": "object",
+              "properties": {
+                "requestId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "value": {},
+                "sourceExecutionId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "sourceWorkflowId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "outputs": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                },
+                "missingOutputs": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              },
+              "required": [
+                "requestId",
+                "sourceExecutionId",
+                "sourceWorkflowId",
+                "outputs",
+                "missingOutputs"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "protocolVersion",
+            "frameId",
+            "type",
+            "binding",
+            "payload"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "protocolVersion": {
+              "const": 1
+            },
+            "frameId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "type": {
+              "const": "outputPublish"
+            },
+            "binding": {
+              "$ref": "#/$defs/binding"
+            },
+            "replyTo": {
+              "type": "string"
+            },
+            "payload": {
+              "type": "object",
+              "properties": {
+                "requestId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "outputName": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "value": {},
+                "childExecutionPath": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "outputType": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "description": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "contractVersion": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "visibility": {
+                  "type": "object"
+                },
+                "sourceExpression": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "workflowId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "workflowName": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "workflowVersion": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "executionId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "stepName": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "workflowStatusAtPublish": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "publishedAt": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "required": [
+                "requestId",
+                "outputName",
+                "value",
+                "childExecutionPath",
+                "outputType",
+                "description",
+                "contractVersion",
+                "visibility",
+                "sourceExpression",
+                "workflowId",
+                "workflowName",
+                "workflowVersion",
+                "executionId",
+                "stepName",
+                "workflowStatusAtPublish",
+                "publishedAt"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "protocolVersion",
+            "frameId",
+            "type",
+            "binding",
+            "payload"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "protocolVersion": {
+              "const": 1
+            },
+            "frameId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "type": {
+              "const": "outputAck"
+            },
+            "binding": {
+              "$ref": "#/$defs/binding"
+            },
+            "replyTo": {
+              "type": "string"
+            },
+            "payload": {
+              "type": "object",
+              "properties": {
+                "requestId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "outputVersion": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "required": [
+                "requestId",
+                "outputVersion"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "protocolVersion",
+            "frameId",
+            "type",
+            "binding",
+            "payload"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "protocolVersion": {
+              "const": 1
+            },
+            "frameId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "type": {
+              "const": "callbackTokenRequest"
+            },
+            "binding": {
+              "$ref": "#/$defs/binding"
+            },
+            "replyTo": {
+              "type": "string"
+            },
+            "payload": {
+              "type": "object",
+              "properties": {
+                "requestId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "childExecutionPath": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "operations": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "artifact.read",
+                      "artifact.publish",
+                      "output.read",
+                      "output.publish",
+                      "interaction.request"
+                    ]
+                  }
+                },
+                "requestedTtlSeconds": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 3600
+                },
+                "operationBudgetSeconds": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 3600
+                }
+              },
+              "required": [
+                "requestId",
+                "childExecutionPath",
+                "operations",
+                "requestedTtlSeconds",
+                "operationBudgetSeconds"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "protocolVersion",
+            "frameId",
+            "type",
+            "binding",
+            "payload"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "protocolVersion": {
+              "const": 1
+            },
+            "frameId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "type": {
+              "const": "callbackTokenGrant"
+            },
+            "binding": {
+              "$ref": "#/$defs/binding"
+            },
+            "replyTo": {
+              "type": "string"
+            },
+            "payload": {
+              "type": "object",
+              "properties": {
+                "requestId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "token": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "expiresAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "operations": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              },
+              "required": [
+                "requestId",
+                "token",
+                "expiresAt",
+                "operations"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "protocolVersion",
+            "frameId",
+            "type",
+            "binding",
+            "payload"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "protocolVersion": {
+              "const": 1
+            },
+            "frameId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "type": {
+              "const": "resume"
+            },
+            "binding": {
+              "$ref": "#/$defs/binding"
+            },
+            "replyTo": {
+              "type": "string"
+            },
+            "payload": {
+              "type": "object",
+              "properties": {
+                "bundle": {
+                  "$ref": "#/$defs/bundle"
+                },
+                "executionDirectory": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "environment": {
+                  "$ref": "#/$defs/environment"
+                },
+                "authorization": {
+                  "$ref": "#/$defs/authorization"
+                },
+                "lease": {
+                  "$ref": "#/$defs/lease"
+                },
+                "inputs": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                },
+                "checkpoint": {
+                  "$ref": "#/$defs/checkpoint"
+                },
+                "previousBinding": {
+                  "$ref": "#/$defs/binding"
+                },
+                "reconciliationReceiptHash": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                }
+              },
+              "required": [
+                "bundle",
+                "executionDirectory",
+                "environment",
+                "authorization",
+                "lease",
+                "inputs",
+                "checkpoint",
+                "previousBinding",
+                "reconciliationReceiptHash"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "protocolVersion",
+            "frameId",
+            "type",
+            "binding",
+            "payload"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "environmentOperation": {
+      "type": "object",
+      "properties": {
+        "binding": {
+          "$ref": "#/$defs/binding"
+        },
+        "leaseId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "expectedRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "environment": {
+          "$ref": "#/$defs/environment"
+        }
+      },
+      "required": [
+        "binding",
+        "leaseId",
+        "expectedRevision",
+        "environment"
+      ],
+      "additionalProperties": false
+    },
+    "credentialRequestOperation": {
+      "type": "object",
+      "properties": {
+        "binding": {
+          "$ref": "#/$defs/binding"
+        },
+        "leaseId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "expectedRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "credentialRequest": {
+          "$ref": "#/$defs/credentialRequest"
+        }
+      },
+      "required": [
+        "binding",
+        "leaseId",
+        "expectedRevision",
+        "credentialRequest"
+      ],
+      "additionalProperties": false
+    },
+    "credentialRotationOperation": {
+      "type": "object",
+      "properties": {
+        "binding": {
+          "$ref": "#/$defs/binding"
+        },
+        "leaseId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "expectedRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "credentialRotation": {
+          "$ref": "#/$defs/credentialRotation"
+        }
+      },
+      "required": [
+        "binding",
+        "leaseId",
+        "expectedRevision",
+        "credentialRotation"
+      ],
+      "additionalProperties": false
+    },
+    "artifactChunkOperation": {
+      "type": "object",
+      "properties": {
+        "binding": {
+          "$ref": "#/$defs/binding"
+        },
+        "leaseId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "expectedRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "artifactChunk": {
+          "$ref": "#/$defs/artifactChunk"
+        }
+      },
+      "required": [
+        "binding",
+        "leaseId",
+        "expectedRevision",
+        "artifactChunk"
+      ],
+      "additionalProperties": false
+    },
+    "resultOperation": {
+      "type": "object",
+      "properties": {
+        "binding": {
+          "$ref": "#/$defs/binding"
+        },
+        "leaseId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "expectedRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "result": {
+          "$ref": "#/$defs/result"
+        }
+      },
+      "required": [
+        "binding",
+        "leaseId",
+        "expectedRevision",
+        "result"
+      ],
+      "additionalProperties": false
+    },
+    "commandAck": {
+      "type": "object",
+      "properties": {
+        "binding": {
+          "$ref": "#/$defs/binding"
+        },
+        "leaseId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "expectedRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ackCommandSeq": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "binding",
+        "leaseId",
+        "expectedRevision",
+        "ackCommandSeq"
+      ],
+      "additionalProperties": false
+    },
+    "approvalGroup": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sourceVar": {
+          "type": "string",
+          "minLength": 1
+        },
+        "outputVar": {
+          "type": "string",
+          "minLength": 1
+        },
+        "title": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "keyField": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "columns": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        }
+      },
+      "required": [
+        "name",
+        "sourceVar",
+        "outputVar",
+        "title",
+        "keyField",
+        "columns",
+        "items"
+      ],
+      "additionalProperties": false
+    },
+    "outputSelector": {
+      "type": "object",
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": [
+            "execution_id",
+            "latest_successful",
+            "input_variable"
+          ]
+        },
+        "execution_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "execution_id_variable": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "step": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "mode",
+        "execution_id",
+        "execution_id_variable",
+        "step"
+      ],
+      "additionalProperties": false
+    },
+    "hostFrameOperation": {
+      "type": "object",
+      "properties": {
+        "binding": {
+          "$ref": "#/$defs/binding"
+        },
+        "leaseId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "expectedRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "frame": {
+          "$ref": "#/$defs/ipcFrame"
+        }
+      },
+      "required": [
+        "binding",
+        "leaseId",
+        "expectedRevision",
+        "frame"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/ipcFrame"
+    },
+    {
+      "$ref": "#/$defs/executionTarget"
+    },
+    {
+      "$ref": "#/$defs/claimRequest"
+    },
+    {
+      "$ref": "#/$defs/claimResponse"
+    },
+    {
+      "$ref": "#/$defs/eventBatch"
+    },
+    {
+      "$ref": "#/$defs/renewRequest"
+    },
+    {
+      "$ref": "#/$defs/renewResponse"
+    },
+    {
+      "$ref": "#/$defs/environment"
+    },
+    {
+      "$ref": "#/$defs/result"
+    },
+    {
+      "$ref": "#/$defs/report"
+    },
+    {
+      "$ref": "#/$defs/reportGrant"
+    },
+    {
+      "$ref": "#/$defs/artifactChunk"
+    }
+  ]
+}

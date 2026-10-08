@@ -825,7 +825,9 @@ fun createLLMClient(
     modelConfig: LLModelConfig,
     keys: Map<String, String>
 ): Pair<LLMProvider, LLMClient> =
-    createLLMClient(parameters, modelConfig, keys, HttpClientFactoryResolver.resolve())
+    createLLMClient(parameters, modelConfig, keys, com.fartech.agents.workflow.WorkflowHostContext.current?.let {
+        requireNotNull(it.llmHttpClientFactory) { "Workflow host has no approved LLM network adapter" }
+    } ?: HttpClientFactoryResolver.resolve())
 
 /**
  * [createLLMClient] with an explicit Koog HTTP client factory — the seam a host (or a test)
@@ -855,8 +857,8 @@ fun createLLMClient(
     val baseUrl = modelConfig.baseUrl?.takeIf { it.isNotBlank() } ?: defaultBaseUrl
     val customEndpoint = LlmEndpointPolicy.isCustomEndpoint(modelConfig.baseUrl, defaultBaseUrl)
     LlmEndpointPolicy.check(baseUrl, configProvider, providerDefault = !customEndpoint)
-    val apiKeys = ApiKeySource(parameters, keys, explicitOnly = customEndpoint &&
-        WorkflowHostPolicy.requiresExplicitKeysForCustomLlmEndpoints)
+    val apiKeys = ApiKeySource(parameters, keys, explicitOnly = com.fartech.agents.workflow.WorkflowHostContext.current != null || (customEndpoint &&
+        WorkflowHostPolicy.requiresExplicitKeysForCustomLlmEndpoints))
 
     val client: LLMClient = when (model.provider) {
         LLMProvider.Ollama -> OllamaClient(

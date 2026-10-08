@@ -736,17 +736,17 @@ class WorkflowExecutor(
     private val httpAccess: HttpAccess,
     private val baseParameters: List<ConfigurationParameter>,
     private val enableMonitoring: Boolean = true,
-    private val approvalHandler: ApprovalHandler? = null,
+    approvalHandler: ApprovalHandler? = null,
     private val debugController: WorkflowDebugController? = null,
     /**
      * 跨工作流引用解析器(子工作流场景)。
      * - null 表示不支持 sub_workflow 步骤,遇到时抛运行时错误
      * - 通常 CLI 场景由 [FileSystemWorkflowResolver] 注入,Web 场景由 WebWorkflowResolver 注入
      */
-    private val workflowResolver: WorkflowResolver? = null,
+    workflowResolver: WorkflowResolver? = null,
     private val workflowId: String? = null,
-    private val workflowOutputPublisher: WorkflowOutputPublisher? = null,
-    private val workflowOutputResolver: WorkflowOutputResolver? = null,
+    workflowOutputPublisher: WorkflowOutputPublisher? = null,
+    workflowOutputResolver: WorkflowOutputResolver? = null,
     /**
      * Code step 执行器。当非 null 时,`executeCodeStep` 通过此 executor 运行脚本
      * (在 Docker 或 Native 沙箱中);当 null 时回退到直接 ProcessBuilder 执行,
@@ -759,7 +759,7 @@ class WorkflowExecutor(
      *
      * Agent `workflow` 工具的嵌套 executor 经 [NestedWorkflowRuntime] 继承同一个实例。
      */
-    private val codeStepExecutor: SubprocessExecutor? = null,
+    codeStepExecutor: SubprocessExecutor? = null,
     /**
      * 额外注入到 `code:` 步骤子进程的环境变量。设计用于透明代理（`HTTP_PROXY` /
      * `HTTPS_PROXY` / `ALL_PROXY` / `NO_PROXY` 以及小写变体），但本类不做语义
@@ -771,14 +771,14 @@ class WorkflowExecutor(
      *
      * 默认空映射，向后兼容 CLI 与现有 web 调用。
      */
-    private val extraCodeStepEnv: Map<String, String> = emptyMap(),
-    private val claudeCredentialProvider: ClaudeCredentialProvider? = null,
+    extraCodeStepEnv: Map<String, String> = emptyMap(),
+    claudeCredentialProvider: ClaudeCredentialProvider? = null,
     /**
      * Codex's own credential pool. Separate from [claudeCredentialProvider] on
      * purpose: failover picks another credential of the same vendor, never a
      * ChatGPT subscription to cover an exhausted Claude one.
      */
-    private val codexCredentialProvider: ClaudeCredentialProvider? = null,
+    codexCredentialProvider: ClaudeCredentialProvider? = null,
     /**
      * Receives the rotated `auth.json` when a Codex run refreshed its ChatGPT
      * tokens inside the per-run `CODEX_HOME`, so the host can write it back to
@@ -787,10 +787,10 @@ class WorkflowExecutor(
      * the run itself succeeds. First argument is the credential the run
      * actually used (null when the auth.json came from a workflow parameter).
      */
-    private val onCodexAuthJsonRotated: ((credentialId: String?, authJson: String) -> Unit)? = null,
+    onCodexAuthJsonRotated: ((credentialId: String?, authJson: String) -> Unit)? = null,
     /** Trusted host callback; mint immediately before each code step, after approvals.
      * Receives that step's execution budget in seconds. Never serialized into workflow state. */
-    private val executionApiTokenProvider: ((Long) -> String)? = null,
+    executionApiTokenProvider: ((Long) -> String)? = null,
     /**
      * TypeSafe (Jev) credentials injected by the host (e.g. the web credential vault) for
      * `classifier.jev` / `repeat_until.jev`. Highest-priority key source; see
@@ -806,8 +806,44 @@ class WorkflowExecutor(
      * operator-set key never silently pays for users' steps. `TYPESAFE_BASE_URL` /
      * `TYPESAFE_DEFAULT_MODEL` are operator settings and are honored either way.
      */
-    private val jevEnvKeyFallback: Boolean = true
+    private val jevEnvKeyFallback: Boolean = true,
+    private val host: WorkflowHost? = null,
+    /** Only trusted nested runtime sets this; root identity is never a workflow variable. */
+    private val parentHostScope: WorkflowHostScope? = null
 ) {
+    private val approvalHandler = host?.approvalHandler ?: approvalHandler
+    private val workflowResolver = host?.workflowResolver ?: workflowResolver
+    private val workflowOutputPublisher = host?.outputPublisher ?: workflowOutputPublisher
+    private val workflowOutputResolver = host?.outputResolver ?: workflowOutputResolver
+    private val codeStepExecutor = host?.subprocessExecutor ?: codeStepExecutor
+    private val extraCodeStepEnv = host?.codeEnvironment ?: extraCodeStepEnv
+    private val claudeCredentialProvider = if (host != null) host.claudeCredentials else claudeCredentialProvider
+    private val codexCredentialProvider = if (host != null) host.codexCredentials else codexCredentialProvider
+    private val onCodexAuthJsonRotated = if (host != null) host.codexAuthRotation else onCodexAuthJsonRotated
+    private val executionApiTokenProvider = if (host != null) host.callbackToken else executionApiTokenProvider
+
+    private suspend fun hostAgentParameters(parameters: List<ConfigurationParameter>, executionId: String?, stepName: String?): List<ConfigurationParameter> =
+        host?.prepareAgentParameters(WorkflowHostScope(host.binding.executionId, executionId ?: host.binding.executionId, stepName = stepName), parameters) ?: parameters
+
+    private fun hostScope(context: WorkflowExecutionContext, step: String? = null) = WorkflowHostScope(
+        host?.binding?.executionId ?: context.rootExecutionId ?: context.executionId,
+        context.executionId, context.parentExecutionId, step
+    )
+
+    private fun hostSavepoint(workflow: WorkflowDefinition, context: WorkflowExecutionContext, safe: Boolean) =
+        WorkflowHostCheckpoint(
+            hostScope(context), workflow.name,
+            WorkflowResumeState(
+                preservedStepResults = context.stepResults.toMap(),
+                skippedSteps = context.skippedSteps.toSet(),
+                activatedTransitionSteps = context.activatedTransitionSteps.toSet(),
+                transitionActivationSources = context.transitionActivationSources.mapValues { it.value.toSet() },
+                variables = context.variables.toMap(), stepOutputs = context.stepOutputs.toMap(),
+                recoveredFailures = context.recoveredFailures.toSet(), approvalOccurrences = context.approvalOccurrences.toMap(),
+                pendingApprovalIds = context.pendingApprovalIds.toMap()
+            ), safe, activeApprovals.values.map { it.request }
+        )
+
 
     /**
      * Non-coroutine accessor for the current execution context.
@@ -1006,12 +1042,21 @@ class WorkflowExecutor(
         externalExecutionId: String? = null,
         resumeState: WorkflowResumeState? = null
     ): WorkflowExecutionResult {
-        val executionId = externalExecutionId ?: UUID.randomUUID().toString()
+        val executionId = externalExecutionId ?: host?.binding?.executionId ?: UUID.randomUUID().toString()
+        val scope = WorkflowHostScope(host?.binding?.executionId ?: executionId, executionId, parentHostScope?.executionId)
+        if (host != null && parentHostScope == null) {
+            require(executionId == host.binding.executionId) { "Host root execution identity cannot be replaced" }
+        }
+        host?.admit(workflow, scope)
+        host?.beforeOperation(scope, if (resumeState == null) "start" else "resume")
+        val observer = host?.let { WorkflowMonitor.observe(executionId, it::monitor) }
+        try {
         // Run-scoped tool state (browser contexts) belongs to this execution. It is released when
         // the execution returns, whether it completed, failed or was cancelled. See ToolRunScope.
-        return ToolRunScope.withRunScope(executionId) {
+        return WorkflowHostContext.withHost(host) { ToolRunScope.withRunScope(executionId) {
             executeInRunScope(workflow, initialInput, executionId, resumeState)
-        }
+        } }
+        } finally { observer?.close() }
     }
 
     private suspend fun executeInRunScope(
@@ -1041,7 +1086,9 @@ class WorkflowExecutor(
 
         val context = WorkflowExecutionContext(
             workflowName = workflow.name,
-            executionId = executionId
+            executionId = executionId,
+            parentExecutionId = parentHostScope?.executionId,
+            rootExecutionId = parentHostScope?.rootExecutionId
         )
         currentExecutionContext = context
 
@@ -1253,7 +1300,8 @@ class WorkflowExecutor(
     ) {
         if (resumeState == null) return
         if (
-            resumeState.preservedStepResults.isEmpty() &&
+            resumeState.variables.isEmpty() && resumeState.stepOutputs.isEmpty() &&
+            resumeState.recoveredFailures.isEmpty() && resumeState.approvalOccurrences.isEmpty() && resumeState.pendingApprovalIds.isEmpty() && resumeState.preservedStepResults.isEmpty() &&
             resumeState.skippedSteps.isEmpty() &&
             resumeState.activatedTransitionSteps.isEmpty() &&
             resumeState.transitionActivationSources.isEmpty()
@@ -1304,6 +1352,12 @@ class WorkflowExecutor(
         latestPreservedSnapshot?.forEach { (key, value) ->
             context.setVariable(key, value)
         }
+
+        context.variables.putAll(resumeState.variables)
+        context.stepOutputs.putAll(resumeState.stepOutputs)
+        context.recoveredFailures.addAll(resumeState.recoveredFailures)
+        context.approvalOccurrences.putAll(resumeState.approvalOccurrences)
+        context.pendingApprovalIds.putAll(resumeState.pendingApprovalIds)
 
         // 重建 recoveredFailures:在 resume 之前的某次执行里,如果 step S 失败并触发了 on_failure
         // 转换,那么 S 会出现在 transitionActivationSources 的某个 value 集合中。
@@ -1439,10 +1493,12 @@ class WorkflowExecutor(
 
             pendingSteps.remove(nextStep.step)
             val shouldStop = executeStepWithErrorHandling(nextStep, workflow, context, continueOnError, executionId)
+            host?.checkpoint(hostSavepoint(workflow, context, safe = parentHostScope == null && context.parentExecutionId == null))
             if (shouldStop) {
                 return
             }
         }
+        host?.checkpoint(hostSavepoint(workflow, context, safe = parentHostScope == null && context.parentExecutionId == null))
     }
 
     private suspend fun executeWorkflowConcurrently(
@@ -1854,6 +1910,8 @@ class WorkflowExecutor(
         workflow: WorkflowDefinition,
         context: WorkflowExecutionContext
     ): StepExecutionResult {
+        host?.checkpoint(hostSavepoint(workflow, context, safe = false))
+        host?.beforeOperation(hostScope(context, step.step), "step")
         // 如果有 aggregate 配置，先执行聚合
         if (step.aggregate != null) {
             processAggregate(step, context)
@@ -2127,6 +2185,7 @@ class WorkflowExecutor(
         context: WorkflowExecutionContext,
         manageMonitoring: Boolean = true
     ): StepExecutionResult {
+        host?.beforeOperation(hostScope(context, step.step), "step_attempt")
         logger.info { "[Workflow:${workflow.name}] Executing step '${step.step}' with agent '${step.displayAgentName}'" }
         val monitoringEnabled = enableMonitoring && manageMonitoring
 
@@ -2150,9 +2209,10 @@ class WorkflowExecutor(
             // 检查手动审批。必须放在统一 try/catch 内，确保拒绝/超时也会
             // 完成步骤监控并写入可被 on_failure 恢复的 StepExecutionResult。
             if (step.manualApproval != null) {
-                handleManualApproval(step, context)
+                handleManualApproval(step, workflow, context)
             }
 
+            host?.beforeOperation(hostScope(context, step.step), "step_after_approval")
             // 支持步骤超时
             val result = if (stepTimeoutMs != null) {
                 withResourceAwareTimeout(stepTimeoutMs) {
@@ -2787,7 +2847,7 @@ class WorkflowExecutor(
         // Keep the token out of env spill files so a script cannot overwrite the fresh value.
         if (executionApiTokenProvider != null) {
             env.remove("WF_API_TOKEN")
-            if (codeStepExecutor == null) env.putAll(freshCodeStepCallbackEnvironment(config.timeout.toLong()))
+            if (codeStepExecutor == null) env.putAll(freshCodeStepCallbackEnvironment(config.timeout.toLong(), context))
         }
 
         // 执行 (沙箱路径 或 旧路径)
@@ -2841,9 +2901,9 @@ class WorkflowExecutor(
 
     // ── Code step: 沙箱执行路径 ─────────────────────────────────────
 
-    private fun freshCodeStepCallbackEnvironment(timeoutSeconds: Long): Map<String, String> {
+    private fun freshCodeStepCallbackEnvironment(timeoutSeconds: Long, context: WorkflowExecutionContext): Map<String, String> {
         val provider = executionApiTokenProvider ?: return emptyMap()
-        val fresh = provider(timeoutSeconds)
+        val fresh = host?.callbackTokenFor(hostScope(context), timeoutSeconds) ?: provider(timeoutSeconds)
         require(fresh.isNotBlank()) { "Execution callback credential unavailable" }
         return mapOf("WF_API_TOKEN" to fresh)
     }
@@ -2978,7 +3038,7 @@ class WorkflowExecutor(
                     userId = baseParameters.parameter("user_id", "local-user"),
                     admissionKind = "CODE_STEP",
                     environmentAtStart = executionApiTokenProvider?.let {
-                        { freshCodeStepCallbackEnvironment(config.timeout.toLong()) }
+                        { freshCodeStepCallbackEnvironment(config.timeout.toLong(), context) }
                     }
                 )
             )
@@ -3288,7 +3348,7 @@ class WorkflowExecutor(
             if (!scriptFile.exists()) {
                 throw WorkflowExecutionException("Code step '${step.step}': script_file not found: ${config.scriptFile}")
             }
-            scriptFile.readText()
+            host?.scriptContents(scriptFilePath) ?: scriptFile.readText()
         }
 
         val preambleConfig = workflow.codePreamble[config.language]
@@ -3301,7 +3361,7 @@ class WorkflowExecutor(
                         "Code step '${step.step}': code_preamble ref file not found: ${preambleConfig.ref}"
                     )
                 }
-                refFile.readText()
+                host?.scriptContents(preambleConfig.ref) ?: refFile.readText()
             }
             else -> null
         }
@@ -5180,7 +5240,7 @@ class WorkflowExecutor(
         enforceProtectedRuntimeParameters(orchestratorParams)
 
         // 构建 Orchestrator Agent 参数
-        val parameters = mergeParameters(baseParameters, orchestratorParams)
+        val parameters = hostAgentParameters(mergeParameters(baseParameters, orchestratorParams), context.executionId, step.step)
 
         // 提取 tool_set（在 Orchestrator 的基础工具之上追加 OrchestratorTools）
         val rawToolNames = parameters.parameter("tool_set", linkedSetOf("exit")).toList()
@@ -5212,7 +5272,7 @@ class WorkflowExecutor(
         } else {
             rawToolNames
         }
-        hostWorkflowToolsOrNull(orchestratorToolNames, parameters)?.let { orchestratorCustomToolSets.add(it) }
+        hostWorkflowToolsOrNull(orchestratorToolNames, parameters, context.executionId, step.step)?.let { orchestratorCustomToolSets.add(it) }
 
         val orchestratorSkillManager = createSkillManager(parameters)
         val orchestratorToolRegistry = com.fartech.agents.commons.parseToolSet(
@@ -5356,6 +5416,8 @@ class WorkflowExecutor(
             return handleSubWorkflowMissingReference(step, config, parentContext, e)
         }
         val childDefBase = resolved.definition
+        host?.admit(childDefBase, hostScope(parentContext, step.step))
+        host?.beforeOperation(hostScope(parentContext, step.step), "sub_workflow")
         val childModule = childDefBase.module?.takeIf { it.enabled }
 
         // 3. Agent 继承 merge(默认 none)
@@ -5757,6 +5819,8 @@ class WorkflowExecutor(
         val derivedExecutionId = childContext.executionId
         val startTime = System.currentTimeMillis()
 
+        val observer = host?.let { WorkflowMonitor.observe(derivedExecutionId, it::monitor) }
+        try {
         // 启动独立的 child WorkflowMetrics
         if (enableMonitoring) {
             WorkflowMonitor.startExecution(derivedExecutionId, workflow.name, workflow.workflow.size)
@@ -5871,6 +5935,7 @@ class WorkflowExecutor(
                 recoveredFailures = childContext.recoveredFailures.toSet()
             )
         }
+        } finally { observer?.close() }
     }
 
     /**
@@ -6646,7 +6711,7 @@ class WorkflowExecutor(
         }
         enforceProtectedRuntimeParameters(resolvedParams)
 
-        val parameters = mergeParameters(baseParameters, resolvedParams)
+        val parameters = hostAgentParameters(mergeParameters(baseParameters, resolvedParams), executionId, stepName)
         val systemPrompt = parameters.parameter("system_prompt", "")
         val rawToolNames = parameters.parameter("tool_set", emptyList<String>().toMutableSet()).toList()
         val skillsDisabled = skillsSubsystemDisabled(parameters)
@@ -6776,7 +6841,7 @@ class WorkflowExecutor(
         // workflow 工具同样由本 executor 构建，让嵌套执行继承宿主的 Jev 凭据策略
         val customToolSets = listOfNotNull(
             sharedRagTools,
-            hostWorkflowToolsOrNull(finalToolNames, parameters)
+            hostWorkflowToolsOrNull(finalToolNames, parameters, executionId, stepName)
         )
 
         val toolRegistry = parseToolSet(
@@ -6870,16 +6935,25 @@ class WorkflowExecutor(
      */
     private fun hostWorkflowToolsOrNull(
         toolNames: Collection<String>,
-        parameters: List<ConfigurationParameter>
+        parameters: List<ConfigurationParameter>,
+        executionId: String?,
+        stepName: String?
     ): WorkflowTools? =
         if ("workflow" in toolNames) {
-            WorkflowTools(httpAccess, parameters, nestedWorkflowRuntime)
+            WorkflowTools(httpAccess, host?.nestedParameters(parameters) ?: parameters, nestedWorkflowRuntime, parentHostScope = executionId?.let {
+                WorkflowHostScope(host?.binding?.executionId ?: it, it, stepName = stepName)
+            })
         } else {
             null
         }
 
     private val nestedWorkflowRuntime: NestedWorkflowRuntime by lazy {
         NestedWorkflowRuntime(
+            approvalHandler = approvalHandler,
+            workflowId = workflowId,
+            workflowOutputPublisher = workflowOutputPublisher,
+            workflowOutputResolver = workflowOutputResolver,
+            host = host,
             codeStepExecutor = codeStepExecutor,
             extraCodeStepEnv = extraCodeStepEnv,
             claudeCredentialProvider = claudeCredentialProvider,
@@ -7375,7 +7449,7 @@ class WorkflowExecutor(
             agentName = agentName,
             workflowName = context.workflowName
         )
-        val parameters = mergeParameters(baseParameters, resolvedParams)
+        val parameters = hostAgentParameters(mergeParameters(baseParameters, resolvedParams), context.executionId, stepName)
         val workingDir = parameters.parameter("working_dir", "").trim().takeIf { it.isNotEmpty() }?.let(::File)
         val outputDir = parameters.parameter(HOST_OUTPUT_DIR_RUNTIME_KEY, "").trim().takeIf { it.isNotEmpty() }?.let(::File)
             ?: parameters.parameter("output_dir", "").trim().takeIf { it.isNotEmpty() }?.let(::File)
@@ -7459,7 +7533,7 @@ class WorkflowExecutor(
             agentName = agentName,
             workflowName = context.workflowName
         )
-        val parameters = mergeParameters(baseParameters, resolvedParams)
+        val parameters = hostAgentParameters(mergeParameters(baseParameters, resolvedParams), context.executionId, stepName)
         val workingDir = parameters.parameter("working_dir", "").trim().takeIf { it.isNotEmpty() }?.let(::File)
         val outputDir = parameters.parameter(HOST_OUTPUT_DIR_RUNTIME_KEY, "").trim().takeIf { it.isNotEmpty() }?.let(::File)
             ?: parameters.parameter("output_dir", "").trim().takeIf { it.isNotEmpty() }?.let(::File)
@@ -8313,6 +8387,9 @@ class WorkflowExecutor(
         executionId: String,
         stepName: String
     ): com.fartech.agents.tools.UserInteractionHandler {
+        host?.let {
+            return it.userInteraction(WorkflowHostScope(it.binding.executionId, executionId, stepName = stepName))
+        }
         return object : com.fartech.agents.tools.UserInteractionHandler {
             override fun sendMessage(message: String) {
                 WorkflowMonitor.addEvent(
@@ -8770,6 +8847,7 @@ class WorkflowExecutor(
         handleEvents {
             // --- 工具调用事件 ---
             onToolCallStarting { eventContext ->
+                host?.beforeOperation(WorkflowHostScope(host.binding.executionId, executionId, stepName = stepName), "tool")
                 val toolName = eventContext.toolName
                 val subCat = detectToolSubCategory(toolName)
                 val emoji = if (subCat == "skill") "🧩" else if (subCat == "sub_agent") "🤖" else "🔧"
@@ -8884,6 +8962,7 @@ class WorkflowExecutor(
 
             // --- LLM 调用事件 ---
             onLLMCallStarting { eventContext ->
+                host?.beforeOperation(WorkflowHostScope(host.binding.executionId, executionId, stepName = stepName), "llm")
                 // 把模型 id + provider 显示名塞进 detail,前端用统一的
                 // `model=<id>, provider=<display>` 文本格式提取出来,在步骤
                 // 卡上以芯片形式展示当前用了哪个模型 + 哪家供应商。
@@ -9094,7 +9173,7 @@ class WorkflowExecutor(
     /**
      * 处理手动审批
      */
-    private suspend fun handleManualApproval(step: WorkflowStep, context: WorkflowExecutionContext) {
+    private suspend fun handleManualApproval(step: WorkflowStep, workflow: WorkflowDefinition, context: WorkflowExecutionContext) {
         val approvalConfig = step.manualApproval ?: return
 
         logger.info { "[Workflow:${context.workflowName}] Step '${step.step}' requires manual approval" }
@@ -9109,7 +9188,10 @@ class WorkflowExecutor(
             loadReviewableGroup(group, context, step.step)
         }
 
-        val approvalId = "${context.executionId}:${step.step}"
+        val approvalId = if (host == null) "${context.executionId}:${step.step}" else context.pendingApprovalIds.computeIfAbsent(step.step) {
+            val occurrence = context.approvalOccurrences.merge(step.step, 1L) { a, b -> a + b }!!
+            "${context.executionId}:${step.step}:$occurrence"
+        }
         val request = ApprovalRequest(
             approvalId = approvalId,
             workflowName = context.workflowName,
@@ -9124,6 +9206,10 @@ class WorkflowExecutor(
             reviewableGroups = reviewableGroups
         )
 
+        host?.checkpoint(hostSavepoint(
+            workflow, context, safe = !workflow.concurrency.enabled && context.parentExecutionId == null &&
+                parentHostScope == null && step.repeatUntil == null && step.iterateOver == null && step.retry == null
+        ).copy(pendingApprovals = listOf(request)))
         val pendingApproval = PendingApproval(request)
         activeApprovals[approvalId] = pendingApproval
 
@@ -9169,6 +9255,7 @@ class WorkflowExecutor(
             setOfNotNull(context.executionId, context.parentExecutionId, context.rootExecutionId)
                 .forEach { id -> executionDeadlines[id]?.approvalWaitMs?.addAndGet(waited) }
             activeApprovals.remove(approvalId)
+            context.pendingApprovalIds.remove(step.step, approvalId)
         }
     }
 

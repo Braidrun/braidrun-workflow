@@ -1,0 +1,29 @@
+{
+  "binding": {
+    "protocolVersion": 1,
+    "ownerId": "workflow-owner",
+    "actorUserId": "team-member",
+    "executionId": "execution-fixture",
+    "runnerId": "runner-fixture",
+    "runnerInstanceId": "instance-fixture",
+    "resumeEpoch": 0,
+    "attemptId": "attempt-fixture",
+    "definitionHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "runtimeHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "receiptId": "stop-fixture",
+  "recordedAt": "2026-10-08T01:02:00Z",
+  "reason": "completed",
+  "confirmed": true,
+  "engineStarted": true,
+  "registeredProcesses": [
+    {
+      "pid": 123,
+      "processGroupId": 123,
+      "startIdentity": "fixture-start",
+      "state": "EXITED"
+    }
+  ],
+  "unmanagedProcessDetected": false,
+  "journalHash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+}

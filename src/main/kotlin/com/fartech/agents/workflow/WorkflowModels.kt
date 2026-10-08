@@ -2398,7 +2398,13 @@ data class WorkflowResumeState(
     val preservedStepResults: Map<String, StepExecutionResult> = emptyMap(),
     val skippedSteps: Set<String> = emptySet(),
     val activatedTransitionSteps: Set<String> = emptySet(),
-    val transitionActivationSources: Map<String, Set<String>> = emptyMap()
+    val transitionActivationSources: Map<String, Set<String>> = emptyMap(),
+    /** Exact typed variable/output snapshots supplied by a trusted host savepoint. */
+    val variables: Map<String, Any> = emptyMap(),
+    val stepOutputs: Map<String, String> = emptyMap(),
+    val recoveredFailures: Set<String> = emptySet(),
+    val approvalOccurrences: Map<String, Long> = emptyMap(),
+    val pendingApprovalIds: Map<String, String> = emptyMap()
 )
 
 /**
@@ -2445,6 +2451,8 @@ data class WorkflowExecutionContext(
      */
     val parentExecutionId: String? = null,
     val rootExecutionId: String? = null,
+    val approvalOccurrences: MutableMap<String, Long> = ConcurrentHashMap(),
+    val pendingApprovalIds: MutableMap<String, String> = ConcurrentHashMap(),
 ) {
     /** 工作流级共享知识库实例（由 WorkflowExecutor 初始化） */
     @Transient
@@ -2495,6 +2503,8 @@ data class WorkflowExecutionContext(
         snapshot.skippedSteps.addAll(skippedSteps)
         snapshot.activatedTransitionSteps.addAll(activatedTransitionSteps)
         snapshot.recoveredFailures.addAll(recoveredFailures)
+        snapshot.approvalOccurrences.putAll(approvalOccurrences)
+        snapshot.pendingApprovalIds.putAll(pendingApprovalIds)
         transitionActivationSources.forEach { (stepName, sources) ->
             snapshot.transitionActivationSources[stepName] =
                 Collections.newSetFromMap(ConcurrentHashMap<String, Boolean>()).apply {

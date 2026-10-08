@@ -1,0 +1,80 @@
+package com.fartech.agents.workflow
+
+import com.fartech.agents.tools.ClaudeCredentialProvider
+import com.fartech.agents.tools.UserInteractionHandler
+import com.fartech.agents.tools.exec.SubprocessExecutor
+
+/** Trusted, execution-scoped services. Never populate this from workflow parameters.
+ * A remote host owns authorization, environment admission, persistence and process supervision;
+ * WorkflowExecutor continues to own the workflow interpreter. Null host retains library/CLI behavior.
+ */
+interface WorkflowHost {
+    val llmHttpClientFactory: ai.koog.http.client.KoogHttpClient.Factory? get() = null
+    suspend fun prepareAgentParameters(scope: WorkflowHostScope, parameters: List<com.fartech.ftapp2.commonsKt.ConfigurationParameter>): List<com.fartech.ftapp2.commonsKt.ConfigurationParameter> = parameters
+    fun nestedParameters(parameters: List<com.fartech.ftapp2.commonsKt.ConfigurationParameter>): List<com.fartech.ftapp2.commonsKt.ConfigurationParameter> = parameters
+    val binding: WorkflowHostBinding
+    val approvalHandler: ApprovalHandler
+    val outputPublisher: WorkflowOutputPublisher
+    val outputResolver: WorkflowOutputResolver
+    val subprocessExecutor: SubprocessExecutor
+    val workflowResolver: WorkflowResolver
+    val codeEnvironment: Map<String, String> get() = emptyMap()
+    val claudeCredentials: ClaudeCredentialProvider? get() = null
+    val codexCredentials: ClaudeCredentialProvider? get() = null
+    val codexAuthRotation: ((String?, String) -> Unit)? get() = null
+    val callbackToken: ((Long) -> String)? get() = null
+    fun callbackTokenFor(scope: WorkflowHostScope, budget: Long): String =
+        requireNotNull(callbackToken) { "Callback capability unavailable" }.invoke(budget)
+
+    /** Must inspect the complete definition closure before any credentials/model/process use. */
+    suspend fun admit(workflow: WorkflowDefinition, scope: WorkflowHostScope)
+    /** Fail closed on invalid lease, cancellation or stale/unknown environment evidence. */
+    suspend fun beforeOperation(scope: WorkflowHostScope, operation: String)
+    fun userInteraction(scope: WorkflowHostScope): UserInteractionHandler
+    /** Resolve only an authorized definition, binding its bytes/hash before execution. */
+    fun scriptContents(path: String): String = throw IllegalStateException("Host script resolver unavailable")
+    fun dynamicWorkflow(path: String, scope: WorkflowHostScope): WorkflowDefinition
+    /** Synchronous bounded handoff: a delivery failure must not silently drop metering. */
+    fun monitor(update: WorkflowMonitorUpdate)
+    /** Persist a consistent savepoint. Called outside running steps; not an arbitrary replay permit. */
+    suspend fun checkpoint(checkpoint: WorkflowHostCheckpoint)
+}
+
+data class WorkflowHostBinding(
+    val ownerId: String,
+    val actorUserId: String,
+    val billingOwnerId: String,
+    val executionId: String,
+    val runnerId: String,
+    val runnerInstanceId: String,
+    val resumeEpoch: Long,
+    val attemptId: String,
+    val definitionHash: String,
+    val runtimeHash: String
+)
+
+data class WorkflowHostScope(
+    val rootExecutionId: String,
+    val executionId: String,
+    val parentExecutionId: String? = null,
+    val stepName: String? = null
+)
+
+data class WorkflowHostCheckpoint(
+    val scope: WorkflowHostScope,
+    val workflowName: String,
+    val state: WorkflowResumeState,
+    /** False for in-flight nested/parallel work: restoration requires reconciliation. */
+    val safeToResume: Boolean,
+    val pendingApprovals: List<ApprovalRequest> = emptyList()
+)
+
+data class WorkflowMonitorUpdate(
+    val executionId: String,
+    val type: String,
+    val stepName: String? = null,
+    val event: AgentEvent? = null,
+    val success: Boolean? = null,
+    val output: String? = null,
+    val error: String? = null
+)

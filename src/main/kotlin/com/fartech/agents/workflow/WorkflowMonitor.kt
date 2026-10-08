@@ -15,6 +15,16 @@ private val logger = KotlinLogging.logger {}
  * - 事件通知
  */
 object WorkflowMonitor {
+    private val observers = ConcurrentHashMap<String, (WorkflowMonitorUpdate) -> Unit>()
+
+    /** One host per execution. Child executions register separately under the same root host. */
+    fun observe(executionId: String, observer: (WorkflowMonitorUpdate) -> Unit): AutoCloseable {
+        check(observers.putIfAbsent(executionId, observer) == null) { "Execution already has a host observer" }
+        return AutoCloseable { observers.remove(executionId, observer) }
+    }
+
+    private fun emit(update: WorkflowMonitorUpdate) { observers[update.executionId]?.invoke(update) }
+
     private val activeExecutions = ConcurrentHashMap<String, WorkflowMetrics>()
     private val completedExecutions = mutableListOf<WorkflowMetrics>()
     private val maxCompletedHistory = 1000 // 保留最近 1000 个已完成的执行记录
@@ -31,6 +41,7 @@ object WorkflowMonitor {
         )
         activeExecutions[executionId] = metrics
         logger.info { "Started monitoring execution: $executionId for workflow: $workflowName" }
+        emit(WorkflowMonitorUpdate(executionId, "execution_started"))
         return metrics
     }
 
@@ -47,6 +58,7 @@ object WorkflowMonitor {
         parentStepName: String? = null,
         subWorkflowName: String? = null
     ) {
+        emit(WorkflowMonitorUpdate(executionId, "step_started", stepName))
         activeExecutions[executionId]?.let { metrics ->
             val stepMetrics = StepMetrics(
                 stepName = stepName,
@@ -86,6 +98,7 @@ object WorkflowMonitor {
         error: String? = null,
         output: String? = null
     ) {
+        emit(WorkflowMonitorUpdate(executionId, "step_completed", stepName, success = success, output = output, error = error))
         activeExecutions[executionId]?.let { metrics ->
             metrics.stepMetrics[stepName]?.let { stepMetrics ->
                 if (stepMetrics.status == ExecutionStatus.CANCELLED) {
@@ -116,6 +129,7 @@ object WorkflowMonitor {
      * 跳过一个步骤
      */
     fun skipStep(executionId: String, stepName: String) {
+        emit(WorkflowMonitorUpdate(executionId, "step_skipped", stepName))
         activeExecutions[executionId]?.let { metrics ->
             val stepMetrics = metrics.stepMetrics.getOrPut(stepName) {
                 StepMetrics(stepName = stepName, startTime = System.currentTimeMillis())
@@ -131,6 +145,7 @@ object WorkflowMonitor {
      * 标记一个已经启动但被上层并发失败/停止信号取消的步骤。
      */
     fun cancelStep(executionId: String, stepName: String, reason: String? = null) {
+        emit(WorkflowMonitorUpdate(executionId, "step_cancelled", stepName, error = reason))
         activeExecutions[executionId]?.let { metrics ->
             metrics.stepMetrics[stepName]?.let { stepMetrics ->
                 if (stepMetrics.status != ExecutionStatus.RUNNING &&
@@ -157,6 +172,7 @@ object WorkflowMonitor {
      * concurrent reads by the SSE / UI subscriber.
      */
     fun addEvent(executionId: String, stepName: String, event: AgentEvent) {
+        emit(WorkflowMonitorUpdate(executionId, "agent_event", stepName, event))
         val allSteps = activeExecutions[executionId]?.stepMetrics ?: return
         // Sub-agent runs emit events under derived names ("step:classifier",
         // "step:group_chat:round1:alice", ...) that only the state-machine path
@@ -204,6 +220,7 @@ object WorkflowMonitor {
      * 记录步骤重试
      */
     fun recordRetry(executionId: String, stepName: String) {
+        emit(WorkflowMonitorUpdate(executionId, "step_retry", stepName))
         activeExecutions[executionId]?.let { metrics ->
             metrics.stepMetrics[stepName]?.retryCount =
                 (metrics.stepMetrics[stepName]?.retryCount ?: 0) + 1
@@ -214,6 +231,7 @@ object WorkflowMonitor {
      * 设置步骤状态为等待审批
      */
     fun awaitingApproval(executionId: String, stepName: String) {
+        emit(WorkflowMonitorUpdate(executionId, "awaiting_approval", stepName))
         activeExecutions[executionId]?.let { metrics ->
             metrics.stepMetrics[stepName]?.status = ExecutionStatus.AWAITING_APPROVAL
             metrics.status = ExecutionStatus.AWAITING_APPROVAL
@@ -225,6 +243,7 @@ object WorkflowMonitor {
      * 完成一个工作流执行
      */
     fun completeExecution(executionId: String, success: Boolean) {
+        emit(WorkflowMonitorUpdate(executionId, "execution_completed", success = success))
         activeExecutions.remove(executionId)?.let { metrics ->
             metrics.endTime = System.currentTimeMillis()
             metrics.status = if (success) ExecutionStatus.COMPLETED else ExecutionStatus.FAILED
@@ -249,6 +268,7 @@ object WorkflowMonitor {
      * 取消一个工作流执行
      */
     fun cancelExecution(executionId: String) {
+        emit(WorkflowMonitorUpdate(executionId, "execution_cancelled"))
         activeExecutions.remove(executionId)?.let { metrics ->
             metrics.endTime = System.currentTimeMillis()
             metrics.status = ExecutionStatus.CANCELLED

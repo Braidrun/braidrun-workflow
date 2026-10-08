@@ -34,7 +34,12 @@ class NestedWorkflowRuntime(
     val workflowResolver: WorkflowResolver? = null,
     val jevCredentials: JevCredentials? = null,
     val jevClientFactory: JevClientFactory = JevClientFactory.Default,
-    val jevEnvKeyFallback: Boolean = true
+    val jevEnvKeyFallback: Boolean = true,
+    val approvalHandler: ApprovalHandler? = null,
+    val workflowId: String? = null,
+    val workflowOutputPublisher: WorkflowOutputPublisher? = null,
+    val workflowOutputResolver: WorkflowOutputResolver? = null,
+    val host: WorkflowHost? = null
 )
 
 @LLMDescription("Toolset for defining and executing complex multi-agent workflows")
@@ -42,13 +47,20 @@ class WorkflowTools(
     private val httpAccess: HttpAccess,
     private val parameters: List<ConfigurationParameter>,
     /** Runtime inherited from the host executor that owns this tool; see [NestedWorkflowRuntime]. */
-    private val runtime: NestedWorkflowRuntime = NestedWorkflowRuntime()
+    private val runtime: NestedWorkflowRuntime = NestedWorkflowRuntime(),
+    private val parentHostScope: WorkflowHostScope? = null
 ) : ToolSet {
 
     private val executor = WorkflowExecutor(
         httpAccess,
         parameters,
         enableMonitoring = true,
+        approvalHandler = runtime.approvalHandler,
+        workflowId = runtime.workflowId,
+        workflowOutputPublisher = runtime.workflowOutputPublisher,
+        workflowOutputResolver = runtime.workflowOutputResolver,
+        host = runtime.host,
+        parentHostScope = parentHostScope,
         workflowResolver = runtime.workflowResolver,
         codeStepExecutor = runtime.codeStepExecutor,
         extraCodeStepEnv = runtime.extraCodeStepEnv,
@@ -73,19 +85,25 @@ class WorkflowTools(
         inputs: String = ""
     ): String {
         return try {
-            val workflow = WorkflowParser.parseFile(workflowPath)
+            val workflow = runtime.host?.let { host ->
+                host.dynamicWorkflow(workflowPath, requireNotNull(parentHostScope) { "Hosted dynamic workflow requires parent scope" })
+            } ?: WorkflowParser.parseFile(workflowPath)
 
             val inputMap = parseKeyValueString(inputs)
 
-            val result = executor.execute(workflow, inputMap)
+            val childId = parentHostScope?.let { "${it.executionId}__${(it.stepName ?: "agent").replace(Regex("[^A-Za-z0-9_.-]"), "_")}_dynamic_${java.util.UUID.randomUUID()}" }
+            val result = executor.execute(workflow, inputMap, externalExecutionId = childId)
 
             if (result.success) {
                 buildSuccessReport(result)
             } else {
                 "❌ Workflow '${result.workflowName}' failed: ${result.error}"
             }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
-            "❌ Failed to execute workflow: ${e.message}\n${e.stackTraceToString()}"
+            if (runtime.host != null) "Workflow execution refused or failed"
+            else "❌ Failed to execute workflow: ${e.message}\n${e.stackTraceToString()}"
         }
     }
 

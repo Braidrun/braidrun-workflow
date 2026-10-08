@@ -1,0 +1,19 @@
+{
+  "bundleHash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  "files": [
+    {
+      "path": "../secret",
+      "size": 12,
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "role": "definition"
+    }
+  ],
+  "definitions": [
+    {
+      "workflowId": "root",
+      "definitionHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "path": "definitions/root.yaml"
+    }
+  ],
+  "rootWorkflowId": "root"
+}

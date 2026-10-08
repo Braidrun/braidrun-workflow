@@ -376,6 +376,7 @@ tasks.test {
         ?.coerceAtLeast(1)
         ?: minOf(2, Runtime.getRuntime().availableProcessors().coerceAtLeast(1))
     systemProperty("braidrun.quietConsole", "true")
+    systemProperty("runner.test.runtimeClasspath", classpath.asPath)
     // Tests parse the public examples/templates and the workflow guide's snippets from disk;
     // declare them so editing only those files does not leave `test` UP-TO-DATE.
     inputs.dir("examples/workflows").withPathSensitivity(PathSensitivity.RELATIVE)
@@ -413,4 +414,21 @@ publishing {
             }
         }
     }
+}
+
+// Headless runner entry point is separate from the existing CLI distribution command.
+val runnerHostJar = tasks.register<Jar>("runnerHostJar") {
+    archiveClassifier.set("runner-host")
+    from(sourceSets.main.get().output)
+    manifest {
+        attributes(
+            "Main-Class" to "com.fartech.agents.runner.RunnerHostMainKt",
+            "Runner-Protocol-Version" to "1",
+            "Runner-Contract-Commit" to file("src/main/resources/runner-workflow-v1/contract-origin.txt").readLines().first(),
+            "Class-Path" to configurations.runtimeClasspath.get().files.sortedBy { it.name }.joinToString(" ") { "lib/${it.name}" }
+        )
+    }
+}
+distributions.main {
+    contents { from(runnerHostJar) { rename { "runner-host.jar" } } }
 }
