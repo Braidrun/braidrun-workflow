@@ -17,6 +17,10 @@ class RunnerHeadlessTest {
             agents: {}
             workflow:
               - step: host-proof
+                manual_approval:
+                  enabled: true
+                  timeout: 30
+                  approval_message: Offline fixture approval
                 code:
                   language: bash
                   script: 'printf "engine-local-proof\\n"; pwd'
@@ -46,12 +50,26 @@ class RunnerHeadlessTest {
             val authorization = runnerJson.parseToJsonElement(RunnerProtocolTest.resource("fixtures/valid/claim.json")).jsonObject.obj("authorization")
             send("start", buildJsonObject { put("bundle", bundle); put("executionDirectory", directory.toString()); put("environment", environment)
                 put("authorization", authorization); put("lease", RunnerProtocolTest.lease(now)); put("inputs", JsonObject(emptyMap())) })
-            var launched = false; var stepProof = false; var result: JsonObject? = null
+            var launched = false; var stepProof = false; var approved = false; var result: JsonObject? = null
             while (true) {
                 val line = reader.readLine() ?: break
                 val frame = RunnerProtocol().parse(line) // any ordinary println on stdout fails this test
                 val payload = frame.obj("payload")
                 when (frame.string("type")) {
+                    "approval" -> {
+                        assertFalse(launched, "Approval must precede any business process")
+                        assertFalse(approved); approved = true
+                        val refreshed = JsonObject(RunnerProtocolTest.environment(binding, Instant.now()) + mapOf(
+                            "environmentCheckId" to JsonPrimitive("post-approval-check"))).let { fresh ->
+                                JsonObject(fresh + ("egress" to JsonArray(fresh.array("egress") + JsonObject(fresh.array("egress")[0].jsonObject + ("pathId" to JsonPrimitive("subprocess"))))))
+                            }
+                        send("environmentRefreshed", refreshed)
+                        send("approvalDecision", buildJsonObject {
+                            put("approvalId", "human-fixture"); put("idempotencyKey", payload.string("idempotencyKey")); put("occurrenceId", payload.string("occurrenceId"))
+                            put("decisionVersion", 1); put("decision", "APPROVE"); put("editMode", "AS_IS"); put("editedItems", JsonArray(emptyList()))
+                            put("comment", JsonNull); put("decidedBy", "fixture-human"); put("decidedAt", Instant.now().toString())
+                        }, frame.string("frameId"))
+                    }
                     "processLaunch" -> {
                         assertFalse(launched); launched = true
                         val cwd = directory.resolve(payload.string("relativeCwd")).normalize()
@@ -68,12 +86,16 @@ class RunnerHeadlessTest {
                             put("stdoutArtifactId", JsonNull); put("stderrArtifactId", JsonNull); put("stdout", stdout); put("stderr", stderr)
                             put("captureTruncated", false); put("timedOut", false) })
                     }
-                    "event" -> if (payload.obj("payload")["output"]?.jsonPrimitive?.content?.contains("engine-local-proof") == true) stepProof = true
+                    "event" -> {
+                        assertNotEquals("approval", payload.string("type"), "Approval must never enter the event batch")
+                        if (payload.obj("payload")["output"]?.jsonPrimitive?.content?.contains("engine-local-proof") == true) stepProof = true
+                    }
                     "checkpoint" -> assertEquals(payload.string("checkpointHash"), sha256(Files.readAllBytes(directory.resolve(payload.string("relativePath")))))
                     "result" -> { result = payload; break }
                     else -> fail("Unexpected host frame: ${frame.string("type")}")
                 }
             }
+            assertTrue(approved, "Dedicated approval frame missing")
             assertTrue(launched, "No process launch; result=$result; stderr=" + Files.readString(directory.resolve("stderr.log")))
             assertTrue(stepProof, "No step proof; result=$result; stderr=" + Files.readString(directory.resolve("stderr.log")))
             assertNotNull(result); assertEquals("COMPLETED", result.string("status")); assertEquals(JsonPrimitive(false), result.obj("stopReceipt")["confirmed"])

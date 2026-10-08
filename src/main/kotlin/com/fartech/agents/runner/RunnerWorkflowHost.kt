@@ -156,6 +156,7 @@ class RunnerWorkflowHost(
         emit(kind, payload)
     }
     @Synchronized fun emit(kind: String, payload: JsonObject) {
+        require(kind != "approval") { "Approval requests use the dedicated host-request channel" }
         val eventSequence = sequence + 1
         val id = UUID.randomUUID().toString()
         val event = buildJsonObject {

@@ -16,6 +16,21 @@ class RunnerProtocolTest {
             else assertFailsWith<RunnerProtocolException>(file) { protocol.validate(value, definition.jsonPrimitive.content) }
         }
     }
+    @Test fun `claim recovery preserves real phases and explicit report-only authority`() {
+        val protocol = RunnerProtocol()
+        val claim = runnerJson.parseToJsonElement(resource("fixtures/valid/claim.json")).jsonObject
+        assertEquals("PREFLIGHT", claim.string("claimAuthority"))
+        for (phase in listOf("READY", "RUNNING", "WAITING_APPROVAL", "STOP_REQUESTED", "FINALIZING", "STOP_UNCONFIRMED", "TERMINAL")) {
+            val reportOnly = JsonObject(claim + mapOf("phase" to JsonPrimitive(phase), "claimAuthority" to JsonPrimitive("REPORT_ONLY")))
+            protocol.validate(reportOnly, "claimResponse")
+            // Claims are supervisor HTTP state, not a JVM control/start frame. The start schema
+            // has no report-only loophole or implicit claim-to-start conversion.
+            assertFailsWith<RunnerProtocolException> { protocol.validate(reportOnly, "ipcFrame") }
+            assertFailsWith<RunnerProtocolException> { protocol.validate(frame(claim.obj("binding"), "start", reportOnly), "ipcFrame") }
+        }
+        assertFailsWith<RunnerProtocolException> { protocol.validate(JsonObject(claim - "claimAuthority"), "claimResponse") }
+        assertFailsWith<RunnerProtocolException> { protocol.validate(JsonObject(claim + ("claimAuthority" to JsonPrimitive("EXECUTE"))), "claimResponse") }
+    }
     @Test fun `unknown fields duplicate members and trailing JSON fail without reflecting secrets`() {
         val protocol = RunnerProtocol()
         val binding = binding()

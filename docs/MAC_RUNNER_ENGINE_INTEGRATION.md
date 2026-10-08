@@ -5,7 +5,7 @@ production executions**. Development, tests and scoped commits are authorized. F
 acceptance remains an integration milestone; admission rejection is not completion of missing work.
 
 Engine baseline: `6330754b8d76674555e89f7994c17d88fab7e3ca`.
-Canonical contract: `fdef2232826517af77c1fb8d3d832b261960a53e`, protocol 1. Resources and
+Canonical contract: `81d611a65b7c93e3341c69db51c7736a1c411175`, protocol 1. Resources and
 15 positive/negative fixtures are copied from that immutable platform commit. No private wire
 protocol has been introduced. Platform and supervisor must pin this same commit/schema hash.
 
@@ -144,7 +144,8 @@ protocol and per-client acceptance. Ordinary non-hosted hook/MCP behavior is ret
 
 ## Official interactive extension implementation
 
-Current wire pin: `261b43bbc9ccc492ad658e42cca821174da6ef5e` (22 shared fixtures).
+Interactive extension introduced at `261b43bbc9ccc492ad658e42cca821174da6ef5e` (22 shared fixtures);
+current embedded wire pin is the 81d611a6 compatibility revision below.
 Approval payloads now carry explicit occurrenceId, and decisions must match it as well as the
 persisted key/version. Existing occurrence cursors and pending request state remain checkpointed.
 
@@ -173,3 +174,25 @@ pass. Log `/tmp/mac-runner-engine-interactive-test.log`. These use controlled pr
 fixtures; platform owns actual fixed-source JVM/Python/HTTP/Mongo/package and full App Factory
 acceptance. This is a component implementation handoff, not a complete App Factory rollout or
 real-account acceptance. No deployment/publishing/activation/existing Runner upgrade occurred.
+
+## Compatibility update: claim authority and approval inbox
+
+The embedded contract now pins platform `81d611a65b7c93e3341c69db51c7736a1c411175`, schema
+SHA-256 `09a3c3f6d6bd430a126303f25ad9795c5818d72eec62bc2896cfe84af40a504a`.
+ClaimResponse retains its real phase and requires PREFLIGHT/REPORT_ONLY authority. This is an
+HTTP supervisor admission boundary: the JVM does not claim tasks, convert claimResponse into
+start, or possess a report-only business execution path. REPORT_ONLY must stop before supervisor
+JVM launch, renewal and credential access; its acceptance remains supervisor-owned and must be
+verified in the jointly pinned package. The JVM wire still strictly accepts start/resume frames
+under their existing schemas; full claim/report payloads cannot be used as start frames.
+
+Approval requests use dedicated approval IPC, persisted by supervisor HTTP host-requests with
+immutable occurrence/key. Monitoring uses step/usage events, not approval eventBatch entries.
+The generic JVM event publisher now rejects kind=approval before changing sequence or writing
+local event evidence. The real headless startup fixture includes an approval: no script launches
+before the human fixture decision/fresh environment; every event frame must remain non-approval.
+This compatibility update runs only protocol/IPC/approval adapter/headless-start targeted tests;
+prior wider component tests are not claimed as rerun. No deployment/release/activation occurred.
+
+Compatibility evidence: 13 targeted tests, 0 failures/errors/skips, passed in
+`/tmp/mac-runner-engine-contract-81d-test.log`; current compile passed with these tests.

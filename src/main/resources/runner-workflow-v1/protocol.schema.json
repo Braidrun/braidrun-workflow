@@ -1183,13 +1183,30 @@
           "$ref": "#/$defs/bundle"
         },
         "phase": {
-          "const": "PREFLIGHT"
+          "type": "string",
+          "enum": [
+            "PREFLIGHT",
+            "READY",
+            "RUNNING",
+            "WAITING_APPROVAL",
+            "STOP_REQUESTED",
+            "FINALIZING",
+            "STOP_UNCONFIRMED",
+            "TERMINAL"
+          ]
         },
         "inputs": {
           "type": "object",
           "additionalProperties": {
             "type": "string"
           }
+        },
+        "claimAuthority": {
+          "type": "string",
+          "enum": [
+            "PREFLIGHT",
+            "REPORT_ONLY"
+          ]
         }
       },
       "required": [
@@ -1198,7 +1215,8 @@
         "lease",
         "bundle",
         "phase",
-        "inputs"
+        "inputs",
+        "claimAuthority"
       ],
       "additionalProperties": false
     },

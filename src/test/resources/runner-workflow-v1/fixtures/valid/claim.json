@@ -53,5 +53,6 @@
   "phase": "PREFLIGHT",
   "inputs": {
     "fixture": "no-account"
-  }
+  },
+  "claimAuthority": "PREFLIGHT"
 }
