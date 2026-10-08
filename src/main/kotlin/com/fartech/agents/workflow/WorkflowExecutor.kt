@@ -734,7 +734,7 @@ internal class SubWorkflowStackElement(
 
 class WorkflowExecutor(
     private val httpAccess: HttpAccess,
-    private val baseParameters: List<ConfigurationParameter>,
+    baseParameters: List<ConfigurationParameter>,
     private val enableMonitoring: Boolean = true,
     approvalHandler: ApprovalHandler? = null,
     private val debugController: WorkflowDebugController? = null,
@@ -811,6 +811,8 @@ class WorkflowExecutor(
     /** Only trusted nested runtime sets this; root identity is never a workflow variable. */
     private val parentHostScope: WorkflowHostScope? = null
 ) {
+    private val perCallCodeControl = host?.codeControlMode == WorkflowCodeControlMode.SUPERVISOR_PER_CALL
+    private val baseParameters = if (perCallCodeControl) WorkflowCodeControlTokens.parameters(baseParameters) else baseParameters
     private val approvalHandler = host?.approvalHandler ?: approvalHandler
     private val workflowResolver = host?.workflowResolver ?: workflowResolver
     private val workflowOutputPublisher = host?.outputPublisher ?: workflowOutputPublisher
@@ -820,10 +822,11 @@ class WorkflowExecutor(
     private val claudeCredentialProvider = if (host != null) host.claudeCredentials else claudeCredentialProvider
     private val codexCredentialProvider = if (host != null) host.codexCredentials else codexCredentialProvider
     private val onCodexAuthJsonRotated = if (host != null) host.codexAuthRotation else onCodexAuthJsonRotated
-    private val executionApiTokenProvider = if (host != null) host.callbackToken else executionApiTokenProvider
+    private val executionApiTokenProvider = if (perCallCodeControl) null else if (host != null) host.callbackToken else executionApiTokenProvider
 
     private suspend fun hostAgentParameters(parameters: List<ConfigurationParameter>, executionId: String?, stepName: String?): List<ConfigurationParameter> =
-        host?.prepareAgentParameters(WorkflowHostScope(host.binding.executionId, executionId ?: host.binding.executionId, stepName = stepName), parameters) ?: parameters
+        host?.prepareAgentParameters(WorkflowHostScope(host.binding.executionId, executionId ?: host.binding.executionId, stepName = stepName),
+            if (perCallCodeControl) WorkflowCodeControlTokens.parameters(parameters) else parameters) ?: parameters
 
     private fun hostScope(context: WorkflowExecutionContext, step: String? = null) = WorkflowHostScope(
         host?.binding?.executionId ?: context.rootExecutionId ?: context.executionId,
@@ -1095,6 +1098,7 @@ class WorkflowExecutor(
         // 初始化上下文变量（YAML 默认值先加载，CLI/外部传入的变量后加载以覆盖默认值）
         context.variables.putAll(workflow.variables)
         context.variables.putAll(initialInput)
+        if (perCallCodeControl) WorkflowCodeControlTokens.variables(context.variables)
 
         // 将相对路径变量解析为绝对路径，避免 LLM 在工具调用中使用相对路径导致失败
         // （koog 框架的文件工具要求绝对路径）
@@ -1103,6 +1107,7 @@ class WorkflowExecutor(
         // 初始化工作流级共享知识库
         initializeKnowledgeBase(workflow, context, executionId)
         hydrateResumeState(workflow, context, resumeState)
+        if (perCallCodeControl) WorkflowCodeControlTokens.variables(context.variables)
 
         try {
             val continueOnError = workflow.errorHandling?.continueOnError == true
@@ -2846,7 +2851,7 @@ class WorkflowExecutor(
         val env = buildCodeStepEnvironment(templateContext).toMutableMap()
         // Sandboxed/native SubprocessExecutor requests renew only AFTER the host grants resources.
         // Keep the token out of env spill files so a script cannot overwrite the fresh value.
-        if (executionApiTokenProvider != null) {
+        if (perCallCodeControl || executionApiTokenProvider != null) {
             env.remove("WF_API_TOKEN")
             if (codeStepExecutor == null) env.putAll(freshCodeStepCallbackEnvironment(config.timeout.toLong(), context))
         }
@@ -2902,7 +2907,10 @@ class WorkflowExecutor(
 
     // ── Code step: 沙箱执行路径 ─────────────────────────────────────
 
-    private fun freshCodeStepCallbackEnvironment(timeoutSeconds: Long, context: WorkflowExecutionContext): Map<String, String> {
+    private fun freshCodeStepCallbackEnvironment(timeoutSeconds: Long, context: WorkflowExecutionContext, stepName: String? = null): Map<String, String> {
+        if (perCallCodeControl) {
+            return WorkflowCodeControlTokens.environment(requireNotNull(host).prepareCodeStepEnvironment(hostScope(context, stepName), timeoutSeconds))
+        }
         val provider = executionApiTokenProvider ?: return emptyMap()
         val fresh = host?.callbackTokenFor(hostScope(context), timeoutSeconds) ?: provider(timeoutSeconds)
         require(fresh.isNotBlank()) { "Execution callback credential unavailable" }
@@ -3038,9 +3046,9 @@ class WorkflowExecutor(
                     imageHint = resolveCodeStepImageHint(config.language),
                     userId = baseParameters.parameter("user_id", "local-user"),
                     admissionKind = "CODE_STEP",
-                    environmentAtStart = executionApiTokenProvider?.let {
-                        { freshCodeStepCallbackEnvironment(config.timeout.toLong(), context) }
-                    }
+                    environmentAtStart = if (perCallCodeControl || executionApiTokenProvider != null) {
+                        { freshCodeStepCallbackEnvironment(config.timeout.toLong(), context, step.step) }
+                    } else null
                 )
             )
         } finally {
@@ -3373,7 +3381,9 @@ class WorkflowExecutor(
     private fun buildCodeStepEnvironment(context: WorkflowExecutionContext): Map<String, String> {
         val env = mutableMapOf<String, String>()
         fun sanitizeEnvKey(key: String): String = key.uppercase().replace(ENV_KEY_SANITIZE_REGEX, "_")
-        context.variables.forEach { (key, value) ->
+        val variables = context.variables.toMutableMap()
+        if (perCallCodeControl) WorkflowCodeControlTokens.variables(variables)
+        variables.forEach { (key, value) ->
             env["WF_VAR_${sanitizeEnvKey(key)}"] = value.toString()
         }
         context.stepOutputs.forEach { (stepName, output) ->
@@ -3444,7 +3454,7 @@ class WorkflowExecutor(
         if (extraCodeStepEnv.isNotEmpty()) {
             env.putAll(extraCodeStepEnv)
         }
-        return env
+        return if (perCallCodeControl) WorkflowCodeControlTokens.environment(env) else env
     }
 
     /** 解析 code step 工作目录 */
@@ -5471,6 +5481,8 @@ class WorkflowExecutor(
             }
             childContext.variables.putAll(resolvedInputs)
         }
+
+        if (perCallCodeControl) WorkflowCodeControlTokens.variables(childContext.variables)
 
         // 与顶层 execute() 一致:把 "./" / "../" 变量归一化为绝对路径,
         // 否则 child 以模块方式调用时 koog 文件工具拿到相对路径而失败,

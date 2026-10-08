@@ -20,7 +20,8 @@ class RunnerWorkflowHost(
     private val secrets: RunnerSecrets,
     private val validateDirectNetwork: () -> Unit = { RunnerHttpClients.requireDirect() },
     private val interactiveBroker: RunnerInteractiveProcesses? = null,
-    private val callbackEnabled: Boolean = false
+    private val callbackEnabled: Boolean = false,
+    override val codeControlMode: WorkflowCodeControlMode = WorkflowCodeControlMode.LEGACY_STEP_TOKEN
 ) : WorkflowHost {
     init {
         require(bundle.taskBinding == ipc.binding) { "Bundle host binding differs from IPC authority" }
@@ -211,9 +212,16 @@ class RunnerWorkflowHost(
     override val outputPublisher: WorkflowOutputPublisher get() = outputs
     override val outputResolver: WorkflowOutputResolver get() = outputs
     private val tokens = RunnerCallbackTokens(ipc, gate, secrets)
-    override val callbackToken: ((Long) -> String)? = if (callbackEnabled && "control.callback.v1" in capabilities) ({ budget -> tokens.mint(WorkflowHostScope(binding.executionId, binding.executionId), budget) }) else null
+    override fun prepareCodeStepEnvironment(scope: WorkflowHostScope, timeoutSeconds: Long): Map<String, String> {
+        require(codeControlMode == WorkflowCodeControlMode.SUPERVISOR_PER_CALL && scope.rootExecutionId == binding.executionId && !scope.stepName.isNullOrBlank()) { "Per-call code scope unavailable" }
+        require(timeoutSeconds in 1..86400) { "Unsupported original code timeout" }
+        childPath(binding.executionId, scope.executionId)
+        gate.check(); verifyAssets()
+        return emptyMap() // S owns peer-provider injection after registered process authorization.
+    }
+    override val callbackToken: ((Long) -> String)? = if (codeControlMode == WorkflowCodeControlMode.LEGACY_STEP_TOKEN && callbackEnabled && "control.callback.v1" in capabilities) ({ budget -> tokens.mint(WorkflowHostScope(binding.executionId, binding.executionId), budget) }) else null
     override fun callbackTokenFor(scope: WorkflowHostScope, budget: Long): String {
-        require(callbackEnabled && "control.callback.v1" in capabilities && scope.rootExecutionId == binding.executionId) { "Callback scope/capability not authorized" }
+        require(codeControlMode == WorkflowCodeControlMode.LEGACY_STEP_TOKEN && callbackEnabled && "control.callback.v1" in capabilities && scope.rootExecutionId == binding.executionId) { "Callback scope/capability not authorized" }
         return tokens.mint(scope, budget)
     }
 }

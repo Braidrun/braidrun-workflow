@@ -166,3 +166,32 @@ Headless 5（无 callback、正常 root/child callback、root/child 秘密回显
 subscription 3（包含实际收录的短租约到期/迟到续租保护）；Claude root/child 与回显 2。
 未全面重跑；没有 main/runtime/schema 代码改动，没有新 installDist。
 固定 213 分发包继续对应 213 运行时代码，不能重新贴成本次测试/文档提交生成的包。
+
+## 内部逐调用模式接口已实现（b15 正式 HTTP 契约，selector 待提交）
+
+已读取 P 提交 `b15fb2d49a630b888075427b7c4fde78ce492e2a` 的正式 HTTP supplement。
+`WorkflowCodeControlMode.SUPERVISOR_PER_CALL` 仅为可信宿主内部枚举，没有序列化成 wire。
+`WorkflowHost.prepareCodeStepEnvironment(scope, timeoutSeconds)` 在具体 executor 的
+preparedForStart 时运行；Runner 实现复核原 root/child/step、完整超时、环境和冻结资产，
+只返回非秘密元数据（当前为空），由 S 在正式注册/peer 路径注入 provider 环境。
+
+模式启用的内部 host 不提供 callbackToken，也拒绝 callbackTokenFor。解释器忽略旧
+executionApiTokenProvider；清除 base/agent 参数、root/input/restore/static child 变量、
+最终环境及准备回调中的保留 callback 字段（含 WF_VAR_*、*_FILE 和结构化 JSON）。
+清除发生在 env spill/临时脚本生成之前，动态 child 通过同一可信 host 继承该模式。
+不修改冻结脚本源码，不声称能够识别任意别名或任意硬编码秘密；源内容仍须由准入/
+secret boundary 校验，S 仍负责其进程最终环境与 kernel peer 授权。
+
+本批 4 个定向选择 / 13 tests，零失败/错误/跳过：新模式 4、旧 SERVER callback 3、
+既有 headless 5、实际 Runner 内部模式准备门 1。正常 root 7000、静态 child 7200、
+动态 child 7200 的代码步骤均实际运行短 Bash 并完成；只是声明超时保持不变，未进行
+两小时耐久运行。大环境变量实际触发 spill，临时脚本/文件/环境无测试旧 token。
+prepare 在资源等待后调用；资源等待期间取消不 prepare/launch；启动后取消确认实际
+本地进程退出。Runner 准备门对跨 root execution 和失效 gate 拒绝。未运行 P HTTP。
+
+P 工作树新增的 `control.perCall.v1` selector/严格 arguments 表当前尚未在 b15 提交中，
+因此本批没有修改 RunnerHostSession 的外部协商或 ready 能力字符串，也没有复制私有
+schema。默认仍为原模式；正式 selector 提交后才能接入 mutually-exclusive 校验和
+真实 start/root/child 新模式。原 NDJSON81d 与哈希完全不变，不缩短 code timeout/budget。
+本批 main 源码已变化，但没有重复 installDist；固定213包仍是旧213实现。集成人应
+按本次源码 SHA 构建，不能将旧分发包标为包含内部新模式。

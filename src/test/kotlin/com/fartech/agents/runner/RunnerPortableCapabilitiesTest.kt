@@ -112,6 +112,31 @@ class RunnerPortableCapabilitiesTest {
             } finally { host.close() }
         }
     }
+    @Test fun `per-call Runner host never mints static token and rechecks original scope before launch`(@TempDir root: Path) = runBlocking<Unit> {
+        val frozen = bundle(root, assets)
+        IpcHarness(frozen.taskBinding).use { h ->
+            val gate = RunnerEnvironmentGate(h.binding, setOf("engine-http")); gate.install(RunnerProtocolTest.environment(h.binding, Instant.now()))
+            val identity = com.fartech.agents.workflow.WorkflowHostBinding(h.binding.string("ownerId"), h.binding.string("actorUserId"), "billing",
+                h.binding.string("executionId"), h.binding.string("runnerId"), h.binding.string("runnerInstanceId"), h.binding.long("resumeEpoch"),
+                h.binding.string("attemptId"), h.binding.string("definitionHash"), h.binding.string("runtimeHash"))
+            val executor = object : com.fartech.agents.tools.exec.SubprocessExecutor {
+                override suspend fun execute(request: com.fartech.agents.tools.exec.SubprocessExecutor.ExecRequest): com.fartech.agents.tools.exec.SubprocessExecutor.ExecResult = error("Only preparation under test")
+            }
+            val secrets = RunnerSecrets()
+            val host = RunnerWorkflowHost(h.ipc, identity, gate, frozen, RunnerHostSession.CAPABILITIES, executor, RunnerCheckpointStore(root, h.binding, secrets), secrets,
+                callbackEnabled = true, codeControlMode = com.fartech.agents.workflow.WorkflowCodeControlMode.SUPERVISOR_PER_CALL)
+            try {
+                val scope = WorkflowHostScope(identity.executionId, identity.executionId, stepName = "code")
+                assertNull(host.callbackToken)
+                assertFailsWith<IllegalArgumentException> { host.callbackTokenFor(scope, 30) }
+                assertEquals(emptyMap(), host.prepareCodeStepEnvironment(scope, 7000))
+                assertEquals(emptyMap(), host.prepareCodeStepEnvironment(scope.copy(executionId = "${identity.executionId}__nested__call_1"), 7200))
+                assertFailsWith<IllegalArgumentException> { host.prepareCodeStepEnvironment(scope.copy(executionId = "other"), 7200) }
+                gate.invalidate("TEST_CANCEL")
+                assertFailsWith<RunnerAuthorityLost> { host.prepareCodeStepEnvironment(scope, 7000) }
+            } finally { host.close() }
+        }
+    }
     @Test fun `CN and unknown country evidence cannot authorize HTTP or CLI`() {
         val binding = RunnerProtocolTest.binding()
         for (country in listOf("CN", "ZZ", "XX")) {

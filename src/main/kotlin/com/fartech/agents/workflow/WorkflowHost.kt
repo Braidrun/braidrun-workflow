@@ -33,6 +33,10 @@ interface WorkflowHost {
     val codexCredentials: ClaudeCredentialProvider? get() = null
     val codexAuthRotation: ((String?, String) -> Unit)? get() = null
     fun nativeAgentPrompt(scope: WorkflowHostScope, prompt: String): String = prompt
+    val codeControlMode: WorkflowCodeControlMode get() = WorkflowCodeControlMode.LEGACY_STEP_TOKEN
+    /** Called after resource admission; supervisor supplies its own peer-provider transport.
+     * Returns only nonsecret host metadata, never a grant or whole-step credential. */
+    fun prepareCodeStepEnvironment(scope: WorkflowHostScope, timeoutSeconds: Long): Map<String, String> = emptyMap()
     val callbackToken: ((Long) -> String)? get() = null
     fun callbackTokenFor(scope: WorkflowHostScope, budget: Long): String =
         requireNotNull(callbackToken) { "Callback capability unavailable" }.invoke(budget)
