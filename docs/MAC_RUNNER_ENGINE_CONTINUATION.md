@@ -116,3 +116,53 @@ P/S 可使用此受限工具获得自身绑定的 fresh probe，须自行验证�
 最新 S 资源实现已只读对齐 `4115007571edf0128f45d3303c61f8c53bdcadcb`，
 证据提交 `d6204ee99125d8ec9360be3a2bcb6d2098f997da`。其 E545/411 F0/资源结果
 与本 engine 213 的能力及 JVM 阻断证据继续分开；平台拥有最终 bootstrap 接入与验收。
+
+## 长 code 逐调用晚领取：只读改造方案（待 P 正式契约）
+
+统筹已选择由 S 在每次控制调用前领取短 purpose grant。本节仅列调用点/验证设计，
+本批不改 runtime、schema、超时或 operationBudget，不预造 provider URL/IPC 字段。
+
+| Engine 调用点 | 契约冻结后的最小变更 |
+| --- | --- |
+| `WorkflowExecutor.kt:823` | 将 host 的逐调用控制交付模式与旧 executionApiTokenProvider 分开；模式由 P 冻结的授权/能力决定。 |
+| `WorkflowExecutor.kt:2849` | 在环境 spill/脚本生成前清除旧 WF_API_TOKEN；不能依赖“provider 非空”才清除。 |
+| `WorkflowExecutor.kt:2905` | 旧 freshCodeStepCallbackEnvironment 留给 legacy；新 Runner 模式不以整步 timeout mint。 |
+| `WorkflowExecutor.kt:3041` | 新模式取消静态 token 的 environmentAtStart；ExecRequest.timeoutSeconds 保持 7000/7200 原值。 |
+| `WorkflowExecutor.kt:3430` | 防止 execution_api_token 参数及最终 overlay 重新把 token 写入代码环境/临时文件。 |
+| `WorkflowHost.kt:36`、`RunnerWorkflowHost.kt:214` | 用正式宿主交付模式组合 adapter，不因为缺失 provider 回退旧 token。 |
+| `RunnerProcesses.kt:44` | 保留 preparedForStart、环境门及真实进程登记；S 在 frozen code_step_started/peer 校验后注入其正式局部 provider 环境。 |
+
+正式契约仍需 P 冻结：purpose 与原域操作的映射、step/child ACL、原 deadline、
+lease/environment、撤销、每次调用的稳定身份与幂等收据、grant 回复丢失语义。
+Engine 不拥有审批、业务 HTTP/ACL 或 S 的 kernel peer 注册；旧 Python 控制调用迁移
+由 P/S 按正式接口完成。不能将 `control.callback.v1` 的现有五项自动扩大。
+
+待正式接口后的正常验证：root 声明 7000 秒、child 声明 7200 秒但实际脚本快速完成；
+启动不发 callbackTokenRequest、不携带 WF_API_TOKEN；首次真实控制调用才取得短 grant。
+两个 call_N 的 step/child 授权分离；取消/失效/过 deadline 后不能再取 grant。
+丢失回复保留原调用身份，不重放业务；原超时不被截短。旧 SERVER/legacy 保持兼容。
+这些是未来验收设计，目前没有执行或宣称新模式可用。
+
+## 本批定向测试边界
+
+普通 fake Claude 真实本地进程覆盖 root 及静态 child：分别选择冻结文本技能，stdin
+包含己方 skill、没有另一方 skill；HOME/CLAUDE_CONFIG_DIR 独立，授权 IPC 保留
+`nested/call_1`，假 subscription token 只在正确调用出现。返回值来自实际子进程 stdout。
+CLI、授权、网络均为无账号夹具；不代表真实 Claude、Python peer 或平台 HTTP 验收。
+
+callback 回显用真实 headless JVM/注册 Bash，root 和 child 均实际向 stdout/stderr
+回显假 token：事件脱敏、持久化文件无 token；含秘密业务状态被 checkpoint 拒绝，
+最终为 FAILED，不能声称成功恢复。child 失败可能不把其输出复制到 root result，
+因此验证真实脱敏事件及最终文件无秘密，不要求 root 伪造一个 redacted 输出。
+正常 Claude 完成用例与秘密回显拒绝用例分开。没有修改 checkpoint 防线来让测试成功。
+
+同时为继承的 subscription coroutine 测试显式指定 `runBlocking<Unit>`，确保其中
+短租约到期/迟到续租不能复活的测试被 JUnit 实际收录。原批次通过数量不追溯增加。
+最初两轮测试输出保留在 engine-continuation-evidence/child-claude-initial、
+child-claude-second；最终测试结果和本批源码 SHA 见独立批次收据及 coordination。
+
+最终定向结果：3 类 / 10 tests，零失败/错误/跳过。
+Headless 5（无 callback、正常 root/child callback、root/child 秘密回显拒绝）；
+subscription 3（包含实际收录的短租约到期/迟到续租保护）；Claude root/child 与回显 2。
+未全面重跑；没有 main/runtime/schema 代码改动，没有新 installDist。
+固定 213 分发包继续对应 213 运行时代码，不能重新贴成本次测试/文档提交生成的包。

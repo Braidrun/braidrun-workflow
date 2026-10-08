@@ -20,7 +20,7 @@ class RunnerSubscriptionTest {
         put("revision", 1); put("expiresAt", Instant.now().plusSeconds(60).toString())
         put("allowedOperations", JsonArray(listOf("subscription.codex", "credential.rotate").map(::JsonPrimitive))); put("material", material)
     })
-    @Test fun `credential permission renews while a CLI holds the same provider token`() = runBlocking {
+    @Test fun `credential permission renews while a CLI holds the same provider token`() = runBlocking<Unit> {
         IpcHarness().use { h ->
             val gate = RunnerEnvironmentGate(h.binding, setOf("engine-http")); gate.install(RunnerProtocolTest.environment(h.binding, Instant.now()))
             val secrets = RunnerSecrets(); val credentials = RunnerCredentials(h.ipc, gate, secrets)
@@ -39,7 +39,7 @@ class RunnerSubscriptionTest {
             } finally { live.close(); credentials.clear() }
         }
     }
-    @Test fun `short grant expiry cancels a blocked CLI and late renewal cannot revive it`() = runBlocking {
+    @Test fun `short grant expiry cancels a blocked CLI and late renewal cannot revive it`() = runBlocking<Unit> {
         IpcHarness().use { h ->
             val gate = RunnerEnvironmentGate(h.binding, setOf("engine-http")); gate.install(RunnerProtocolTest.environment(h.binding, Instant.now()))
             gate.installLease(RunnerProtocolTest.lease(Instant.now()))
@@ -62,7 +62,7 @@ class RunnerSubscriptionTest {
             } finally { listener.close(); cli.cancel(); live.close(); credentials.clear() }
         }
     }
-    @Test fun `real external agent wiring scopes Codex HOME and persists local auth rotation before cleanup`(@TempDir dir: Path) = runBlocking {
+    @Test fun `real external agent wiring scopes Codex HOME and persists local auth rotation before cleanup`(@TempDir dir: Path) = runBlocking<Unit> {
             val source = """
                 name: codex-host-fixture
                 agents:

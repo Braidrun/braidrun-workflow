@@ -12,10 +12,16 @@ import kotlin.test.*
 /** Real JVM and local bash process, synthetic trusted supervisor/egress. No external accounts. */
 class RunnerHeadlessTest {
     @Test fun `real headless JVM executes through registered launch and protocol stdout only`(@TempDir directory: Path) = runFixture(directory, false)
-    @Test fun `authorized callback reaches code process without entering result or journal`(@TempDir directory: Path) = runFixture(directory, true)
+    @Test fun `root callback echo is redacted and secret-bearing checkpoint is refused`(@TempDir directory: Path) = runFixture(directory, true)
 
-    private fun runFixture(directory: Path, callbackEnabled: Boolean) {
-        Files.writeString(directory.resolve("root.yaml"), """
+    @Test fun `child callback echo is redacted and secret-bearing checkpoint is refused`(@TempDir directory: Path) = runFixture(directory, true, true)
+
+    @Test fun `authorized root callback completes when result does not echo token`(@TempDir directory: Path) = runFixture(directory, true, false, false)
+    @Test fun `authorized child callback completes with its signed invocation scope`(@TempDir directory: Path) = runFixture(directory, true, true, false)
+
+    private fun runFixture(directory: Path, callbackEnabled: Boolean, childScope: Boolean = false, echoSecret: Boolean = callbackEnabled) {
+        val callbackEcho = if (echoSecret) "printf \"%s\\n\" \"${'$'}WF_API_TOKEN\"; printf \"%s\\n\" \"${'$'}WF_API_TOKEN\" >&2; " else ""
+        val body = """
             name: headless-offline
             agents: {}
             workflow:
@@ -26,14 +32,30 @@ class RunnerHeadlessTest {
                   approval_message: Offline fixture approval
                 code:
                   language: bash
-                  script: 'printf "engine-local-proof\\n"; pwd'
-        """.trimIndent())
+                  script: '${callbackEcho}printf "engine-local-proof\\n"; pwd'
+        """.trimIndent()
+        Files.writeString(directory.resolve("root.yaml"), if (childScope) """
+            name: callback-parent
+            agents: {}
+            workflow:
+              - step: nested
+                sub_workflow:
+                  workflow_id: child
+        """.trimIndent() else body)
+        if (childScope) Files.writeString(directory.resolve("child.yaml"), body)
         val bytes = Files.readAllBytes(directory.resolve("root.yaml")); val hash = sha256(bytes)
         val binding = JsonObject(RunnerProtocolTest.binding() + ("definitionHash" to JsonPrimitive(hash)))
         val bindingPath = directory.resolve("binding.json"); Files.writeString(bindingPath, binding.toString())
+        val definitionFiles = if (childScope) listOf("root" to "root.yaml", "child" to "child.yaml") else listOf("root" to "root.yaml")
         val manifest = buildJsonObject {
-            put("rootWorkflowId", "root"); put("files", JsonArray(listOf(buildJsonObject { put("path", "root.yaml"); put("size", bytes.size); put("sha256", hash); put("role", "definition") })))
-            put("definitions", JsonArray(listOf(buildJsonObject { put("workflowId", "root"); put("path", "root.yaml"); put("definitionHash", hash) })))
+            put("rootWorkflowId", "root")
+            put("files", JsonArray(definitionFiles.sortedBy { it.second }.map { (_, path) -> buildJsonObject {
+                val content = Files.readAllBytes(directory.resolve(path)); put("path", path); put("size", content.size)
+                put("sha256", sha256(content)); put("role", "definition")
+            } }))
+            put("definitions", JsonArray(definitionFiles.sortedBy { it.first }.map { (id, path) -> buildJsonObject {
+                put("workflowId", id); put("path", path); put("definitionHash", sha256(Files.readAllBytes(directory.resolve(path))))
+            } }))
         }
         val bundle = JsonObject(manifest + ("bundleHash" to JsonPrimitive(sha256(canonical(manifest).toByteArray()))))
         val classpath = requireNotNull(System.getProperty("runner.test.runtimeClasspath"))
@@ -55,7 +77,7 @@ class RunnerHeadlessTest {
                 JsonArray(originalAuthorization.array("requiredCapabilities") + JsonPrimitive("control.callback.v1")))) else originalAuthorization
             send("start", buildJsonObject { put("bundle", bundle); put("executionDirectory", directory.toString()); put("environment", environment)
                 put("authorization", authorization); put("lease", RunnerProtocolTest.lease(now)); put("inputs", JsonObject(emptyMap())) })
-            var callbackRequested = false; var launched = false; var stepProof = false; var approved = false; var result: JsonObject? = null
+            var redactedEchoEvent = false; var callbackRequested = false; var launched = false; var stepProof = false; var approved = false; var result: JsonObject? = null
             while (true) {
                 val line = reader.readLine() ?: break
                 val frame = RunnerProtocol().parse(line) // any ordinary println on stdout fails this test
@@ -78,6 +100,8 @@ class RunnerHeadlessTest {
                     "callbackTokenRequest" -> {
                         assertTrue(callbackEnabled); assertFalse(callbackRequested); callbackRequested = true
                         assertEquals(30, payload.long("operationBudgetSeconds"))
+                        assertEquals(if (childScope) listOf("nested", "call_1") else emptyList(), payload.array("childExecutionPath").map { it.jsonPrimitive.content })
+                        assertEquals(!childScope, payload.array("operations").any { it.jsonPrimitive.content == "artifact.read" })
                         send("callbackTokenGrant", buildJsonObject {
                             put("requestId", payload.string("requestId")); put("token", "fake-code-callback-token")
                             put("expiresAt", Instant.now().plusSeconds(90).toString()); put("operations", payload.array("operations"))
@@ -97,11 +121,14 @@ class RunnerHeadlessTest {
                             put("pid", tool.pid()); put("processGroupId", tool.pid()); put("startIdentity", tool.info().startInstant().get().toString()) }, frame.string("frameId"))
                         val stdout = tool.inputStream.readBytes().toString(Charsets.UTF_8); val stderr = tool.errorStream.readBytes().toString(Charsets.UTF_8)
                         assertEquals(0, tool.waitFor()); assertTrue(stdout.contains(directory.toString()))
+                        if (echoSecret) { assertTrue(stdout.contains("fake-code-callback-token")); assertTrue(stderr.contains("fake-code-callback-token")) }
                         send("processExited", buildJsonObject { put("registrationId", "offline-registration"); put("exitCode", 0)
                             put("stdoutArtifactId", JsonNull); put("stderrArtifactId", JsonNull); put("stdout", stdout); put("stderr", stderr)
                             put("captureTruncated", false); put("timedOut", false) })
                     }
                     "event" -> {
+                        assertFalse(frame.toString().contains("fake-code-callback-token"))
+                        if (frame.toString().contains("<redacted>")) redactedEchoEvent = true
                         assertNotEquals("approval", payload.string("type"), "Approval must never enter the event batch")
                         if (payload.obj("payload")["output"]?.jsonPrimitive?.content?.contains("engine-local-proof") == true) stepProof = true
                     }
@@ -115,8 +142,17 @@ class RunnerHeadlessTest {
             assertTrue(approved, "Dedicated approval frame missing")
             assertTrue(launched, "No process launch; result=$result; stderr=" + Files.readString(directory.resolve("stderr.log")))
             assertTrue(stepProof, "No step proof; result=$result; stderr=" + Files.readString(directory.resolve("stderr.log")))
-            assertNotNull(result); assertEquals("COMPLETED", result.string("status")); assertEquals(JsonPrimitive(false), result.obj("stopReceipt")["confirmed"])
-            assertTrue(process.waitFor(5, TimeUnit.SECONDS)); assertEquals(0, process.exitValue(), Files.readString(directory.resolve("stderr.log")))
+            assertNotNull(result); assertEquals(if (echoSecret) "FAILED" else "COMPLETED", result.string("status"), Files.readString(directory.resolve(".runner-state/result.json"))); assertEquals(JsonPrimitive(false), result.obj("stopReceipt")["confirmed"])
+            assertTrue(process.waitFor(5, TimeUnit.SECONDS)); assertEquals(if (echoSecret) 1 else 0, process.exitValue(), Files.readString(directory.resolve("stderr.log")))
+            assertFalse(Files.readString(directory.resolve("stderr.log")).contains("fake-code-callback-token"))
+            Files.walk(directory.resolve(".runner-state")).use { paths -> paths.filter { Files.isRegularFile(it) }.forEach { path ->
+                assertFalse(Files.readString(path).contains("fake-code-callback-token"), "Secret persisted at $path")
+            } }
+            if (echoSecret) {
+                val saved = Files.readString(directory.resolve(".runner-state/result.json"))
+                assertTrue(redactedEchoEvent, "Actual token echo must reach a redacted event")
+                assertTrue(saved.contains("Credential material cannot be checkpointed"))
+            }
         } finally { killer.cancel(true); scheduler.shutdownNow(); process.destroyForcibly() }
     }
 }
