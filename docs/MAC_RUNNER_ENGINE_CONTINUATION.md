@@ -66,3 +66,27 @@ callback 正常 root/child IPC grant 验证通过；没有调用真实账号或�
 均有独立收据；F0 身份桥输出仍为 unavailable。S 的 Python urllib / Node https
 IPv4 JP 观测只属于这两个客户端，不能移用为 JVM/CLI/MCP/IPv6 证明。
 本 engine 变更后需 P/S 重新组装对应新 SHA，既有 E545 包不能被称为包含本批接线。
+
+## 第二批：JVM HTTP 只读探针
+
+`RunnerHttpProbeKt` 是无参数本地诊断入口，固定 GET `https://api.country.is/`，
+不接受 URL/头/body/账号参数。与业务 `RunnerHttpClients` 共用 OkHttp direct/TLS/
+SSRF DNS/no-redirect/no-retry 配置；拒绝代理配置冲突，5 秒连接/读取、15 秒总时限，
+响应最多 4096 bytes。检查 IP literal/public 地址及国家码；CN/未知明确阻断。
+输出是本地诊断收据，始终 `accepted:false`，不是正式环境授权或新增 wire DTO。
+它不证明特定模型目的地、强制 IPv4/IPv6 双栈、CLI/MCP 或任意子进程网络。
+
+运行方式（从本分发目录）：
+
+```sh
+java -cp 'runner-host.jar:lib/*' com.fartech.agents.runner.RunnerHttpProbeKt
+```
+
+本批 3 项 probe 单测 + 1 项模型 host 回归通过，新 installDist 通过。
+两次实际只读探测均 exit 2 / BLOCK_UNKNOWN；第二次 2026-10-08 23:11:10 上海时间
+记录异常类别 IllegalArgumentException，无账户/原始配置异常消息落盘。
+同时独立 DNS 只读检查得到 `api.country.is -> 198.18.21.204` 保留地址，代理环境变量
+未配置。这是阻断/诊断证据，不能作为非 CN 放行收据，也不以 Python/Node 的 JP 结果
+覆盖 JVM 失败。本批未修改网络、代理、DNS、系统语言；初次失败收据保留。
+P/S 可使用此受限工具获得自身绑定的 fresh probe，须自行验证确切 runtime/profile，
+不能将该诊断 JSON 直接当成环境授权。`network.http.v1` 继续不作笼统广告。

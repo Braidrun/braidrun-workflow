@@ -19,14 +19,8 @@ class RunnerHttpClients(private val gate: RunnerEnvironmentGate, private val cre
         expectSuccess = false
         install(HttpTimeout)
         engine { config {
-            proxy(java.net.Proxy.NO_PROXY)
-            retryOnConnectionFailure(false)
-            followRedirects(false); followSslRedirects(false)
-            dns(HttpAccess.SsrfValidatingDns)
-            addInterceptor { chain ->
+            configureDirect(this) {
                 gate.requirePaths(setOf("jvm-http")); credentialCheck()
-                HttpHostSafety.assertUrlIsPublic(chain.request().url.toString())
-                chain.proceed(chain.request())
             }
         } }
     }
@@ -40,6 +34,18 @@ class RunnerHttpClients(private val gate: RunnerEnvironmentGate, private val cre
     }
     override fun close() { client.close() }
     companion object {
+        /** Shared transport configuration for business clients and the bounded public probe. */
+        internal fun configureDirect(builder: okhttp3.OkHttpClient.Builder, beforeRequest: (okhttp3.Request) -> Unit): okhttp3.OkHttpClient.Builder = builder.apply {
+            proxy(java.net.Proxy.NO_PROXY)
+            retryOnConnectionFailure(false)
+            followRedirects(false); followSslRedirects(false)
+            dns(HttpAccess.SsrfValidatingDns)
+            addInterceptor { chain ->
+                beforeRequest(chain.request())
+                HttpHostSafety.assertUrlIsPublic(chain.request().url.toString())
+                chain.proceed(chain.request())
+            }
+        }
         fun requireDirect(environment: Map<String, String> = System.getenv(), properties: java.util.Properties = System.getProperties()) {
             require(listOf("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "all_proxy", "no_proxy").all { environment[it].isNullOrBlank() } &&
                 listOf("http.proxyHost", "https.proxyHost", "socksProxyHost", "java.net.useSystemProxies").all { properties.getProperty(it).isNullOrBlank() || properties.getProperty(it) == "false" }) {
