@@ -244,23 +244,29 @@ class RunnerWorkflowHost(
         return parameters.map { com.fartech.ftapp2.commonsKt.ConfigurationParameter(it.key, refs(it.value)) }
     }
     /** E's business side is terminal before result publication. S alone confirms OS stop and runs POST_STOP. */
-    @Synchronized fun beginFinalization(): Long {
+    private val finalizationLock = Any()
+    fun beginFinalization(): Long = synchronized(finalizationLock) {
+        // Do not hold the Host monitor while waiting for admitted recorders. Host producers take host -> fence -> journal.
         if (resourcesClosed.compareAndSet(false, true)) {
-            businessFence.close()
-            eventJournal.seal()
-            approvalHandler.close(); artifactSets?.close(); collectionBarrier?.close()
-            interactiveBroker?.close(); live.close(); network.close(); credentials.clear()
-            cliPools.clear(); references.clear(); nativeSkills.clear(); setProducerBudgets.clear()
+            businessFence.close() // returns only after admitted append/persist/enqueue has released this same boundary
+            try { eventJournal.seal() }
+            finally {
+                approvalHandler.close(); artifactSets?.close(); collectionBarrier?.close()
+                interactiveBroker?.close(); live.close(); network.close(); credentials.clear()
+                cliPools.clear(); references.clear(); nativeSkills.clear(); setProducerBudgets.clear()
+            }
         }
-        return eventJournal.lastSequence()
+        eventJournal.seal()
     }
     fun close() { beginFinalization() }
+    internal var beforeEventEnqueueForTest: (JsonObject) -> Unit = {}
     private val eventJournal = RunnerEventJournal(ipc.binding, secrets,
         write = { path, bytes -> store.writePrivate(path, bytes); Unit }, enqueue = { frame ->
+            beforeEventEnqueueForTest(frame)
             if (frame.obj("payload").string("type") == "artifact") gate.check()
             ipc.sendFrame(frame); Unit
         },
-        failed = { gate.invalidate("RUNNER_EVENT_JOURNAL_FAILED") })
+        failed = { gate.invalidate("RUNNER_EVENT_JOURNAL_FAILED") }, businessFence = businessFence)
     override val codeEnvironment: Map<String, String> = mapOf(
         "WF_RUNNER_ID" to binding.runnerId, "WF_ROOT_EXECUTION_ID" to binding.executionId,
         "WF_OWNER_ID" to binding.ownerId, "WF_ACTOR_USER_ID" to binding.actorUserId,

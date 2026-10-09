@@ -105,3 +105,30 @@ changed evidence/result rejection and normal adapter/IPC regressions. Its servic
 are controlled fixtures; actual S/P effect acceptance is not inferred. The old grouped
 editing test had requestedAt=0; it now uses the real request time and bounded observation
 so it can verify the41d original-budget rule instead of waiting on a refused request.
+
+## Event-admission versus finalization race follow-up
+
+The retained-reference fix still allowed Host.emit callbacks to reserve/persist an
+original event while finalization closed the IPC business fence before enqueue.
+The shared event journal now enters that exact businessFence admission BEFORE taking
+its journal monitor and allocating a sequence. Reservation, intent/event persistence
+and FIFO enqueue are one bounded local critical section. Closure waits for accepted
+append work to finish; a later callback refuses before allocating a new sequence.
+No persisted eventSeq is rolled back or reused.
+
+Lock order for event mutation is fence -> journal (Host producers already holding
+Host take Host -> fence -> journal). Finalization serializes on a separate lock,
+without holding the Host monitor while it waits for admitted recorders. Actual
+persistence failure invalidation/stop callbacks run outside fence and journal locks.
+Such failed intent remains for reconciliation and seal cannot claim a complete result
+sequence. Remote event ACK waits remain outside append/admission and close locks.
+
+The 10-case targeted race/order/terminal batch includes a deterministic actual Host
+recorder pause AFTER private event fsync and BEFORE FIFO enqueue. A competing actual
+beginFinalization blocks without marking business closed or holding Host monitor.
+After release, the original event enters FIFO, the original result references that
+exact complete finalEventSeq, gate/journal remain valid, and the captured late recorder
+refuses without creating an event2 file. Failure callback lock assertions and the
+shared-fence ACK-wait/order tests cover the direct lock concerns. Normal native smoke
+is a separate transport/result/exit compatibility check, not the race evidence or
+P/S/source acceptance. Raw schemas, original budgets and unconfirmed stop remain.

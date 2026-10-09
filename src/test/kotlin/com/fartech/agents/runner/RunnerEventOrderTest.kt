@@ -33,7 +33,7 @@ class RunnerEventOrderTest {
     }
     @Test fun `ACK waiter is armed before enqueue while another producer remains free to append`() = runBlocking<Unit> {
         IpcHarness().use { h ->
-            val journal = RunnerEventJournal(h.binding, RunnerSecrets(), { _, _ -> }, { h.ipc.sendFrame(it) }, {})
+            val journal = RunnerEventJournal(h.binding, RunnerSecrets(), { _, _ -> }, { h.ipc.sendFrame(it) }, {}, h.ipc.businessFence)
             val artifact = async { h.ipc.awaitReply("ack", frameId = "original-artifact-frame") {
                 journal.append("artifact", buildJsonObject { put("source", "fixture") }, "original-artifact-frame")
             } }
