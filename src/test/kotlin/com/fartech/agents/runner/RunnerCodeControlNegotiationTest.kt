@@ -56,4 +56,40 @@ class RunnerCodeControlNegotiationTest {
         assertEquals(RunnerNegotiationReason.RUNNER_REQUIRED_CAPABILITY_UNAVAILABLE, unknown.reason)
     }
 
+    @Test fun `source read policy requires available explicit per-call and composes with feedback context`() {
+        val required = setOf(RunnerCodeControlNegotiation.SOURCE_READ_POLICY, RunnerCodeControlNegotiation.PER_CALL)
+        assertTrue(RunnerHostSession.CAPABILITIES.containsAll(required))
+        for (selection in listOf(required, required + RunnerCodeControlNegotiation.FEEDBACK_CONTEXT)) {
+            assertEquals(WorkflowCodeControlMode.SUPERVISOR_PER_CALL,
+                RunnerCodeControlNegotiation.select(selection, RunnerHostSession.CAPABILITIES))
+        }
+        for (missing in required) {
+            val failure = assertFailsWith<RunnerNegotiationException> {
+                RunnerCodeControlNegotiation.select(required, RunnerHostSession.CAPABILITIES - missing)
+            }
+            assertEquals(RunnerNegotiationReason.RUNNER_REQUIRED_CAPABILITY_UNAVAILABLE, failure.reason)
+        }
+    }
+    @Test fun `source read policy refuses absent dependency legacy conflict and unknown capabilities`() {
+        val source = RunnerCodeControlNegotiation.SOURCE_READ_POLICY
+        for (selection in listOf(setOf(source), setOf(source, RunnerCodeControlNegotiation.LEGACY))) {
+            val failure = assertFailsWith<RunnerNegotiationException> {
+                RunnerCodeControlNegotiation.select(selection, RunnerHostSession.CAPABILITIES)
+            }
+            assertEquals(RunnerNegotiationReason.RUNNER_SOURCE_READ_POLICY_REQUIRES_PER_CALL, failure.reason)
+        }
+        val conflict = assertFailsWith<RunnerNegotiationException> {
+            RunnerCodeControlNegotiation.select(setOf(source, RunnerCodeControlNegotiation.PER_CALL,
+                RunnerCodeControlNegotiation.LEGACY), RunnerHostSession.CAPABILITIES)
+        }
+        assertEquals(RunnerNegotiationReason.RUNNER_CONTROL_MODE_CONFLICT, conflict.reason)
+        val unknown = assertFailsWith<RunnerNegotiationException> {
+            RunnerCodeControlNegotiation.select(setOf(source, RunnerCodeControlNegotiation.PER_CALL,
+                "control.sourceReadPolicy.v2"), RunnerHostSession.CAPABILITIES)
+        }
+        assertEquals(RunnerNegotiationReason.RUNNER_REQUIRED_CAPABILITY_UNAVAILABLE, unknown.reason)
+        assertEquals(WorkflowCodeControlMode.LEGACY_STEP_TOKEN,
+            RunnerCodeControlNegotiation.select(emptySet(), RunnerHostSession.CAPABILITIES))
+    }
+
 }

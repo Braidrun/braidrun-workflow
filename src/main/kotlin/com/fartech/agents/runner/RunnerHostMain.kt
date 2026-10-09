@@ -173,6 +173,7 @@ class RunnerHostSession(
         val CAPABILITIES = linkedSetOf("bundle.portableAssets.v1", "control.callback.v1", "workflow.full.v1", "step.agent.v1", "model.http.v1", "agent.codex.v1", "agent.claude.v1", "tool.exit.v1", "tool.workflow.v1", "tool.user_interaction.v1", "skill.text.v1", "tool.skill_tools.v1", "service.mcp_servers.v1", "mcp.stdio.v1", "process.interactive.v1", "step.script.v1", "step.subWorkflow.v1", "step.stateMachine.v1", "interaction.approval.v1", "output.read.v1", "output.publish.v1").apply {
             if (RunnerCodeControlNegotiation.supplementAvailable()) {
                 add(RunnerCodeControlNegotiation.PER_CALL)
+                add(RunnerCodeControlNegotiation.SOURCE_READ_POLICY) // P/S separately verify the frozen historical-source carrier.
                 add(RunnerCodeControlNegotiation.FEEDBACK_CONTEXT) // S must separately admit its guarded HTTP adapter + schema pin.
             }
             if (RunnerCollectionProtocol.available()) add(RunnerCollectionProtocol.CAPABILITY)
