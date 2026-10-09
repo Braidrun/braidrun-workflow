@@ -92,4 +92,39 @@ class RunnerCodeControlNegotiationTest {
             RunnerCodeControlNegotiation.select(emptySet(), RunnerHostSession.CAPABILITIES))
     }
 
+    @Test fun `gate projection requires every explicit dependency and all available capabilities`() {
+        val projection = RunnerCodeControlNegotiation.GATE_PROJECTION
+        val required = setOf(projection, RunnerArtifactSetProtocol.GATES, RunnerArtifactSetProtocol.CAPABILITY,
+            RunnerCollectionProtocol.CAPABILITY, RunnerCodeControlNegotiation.PER_CALL)
+        val fixtureAvailable = RunnerHostSession.CAPABILITIES + required // Selector-only controlled inventory, not actual provider/pin acceptance.
+        assertEquals(WorkflowCodeControlMode.SUPERVISOR_PER_CALL, RunnerCodeControlNegotiation.select(required, fixtureAvailable))
+        for (missing in listOf(RunnerArtifactSetProtocol.GATES, RunnerArtifactSetProtocol.CAPABILITY, RunnerCodeControlNegotiation.PER_CALL)) {
+            assertEquals(RunnerNegotiationReason.RUNNER_GATE_PROJECTION_DEPENDENCY_REQUIRED, assertFailsWith<RunnerNegotiationException> {
+                RunnerCodeControlNegotiation.select(required - missing, fixtureAvailable)
+            }.reason)
+        }
+        assertEquals(RunnerNegotiationReason.RUNNER_SET_DEPENDENCY_REQUIRED, assertFailsWith<RunnerNegotiationException> {
+            RunnerCodeControlNegotiation.select(required - RunnerCollectionProtocol.CAPABILITY, fixtureAvailable)
+        }.reason)
+        for (missing in required) assertEquals(RunnerNegotiationReason.RUNNER_REQUIRED_CAPABILITY_UNAVAILABLE, assertFailsWith<RunnerNegotiationException> {
+            RunnerCodeControlNegotiation.select(required, fixtureAvailable - missing)
+        }.reason)
+    }
+    @Test fun `gate projection remains withheld and does not permit callback conflict unknown capability or implicit mode`() {
+        val projection = RunnerCodeControlNegotiation.GATE_PROJECTION
+        assertFalse(projection in RunnerHostSession.CAPABILITIES)
+        val required = setOf(projection, RunnerArtifactSetProtocol.GATES, RunnerArtifactSetProtocol.CAPABILITY,
+            RunnerCollectionProtocol.CAPABILITY, RunnerCodeControlNegotiation.PER_CALL)
+        assertEquals(RunnerNegotiationReason.RUNNER_REQUIRED_CAPABILITY_UNAVAILABLE, assertFailsWith<RunnerNegotiationException> {
+            RunnerCodeControlNegotiation.select(required, RunnerHostSession.CAPABILITIES)
+        }.reason)
+        assertEquals(RunnerNegotiationReason.RUNNER_CONTROL_MODE_CONFLICT, assertFailsWith<RunnerNegotiationException> {
+            RunnerCodeControlNegotiation.select(required + RunnerCodeControlNegotiation.LEGACY, RunnerHostSession.CAPABILITIES + required)
+        }.reason)
+        assertEquals(RunnerNegotiationReason.RUNNER_REQUIRED_CAPABILITY_UNAVAILABLE, assertFailsWith<RunnerNegotiationException> {
+            RunnerCodeControlNegotiation.select(required + "control.gateProjection.v2", RunnerHostSession.CAPABILITIES + required)
+        }.reason)
+        assertEquals(WorkflowCodeControlMode.LEGACY_STEP_TOKEN, RunnerCodeControlNegotiation.select(emptySet(), RunnerHostSession.CAPABILITIES))
+    }
+
 }

@@ -4,7 +4,7 @@ import com.fartech.agents.workflow.WorkflowCodeControlMode
 
 internal enum class RunnerNegotiationReason {
     RUNNER_REQUIRED_CAPABILITY_UNAVAILABLE, RUNNER_CONTROL_MODE_CONFLICT, RUNNER_CONTROL_SUPPLEMENT_UNAVAILABLE,
-    RUNNER_ARTIFACT_CAPABILITY_REQUIRED, RUNNER_ARTIFACT_POLICY_INVALID, RUNNER_FEEDBACK_CONTEXT_REQUIRES_PER_CALL, RUNNER_SOURCE_READ_POLICY_REQUIRES_PER_CALL, RUNNER_SET_DEPENDENCY_REQUIRED
+    RUNNER_ARTIFACT_CAPABILITY_REQUIRED, RUNNER_ARTIFACT_POLICY_INVALID, RUNNER_FEEDBACK_CONTEXT_REQUIRES_PER_CALL, RUNNER_SOURCE_READ_POLICY_REQUIRES_PER_CALL, RUNNER_SET_DEPENDENCY_REQUIRED, RUNNER_GATE_PROJECTION_DEPENDENCY_REQUIRED
 }
 internal class RunnerNegotiationException(val reason: RunnerNegotiationReason) : IllegalArgumentException(reason.name)
 
@@ -17,6 +17,8 @@ internal object RunnerCodeControlNegotiation {
     const val FEEDBACK_CONTEXT = "control.feedbackContext.v1"
     // Historical-source carrier and guarded helper remain P/S-owned; E only negotiates existing CC transport.
     const val SOURCE_READ_POLICY = "control.sourceReadPolicy.v1"
+    // P/S frozen per-gate dispatch/projection; its legacy context provider is not the mutually exclusive callback selector.
+    const val GATE_PROJECTION = "control.gateProjection.v1"
     const val CONTRACT_COMMIT = "cc684f0a28b6b3f3106b91e486244843f979aa83"
     const val SCHEMA_SHA256 = "7951e39556624737701dad352209c332954fed84066b5653beddf2f9c34c9c2f"
 
@@ -24,6 +26,8 @@ internal object RunnerCodeControlNegotiation {
         bytes != null && sha256(bytes) == SCHEMA_SHA256
 
     fun select(required: Set<String>, available: Set<String>): WorkflowCodeControlMode {
+        if (GATE_PROJECTION in required && !required.containsAll(setOf(RunnerArtifactSetProtocol.GATES, RunnerArtifactSetProtocol.CAPABILITY, PER_CALL)))
+            throw RunnerNegotiationException(RunnerNegotiationReason.RUNNER_GATE_PROJECTION_DEPENDENCY_REQUIRED)
         if ((RunnerArtifactSetProtocol.CAPABILITY in required && RunnerCollectionProtocol.CAPABILITY !in required) ||
             (RunnerArtifactSetProtocol.GATES in required && (RunnerArtifactSetProtocol.CAPABILITY !in required || PER_CALL !in required)) ||
             (RunnerArtifactSetProtocol.SOURCE in required && RunnerArtifactSetProtocol.CAPABILITY !in required))
