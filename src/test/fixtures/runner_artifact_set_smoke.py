@@ -104,10 +104,16 @@ with (root/'engine.stderr.log').open('w') as stderr:
    elif kind=='result':result=b;break
    else:raise AssertionError('unexpected '+kind)
   assert result and result['status']=='FAILED',result
+  finalization=json.loads((root/'.runner-state/finalization.json').read_text())
+  assert finalization['binding']==binding and finalization['status']==result['status']
+  assert finalization['finalEventSeq']==result['finalEventSeq'] and finalization['businessOperationsClosed'] is True
+  assert finalization['phase']=='E_BUSINESS_CLOSED_JVM_EXIT_PENDING' and finalization['stopConfirmed'] is False
+  assert result['stopReceipt']['confirmed'] is False and result['stopReceipt']['reason']=='JVM_EXIT_PENDING'
+  proc.stdin.close();proc.wait(timeout=5);assert proc.returncode==1
   assert len(ready)==len(commits)==len(completes)==3
   assert sum(len(x['payload']['payload']['declarationIds']) for x in ready.values())==71
   assert closed==['root','child'] and [x['exitCode'] for x in native]==[0,4]
-  (root/'smoke-verdict.json').write_text(json.dumps({'passed':True,'actual':'fixed production E JAR, normal interpreter/RunnerProcesses NDJSON, real native Bash root and child exits, Code boundary/partitions/dual ACK/Complete and original FAILED outcome','controlled':'S process transport and snapshot/ticket/P index proof simulated; no real S kernel peer/P HTTP or full workflow acceptance','readyPartitions':len(ready),'declarations':71,'complete':len(completes),'native':native,'status':result['status'],'runnerJarSha256':sha(Path(a.runner_jar).read_bytes())},indent=2)+'\n')
+  (root/'smoke-verdict.json').write_text(json.dumps({'passed':True,'actual':'fixed production E JAR, normal interpreter/RunnerProcesses NDJSON, real native Bash root and child exits, Code boundary/partitions/dual ACK/Complete and original FAILED outcome','controlled':'S process transport and snapshot/ticket/P index proof simulated; no real S kernel peer/P HTTP or full workflow acceptance','readyPartitions':len(ready),'declarations':71,'complete':len(completes),'native':native,'status':result['status'],'engineExitCode':proc.returncode,'businessFenceBeforeResult':True,'stopConfirmedByE':False,'postStopScannerStartedByE':False,'runnerJarSha256':sha(Path(a.runner_jar).read_bytes())},indent=2)+'\n')
  finally:
   (root/'ipc-trace.json').write_text(json.dumps(trace,indent=2)+'\n')
   (root/'control-trace.json').write_text(json.dumps(controls,indent=2)+'\n')

@@ -2405,6 +2405,7 @@ data class WorkflowResumeState(
     val recoveredFailures: Set<String> = emptySet(),
     val approvalOccurrences: Map<String, Long> = emptyMap(),
     val pendingApprovalIds: Map<String, String> = emptyMap(),
+    val pendingApprovalRequestedAt: Map<String, Long> = emptyMap(),
     val childInvocationCounts: Map<String, Long> = emptyMap(),
     /** Host-owned nonsecret cursors, e.g. acknowledged credential rotations. */
     val hostState: Map<String, Any> = emptyMap()
@@ -2456,6 +2457,7 @@ data class WorkflowExecutionContext(
     val rootExecutionId: String? = null,
     val approvalOccurrences: MutableMap<String, Long> = ConcurrentHashMap(),
     val pendingApprovalIds: MutableMap<String, String> = ConcurrentHashMap(),
+    val pendingApprovalRequestedAt: MutableMap<String, Long> = ConcurrentHashMap(),
     val childInvocationCounts: MutableMap<String, Long> = ConcurrentHashMap(),
 ) {
     /** 工作流级共享知识库实例（由 WorkflowExecutor 初始化） */
@@ -2509,6 +2511,7 @@ data class WorkflowExecutionContext(
         snapshot.recoveredFailures.addAll(recoveredFailures)
         snapshot.approvalOccurrences.putAll(approvalOccurrences)
         snapshot.pendingApprovalIds.putAll(pendingApprovalIds)
+        snapshot.pendingApprovalRequestedAt.putAll(pendingApprovalRequestedAt)
         snapshot.childInvocationCounts.putAll(childInvocationCounts)
         transitionActivationSources.forEach { (stepName, sources) ->
             snapshot.transitionActivationSources[stepName] =

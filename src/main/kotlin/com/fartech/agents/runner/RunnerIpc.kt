@@ -109,6 +109,13 @@ class RunnerIpc(
         val digest = sha256(canonical(frame).toByteArray())
         seen[id]?.let {
             if (it != digest) throw RunnerProtocolException()
+            if (frame.string("type") == "approvalDecision") {
+                val original = frame["replyTo"]?.jsonPrimitive?.content?.let { pending[it] }
+                if (original != null) {
+                    require(original.type == "approvalDecision")
+                    pending.remove(frame.string("replyTo"))?.response?.complete(frame.obj("payload"))
+                }
+            }
             if (frame.string("type") in setOf("artifactCollectRequest", "artifactSetCollectRequest", "artifactSetIndexAck") || (artifactSetsEnabled && frame.string("type") == "ack")) onControl(frame)
             return
         }

@@ -147,6 +147,12 @@ class RunnerHostSession(
                 val result = try { resultJob.await() } catch (_: CancellationException) { null }
                 try { environment.check() } catch (_: RunnerAuthorityLost) { stop() }
                 val status = if (stopReason.get() == "CANCELLED") "CANCELLED" else if (stopped.get() || result == null) "INTERRUPTED" else if (result.success) "COMPLETED" else "FAILED"
+                val finalEventSeq = runtime.beginFinalization()
+                store.writePrivate(".runner-state/finalization.json", canonical(buildJsonObject {
+                    put("binding", binding); put("status", status); put("finalEventSeq", finalEventSeq)
+                    put("phase", "E_BUSINESS_CLOSED_JVM_EXIT_PENDING"); put("businessOperationsClosed", true)
+                    put("stopConfirmed", false); put("sourceAcceptance", "PENDING_P_S_FINAL_AUTHORITY")
+                }).toByteArray())
                 val resultBytes = secrets.redact(buildJsonObject {
                     put("binding", binding); put("status", status)
                     put("variables", JsonObject(result?.variables.orEmpty().mapValues { JsonPrimitive(it.value.toString()) }))
@@ -157,7 +163,7 @@ class RunnerHostSession(
                 val artifactManifestHash = store.writePrivate(".runner-state/artifact-manifest.json", "[]".toByteArray())
                 val receipt = unconfirmedReceipt()
                 ipc.send("result", buildJsonObject {
-                    put("binding", binding); put("finalEventSeq", runtime.finalEventSeq()); put("resultHash", resultHash)
+                    put("binding", binding); put("finalEventSeq", finalEventSeq); put("resultHash", resultHash)
                     put("artifactManifestHash", artifactManifestHash); put("status", status)
                     put("terminationReason", stopReason.get()?.let(::JsonPrimitive) ?: if (result == null) JsonPrimitive("RUNNER_AUTHORITY_LOST") else JsonNull)
                     put("stopReceipt", receipt)

@@ -36,6 +36,8 @@ class RunnerWorkflowHost(
     }
     private val staticInvocations = java.util.concurrent.ConcurrentHashMap<String, Boolean>()
     private val admittedProducers = java.util.concurrent.ConcurrentHashMap<String, String>()
+    private val businessClosed = java.util.concurrent.atomic.AtomicBoolean()
+    private fun checkBusinessOpen() { if (businessClosed.get()) throw RunnerAuthorityLost() }
     private val producerStarts = java.util.concurrent.ConcurrentHashMap<Pair<String, String>, String>()
     private val codeProducerStarts = java.util.concurrent.ConcurrentHashMap<Pair<String, String>, String>()
     private data class ActiveProducer(val eventId: String, val eventSeq: Long)
@@ -50,7 +52,7 @@ class RunnerWorkflowHost(
             } }, acknowledge = ::acknowledge,
             guardedComplete = { body, action -> synchronized(this) { checkCollectionProducer(body); action() } })
     }
-    fun collectRequest(frame: JsonObject) { requireNotNull(collectionBarrier) { "Artifact collection was not negotiated" }.receive(frame) }
+    fun collectRequest(frame: JsonObject) { checkBusinessOpen(); requireNotNull(collectionBarrier) { "Artifact collection was not negotiated" }.receive(frame) }
     @Synchronized private fun checkCollectionProducer(body: JsonObject) {
         gate.check()
         val policy = requireNotNull(collectionPolicy)
@@ -73,6 +75,8 @@ class RunnerWorkflowHost(
         append = { payload, reply, before -> eventJournal.append("step", payload, replyTo = reply, beforePersist = before) },
         acknowledged = { eventJournal.acknowledged() }) }
     fun setControl(frame: JsonObject) {
+        if (businessClosed.get() && frame.string("type") == "ack") return
+        checkBusinessOpen()
         if (frame.string("type") == "ack") artifactSets?.receive(frame)
         else requireNotNull(artifactSets) { "Artifact sets not negotiated" }.receive(frame)
     }
@@ -120,11 +124,12 @@ class RunnerWorkflowHost(
             recordEvent = { payload, frameId, before -> eventJournal.append("artifact", payload, frameId, beforePersist = before) }, acceptAck = ::acknowledge)
     }
     override val workflowResolver: WorkflowResolver get() = bundle
-    override val approvalHandler: ApprovalHandler = RunnerApprovalHandler(ipc, gate)
+    override val approvalHandler: RunnerApprovalHandler = RunnerApprovalHandler(ipc, gate,
+        journal = RunnerApprovalJournal(bundle.executionDirectory, ipc.binding, store, secrets), beforeRequest = ::checkBusinessOpen)
     private val credentials = RunnerCredentials(ipc, gate, secrets)
     override val privateDirectory: java.io.File get() = bundle.executionDirectory.resolve(".runner-private").toFile()
     override fun observeCredentialFile(scope: WorkflowHostScope, path: java.nio.file.Path): AutoCloseable {
-        require(scope.rootExecutionId == binding.executionId) { "Credential file scope mismatch" }
+        checkBusinessOpen(); require(scope.rootExecutionId == binding.executionId) { "Credential file scope mismatch" }
         val root = privateDirectory.toPath().toAbsolutePath().normalize()
         val candidate = path.toAbsolutePath().normalize()
         require(candidate.startsWith(root) && candidate.fileName.toString() == "auth.json") { "Credential file outside scoped private directory" }
@@ -143,7 +148,7 @@ class RunnerWorkflowHost(
     override fun codexCredentialsFor(scope: WorkflowHostScope) = cliPools[poolKey("codex", scope)]
     override fun codexAuthRotationFor(scope: WorkflowHostScope): ((String?, String) -> Unit)? = cliPools[poolKey("codex", scope)]?.let { pool -> { id, json -> pool.rotated(id, json) } }
     override suspend fun interactiveProcess(scope: WorkflowHostScope, request: com.fartech.agents.tools.exec.SubprocessExecutor.ExecRequest): WorkflowInteractiveProcess =
-        requireNotNull(interactiveBroker) { "Interactive broker not assembled" }.open(scope, request)
+        run { checkBusinessOpen(); requireNotNull(interactiveBroker) { "Interactive broker not assembled" }.open(scope, request) }
     override suspend fun mcpTransport(scope: WorkflowHostScope, name: String, config: com.fartech.agents.commons.McpServerConfig): io.modelcontextprotocol.kotlin.sdk.shared.Transport {
         require(config.url.isNullOrBlank()) { "HTTP MCP needs a distinct client/network adapter" }
         gate.requirePaths(setOf("mcp-stdio"))
@@ -157,6 +162,7 @@ class RunnerWorkflowHost(
     }
     fun restoreHostState(state: WorkflowResumeState) { live.restore(state.hostState) }
     private fun verifyAssets() {
+        checkBusinessOpen()
         try { bundle.verifyPortableAssets() } catch (_: Exception) {
             gate.invalidate("RUNNER_ASSET_INTEGRITY_FAILED")
             throw RunnerAuthorityLost()
@@ -226,7 +232,17 @@ class RunnerWorkflowHost(
         }
         return parameters.map { com.fartech.ftapp2.commonsKt.ConfigurationParameter(it.key, refs(it.value)) }
     }
-    fun close() { artifactSets?.close(); collectionBarrier?.close(); live.close(); network.close(); credentials.clear(); cliPools.clear(); references.clear(); nativeSkills.clear() }
+    /** E's business side is terminal before result publication. S alone confirms OS stop and runs POST_STOP. */
+    @Synchronized fun beginFinalization(): Long {
+        if (businessClosed.compareAndSet(false, true)) {
+            eventJournal.seal()
+            approvalHandler.close(); artifactSets?.close(); collectionBarrier?.close()
+            interactiveBroker?.close(); live.close(); network.close(); credentials.clear()
+            cliPools.clear(); references.clear(); nativeSkills.clear(); setProducerBudgets.clear()
+        }
+        return eventJournal.lastSequence()
+    }
+    fun close() { beginFinalization() }
     private val eventJournal = RunnerEventJournal(ipc.binding, secrets,
         write = { path, bytes -> store.writePrivate(path, bytes); Unit }, enqueue = { frame ->
             if (frame.obj("payload").string("type") == "artifact") gate.check()
@@ -239,6 +255,7 @@ class RunnerWorkflowHost(
         "WF_BILLING_OWNER_ID" to binding.billingOwnerId
     )
     override suspend fun admit(workflow: WorkflowDefinition, scope: WorkflowHostScope) {
+        checkBusinessOpen()
         require(scope.rootExecutionId == binding.executionId && bundle.contains(workflow)) { "Workflow escaped frozen host context" }
         val definitions = if (scope.executionId == binding.executionId) bundle.allDefinitions else listOf(workflow)
         definitions.forEach { definition -> checkRoutes(RunnerAdmission(bundle, capabilities).inspect(definition)) }
@@ -261,12 +278,12 @@ class RunnerWorkflowHost(
     override suspend fun beforeOperation(scope: WorkflowHostScope, operation: String) {
         require(scope.rootExecutionId == binding.executionId) { "Operation escaped root scope" }; gate.check(); verifyAssets()
     }
-    override fun scriptContents(path: String): String = bundle.script(path)
+    override fun scriptContents(path: String): String { checkBusinessOpen(); return bundle.script(path) }
     override fun dynamicWorkflow(path: String, scope: WorkflowHostScope): WorkflowDefinition {
-        gate.check(); require(scope.rootExecutionId == binding.executionId) { "Dynamic scope mismatch" }
+        checkBusinessOpen(); gate.check(); require(scope.rootExecutionId == binding.executionId) { "Dynamic scope mismatch" }
         return bundle.dynamic(path).also { checkRoutes(RunnerAdmission(bundle, capabilities).inspect(it)) }
     }
-    override fun userInteraction(scope: WorkflowHostScope): UserInteractionHandler = RunnerUserInteraction(ipc, gate, scope, secrets)
+    override fun userInteraction(scope: WorkflowHostScope): UserInteractionHandler { checkBusinessOpen(); return RunnerUserInteraction(ipc, gate, scope, secrets) }
     override suspend fun collectDeclaredArtifacts(workflow: WorkflowDefinition, step: WorkflowStep, scope: WorkflowHostScope, candidates: List<WorkflowArtifactCandidate>) {
         if (step.code == null) collectSets(step, scope, true)
         if (collectionPolicy != null) {
@@ -391,6 +408,7 @@ class RunnerWorkflowHost(
     fun acknowledge(payload: JsonObject) = eventJournal.acknowledge(payload)
     fun finalEventSeq(): Long = eventJournal.lastSequence()
     override suspend fun checkpoint(checkpoint: WorkflowHostCheckpoint) {
+        checkBusinessOpen()
         ipc.send("checkpoint", store.save(checkpoint.copy(state = checkpoint.state.copy(hostState = live.state())), finalEventSeq()))
     }
     private val outputs = RunnerOutputs(ipc, gate, secrets)

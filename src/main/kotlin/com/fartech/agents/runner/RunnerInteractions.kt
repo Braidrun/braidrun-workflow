@@ -3,16 +3,36 @@ package com.fartech.agents.runner
 import com.fartech.agents.tools.UserInteractionHandler
 import com.fartech.agents.workflow.*
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.withTimeout
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.CopyOnWriteArraySet
 import kotlinx.serialization.json.*
 import java.util.UUID
 
 /** Only remote human decisions may approve. No timeout/network error defaults to approval. */
-class RunnerApprovalHandler(private val ipc: RunnerIpc, private val gate: RunnerEnvironmentGate, private val requireFreshDecision: Boolean = true) : ApprovalHandler {
+class RunnerApprovalHandler(
+    private val ipc: RunnerIpc, private val gate: RunnerEnvironmentGate,
+    private val requireFreshDecision: Boolean = true, private val journal: RunnerApprovalJournal? = null,
+    private val beforeRequest: () -> Unit = {}
+) : ApprovalHandler, AutoCloseable {
+    private val closed = AtomicBoolean()
+    private val active = CopyOnWriteArraySet<Job>()
+    private fun checkOpen() { if (closed.get()) throw RunnerAuthorityLost() }
+    override fun close() { closed.set(true); active.forEach { it.cancel(RunnerAuthorityLost()) }; active.clear() }
     override suspend fun requestApproval(request: ApprovalRequest): ApprovalDecision {
-        gate.check()
+        checkOpen(); beforeRequest(); gate.check()
+        val seconds = request.timeout?.toLongOrNull() ?: 86400L
+        require(seconds > 0 && request.requestedAt > 0 && request.requestedAt <= System.currentTimeMillis()) { "Invalid original approval budget" }
+        val deadline = Math.addExact(request.requestedAt, Math.multiplyExact(seconds, 1000L))
+        val remaining = deadline - System.currentTimeMillis()
+        require(remaining > 0) { "Original approval budget expired" }
         var requestFrameId: String? = null
+        val owner = currentCoroutineContext()[Job]
         try {
-        val reply = ipc.requestCorrelated("approval", buildJsonObject {
+        owner?.let(active::add); checkOpen()
+        val payload = buildJsonObject {
             put("idempotencyKey", request.approvalId); put("occurrenceId", request.occurrenceId ?: request.approvalId)
             put("childExecutionPath", childPath(ipc.binding.string("executionId"), request.executionId))
             put("stepId", request.stepName); put("title", request.workflowName)
@@ -28,7 +48,13 @@ class RunnerApprovalHandler(private val ipc: RunnerIpc, private val gate: Runner
             put("items", JsonArray(request.reviewableGroups.flatMap { group -> group.items.map { item ->
                 buildJsonObject { put("group", group.name); put("item", item) }
             } }))
-        }, "approvalDecision", (request.timeout?.toLongOrNull() ?: 86400L) * 1000, onRequest = { id ->
+        }
+        val original = journal?.prepare(request, payload)
+        val waitRemaining = deadline - System.currentTimeMillis()
+        require(waitRemaining > 0) { "Original approval budget expired before dispatch" }
+        return withTimeout(waitRemaining) {
+        val reply = ipc.requestCorrelated("approval", payload, "approvalDecision", remaining,
+            frameId = original?.string("frameId") ?: UUID.randomUUID().toString(), onRequest = { id ->
             requestFrameId = id; if (requireFreshDecision) gate.beginInteraction(id)
         })
         val decision = reply.payload
@@ -39,10 +65,13 @@ class RunnerApprovalHandler(private val ipc: RunnerIpc, private val gate: Runner
         val approved = decision.string("decision") == "APPROVE"
         require(decision.string("editMode") != "AS_IS" || edits.isEmpty()) { "Ambiguous approval edits" }
         if (requireFreshDecision) gate.freshForInteraction(reply.frameId) else gate.check()
-        return ApprovalDecision(approved = approved,
+        checkOpen(); beforeRequest(); gate.check()
+        if (original != null) requireNotNull(journal).retainDecision(request, original, decision)
+        ApprovalDecision(approved = approved,
             edits = if (!approved || decision.string("editMode") == "AS_IS") null else groups.associateWith { group -> edits.filter { it.string("group") == group }.map { it.getValue("item") } },
             comment = decision["comment"]?.takeUnless { it == JsonNull }?.jsonPrimitive?.content)
-        } finally { requestFrameId?.let(gate::endInteraction) }
+        }
+        } finally { requestFrameId?.let(gate::endInteraction); owner?.let(active::remove) }
     }
 }
 

@@ -845,7 +845,7 @@ class WorkflowExecutor(
                 transitionActivationSources = context.transitionActivationSources.mapValues { it.value.toSet() },
                 variables = context.variables.toMap(), stepOutputs = context.stepOutputs.toMap(),
                 recoveredFailures = context.recoveredFailures.toSet(), approvalOccurrences = context.approvalOccurrences.toMap(),
-                pendingApprovalIds = context.pendingApprovalIds.toMap(), childInvocationCounts = context.childInvocationCounts.toMap()
+                pendingApprovalIds = context.pendingApprovalIds.toMap(), pendingApprovalRequestedAt = context.pendingApprovalRequestedAt.toMap(), childInvocationCounts = context.childInvocationCounts.toMap()
             ), safe, activeApprovals.values.map { it.request }
         )
 
@@ -1310,7 +1310,7 @@ class WorkflowExecutor(
         if (resumeState == null) return
         if (
             resumeState.variables.isEmpty() && resumeState.stepOutputs.isEmpty() &&
-            resumeState.recoveredFailures.isEmpty() && resumeState.approvalOccurrences.isEmpty() && resumeState.pendingApprovalIds.isEmpty() && resumeState.childInvocationCounts.isEmpty() && resumeState.preservedStepResults.isEmpty() &&
+            resumeState.recoveredFailures.isEmpty() && resumeState.approvalOccurrences.isEmpty() && resumeState.pendingApprovalIds.isEmpty() && resumeState.pendingApprovalRequestedAt.isEmpty() && resumeState.childInvocationCounts.isEmpty() && resumeState.preservedStepResults.isEmpty() &&
             resumeState.skippedSteps.isEmpty() &&
             resumeState.activatedTransitionSteps.isEmpty() &&
             resumeState.transitionActivationSources.isEmpty()
@@ -1366,7 +1366,11 @@ class WorkflowExecutor(
         context.stepOutputs.putAll(resumeState.stepOutputs)
         context.recoveredFailures.addAll(resumeState.recoveredFailures)
         context.approvalOccurrences.putAll(resumeState.approvalOccurrences)
+        require(resumeState.pendingApprovalRequestedAt.keys.all { it in resumeState.pendingApprovalIds }) { "Approval timestamp has no original pending identity" }
+        require(resumeState.pendingApprovalRequestedAt.values.all { it > 0 }) { "Invalid original approval timestamp" }
+        require(host == null || resumeState.pendingApprovalIds.keys.all { it in resumeState.pendingApprovalRequestedAt }) { "Original pending approval deadline requires reconciliation" }
         context.pendingApprovalIds.putAll(resumeState.pendingApprovalIds)
+        context.pendingApprovalRequestedAt.putAll(resumeState.pendingApprovalRequestedAt)
         context.childInvocationCounts.putAll(resumeState.childInvocationCounts)
 
         // 重建 recoveredFailures:在 resume 之前的某次执行里,如果 step S 失败并触发了 on_failure
@@ -9243,6 +9247,7 @@ class WorkflowExecutor(
             val occurrence = context.approvalOccurrences.merge(step.step, 1L) { a, b -> a + b }!!
             "${context.executionId}:${step.step}:$occurrence"
         }
+        val requestedAt = if (host == null) System.currentTimeMillis() else context.pendingApprovalRequestedAt.computeIfAbsent(step.step) { System.currentTimeMillis() }
         val request = ApprovalRequest(
             approvalId = approvalId,
             workflowName = context.workflowName,
@@ -9252,7 +9257,7 @@ class WorkflowExecutor(
                 ?.let { resolveTemplate(it, context) }
                 ?: "Approval required for step '${step.step}'",
             approvers = approvalConfig.approvers,
-            requestedAt = System.currentTimeMillis(),
+            requestedAt = requestedAt,
             timeout = approvalConfig.timeout.toString(),
             reviewableGroups = reviewableGroups,
             occurrenceId = if (host != null) approvalId.substringAfterLast(':') else null
@@ -9267,7 +9272,9 @@ class WorkflowExecutor(
 
         val approvalStart = System.currentTimeMillis()
         try {
-            val decision = withTimeoutOrNull((approvalConfig.timeout * 1000L).milliseconds) {
+            val approvalDeadline = Math.addExact(request.requestedAt, Math.multiplyExact(approvalConfig.timeout, 1000L))
+            val remainingApproval = (approvalDeadline - System.currentTimeMillis()).coerceAtLeast(0L)
+            val decision = withTimeoutOrNull(remainingApproval.milliseconds) {
                 approvalHandler?.requestApproval(request) ?: pendingApproval.decision.await()
             } ?: throw WorkflowExecutionException(
                 "Manual approval timed out for step '${step.step}' after ${approvalConfig.timeout}s"
@@ -9308,6 +9315,7 @@ class WorkflowExecutor(
                 .forEach { id -> executionDeadlines[id]?.approvalWaitMs?.addAndGet(waited) }
             activeApprovals.remove(approvalId)
             context.pendingApprovalIds.remove(step.step, approvalId)
+            context.pendingApprovalRequestedAt.remove(step.step, request.requestedAt)
         }
     }
 

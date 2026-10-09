@@ -13,9 +13,10 @@ internal class RunnerEventJournal(
     private var sequence = 0L
     private var ack = 0L
     private var broken = false
+    private var sealed = false
     @Synchronized fun append(kind: String, payload: JsonObject, frameId: String = UUID.randomUUID().toString(),
                              replyTo: String? = null, beforePersist: (JsonObject) -> Unit = {}): JsonObject {
-        if (broken) throw RunnerAuthorityLost()
+        if (broken || sealed) throw RunnerAuthorityLost()
         require(kind != "approval") { "Approvals use the dedicated request channel" }
         if (kind == "artifact") require(secrets.redact(payload) == payload) { "Artifact metadata cannot be altered" }
         val next = sequence + 1
@@ -38,6 +39,7 @@ internal class RunnerEventJournal(
         }
         return frame
     }
+    @Synchronized fun seal(): Long { sealed = true; return sequence }
     @Synchronized fun acknowledge(payload: JsonObject) {
         val value = payload.long("ackSeq"); require(value <= sequence) { "ACK exceeds emitted sequence" }
         if (value > ack) ack = value

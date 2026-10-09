@@ -57,7 +57,22 @@ class RunnerCheckpointStore(private val root: Path, private val binding: JsonObj
             require(binding[key] == previousBinding[key]) { "Checkpoint identity mismatch" }
         }
         require(binding.long("resumeEpoch") > previousBinding.long("resumeEpoch") && binding["attemptId"] != previousBinding["attemptId"] && binding["runnerInstanceId"] != previousBinding["runnerInstanceId"]) { "Resume requires new fenced identity" }
-        return mapper.readValue(value.getValue("state").toString(), WorkflowResumeState::class.java)
+        val state = mapper.readValue(value.getValue("state").toString(), WorkflowResumeState::class.java)
+        // Older format-1 savepoints already retained the full original pending request outside state.
+        // Recover that exact timestamp; never invent a new 259200-second window for an existing key.
+        val requestedAt = state.pendingApprovalRequestedAt.toMutableMap()
+        state.pendingApprovalIds.forEach { (step, id) ->
+            val original = value.array("pendingApprovals").map { it.jsonObject }.singleOrNull {
+                it.string("approvalId") == id && it.string("stepName") == step
+            }
+            original?.let {
+                require(it.string("executionId") == binding.string("executionId") && it.long("requestedAt") > 0)
+                require(requestedAt[step]?.let { old -> old == it.long("requestedAt") } != false)
+                requestedAt[step] = it.long("requestedAt")
+            }
+            requireNotNull(requestedAt[step]) { "Original approval timestamp unavailable; reconcile without resetting deadline" }
+        }
+        return state.copy(pendingApprovalRequestedAt = requestedAt)
     }
     fun writePrivate(relative: String, bytes: ByteArray): String {
         require(bytes.size <= MAX_CHECKPOINT_BYTES) { "Runner state exceeds bounded size" }
