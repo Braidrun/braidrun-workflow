@@ -59,11 +59,13 @@ fences. Human/P proof services and previous-resume projections are controlled fi
 the normal source/intermediate/delivery Code bodies execute actual native Bash. This
 does not establish real source attestation, a human decision or full M30 acceptance.
 
-The existing base approvalDecision contains no scan/set-proof fields. E has recorded
-these specific P questions in engine coordination: confirm that P/S forward the normal
-original decision only after PRE proof/owner authorization; that idempotencyKey is the
-source challenge's original approvalRequestKey; and that unconfirmed E result/exit is
-the intended handoff to S/P confirmed-stop control state without a new E source RPC.
+The existing base approvalDecision contains no scan/set-proof fields. P's semantic
+clarification `e2564fb3bb7f39fd46c8b55bd06bde2af5c12530` confirms the five recorded
+questions: proof/actual-owner gated original base decision, byte-for-byte idempotencyKey
+as scan approvalRequestKey (existing128-character bound; no truncation), independent
+P first-server and E local deadlines, E exit before S/P confirmed-stop POST scanner,
+and actual installed provider/pin authority. This document changes no raw schema.
+P/S implementation and acceptance remain separate from that semantic confirmation.
 
 `control.gateSets.v1` and `source.attestation.v1` remain withheld from E ready inventory.
 Their strict dependency guards from E181 remain. S's actual gate-set provider/pins and
@@ -74,3 +76,32 @@ are assembled. All source/scan HTTP schemas stay P/S-owned, not E embedded schem
 
 No full E18144-case matrix rerun, deployment, feature enablement, existing Runner
 upgrade, production migration, real account, Docker/VM or network/language change.
+
+
+## Retained-reference terminal P2 follow-up
+
+The initial terminal implementation sealed events but left ordinary IPC reachable
+through retained subprocess/output/callback/interaction references. A single shared
+RunnerBusinessFence now covers host capabilities, adapters and the IPC enqueue boundary.
+The host exposes a fenced subprocess decorator preserving isDocker; it checks the
+actual prepared-start callback and cancels active local operation scopes at closure.
+Output read/publish, credentials/rotation/material, callback token minting, interactions,
+interactive open/input and HTTP live checks use that same fence. Old objects cannot
+obtain new business work even while the environment and pipe remain usable for result.
+
+Post-fence IPC is deny-by-default. Only the original terminal result and exit-control
+processCancel/processOutputAck frames may be newly dispatched. The first result frame
+is frozen; replacement result bytes/identity refuse. Previously emitted event,
+checkpoint or collection Complete evidence can be re-enqueued only with its exact
+full-binding/frameId/canonical-byte digest retained by this IPC instance. A new frame,
+changed receipt/index hash or a fresh business request refuses. This is immutable local
+transport recovery, not permission for P/S to execute a new effect or restart E.
+The pipe stays open until original result/control drain and normal JVM exit.
+
+The 11-case focused follow-up checks all captured old capability references, zero
+new business frames before result, native delegate/start callbacks not invoked, active
+RPC cancellation/late reply, original result and exact receipt/event retransmission,
+changed evidence/result rejection and normal adapter/IPC regressions. Its services
+are controlled fixtures; actual S/P effect acceptance is not inferred. The old grouped
+editing test had requestedAt=0; it now uses the real request time and bounded observation
+so it can verify the41d original-budget rule instead of waiting on a refused request.

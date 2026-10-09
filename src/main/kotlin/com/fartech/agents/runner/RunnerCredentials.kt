@@ -29,7 +29,7 @@ class RunnerCredentials(
 ) {
     private val leases = ConcurrentHashMap<String, RunnerCredentialLease>()
     suspend fun acquire(ref: String, version: Long, scope: WorkflowHostScope, purpose: String): RunnerCredentialLease {
-        gate.check()
+        ipc.businessFence.check(); gate.check()
         require(scope.rootExecutionId == ipc.binding.string("executionId")) { "Credential scope mismatch" }
         val requestId = UUID.randomUUID().toString()
         val grant = ipc.request("credentialRequest", buildJsonObject {
@@ -42,12 +42,12 @@ class RunnerCredentials(
         val expiry = Instant.parse(grant.string("expiresAt"))
         val operations = grant.array("allowedOperations").map { it.jsonPrimitive.content }.toSet()
         require(expiry > now() && purpose in operations) { "Credential grant lacks live operation authority" }
-        gate.check()
+        ipc.businessFence.check(); gate.check()
         return RunnerCredentialLease(ref, grant.string("credentialLeaseId"), version, scope, grant.obj("material"), operations, expiry, nanoTime() + java.time.Duration.between(now(), expiry).toNanos())
             .also { check(leases.putIfAbsent(it.leaseId, it) == null) { "Credential lease identity reused" } }
     }
     fun material(lease: RunnerCredentialLease, scope: WorkflowHostScope, operation: String): JsonObject {
-        gate.check()
+        ipc.businessFence.check(); gate.check()
         require(leases[lease.leaseId] === lease && scope == lease.scope && lease.expiresAt > now() && nanoTime() < lease.expiresNanos && operation in lease.operations) { "Credential lease scope or authority mismatch" }
         return lease.material
     }

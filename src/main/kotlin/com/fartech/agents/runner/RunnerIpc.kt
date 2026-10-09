@@ -25,6 +25,9 @@ class RunnerIpc(
     private val onControl: (JsonObject) -> Unit,
     private val onFailure: () -> Unit
 ) : AutoCloseable {
+    val businessFence = RunnerBusinessFence()
+    private val retainedOutbound = LinkedHashMap<String, String>()
+    private var terminalResult: Pair<String, String>? = null
     private data class Pending(val type: String, val correlation: String?, val response: CompletableDeferred<JsonObject>)
     private val pending = ConcurrentHashMap<String, Pending>()
     private val outbound = ArrayBlockingQueue<ByteArray>(128)
@@ -67,11 +70,31 @@ class RunnerIpc(
         if (closed.get() || frame.obj("binding") != binding) throw RunnerProtocolException()
         validateFrame(frame, true)
         val bytes = (canonical(frame) + "\n").toByteArray(Charsets.UTF_8)
-        if (bytes.size > MAX_FRAME_BYTES || !outbound.offer(bytes, 1, TimeUnit.SECONDS)) {
-            fail(); throw RunnerProtocolException()
+        val type = frame.string("type"); val id = frame.string("frameId"); val digest = sha256(bytes)
+        fun enqueue() {
+            if (bytes.size > MAX_FRAME_BYTES || !outbound.offer(bytes, 1, TimeUnit.SECONDS)) {
+                fail(); throw RunnerProtocolException()
+            }
+            sent.incrementAndGet()
         }
-        sent.incrementAndGet()
-        return frame.string("frameId")
+        if (businessFence.isClosed()) {
+            synchronized(retainedOutbound) {
+                if (type !in TERMINAL_CONTROL_TYPES && !(type in RETAINED_EVIDENCE_TYPES && retainedOutbound[id] == digest)) throw RunnerAuthorityLost()
+                if (type == "result") require(terminalResult?.let { it == (id to digest) } != false) { "Original terminal result changed" }
+                enqueue()
+                if (type == "result") terminalResult = id to digest
+            }
+        } else businessFence.admit {
+            synchronized(retainedOutbound) {
+                if (type in RETAINED_EVIDENCE_TYPES) {
+                    require(retainedOutbound[id]?.let { it == digest } != false) { "Retained evidence frame identity changed" }
+                    require(id in retainedOutbound || retainedOutbound.size < MAX_INBOUND_IDENTITIES) { "Retained evidence bound exceeded" }
+                }
+                enqueue()
+                if (type in RETAINED_EVIDENCE_TYPES) retainedOutbound[id] = digest
+            }
+        }
+        return id
     }
 
     class CorrelatedReply(val frameId: String, val payload: JsonObject)
@@ -81,8 +104,10 @@ class RunnerIpc(
     suspend fun requestCorrelated(type: String, payload: JsonObject, responseType: String, timeoutMs: Long = 30_000,
                                   frameId: String = UUID.randomUUID().toString(), replyTo: String? = null,
                                   onRequest: (String) -> Unit = {}): CorrelatedReply {
-        return awaitReply(responseType, timeoutMs, frameId, payload["idempotencyKey"]?.jsonPrimitive?.content) {
-            onRequest(frameId); send(type, payload, frameId, replyTo)
+        return businessFence.operation {
+            awaitReply(responseType, timeoutMs, frameId, payload["idempotencyKey"]?.jsonPrimitive?.content) {
+                onRequest(frameId); send(type, payload, frameId, replyTo)
+            }
         }
     }
 
@@ -167,6 +192,7 @@ class RunnerIpc(
     }
     private fun fail() {
         if (closed.compareAndSet(false, true)) {
+            businessFence.close()
             pending.values.forEach { it.response.completeExceptionally(RunnerProtocolException()) }; pending.clear()
             onFailure()
         }
@@ -180,6 +206,8 @@ class RunnerIpc(
     override fun close() { fail(); reader.interrupt(); writer.interrupt() }
 
     companion object {
+        private val TERMINAL_CONTROL_TYPES = setOf("result", "processCancel", "processOutputAck")
+        private val RETAINED_EVIDENCE_TYPES = setOf("event", "checkpoint", "artifactCollectComplete", "artifactSetCollectComplete")
         const val MAX_FRAME_BYTES = 1024 * 1024
         const val MAX_INBOUND_IDENTITIES = 65536
         /** No unbounded BufferedReader.readLine; EOF without newline is a protocol failure. */

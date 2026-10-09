@@ -30,7 +30,7 @@ class RunnerProcesses(
         exits[id]?.complete(payload)
     }
     override suspend fun execute(request: SubprocessExecutor.ExecRequest): SubprocessExecutor.ExecResult {
-        gate.check()
+        ipc.businessFence.check(); gate.check()
         require(request.timeoutSeconds in 1..86400) { "Unsupported process timeout" }
         if (interactive != null && (request.stdoutLineCallback != null || request.stdin?.toByteArray()?.size?.let { it > RunnerIpc.MAX_FRAME_BYTES / 2 } == true)) {
             return executeStreaming(request)
@@ -42,7 +42,7 @@ class RunnerProcesses(
         val relative = base.relativize(working).toString().ifBlank { "." }
         if (relative != ".") confinedPath(base, relative)
         val prepared = request.preparedForStart()
-        gate.check()
+        ipc.businessFence.check(); gate.check()
         val requestId = UUID.randomUUID().toString(); val startedAt = System.nanoTime()
         val started = ipc.request("processLaunch", buildJsonObject {
             put("requestId", requestId); put("argv", JsonArray(prepared.command.map(::JsonPrimitive)))

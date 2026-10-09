@@ -30,7 +30,7 @@ class RunnerInteractiveProcesses(
     }
     @Synchronized private fun find(id: String): Session? = sessions[id] ?: retired[id]
     suspend fun open(scope: WorkflowHostScope, request: SubprocessExecutor.ExecRequest): WorkflowInteractiveProcess {
-        gate.check(); require(scope.rootExecutionId == ipc.binding.string("executionId")) { "Interactive scope mismatch" }
+        ipc.businessFence.check(); gate.check(); require(scope.rootExecutionId == ipc.binding.string("executionId")) { "Interactive scope mismatch" }
         require(request.timeoutSeconds in 1..86400 && sessions.size < 16) { "Interactive capacity/timeout unsupported" }
         val cwd = request.workingDir.toPath().toAbsolutePath().normalize()
         require(cwd.startsWith(directory.toAbsolutePath().normalize())) { "Interactive cwd outside attempt" }
@@ -138,7 +138,7 @@ class RunnerInteractiveProcesses(
         private fun sendInput(bytes: ByteArray, eof: Boolean) = synchronized(inputLock) { runBlocking(owner ?: kotlin.coroutines.EmptyCoroutineContext) {
             // A gate probe may overlap normal remote exit. Decide the complete local lifecycle
             // only AFTER it returns, under the same monitor as closed(), never check-then-act.
-            gate.check()
+            ipc.businessFence.check(); gate.check()
             val sequence = synchronized(this@Session) {
                 if (eof && (inputClosed || confirmedClose != null)) { inputClosed = true; return@runBlocking }
                 require(!stopped.get() && !localReadersClosed.get() && !inputClosed) { "Input after process/EOF close" }

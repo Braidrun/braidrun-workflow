@@ -15,7 +15,7 @@ class RunnerWorkflowHost(
     private val gate: RunnerEnvironmentGate,
     private val bundle: FrozenWorkflowBundle,
     private val capabilities: Set<String>,
-    override val subprocessExecutor: SubprocessExecutor,
+    subprocessExecutor: SubprocessExecutor,
     private val store: RunnerCheckpointStore,
     private val secrets: RunnerSecrets,
     private val validateDirectNetwork: () -> Unit = { RunnerHttpClients.requireDirect() },
@@ -36,8 +36,19 @@ class RunnerWorkflowHost(
     }
     private val staticInvocations = java.util.concurrent.ConcurrentHashMap<String, Boolean>()
     private val admittedProducers = java.util.concurrent.ConcurrentHashMap<String, String>()
-    private val businessClosed = java.util.concurrent.atomic.AtomicBoolean()
-    private fun checkBusinessOpen() { if (businessClosed.get()) throw RunnerAuthorityLost() }
+    private val businessFence = ipc.businessFence
+    private val resourcesClosed = java.util.concurrent.atomic.AtomicBoolean()
+    private fun checkBusinessOpen() = businessFence.check()
+    private val processDelegate = subprocessExecutor
+    override val subprocessExecutor: SubprocessExecutor = object : SubprocessExecutor {
+        override val isDocker get() = processDelegate.isDocker
+        override suspend fun execute(request: SubprocessExecutor.ExecRequest): SubprocessExecutor.ExecResult = businessFence.operation {
+            processDelegate.execute(request.copy(environmentAtStart = {
+                businessFence.check()
+                request.environmentAtStart?.invoke().orEmpty()
+            }))
+        }
+    }
     private val producerStarts = java.util.concurrent.ConcurrentHashMap<Pair<String, String>, String>()
     private val codeProducerStarts = java.util.concurrent.ConcurrentHashMap<Pair<String, String>, String>()
     private data class ActiveProducer(val eventId: String, val eventSeq: Long)
@@ -75,7 +86,7 @@ class RunnerWorkflowHost(
         append = { payload, reply, before -> eventJournal.append("step", payload, replyTo = reply, beforePersist = before) },
         acknowledged = { eventJournal.acknowledged() }) }
     fun setControl(frame: JsonObject) {
-        if (businessClosed.get() && frame.string("type") == "ack") return
+        if (businessFence.isClosed() && frame.string("type") == "ack") return
         checkBusinessOpen()
         if (frame.string("type") == "ack") artifactSets?.receive(frame)
         else requireNotNull(artifactSets) { "Artifact sets not negotiated" }.receive(frame)
@@ -177,7 +188,7 @@ class RunnerWorkflowHost(
         return if (instructions.isBlank()) prompt else "$instructions\n\nWorkflow request:\n$prompt"
     }
     private val references = java.util.concurrent.ConcurrentHashMap<String, String>()
-    private val network = RunnerHttpClients(gate) { live.checkAll() }
+    private val network = RunnerHttpClients(gate) { checkBusinessOpen(); live.checkAll() }
     override val llmHttpClientFactory get() = network.factory
     override suspend fun prepareAgentParameters(scope: WorkflowHostScope, parameters: List<com.fartech.ftapp2.commonsKt.ConfigurationParameter>): List<com.fartech.ftapp2.commonsKt.ConfigurationParameter> {
         gate.check()
@@ -234,7 +245,8 @@ class RunnerWorkflowHost(
     }
     /** E's business side is terminal before result publication. S alone confirms OS stop and runs POST_STOP. */
     @Synchronized fun beginFinalization(): Long {
-        if (businessClosed.compareAndSet(false, true)) {
+        if (resourcesClosed.compareAndSet(false, true)) {
+            businessFence.close()
             eventJournal.seal()
             approvalHandler.close(); artifactSets?.close(); collectionBarrier?.close()
             interactiveBroker?.close(); live.close(); network.close(); credentials.clear()
@@ -424,6 +436,7 @@ class RunnerWorkflowHost(
     }
     override val callbackToken: ((Long) -> String)? = if (codeControlMode == WorkflowCodeControlMode.LEGACY_STEP_TOKEN && callbackEnabled && "control.callback.v1" in capabilities) ({ budget -> tokens.mint(WorkflowHostScope(binding.executionId, binding.executionId), budget) }) else null
     override fun callbackTokenFor(scope: WorkflowHostScope, budget: Long): String {
+        checkBusinessOpen()
         require(codeControlMode == WorkflowCodeControlMode.LEGACY_STEP_TOKEN && callbackEnabled && "control.callback.v1" in capabilities && scope.rootExecutionId == binding.executionId) { "Callback scope/capability not authorized" }
         return tokens.mint(scope, budget)
     }

@@ -8,7 +8,7 @@ import java.util.UUID
 
 class RunnerCallbackTokens(private val ipc: RunnerIpc, private val gate: RunnerEnvironmentGate, private val secrets: RunnerSecrets) {
     fun mint(scope: WorkflowHostScope, budget: Long): String = runBlocking {
-        gate.check()
+        ipc.businessFence.check(); gate.check()
         require(budget in 1..3540) { "Callback budget needs renewable controls" }
         val id = UUID.randomUUID().toString()
         require(scope.rootExecutionId == ipc.binding.string("executionId")) { "Callback root differs from authority" }
@@ -23,6 +23,6 @@ class RunnerCallbackTokens(private val ipc: RunnerIpc, private val gate: RunnerE
         secrets.register(response.getValue("token"))
         require(response.string("requestId") == id && response.array("operations").map { it.jsonPrimitive.content }.toSet() == operations &&
             Instant.parse(response.string("expiresAt")) >= Instant.now().plusSeconds(budget)) { "Callback grant insufficient or exceeds controls" }
-        gate.check(); response.string("token")
+        ipc.businessFence.check(); gate.check(); response.string("token")
     }
 }

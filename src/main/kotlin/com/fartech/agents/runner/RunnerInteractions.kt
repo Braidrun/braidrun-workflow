@@ -22,7 +22,7 @@ class RunnerApprovalHandler(
     private fun checkOpen() { if (closed.get()) throw RunnerAuthorityLost() }
     override fun close() { closed.set(true); active.forEach { it.cancel(RunnerAuthorityLost()) }; active.clear() }
     override suspend fun requestApproval(request: ApprovalRequest): ApprovalDecision {
-        checkOpen(); beforeRequest(); gate.check()
+        checkOpen(); beforeRequest(); ipc.businessFence.check(); gate.check()
         val seconds = request.timeout?.toLongOrNull() ?: 86400L
         require(seconds > 0 && request.requestedAt > 0 && request.requestedAt <= System.currentTimeMillis()) { "Invalid original approval budget" }
         val deadline = Math.addExact(request.requestedAt, Math.multiplyExact(seconds, 1000L))
@@ -65,7 +65,7 @@ class RunnerApprovalHandler(
         val approved = decision.string("decision") == "APPROVE"
         require(decision.string("editMode") != "AS_IS" || edits.isEmpty()) { "Ambiguous approval edits" }
         if (requireFreshDecision) gate.freshForInteraction(reply.frameId) else gate.check()
-        checkOpen(); beforeRequest(); gate.check()
+        checkOpen(); beforeRequest(); ipc.businessFence.check(); gate.check()
         if (original != null) requireNotNull(journal).retainDecision(request, original, decision)
         ApprovalDecision(approved = approved,
             edits = if (!approved || decision.string("editMode") == "AS_IS") null else groups.associateWith { group -> edits.filter { it.string("group") == group }.map { it.getValue("item") } },
@@ -87,9 +87,9 @@ class RunnerUserInteraction(
         put("childExecutionPath", childPath(scope.rootExecutionId, scope.executionId))
         put("message", secrets.redact(message)); put("options", JsonArray(emptyList()))
     }
-    override fun sendMessage(message: String) { gate.check(); ipc.send("userInteraction", payload("tellUser", message)) }
+    override fun sendMessage(message: String) { ipc.businessFence.check(); gate.check(); ipc.send("userInteraction", payload("tellUser", message)) }
     override suspend fun askQuestion(question: String, timeoutMs: Long): String {
-        gate.check()
+        ipc.businessFence.check(); gate.check()
         val request = payload("askUser", question)
         var requestFrameId: String? = null
         try {
@@ -99,7 +99,7 @@ class RunnerUserInteraction(
         val response = reply.payload
         require(response.string("idempotencyKey") == request.string("idempotencyKey")) { "User response scope mismatch" }
         if (requireFreshDecision) gate.freshForInteraction(reply.frameId) else gate.check()
-        return response.string("response")
+        ipc.businessFence.check(); return response.string("response")
         } finally { requestFrameId?.let(gate::endInteraction) }
     }
 }

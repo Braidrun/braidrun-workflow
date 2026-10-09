@@ -13,8 +13,8 @@ class RunnerAdaptersTest {
             val gate = RunnerEnvironmentGate(harness.binding, setOf("engine-http")); gate.install(RunnerProtocolTest.environment(harness.binding, Instant.now()))
             val groups = listOf(ReviewablePayloadGroup("bids", "source", "approved", keyField = "id", columns = listOf(ReviewableActionColumn("price", editable = true)), items = listOf(buildJsonObject { put("id", "one"); put("price", 7) })),
                 ReviewablePayloadGroup("empty", "other", "reviewed", items = emptyList()))
-            val pending = async { RunnerApprovalHandler(harness.ipc, gate, false).requestApproval(ApprovalRequest("approval-key", "flow", harness.binding.string("executionId"), "step", "Decide", emptyList(), 0, "30", groups)) }
-            val request = harness.next(); assertEquals(2, request.obj("payload").array("editableColumns").size)
+            val pending = async { RunnerApprovalHandler(harness.ipc, gate, false).requestApproval(ApprovalRequest("approval-key", "flow", harness.binding.string("executionId"), "step", "Decide", emptyList(), System.currentTimeMillis(), "30", groups)) }
+            val request = withTimeout(1000) { harness.next() }; assertEquals(2, request.obj("payload").array("editableColumns").size)
             assertEquals("approved", request.obj("payload").array("editableColumns")[0].jsonObject.obj("definition").string("outputVar"))
             harness.ipc.accept(harness.reply(request, "approvalDecision", buildJsonObject {
                 put("approvalId", "human"); put("occurrenceId", "approval-key"); put("idempotencyKey", "approval-key"); put("decisionVersion", 2); put("decision", "APPROVE")
