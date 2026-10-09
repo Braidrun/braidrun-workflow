@@ -20,6 +20,12 @@ fun main(args: Array<String>) {
     System.setErr(redactedLogs); System.setOut(redactedLogs)
     System.setProperty("kotlin-logging.logStartupMessage", "false")
     System.setProperty("braidrun.quietConsole", "true")
+    if (args.size == 1 && args[0] == "--capabilities") {
+        // Offline adapter inventory for packaging/registration: no binding, network, process or credential use.
+        protocolOutput.println(JsonArray(RunnerHostSession.CAPABILITIES.map(::JsonPrimitive)).toString())
+        protocolOutput.flush()
+        exitProcess(0)
+    }
     val code = try {
         require(args.size == 2 && args[0] == "--binding") { "Use --binding <nonsecret binding JSON path>" }
         val bindingPath = Path.of(args[1])
