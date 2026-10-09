@@ -34,7 +34,10 @@ fun main(args: Array<String>) {
         runBlocking { RunnerHostSession(binding, System.`in`, protocolOutput, secrets).run() }
     } catch (failure: RunnerNegotiationException) {
         System.err.println("Runner host refused startup: ${failure.reason.name}"); 2
-    } catch (_: Exception) { System.err.println("Runner host refused startup or lost authority"); 2 }
+    } catch (failure: Exception) {
+        // Class names only: messages may carry transport, path or account configuration.
+        System.err.println("Runner host refused startup or lost authority: ${failure.javaClass.name}" + (failure.cause?.let { " caused by ${it.javaClass.name}" } ?: "")); 2
+    }
     exitProcess(code)
 }
 
