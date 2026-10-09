@@ -424,6 +424,9 @@ val runnerHostJar = tasks.register<Jar>("runnerHostJar") {
         attributes(
             "Main-Class" to "com.fartech.agents.runner.RunnerHostMainKt",
             "Runner-Protocol-Version" to "1",
+            "Runner-Artifact-Set-Commit" to file("src/main/resources/runner-workflow-v1/artifact-set-origin.txt").readLines().first(),
+            "Runner-Artifact-Set-Semantics-Commit" to file("src/main/resources/runner-workflow-v1/artifact-set-semantics-origin.txt").readLines().first(),
+            "Runner-Artifact-Set-Schema-Sha256" to "4b254106f3ed68bedb1bb058cddf0deba74c7a643ed9f4bb59f57b7dcf1323ff",
             "Runner-Artifact-Boundary-Commit" to file("src/main/resources/runner-workflow-v1/artifact-boundary-origin.txt").readLines().first(),
             "Runner-Artifact-Boundary-Schema-Sha256" to "0b92f10b13388180069457ef36e428ab698b25d9d397ca26528674b38919fd34",
             "Runner-Artifact-Collection-Commit" to file("src/main/resources/runner-workflow-v1/artifact-collection-origin.txt").readLines().first(),
@@ -441,7 +444,7 @@ distributions.main {
     contents {
         from(runnerHostJar) { rename { "runner-host.jar" } }
         from("src/main/resources/runner-workflow-v1") {
-            include("artifact-boundary.schema.json", "artifact-boundary-origin.txt")
+            include("artifact-boundary.schema.json", "artifact-boundary-origin.txt", "artifact-set.schema.json", "artifact-set-origin.txt", "artifact-set-semantics-origin.txt")
             into("protocol")
         }
     }

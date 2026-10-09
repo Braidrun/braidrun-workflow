@@ -61,10 +61,11 @@ class RunnerHostSession(
             "error" -> stop("RUNNER_CONTROL_ERROR")
             "environmentRefreshed" -> requireNotNull(gate).install(payload, frame["replyTo"]?.jsonPrimitive?.content)
             "leaseRenewed" -> requireNotNull(gate).installLease(payload.obj("lease"))
-            "ack" -> requireNotNull(host).acknowledge(payload)
+            "ack" -> { requireNotNull(host).acknowledge(payload); requireNotNull(host).setControl(frame) }
             "processExited" -> requireNotNull(processes).exited(payload)
             "processOutput" -> requireNotNull(interactive).output(payload)
             "processClosed" -> requireNotNull(interactive).closed(payload)
+            "artifactSetCollectRequest", "artifactSetIndexAck" -> requireNotNull(host).setControl(frame)
             "artifactCollectRequest" -> requireNotNull(host).collectRequest(frame)
             else -> throw RunnerProtocolException()
         }
@@ -91,9 +92,12 @@ class RunnerHostSession(
             require(directory == Path.of("").toRealPath()) { "Supervisor must launch JVM in execution directory" }
             val bundle = FrozenWorkflowBundle(directory, payload.obj("bundle"), binding)
             bundle.verifyPortableAssets()
+            val setsSelected = RunnerArtifactSetProtocol.CAPABILITY in requiredCapabilities
+            if (bundle.hasFile(RunnerArtifactSetPolicy.PATH) && !setsSelected) throw RunnerNegotiationException(RunnerNegotiationReason.RUNNER_ARTIFACT_CAPABILITY_REQUIRED)
+            val setPolicy = if (setsSelected) RunnerArtifactSetPolicy(bundle) else null
             val collectionSelected = RunnerCollectionProtocol.CAPABILITY in requiredCapabilities
             if (bundle.hasFile(RunnerCollectionPolicy.PATH) && !collectionSelected) throw RunnerNegotiationException(RunnerNegotiationReason.RUNNER_ARTIFACT_CAPABILITY_REQUIRED)
-            val collectionPolicy = if (!collectionSelected) null else try {
+            val collectionPolicy = if (!collectionSelected || (setsSelected && !bundle.hasFile(RunnerCollectionPolicy.PATH))) null else try {
                 require(RunnerCollectionProtocol.available())
                 RunnerCollectionPolicy(bundle)
             } catch (_: Exception) { throw RunnerNegotiationException(RunnerNegotiationReason.RUNNER_ARTIFACT_POLICY_INVALID) }
@@ -111,9 +115,10 @@ class RunnerHostSession(
             }
             processes = processAdapter
             val runtime = RunnerWorkflowHost(ipc, identity, environment, bundle, CAPABILITIES, processAdapter, store, secrets, interactiveBroker = channels,
-                callbackEnabled = RunnerCodeControlNegotiation.LEGACY in requiredCapabilities, codeControlMode = codeControlMode, collectionPolicy = collectionPolicy)
+                callbackEnabled = RunnerCodeControlNegotiation.LEGACY in requiredCapabilities, codeControlMode = codeControlMode, collectionPolicy = collectionPolicy, setPolicy = setPolicy)
             host = runtime
             if (collectionSelected) ipc.enableArtifactCollection()
+            if (setsSelected) ipc.enableArtifactSets()
             runtime.emit("environment", buildJsonObject {
                 put("environmentCheckId", payload.obj("environment").string("environmentCheckId"))
                 put("decision", payload.obj("environment").string("decision")); put("warnings", payload.obj("environment").array("warnings"))
@@ -176,7 +181,11 @@ class RunnerHostSession(
                 add(RunnerCodeControlNegotiation.SOURCE_READ_POLICY) // P/S separately verify the frozen historical-source carrier.
                 add(RunnerCodeControlNegotiation.FEEDBACK_CONTEXT) // S must separately admit its guarded HTTP adapter + schema pin.
             }
-            if (RunnerCollectionProtocol.available()) add(RunnerCollectionProtocol.CAPABILITY)
+            if (RunnerCollectionProtocol.available()) {
+                add(RunnerCollectionProtocol.CAPABILITY)
+                if (RunnerArtifactSetProtocol.available()) add(RunnerArtifactSetProtocol.CAPABILITY)
+            }
+            // gateSets requires the real guarded P/S provider; source.attestation awaits approval/terminal lifecycle.
         }
     }
 }

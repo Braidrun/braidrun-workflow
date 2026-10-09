@@ -24,7 +24,8 @@ class RunnerWorkflowHost(
     override val codeControlMode: WorkflowCodeControlMode = WorkflowCodeControlMode.LEGACY_STEP_TOKEN,
     private val artifactPolicy: RunnerArtifactPolicy? = null,
     artifactFingerprinter: RunnerArtifactFingerprinter? = null,
-    private val collectionPolicy: RunnerCollectionPolicy? = null
+    private val collectionPolicy: RunnerCollectionPolicy? = null,
+    private val setPolicy: RunnerArtifactSetPolicy? = null
 ) : WorkflowHost {
     init {
         require(bundle.taskBinding == ipc.binding) { "Bundle host binding differs from IPC authority" }
@@ -65,6 +66,53 @@ class RunnerWorkflowHost(
             val readySeq = requireNotNull(agentReadySequences[occurrence.eventId to declaration]) { "Agent boundary is not ready" }
             require(eventJournal.acknowledged() >= readySeq) { "Agent boundary is not durably ACKed" }
         }
+    }
+    private val setProducerBudgets = java.util.concurrent.ConcurrentHashMap<String, List<() -> Long>>()
+    private val artifactSets = setPolicy?.let { policy -> RunnerArtifactSets(bundle.executionDirectory, ipc, store, gate, policy, secrets,
+        guarded = { producer, action -> synchronized(this) { checkSetProducer(producer); action() } },
+        append = { payload, reply, before -> eventJournal.append("step", payload, replyTo = reply, beforePersist = before) },
+        acknowledged = { eventJournal.acknowledged() }) }
+    fun setControl(frame: JsonObject) {
+        if (frame.string("type") == "ack") artifactSets?.receive(frame)
+        else requireNotNull(artifactSets) { "Artifact sets not negotiated" }.receive(frame)
+    }
+    @Synchronized private fun checkSetProducer(producer: JsonObject) {
+        gate.check(); requireNotNull(setPolicy).verify()
+        val child = producer.array("childExecutionPath").map { it.jsonPrimitive.content }
+        val execution = binding.executionId + if (child.isEmpty()) "" else "__" + child.joinToString("__")
+        val workflowId = producer.string("workflowId"); val step = producer.string("stepName")
+        require(staticInvocations[execution] == true && admittedProducers[execution] == workflowId)
+        require(setPolicy.declarationsFor(workflowId, execution, step).isNotEmpty())
+        val active = (if (setPolicy.isCode(workflowId, step)) activeCodeProducers else activeProducers)[execution to step]
+        val start = producer.string("producerStartEventId")
+        require(active?.eventId == start) { "Set producer is closed or stale" }
+        val budgets = requireNotNull(setProducerBudgets[start]) { "Producer is not at its natural set boundary" }
+        require(budgets.all { it() > 0 }) { "Original producer budget expired" }
+    }
+    private suspend fun collectSets(step: WorkflowStep, scope: WorkflowHostScope, success: Boolean) {
+        val policy = setPolicy ?: return
+        try {
+            gate.check(); require(scope.rootExecutionId == binding.executionId && scope.stepName == step.step)
+            if (staticInvocations[scope.executionId] == false) return
+            val workflow = requireNotNull(admittedProducers[scope.executionId])
+            val ids = policy.declarationsFor(workflow, scope.executionId, step.step)
+            if (ids.isEmpty() || (!success && !policy.hasDiagnostics(ids))) return
+            val start = requireNotNull((if (step.code != null) codeProducerStarts else producerStarts)[scope.executionId to step.step])
+            val producer = buildJsonObject {
+                put("workflowId", workflow); put("stepName", step.step); put("childExecutionPath", childPath(binding.executionId, scope.executionId)); put("producerStartEventId", start)
+            }
+            val sets = requireNotNull(artifactSets)
+            val inherited = kotlinx.coroutines.currentCoroutineContext()[ArtifactCompletionBudgets]?.remaining.orEmpty()
+            val fallback = System.nanoTime() + 30_000_000_000L
+            val budgets = inherited.ifEmpty { listOf({ (fallback - System.nanoTime()) / 1_000_000 }) }
+            require(setProducerBudgets.putIfAbsent(start, budgets) == null) { "Set boundary already waiting" }
+            try { sets.awaitCompleted(sets.ready(producer, ids, if (success) "SUCCESS" else "FAILED")) }
+            finally { setProducerBudgets.remove(start) }
+        } catch (failure: kotlinx.coroutines.CancellationException) { gate.invalidate("RUNNER_ARTIFACT_SET_UNCONFIRMED"); throw failure }
+        catch (_: Exception) { gate.invalidate("RUNNER_ARTIFACT_SET_UNCONFIRMED"); throw RunnerAuthorityLost() }
+    }
+    override suspend fun codeArtifactsReady(workflow: WorkflowDefinition, step: WorkflowStep, scope: WorkflowHostScope, success: Boolean) {
+        collectSets(step, scope, success)
     }
     private val artifactPublications = artifactPolicy?.let {
         RunnerArtifactPublications(bundle.executionDirectory, ipc, gate, store, secrets,
@@ -178,7 +226,7 @@ class RunnerWorkflowHost(
         }
         return parameters.map { com.fartech.ftapp2.commonsKt.ConfigurationParameter(it.key, refs(it.value)) }
     }
-    fun close() { collectionBarrier?.close(); live.close(); network.close(); credentials.clear(); cliPools.clear(); references.clear(); nativeSkills.clear() }
+    fun close() { artifactSets?.close(); collectionBarrier?.close(); live.close(); network.close(); credentials.clear(); cliPools.clear(); references.clear(); nativeSkills.clear() }
     private val eventJournal = RunnerEventJournal(ipc.binding, secrets,
         write = { path, bytes -> store.writePrivate(path, bytes); Unit }, enqueue = { frame ->
             if (frame.obj("payload").string("type") == "artifact") gate.check()
@@ -196,7 +244,7 @@ class RunnerWorkflowHost(
         definitions.forEach { definition -> checkRoutes(RunnerAdmission(bundle, capabilities).inspect(definition)) }
     }
     override fun bindArtifactProducer(workflow: WorkflowDefinition, scope: WorkflowHostScope, staticInvocation: Boolean) {
-        if (artifactPolicy == null && collectionPolicy == null) return
+        if (artifactPolicy == null && collectionPolicy == null && setPolicy == null) return
         require(scope.rootExecutionId == binding.executionId && bundle.contains(workflow)) { "Artifact producer outside frozen invocation" }
         childPath(binding.executionId, scope.executionId)
         val lineage = staticInvocation && (scope.parentExecutionId == null || staticInvocations[scope.parentExecutionId] == true)
@@ -220,6 +268,7 @@ class RunnerWorkflowHost(
     }
     override fun userInteraction(scope: WorkflowHostScope): UserInteractionHandler = RunnerUserInteraction(ipc, gate, scope, secrets)
     override suspend fun collectDeclaredArtifacts(workflow: WorkflowDefinition, step: WorkflowStep, scope: WorkflowHostScope, candidates: List<WorkflowArtifactCandidate>) {
+        if (step.code == null) collectSets(step, scope, true)
         if (collectionPolicy != null) {
             try {
                 gate.check(); collectionPolicy.verify()

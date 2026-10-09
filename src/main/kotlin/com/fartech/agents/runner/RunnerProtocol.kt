@@ -26,11 +26,14 @@ class RunnerProtocol internal constructor(private val schema: JsonObject) {
 
     init {
         fun checkRule(rule: JsonObject) {
-            val supported = setOf("\$schema", "\$id", "\$defs", "\$ref", "oneOf", "type", "properties", "required", "additionalProperties", "const", "enum", "items", "minLength", "maxLength", "pattern", "format", "minimum", "maximum", "minItems", "maxItems", "uniqueItems", "title", "description")
+            val supported = setOf("\$schema", "\$id", "\$defs", "\$ref", "oneOf", "allOf", "if", "then", "type", "properties", "required", "additionalProperties", "const", "enum", "items", "minLength", "maxLength", "pattern", "format", "minimum", "maximum", "minItems", "maxItems", "uniqueItems", "title", "description")
             require(rule.keys.all { it in supported }) { "Pinned runner schema uses unsupported vocabulary" }
             rule["\$defs"]?.jsonObject?.values?.forEach { checkRule(it.jsonObject) }
             rule["properties"]?.jsonObject?.values?.forEach { checkRule(it.jsonObject) }
             rule["oneOf"]?.jsonArray?.forEach { checkRule(it.jsonObject) }
+            rule["allOf"]?.jsonArray?.forEach { checkRule(it.jsonObject) }
+            rule["if"]?.jsonObject?.let(::checkRule)
+            rule["then"]?.jsonObject?.let(::checkRule)
             (rule["items"] as? JsonObject)?.let(::checkRule)
             (rule["additionalProperties"] as? JsonObject)?.let(::checkRule)
         }
@@ -63,7 +66,11 @@ class RunnerProtocol internal constructor(private val schema: JsonObject) {
             val key = ref.jsonPrimitive.content.removePrefix("#/\$defs/")
             return matches(value, schema.obj("\$defs").getValue(key).jsonObject)
         }
-        rule["oneOf"]?.let { return it.jsonArray.count { r -> matches(value, r.jsonObject) } == 1 }
+        rule["allOf"]?.let { if (it.jsonArray.any { r -> !matches(value, r.jsonObject) }) return false }
+        rule["if"]?.jsonObject?.let { condition ->
+            if (matches(value, condition) && rule["then"]?.jsonObject?.let { !matches(value, it) } == true) return false
+        }
+        rule["oneOf"]?.let { if (it.jsonArray.count { r -> matches(value, r.jsonObject) } != 1) return false }
         rule["const"]?.let { if (value != it) return false }
         rule["enum"]?.let { if (value !in it.jsonArray) return false }
         rule["type"]?.let { type ->

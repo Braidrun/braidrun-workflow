@@ -52,6 +52,8 @@ interface WorkflowHost {
      * Plain stdout paths and directory scans are never declarations. Default hosts do nothing. */
     suspend fun collectDeclaredArtifacts(workflow: WorkflowDefinition, step: WorkflowStep, scope: WorkflowHostScope,
                                          candidates: List<WorkflowArtifactCandidate>) {}
+    /** Natural supervised Code exit, before code-step closure; includes diagnostic nonzero exits. */
+    suspend fun codeArtifactsReady(workflow: WorkflowDefinition, step: WorkflowStep, scope: WorkflowHostScope, success: Boolean) {}
     /** Resolve only an authorized definition, binding its bytes/hash before execution. */
     fun scriptContents(path: String): String = throw IllegalStateException("Host script resolver unavailable")
     fun dynamicWorkflow(path: String, scope: WorkflowHostScope): WorkflowDefinition

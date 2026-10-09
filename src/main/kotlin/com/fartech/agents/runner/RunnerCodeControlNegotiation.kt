@@ -4,7 +4,7 @@ import com.fartech.agents.workflow.WorkflowCodeControlMode
 
 internal enum class RunnerNegotiationReason {
     RUNNER_REQUIRED_CAPABILITY_UNAVAILABLE, RUNNER_CONTROL_MODE_CONFLICT, RUNNER_CONTROL_SUPPLEMENT_UNAVAILABLE,
-    RUNNER_ARTIFACT_CAPABILITY_REQUIRED, RUNNER_ARTIFACT_POLICY_INVALID, RUNNER_FEEDBACK_CONTEXT_REQUIRES_PER_CALL, RUNNER_SOURCE_READ_POLICY_REQUIRES_PER_CALL
+    RUNNER_ARTIFACT_CAPABILITY_REQUIRED, RUNNER_ARTIFACT_POLICY_INVALID, RUNNER_FEEDBACK_CONTEXT_REQUIRES_PER_CALL, RUNNER_SOURCE_READ_POLICY_REQUIRES_PER_CALL, RUNNER_SET_DEPENDENCY_REQUIRED
 }
 internal class RunnerNegotiationException(val reason: RunnerNegotiationReason) : IllegalArgumentException(reason.name)
 
@@ -24,6 +24,10 @@ internal object RunnerCodeControlNegotiation {
         bytes != null && sha256(bytes) == SCHEMA_SHA256
 
     fun select(required: Set<String>, available: Set<String>): WorkflowCodeControlMode {
+        if ((RunnerArtifactSetProtocol.CAPABILITY in required && RunnerCollectionProtocol.CAPABILITY !in required) ||
+            (RunnerArtifactSetProtocol.GATES in required && (RunnerArtifactSetProtocol.CAPABILITY !in required || PER_CALL !in required)) ||
+            (RunnerArtifactSetProtocol.SOURCE in required && RunnerArtifactSetProtocol.CAPABILITY !in required))
+            throw RunnerNegotiationException(RunnerNegotiationReason.RUNNER_SET_DEPENDENCY_REQUIRED)
         if (FEEDBACK_CONTEXT in required && PER_CALL !in required) throw RunnerNegotiationException(RunnerNegotiationReason.RUNNER_FEEDBACK_CONTEXT_REQUIRES_PER_CALL)
         if (SOURCE_READ_POLICY in required && PER_CALL !in required) throw RunnerNegotiationException(RunnerNegotiationReason.RUNNER_SOURCE_READ_POLICY_REQUIRES_PER_CALL)
         if (PER_CALL in required && LEGACY in required) throw RunnerNegotiationException(RunnerNegotiationReason.RUNNER_CONTROL_MODE_CONFLICT)

@@ -2872,21 +2872,24 @@ class WorkflowExecutor(
             if (codeStepExecutor == null) env.putAll(freshCodeStepCallbackEnvironment(config.timeout.toLong(), context))
         }
 
+        // Include the natural set boundary in this original code budget; resource admission remains excluded.
+        val codeCompletionClock = ResourceWaitClock()
+        val codeCompletionStarted = System.nanoTime()
         // 执行 (沙箱路径 或 旧路径)
         val rawOutput: String
         val exitCode: Int
         if (codeStepExecutor != null) {
             // ── 沙箱路径: 通过 SubprocessExecutor (Docker 或 Native) ──
-            val result = executeCodeStepSandboxed(
+            val result = withResourceWaitClock(codeCompletionClock) { executeCodeStepSandboxed(
                 step, config, finalScript, interpreterResolution, env, templateContext, context, directoryIsolation
-            )
+            ) }
             rawOutput = result.combinedOutput
             exitCode = result.exitCode
         } else {
             // ── 旧路径: ProcessBuilder 直接执行 (向后兼容 CLI/测试) ──
-            val result = executeCodeStepLegacy(
+            val result = withResourceWaitClock(codeCompletionClock) { executeCodeStepLegacy(
                 step, config, finalScript, interpreterResolution, env
-            )
+            ) }
             rawOutput = result.first
             exitCode = result.second
         }
@@ -2898,6 +2901,10 @@ class WorkflowExecutor(
             rawOutput.take(half) + "\n... [TRUNCATED: ${rawOutput.length} chars] ...\n" + rawOutput.takeLast(half)
         } else {
             rawOutput
+        }
+
+        withArtifactCompletionBudget({ config.timeout.toLong() * 1000 - ((System.nanoTime() - codeCompletionStarted) / 1_000_000 - codeCompletionClock.waitedMillis()) }) {
+            host?.codeArtifactsReady(workflow, step, hostScope(context, step.step), exitCode == 0)
         }
 
         if (enableMonitoring) {

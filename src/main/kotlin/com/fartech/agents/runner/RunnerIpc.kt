@@ -31,8 +31,15 @@ class RunnerIpc(
     private val closed = AtomicBoolean()
     @Volatile private var artifactCollectionEnabled = false
     fun enableArtifactCollection() { require(RunnerCollectionProtocol.available()); artifactCollectionEnabled = true }
+    @Volatile private var artifactSetsEnabled = false
+    fun enableArtifactSets() { require(artifactCollectionEnabled && RunnerArtifactSetProtocol.available()); artifactSetsEnabled = true }
     private fun validateFrame(frame: JsonObject, outbound: Boolean) {
         when (frame["type"]?.jsonPrimitive?.content) {
+            "artifactSetCollectRequest", "artifactSetIndexAck" -> {
+                if (!artifactSetsEnabled || outbound) throw RunnerProtocolException()
+                RunnerArtifactSetProtocol.validate(frame, if (frame.string("type") == "artifactSetCollectRequest") "collectFrame" else "indexAckFrame")
+            }
+            "artifactSetCollectComplete" -> { if (!artifactSetsEnabled || !outbound) throw RunnerProtocolException(); RunnerArtifactSetProtocol.validate(frame, "completeFrame") }
             "artifactCollectRequest" -> { if (!artifactCollectionEnabled || outbound) throw RunnerProtocolException(); RunnerCollectionProtocol.validate(frame, "collectionRequest") }
             "artifactCollectComplete" -> { if (!artifactCollectionEnabled || !outbound) throw RunnerProtocolException(); RunnerCollectionProtocol.validate(frame, "collectionComplete") }
             else -> protocol.validate(frame, "ipcFrame")
@@ -96,13 +103,13 @@ class RunnerIpc(
         validateFrame(frame, false)
         if (frame.obj("binding") != binding || closed.get()) throw RunnerProtocolException()
         val allowed = setOf("start", "resume", "ack", "approvalDecision", "userResponse", "credentialGrant", "cancel", "environmentInvalidated", "error",
-            "leaseRenewed", "environmentRefreshed", "processStarted", "processExited", "processOutput", "processInputAck", "processClosed", "outputValue", "outputAck", "callbackTokenGrant", "artifactCollectRequest")
+            "leaseRenewed", "environmentRefreshed", "processStarted", "processExited", "processOutput", "processInputAck", "processClosed", "outputValue", "outputAck", "callbackTokenGrant", "artifactCollectRequest", "artifactSetCollectRequest", "artifactSetIndexAck")
         if (frame.string("type") !in allowed) throw RunnerProtocolException()
         val id = frame.string("frameId")
         val digest = sha256(canonical(frame).toByteArray())
         seen[id]?.let {
             if (it != digest) throw RunnerProtocolException()
-            if (frame.string("type") == "artifactCollectRequest") onControl(frame)
+            if (frame.string("type") in setOf("artifactCollectRequest", "artifactSetCollectRequest", "artifactSetIndexAck") || (artifactSetsEnabled && frame.string("type") == "ack")) onControl(frame)
             return
         }
         // Never evict dedupe identities and accidentally reaccept an old control. Refuse the
@@ -110,7 +117,7 @@ class RunnerIpc(
         if (seen.size >= MAX_INBOUND_IDENTITIES) throw RunnerProtocolException()
         seen[id] = digest
         val replyTo = frame["replyTo"]?.jsonPrimitive?.content
-        if (frame.string("type") in setOf("cancel", "environmentInvalidated", "leaseRenewed", "environmentRefreshed", "processExited", "processOutput", "processClosed", "artifactCollectRequest")) {
+        if (frame.string("type") in setOf("cancel", "environmentInvalidated", "leaseRenewed", "environmentRefreshed", "processExited", "processOutput", "processClosed", "artifactCollectRequest", "artifactSetCollectRequest", "artifactSetIndexAck")) {
             onControl(frame)
         } else if (replyTo != null) {
             val request = pending[replyTo] ?: run {

@@ -1,0 +1,335 @@
+[
+  {
+    "name": "absence-with-stale-member",
+    "definition": "snapshot",
+    "valid": false,
+    "value": {
+      "schemaVersion": 1,
+      "setId": "set-original",
+      "policySha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "producer": {
+        "workflowId": "root-workflow",
+        "stepName": "delivery-evidence",
+        "childExecutionPath": [],
+        "producerStartEventId": "start"
+      },
+      "boundaryEventId": "ready-original",
+      "selections": [
+        {
+          "declarationId": "optional-owner-question",
+          "presence": "ABSENT",
+          "members": [
+            {
+              "artifactId": "stale",
+              "logicalPath": "run/evidence/old.json",
+              "size": 1,
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          ],
+          "selectorManifest": null
+        }
+      ]
+    }
+  },
+  {
+    "name": "caller-approval",
+    "definition": "snapshot",
+    "valid": false,
+    "value": {
+      "schemaVersion": 1,
+      "setId": "set-original",
+      "policySha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "producer": {
+        "workflowId": "root-workflow",
+        "stepName": "delivery-evidence",
+        "childExecutionPath": [],
+        "producerStartEventId": "start"
+      },
+      "boundaryEventId": "ready-original",
+      "selections": [
+        {
+          "declarationId": "source-archive",
+          "presence": "PRESENT",
+          "members": [
+            {
+              "artifactId": "archive",
+              "logicalPath": "run/evidence/fixture-source.zip",
+              "size": 128,
+              "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+            }
+          ],
+          "selectorManifest": {
+            "logicalPath": "run/evidence/report.json",
+            "size": 256,
+            "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+          }
+        }
+      ],
+      "accepted": true
+    }
+  },
+  {
+    "name": "too-many-files",
+    "definition": "policy",
+    "valid": false,
+    "value": {
+      "schemaVersion": 1,
+      "rootWorkflowId": "root-workflow",
+      "declarations": [
+        {
+          "declarationId": "source-archive",
+          "producer": {
+            "workflowId": "root-workflow",
+            "stepName": "delivery-evidence",
+            "childSteps": []
+          },
+          "selector": {
+            "kind": "JSON_FILE",
+            "manifestPath": "run/evidence/report.json",
+            "jsonPointer": "/source_archive_path",
+            "allowedParent": "run/evidence",
+            "extension": ".zip"
+          },
+          "presence": "REQUIRED",
+          "maximumFiles": 257,
+          "maximumFileBytes": 125829120,
+          "maximumTotalBytes": 125829120,
+          "purpose": "SOURCE_CANDIDATE"
+        }
+      ]
+    }
+  },
+  {
+    "name": "collect",
+    "definition": "collectFrame",
+    "valid": true,
+    "value": {
+      "protocolVersion": 1,
+      "frameId": "request-frame",
+      "type": "artifactSetCollectRequest",
+      "binding": {
+        "protocolVersion": 1,
+        "ownerId": "owner",
+        "actorUserId": "owner",
+        "executionId": "root",
+        "runnerId": "runner",
+        "runnerInstanceId": "instance",
+        "resumeEpoch": 0,
+        "attemptId": "attempt",
+        "definitionHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "runtimeHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "payload": {
+        "setId": "set-original",
+        "ticketId": "ticket",
+        "snapshotSha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "policySha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "producer": {
+          "workflowId": "root-workflow",
+          "stepName": "delivery-evidence",
+          "childExecutionPath": [],
+          "producerStartEventId": "start"
+        },
+        "boundaryEventId": "ready-original",
+        "expiresAt": "2026-10-09T01:01:00Z"
+      }
+    }
+  },
+  {
+    "name": "complete",
+    "definition": "completeFrame",
+    "valid": true,
+    "value": {
+      "protocolVersion": 1,
+      "frameId": "complete-frame",
+      "type": "artifactSetCollectComplete",
+      "binding": {
+        "protocolVersion": 1,
+        "ownerId": "owner",
+        "actorUserId": "owner",
+        "executionId": "root",
+        "runnerId": "runner",
+        "runnerInstanceId": "instance",
+        "resumeEpoch": 0,
+        "attemptId": "attempt",
+        "definitionHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "runtimeHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "replyTo": "request-frame",
+      "payload": {
+        "setId": "set-original",
+        "snapshotSha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "eventId": "indexed-event",
+        "eventSeq": 8,
+        "setIndexHash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "revision": 12,
+        "ticketId": "ticket"
+      }
+    }
+  },
+  {
+    "name": "index-ack",
+    "definition": "indexAckFrame",
+    "valid": true,
+    "value": {
+      "protocolVersion": 1,
+      "frameId": "ack-frame",
+      "type": "artifactSetIndexAck",
+      "binding": {
+        "protocolVersion": 1,
+        "ownerId": "owner",
+        "actorUserId": "owner",
+        "executionId": "root",
+        "runnerId": "runner",
+        "runnerInstanceId": "instance",
+        "resumeEpoch": 0,
+        "attemptId": "attempt",
+        "definitionHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "runtimeHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "replyTo": "request-frame",
+      "payload": {
+        "setId": "set-original",
+        "snapshotSha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "eventId": "indexed-event",
+        "eventSeq": 8,
+        "setIndexHash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "revision": 12
+      }
+    }
+  },
+  {
+    "name": "optional-absent",
+    "definition": "snapshot",
+    "valid": true,
+    "value": {
+      "schemaVersion": 1,
+      "setId": "set-original",
+      "policySha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "producer": {
+        "workflowId": "root-workflow",
+        "stepName": "delivery-evidence",
+        "childExecutionPath": [],
+        "producerStartEventId": "start"
+      },
+      "boundaryEventId": "ready-original",
+      "selections": [
+        {
+          "declarationId": "optional-owner-question",
+          "presence": "ABSENT",
+          "members": [],
+          "selectorManifest": null
+        }
+      ]
+    }
+  },
+  {
+    "name": "policy",
+    "definition": "policy",
+    "valid": true,
+    "value": {
+      "schemaVersion": 1,
+      "rootWorkflowId": "root-workflow",
+      "declarations": [
+        {
+          "declarationId": "source-archive",
+          "producer": {
+            "workflowId": "root-workflow",
+            "stepName": "delivery-evidence",
+            "childSteps": []
+          },
+          "selector": {
+            "kind": "JSON_FILE",
+            "manifestPath": "run/evidence/report.json",
+            "jsonPointer": "/source_archive_path",
+            "allowedParent": "run/evidence",
+            "extension": ".zip"
+          },
+          "presence": "REQUIRED",
+          "maximumFiles": 1,
+          "maximumFileBytes": 125829120,
+          "maximumTotalBytes": 125829120,
+          "purpose": "SOURCE_CANDIDATE"
+        }
+      ]
+    }
+  },
+  {
+    "name": "prepare",
+    "definition": "prepareRequest",
+    "valid": true,
+    "value": {
+      "binding": {
+        "protocolVersion": 1,
+        "ownerId": "owner",
+        "actorUserId": "owner",
+        "executionId": "root",
+        "runnerId": "runner",
+        "runnerInstanceId": "instance",
+        "resumeEpoch": 0,
+        "attemptId": "attempt",
+        "definitionHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "runtimeHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "leaseId": "lease",
+      "expectedRevision": 3,
+      "snapshot": {
+        "schemaVersion": 1,
+        "setId": "set-original",
+        "policySha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "producer": {
+          "workflowId": "root-workflow",
+          "stepName": "delivery-evidence",
+          "childExecutionPath": [],
+          "producerStartEventId": "start"
+        },
+        "boundaryEventId": "ready-original",
+        "selections": [
+          {
+            "declarationId": "source-archive",
+            "presence": "PRESENT",
+            "members": [
+              {
+                "artifactId": "archive",
+                "logicalPath": "run/evidence/fixture-source.zip",
+                "size": 128,
+                "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+              }
+            ],
+            "selectorManifest": {
+              "logicalPath": "run/evidence/report.json",
+              "size": 256,
+              "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+              "artifactId": "selector-report"
+            }
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "tree-gate",
+    "definition": "gateSubmitArguments",
+    "valid": true,
+    "value": {
+      "gateId": "visual-acceptance",
+      "occurrenceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "title": "Current screenshots",
+      "message": "Review current source screenshots",
+      "timeoutSeconds": 6600,
+      "ownerRequired": false,
+      "autoContinueAfterSeconds": null,
+      "slots": [
+        {
+          "slotId": "small-screens",
+          "setId": "set-original",
+          "snapshotSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "setIndexHash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "declarationId": "small-screens",
+          "selectionKind": "TREE",
+          "presence": "PRESENT"
+        }
+      ]
+    }
+  }
+]

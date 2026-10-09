@@ -1,0 +1,1667 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:braidrun:artifact-set:v1",
+  "$defs": {
+    "binding": {
+      "type": "object",
+      "properties": {
+        "protocolVersion": {
+          "const": 1
+        },
+        "ownerId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "actorUserId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "executionId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "runnerId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "runnerInstanceId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "resumeEpoch": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "attemptId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "definitionHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "runtimeHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "ownerId",
+        "actorUserId",
+        "executionId",
+        "runnerId",
+        "runnerInstanceId",
+        "resumeEpoch",
+        "attemptId",
+        "definitionHash",
+        "runtimeHash"
+      ],
+      "additionalProperties": false
+    },
+    "policy": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "rootWorkflowId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "declarations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "declarationId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "producer": {
+                "type": "object",
+                "properties": {
+                  "workflowId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  },
+                  "stepName": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  },
+                  "childSteps": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 256
+                    },
+                    "minItems": 0,
+                    "maxItems": 32
+                  }
+                },
+                "required": [
+                  "workflowId",
+                  "stepName",
+                  "childSteps"
+                ],
+                "additionalProperties": false
+              },
+              "selector": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "const": "FILE"
+                      },
+                      "path": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 1024,
+                        "pattern": "^run/(?!.*(?:^|/)\\.\\.?(/|$))[^\\\\:\\x00-\\x1f\\x7f]+$"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "path"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "const": "TREE"
+                      },
+                      "path": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 1024,
+                        "pattern": "^run/(?!.*(?:^|/)\\.\\.?(/|$))[^\\\\:\\x00-\\x1f\\x7f]+$"
+                      },
+                      "extensions": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 16
+                        },
+                        "minItems": 1,
+                        "maxItems": 32
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "path",
+                      "extensions"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "const": "JSON_FILE"
+                      },
+                      "manifestPath": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 1024,
+                        "pattern": "^run/(?!.*(?:^|/)\\.\\.?(/|$))[^\\\\:\\x00-\\x1f\\x7f]+$"
+                      },
+                      "jsonPointer": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 256
+                      },
+                      "allowedParent": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 1024,
+                        "pattern": "^run/(?!.*(?:^|/)\\.\\.?(/|$))[^\\\\:\\x00-\\x1f\\x7f]+$"
+                      },
+                      "extension": {
+                        "const": ".zip"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "manifestPath",
+                      "jsonPointer",
+                      "allowedParent",
+                      "extension"
+                    ],
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              "presence": {
+                "enum": [
+                  "REQUIRED",
+                  "OPTIONAL"
+                ]
+              },
+              "maximumFiles": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 256
+              },
+              "maximumFileBytes": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 125829120
+              },
+              "maximumTotalBytes": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 125829120
+              },
+              "purpose": {
+                "enum": [
+                  "GATE_MATERIAL",
+                  "SOURCE_CANDIDATE",
+                  "DIAGNOSTIC"
+                ]
+              }
+            },
+            "required": [
+              "declarationId",
+              "producer",
+              "selector",
+              "presence",
+              "maximumFiles",
+              "maximumFileBytes",
+              "maximumTotalBytes",
+              "purpose"
+            ],
+            "additionalProperties": false
+          },
+          "minItems": 1,
+          "maxItems": 128
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "rootWorkflowId",
+        "declarations"
+      ],
+      "additionalProperties": false
+    },
+    "snapshot": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "setId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "policySha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "producer": {
+          "type": "object",
+          "properties": {
+            "workflowId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "stepName": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "childExecutionPath": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "minItems": 0,
+              "maxItems": 64
+            },
+            "producerStartEventId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          "required": [
+            "workflowId",
+            "stepName",
+            "childExecutionPath",
+            "producerStartEventId"
+          ],
+          "additionalProperties": false
+        },
+        "boundaryEventId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "selections": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "declarationId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "presence": {
+                "enum": [
+                  "PRESENT",
+                  "ABSENT"
+                ]
+              },
+              "members": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "artifactId": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 128
+                    },
+                    "logicalPath": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 1024,
+                      "pattern": "^run/(?!.*(?:^|/)\\.\\.?(/|$))[^\\\\:\\x00-\\x1f\\x7f]+$"
+                    },
+                    "size": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 125829120
+                    },
+                    "sha256": {
+                      "type": "string",
+                      "pattern": "^[a-f0-9]{64}$"
+                    }
+                  },
+                  "required": [
+                    "artifactId",
+                    "logicalPath",
+                    "size",
+                    "sha256"
+                  ],
+                  "additionalProperties": false
+                },
+                "minItems": 0,
+                "maxItems": 256
+              },
+              "selectorManifest": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "logicalPath": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 1024,
+                        "pattern": "^run/(?!.*(?:^|/)\\.\\.?(/|$))[^\\\\:\\x00-\\x1f\\x7f]+$"
+                      },
+                      "size": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 1048576
+                      },
+                      "sha256": {
+                        "type": "string",
+                        "pattern": "^[a-f0-9]{64}$"
+                      },
+                      "artifactId": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128
+                      }
+                    },
+                    "required": [
+                      "logicalPath",
+                      "size",
+                      "sha256",
+                      "artifactId"
+                    ],
+                    "additionalProperties": false
+                  }
+                ]
+              }
+            },
+            "required": [
+              "declarationId",
+              "presence",
+              "members",
+              "selectorManifest"
+            ],
+            "additionalProperties": false,
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "presence": {
+                      "const": "ABSENT"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "members": {
+                      "maxItems": 0
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          "minItems": 1,
+          "maxItems": 64
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "setId",
+        "policySha256",
+        "producer",
+        "boundaryEventId",
+        "selections"
+      ],
+      "additionalProperties": false
+    },
+    "prepareRequest": {
+      "type": "object",
+      "properties": {
+        "binding": {
+          "$ref": "#/$defs/binding"
+        },
+        "leaseId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "expectedRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "snapshot": {
+          "type": "object",
+          "properties": {
+            "schemaVersion": {
+              "const": 1
+            },
+            "setId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "policySha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "producer": {
+              "type": "object",
+              "properties": {
+                "workflowId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "stepName": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256
+                },
+                "childExecutionPath": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  },
+                  "minItems": 0,
+                  "maxItems": 64
+                },
+                "producerStartEventId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                }
+              },
+              "required": [
+                "workflowId",
+                "stepName",
+                "childExecutionPath",
+                "producerStartEventId"
+              ],
+              "additionalProperties": false
+            },
+            "boundaryEventId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "selections": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "declarationId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  },
+                  "presence": {
+                    "enum": [
+                      "PRESENT",
+                      "ABSENT"
+                    ]
+                  },
+                  "members": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "artifactId": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128
+                        },
+                        "logicalPath": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 1024,
+                          "pattern": "^run/(?!.*(?:^|/)\\.\\.?(/|$))[^\\\\:\\x00-\\x1f\\x7f]+$"
+                        },
+                        "size": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 125829120
+                        },
+                        "sha256": {
+                          "type": "string",
+                          "pattern": "^[a-f0-9]{64}$"
+                        }
+                      },
+                      "required": [
+                        "artifactId",
+                        "logicalPath",
+                        "size",
+                        "sha256"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "minItems": 0,
+                    "maxItems": 256
+                  },
+                  "selectorManifest": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "logicalPath": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 1024,
+                            "pattern": "^run/(?!.*(?:^|/)\\.\\.?(/|$))[^\\\\:\\x00-\\x1f\\x7f]+$"
+                          },
+                          "size": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 1048576
+                          },
+                          "sha256": {
+                            "type": "string",
+                            "pattern": "^[a-f0-9]{64}$"
+                          },
+                          "artifactId": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 128
+                          }
+                        },
+                        "required": [
+                          "logicalPath",
+                          "size",
+                          "sha256",
+                          "artifactId"
+                        ],
+                        "additionalProperties": false
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "declarationId",
+                  "presence",
+                  "members",
+                  "selectorManifest"
+                ],
+                "additionalProperties": false,
+                "allOf": [
+                  {
+                    "if": {
+                      "properties": {
+                        "presence": {
+                          "const": "ABSENT"
+                        }
+                      }
+                    },
+                    "then": {
+                      "properties": {
+                        "members": {
+                          "maxItems": 0
+                        }
+                      }
+                    }
+                  }
+                ]
+              },
+              "minItems": 1,
+              "maxItems": 64
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "setId",
+            "policySha256",
+            "producer",
+            "boundaryEventId",
+            "selections"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "binding",
+        "leaseId",
+        "expectedRevision",
+        "snapshot"
+      ],
+      "additionalProperties": false
+    },
+    "prepareResponse": {
+      "type": "object",
+      "properties": {
+        "binding": {
+          "$ref": "#/$defs/binding"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ticket": {
+          "type": "object",
+          "properties": {
+            "setId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "ticketId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "snapshotSha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "policySha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "producer": {
+              "type": "object",
+              "properties": {
+                "workflowId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "stepName": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256
+                },
+                "childExecutionPath": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  },
+                  "minItems": 0,
+                  "maxItems": 64
+                },
+                "producerStartEventId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                }
+              },
+              "required": [
+                "workflowId",
+                "stepName",
+                "childExecutionPath",
+                "producerStartEventId"
+              ],
+              "additionalProperties": false
+            },
+            "boundaryEventId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "expiresAt": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            }
+          },
+          "required": [
+            "setId",
+            "ticketId",
+            "snapshotSha256",
+            "policySha256",
+            "producer",
+            "boundaryEventId",
+            "expiresAt"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "binding",
+        "revision",
+        "ticket"
+      ],
+      "additionalProperties": false
+    },
+    "boundaryPayload": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "artifact_set_ready"
+        },
+        "policySha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "producer": {
+          "type": "object",
+          "properties": {
+            "workflowId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "stepName": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "childExecutionPath": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "minItems": 0,
+              "maxItems": 64
+            },
+            "producerStartEventId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          "required": [
+            "workflowId",
+            "stepName",
+            "childExecutionPath",
+            "producerStartEventId"
+          ],
+          "additionalProperties": false
+        },
+        "declarationIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "minItems": 1,
+          "maxItems": 64
+        },
+        "outcome": {
+          "enum": [
+            "SUCCESS",
+            "FAILED"
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "policySha256",
+        "producer",
+        "declarationIds",
+        "outcome"
+      ],
+      "additionalProperties": false
+    },
+    "commitPayload": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "artifact_set_committed"
+        },
+        "setId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "ticketId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "snapshotSha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "policySha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "producer": {
+          "type": "object",
+          "properties": {
+            "workflowId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "stepName": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "childExecutionPath": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "minItems": 0,
+              "maxItems": 64
+            },
+            "producerStartEventId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          "required": [
+            "workflowId",
+            "stepName",
+            "childExecutionPath",
+            "producerStartEventId"
+          ],
+          "additionalProperties": false
+        },
+        "boundaryEventId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        }
+      },
+      "required": [
+        "kind",
+        "setId",
+        "ticketId",
+        "snapshotSha256",
+        "policySha256",
+        "producer",
+        "boundaryEventId"
+      ],
+      "additionalProperties": false
+    },
+    "collectFrame": {
+      "type": "object",
+      "properties": {
+        "protocolVersion": {
+          "const": 1
+        },
+        "frameId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "type": {
+          "const": "artifactSetCollectRequest"
+        },
+        "binding": {
+          "$ref": "#/$defs/binding"
+        },
+        "payload": {
+          "type": "object",
+          "properties": {
+            "setId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "ticketId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "snapshotSha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "policySha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "producer": {
+              "type": "object",
+              "properties": {
+                "workflowId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "stepName": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256
+                },
+                "childExecutionPath": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  },
+                  "minItems": 0,
+                  "maxItems": 64
+                },
+                "producerStartEventId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                }
+              },
+              "required": [
+                "workflowId",
+                "stepName",
+                "childExecutionPath",
+                "producerStartEventId"
+              ],
+              "additionalProperties": false
+            },
+            "boundaryEventId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "expiresAt": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            }
+          },
+          "required": [
+            "setId",
+            "ticketId",
+            "snapshotSha256",
+            "policySha256",
+            "producer",
+            "boundaryEventId",
+            "expiresAt"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "frameId",
+        "type",
+        "binding",
+        "payload"
+      ],
+      "additionalProperties": false
+    },
+    "completeFrame": {
+      "type": "object",
+      "properties": {
+        "protocolVersion": {
+          "const": 1
+        },
+        "frameId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "type": {
+          "const": "artifactSetCollectComplete"
+        },
+        "binding": {
+          "$ref": "#/$defs/binding"
+        },
+        "payload": {
+          "type": "object",
+          "properties": {
+            "setId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "ticketId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "snapshotSha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "eventId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "eventSeq": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "revision": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "setIndexHash": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            }
+          },
+          "required": [
+            "setId",
+            "ticketId",
+            "snapshotSha256",
+            "eventId",
+            "eventSeq",
+            "revision",
+            "setIndexHash"
+          ],
+          "additionalProperties": false
+        },
+        "replyTo": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "frameId",
+        "type",
+        "binding",
+        "payload",
+        "replyTo"
+      ],
+      "additionalProperties": false
+    },
+    "receiptRequest": {
+      "type": "object",
+      "properties": {
+        "binding": {
+          "$ref": "#/$defs/binding"
+        },
+        "leaseId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "expectedRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "setId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "snapshotSha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      },
+      "required": [
+        "binding",
+        "leaseId",
+        "expectedRevision",
+        "setId",
+        "snapshotSha256"
+      ],
+      "additionalProperties": false
+    },
+    "receiptResponse": {
+      "type": "object",
+      "properties": {
+        "binding": {
+          "$ref": "#/$defs/binding"
+        },
+        "setId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "snapshotSha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "eventId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "eventSeq": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "setIndexHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "binding",
+        "setId",
+        "snapshotSha256",
+        "eventId",
+        "eventSeq",
+        "setIndexHash",
+        "revision"
+      ],
+      "additionalProperties": false
+    },
+    "indexAckFrame": {
+      "type": "object",
+      "properties": {
+        "protocolVersion": {
+          "const": 1
+        },
+        "frameId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "type": {
+          "const": "artifactSetIndexAck"
+        },
+        "binding": {
+          "$ref": "#/$defs/binding"
+        },
+        "payload": {
+          "type": "object",
+          "properties": {
+            "setId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "snapshotSha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "eventId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "eventSeq": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "setIndexHash": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "revision": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "setId",
+            "snapshotSha256",
+            "eventId",
+            "eventSeq",
+            "setIndexHash",
+            "revision"
+          ],
+          "additionalProperties": false
+        },
+        "replyTo": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "frameId",
+        "type",
+        "binding",
+        "payload",
+        "replyTo"
+      ],
+      "additionalProperties": false
+    },
+    "gateContextRequest": {
+      "type": "object",
+      "properties": {
+        "binding": {
+          "$ref": "#/$defs/binding"
+        },
+        "leaseId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "expectedRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "gateContext": {
+          "type": "object",
+          "properties": {
+            "gateId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "stepName": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "childExecutionPath": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "minItems": 0,
+              "maxItems": 64
+            },
+            "processScope": {
+              "type": "string",
+              "pattern": "^tool:[A-Za-z0-9_.-]{1,128}$"
+            },
+            "codeStartEventId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          "required": [
+            "gateId",
+            "stepName",
+            "childExecutionPath",
+            "processScope",
+            "codeStartEventId"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "binding",
+        "leaseId",
+        "expectedRevision",
+        "gateContext"
+      ],
+      "additionalProperties": false
+    },
+    "gateContextResponse": {
+      "type": "object",
+      "properties": {
+        "binding": {
+          "$ref": "#/$defs/binding"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "gateId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "codeStartEventId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "occurrenceId": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "helperArguments": {
+          "type": "object",
+          "properties": {
+            "filegate.set.submit": {
+              "type": "object",
+              "properties": {
+                "gateId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "occurrenceId": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "title": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096
+                },
+                "message": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 16384
+                },
+                "timeoutSeconds": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 86400
+                },
+                "ownerRequired": {
+                  "type": "boolean"
+                },
+                "autoContinueAfterSeconds": {
+                  "oneOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 86400
+                    }
+                  ]
+                },
+                "slots": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "slotId": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128
+                      },
+                      "setId": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128
+                      },
+                      "snapshotSha256": {
+                        "type": "string",
+                        "pattern": "^[a-f0-9]{64}$"
+                      },
+                      "setIndexHash": {
+                        "type": "string",
+                        "pattern": "^[a-f0-9]{64}$"
+                      },
+                      "declarationId": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128
+                      },
+                      "selectionKind": {
+                        "enum": [
+                          "FILE",
+                          "TREE",
+                          "JSON_FILE"
+                        ]
+                      },
+                      "presence": {
+                        "enum": [
+                          "PRESENT",
+                          "ABSENT"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "slotId",
+                      "setId",
+                      "snapshotSha256",
+                      "setIndexHash",
+                      "declarationId",
+                      "selectionKind",
+                      "presence"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "minItems": 0,
+                  "maxItems": 16
+                }
+              },
+              "required": [
+                "gateId",
+                "occurrenceId",
+                "title",
+                "message",
+                "timeoutSeconds",
+                "ownerRequired",
+                "autoContinueAfterSeconds",
+                "slots"
+              ],
+              "additionalProperties": false
+            },
+            "filegate.set.read": {
+              "type": "object",
+              "properties": {
+                "gateId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "occurrenceId": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                }
+              },
+              "required": [
+                "gateId",
+                "occurrenceId"
+              ],
+              "additionalProperties": false
+            },
+            "feedback.set.read": {
+              "type": "object",
+              "properties": {
+                "gateId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "occurrenceId": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                }
+              },
+              "required": [
+                "gateId",
+                "occurrenceId"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "filegate.set.submit",
+            "filegate.set.read",
+            "feedback.set.read"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "binding",
+        "revision",
+        "gateId",
+        "codeStartEventId",
+        "occurrenceId",
+        "helperArguments"
+      ],
+      "additionalProperties": false
+    },
+    "gateSubmitArguments": {
+      "type": "object",
+      "properties": {
+        "gateId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "occurrenceId": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16384
+        },
+        "timeoutSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 86400
+        },
+        "ownerRequired": {
+          "type": "boolean"
+        },
+        "autoContinueAfterSeconds": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 86400
+            }
+          ]
+        },
+        "slots": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "slotId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "setId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "snapshotSha256": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "setIndexHash": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "declarationId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "selectionKind": {
+                "enum": [
+                  "FILE",
+                  "TREE",
+                  "JSON_FILE"
+                ]
+              },
+              "presence": {
+                "enum": [
+                  "PRESENT",
+                  "ABSENT"
+                ]
+              }
+            },
+            "required": [
+              "slotId",
+              "setId",
+              "snapshotSha256",
+              "setIndexHash",
+              "declarationId",
+              "selectionKind",
+              "presence"
+            ],
+            "additionalProperties": false
+          },
+          "minItems": 0,
+          "maxItems": 16
+        }
+      },
+      "required": [
+        "gateId",
+        "occurrenceId",
+        "title",
+        "message",
+        "timeoutSeconds",
+        "ownerRequired",
+        "autoContinueAfterSeconds",
+        "slots"
+      ],
+      "additionalProperties": false
+    },
+    "gateReadArguments": {
+      "type": "object",
+      "properties": {
+        "gateId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "occurrenceId": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      },
+      "required": [
+        "gateId",
+        "occurrenceId"
+      ],
+      "additionalProperties": false
+    },
+    "gateCloseArguments": {
+      "type": "object",
+      "properties": {
+        "gateId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "occurrenceId": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "reason": {
+          "enum": [
+            "timeout",
+            "auto_continued",
+            "superseded",
+            "consumed",
+            "cancelled"
+          ]
+        }
+      },
+      "required": [
+        "gateId",
+        "occurrenceId",
+        "reason"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "description": "Validate wire objects using their named $defs; root is a schema library, not an untyped wire union."
+}
