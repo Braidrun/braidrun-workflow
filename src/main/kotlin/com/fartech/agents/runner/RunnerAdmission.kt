@@ -147,8 +147,11 @@ class RunnerAdmission(
                 if (node is JsonObject) node.forEach { (key, value) ->
                     if (key == "skills_config" && value != JsonNull) {
                         val config = runnerJson.decodeFromJsonElement(com.fartech.agents.commons.SkillsConfiguration.serializer(), value)
-                        if (config.enabled) requireCapability("skill.text.v1")
-                        require(!config.scanStandardPaths && config.additionalSkillPaths.isEmpty() && !config.autoSearchDownload && !config.autoUpgrade && !config.hookScriptExecutionEnabled) { "Skill side effects/ambient discovery need separate supervised admission" }
+                        // A disabled skills subsystem loads no skills or hooks, so its serialized discovery defaults are inert.
+                        if (config.enabled) {
+                            requireCapability("skill.text.v1")
+                            require(!config.scanStandardPaths && config.additionalSkillPaths.isEmpty() && !config.autoSearchDownload && !config.autoUpgrade && !config.hookScriptExecutionEnabled) { "Skill side effects/ambient discovery need separate supervised admission" }
+                        }
                     }
                     if (key == "mcp_servers" && value != JsonNull) {
                         requireCapability("service.mcp_servers.v1")
