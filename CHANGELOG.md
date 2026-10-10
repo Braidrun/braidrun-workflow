@@ -5,6 +5,29 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.2] - 2026-10-10
+
+### Fixed
+
+- **Codex sub-agent threads are metered.** With multi-agent enabled, Codex runs
+  `spawn_agent` children as separate threads, and `codex exec --json` reports
+  only the main thread: `turn.completed` (and the rollout recovery of 1.4.1)
+  never included what the sub-agents spent. Before the run's `CODEX_HOME` is
+  cleaned up, on every exit path, the engine now reads each sub-agent thread's
+  own rollout (`session_meta` with a `subagent` source) and emits its last
+  cumulative `token_count` once as `codex_sub_agent_usage_final` under
+  `invocation_id=<invocation>:sub:<thread id>`, with `parent_invocation_id`,
+  raw Codex `input_tokens` / `output_tokens` / `cache_read` /
+  `reasoning_output_tokens`, `partial`, `agent_path` and
+  `source=codex_rollout_sub_agent`. The main thread is never reported twice.
+  A per-run home is read whole; in a shared, persistent home only threads under
+  the run's root session that grew during the run count, and only by what they
+  added. A legacy-history fork, which keeps counting from its parent's copied
+  total, is charged only its own share (codex 0.159 `exec` forks use paginated
+  history and start from zero).
+- When the run's thread id is unknown, usage recovery no longer mistakes the
+  newest sub-agent rollout for the run's own.
+
 ## [1.4.1] - 2026-10-04
 
 ### Fixed
