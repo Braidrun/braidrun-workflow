@@ -32,6 +32,8 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import io.github.oshai.kotlinlogging.KotlinLogging
 import java.io.File
+import java.io.FilterInputStream
+import java.io.InputStream
 import java.nio.channels.FileChannel
 import java.nio.file.Files
 import java.nio.file.LinkOption.NOFOLLOW_LINKS
@@ -378,6 +380,15 @@ class ExternalAgentTools(
             throw e
         }
 
+        // Codex usage recovery: always observe the stream (even with no emitter) so a
+        // killed run still knows its thread id and whether usage was already reported.
+        val codexObserver = if (engine == Engine.CODEX) CodexRunObserver() else null
+        val codexHome = codexUsageHome(engine, auth)
+        // Rollouts already in CODEX_HOME before this run (a persistent home keeps
+        // earlier runs' threads); sub-agent usage is charged only for what they add.
+        val codexRolloutSizesBefore = codexHome?.let { snapshotCodexRolloutSizes(it.hostDir) }
+        var codexRunCompleted = false
+
         // Wrap the rest so the per-run Codex auth.json (a live subscription token we
         // materialise on the host) is always removed once the subprocess finishes —
         // on success, failure, or timeout. Avoids leaving customer tokens on disk.
@@ -436,10 +447,6 @@ class ExternalAgentTools(
             }
         } else null
 
-        // Codex usage recovery: always observe the stream (even with no emitter) so a
-        // killed run still knows its thread id and whether usage was already reported.
-        val codexObserver = if (engine == Engine.CODEX) CodexRunObserver() else null
-        val codexHome = codexUsageHome(engine, auth)
         // A resumed thread's rollout already holds earlier runs' cumulative total.
         val codexResumeBaseline = codexHome
             ?.takeIf { ctx.resumeSessionId.isNotBlank() }
@@ -792,6 +799,9 @@ class ExternalAgentTools(
             }
         )
 
+        codexRunCompleted = true
+        // Main thread only: sub-agent threads are metered through their own
+        // usage events (see [reportCodexSubAgentUsage]).
         return ExternalAgentRunDetailedResult(
             text = parsed.text,
             sessionId = parsed.sessionId,
@@ -800,6 +810,15 @@ class ExternalAgentTools(
             costUsd = parsed.costUsd
         )
         } finally {
+            // Every exit path, before the per-run home and its rollouts are deleted.
+            reportCodexSubAgentUsage(
+                home = codexHome,
+                primaryThreadId = codexObserver?.threadId ?: ctx.resumeSessionId.trim().takeIf { it.isNotEmpty() },
+                rolloutSizesBefore = codexRolloutSizesBefore.orEmpty(),
+                partial = !codexRunCompleted,
+                resolvedName = resolvedName,
+                invocationId = invocationId
+            )
             maybePublishRotatedCodexAuthJson(auth)
             tempFiles.forEach { file -> runCatching { file.delete() } }
             auth.codexHomeHostDir
@@ -908,6 +927,55 @@ class ExternalAgentTools(
         }.onFailure { e ->
             logger.warn(e) { "[ExternalAgent] Failed to recover Codex usage for '$resolvedName' from its session rollout" }
         }.getOrNull()
+    }
+
+    /**
+     * Codex's own sub-agents (multi-agent `spawn_agent`) run as separate threads, and
+     * `codex exec --json` reports only the main thread's usage — `turn.completed`
+     * never includes theirs. Each thread keeps its own rollout under CODEX_HOME with
+     * its own cumulative `token_count`; publish one final usage event per sub-agent
+     * thread, under its own invocation id `<invocationId>:sub:<threadId>`, so the
+     * platform counts every thread exactly once next to the main invocation.
+     */
+    private fun reportCodexSubAgentUsage(
+        home: CodexUsageHome?,
+        primaryThreadId: String?,
+        rolloutSizesBefore: Map<String, Long>,
+        partial: Boolean,
+        resolvedName: String,
+        invocationId: String
+    ) {
+        if (home == null) return
+        runCatching {
+            val label = invocationLabel(resolvedName, invocationId)
+            codexSubAgentUsages(home.hostDir, primaryThreadId, home.exclusive, rolloutSizesBefore).forEach { sub ->
+                val usage = sub.usage
+                // The platform reads ids as [A-Za-z0-9._:-]+; Codex thread ids are UUIDs.
+                val subInvocationId = "$invocationId:sub:" + sub.threadId.replace(Regex("[^A-Za-z0-9._-]"), "_").take(64)
+                logger.info {
+                    "[ExternalAgent] Codex sub-agent '$resolvedName' thread ${sub.threadId} (${sub.agentPath ?: "?"}) " +
+                        "usage=${usage.toTokenUsage()}, reasoning_output_tokens=${usage.reasoningOutputTokens}, partial=$partial"
+                }
+                emit(
+                    type = Engine.CODEX.finalUsageEventType(),
+                    summary = "🔤 Codex 子代理 Token 用量: $label → ${sub.agentPath ?: sub.threadId}",
+                    detail = buildString {
+                        append("invocation_id=$subInvocationId")
+                        append(", parent_invocation_id=$invocationId")
+                        append(", input_tokens=${usage.inputTokens}")
+                        append(", output_tokens=${usage.outputTokens}")
+                        append(", total_tokens=${usage.inputTokens + usage.outputTokens}")
+                        append(", cache_read=${usage.cachedInputTokens}")
+                        append(", reasoning_output_tokens=${usage.reasoningOutputTokens}")
+                        append(", partial=$partial")
+                        append(", source=codex_rollout_sub_agent")
+                        sub.agentPath?.let { append(", agent_path=$it") }
+                    }
+                )
+            }
+        }.onFailure { e ->
+            logger.warn(e) { "[ExternalAgent] Failed to read Codex sub-agent usage for '$resolvedName' from CODEX_HOME" }
+        }
     }
 
     private fun maybePublishRotatedCodexAuthJson(auth: ResolvedExternalAuth) {
@@ -2554,6 +2622,25 @@ class ExternalAgentTools(
     internal data class CodexUsageHome(val hostDir: File, val exclusive: Boolean)
 
     /**
+     * One thread's session rollout, identified by its own `session_meta` (the first
+     * one: a forked thread's rollout also carries copies of its ancestors' metas).
+     * [inheritedUsage] is the cumulative total a fork copied from its parent and
+     * kept counting from, or null when the fork started from zero.
+     */
+    internal data class CodexThreadRollout(
+        val threadId: String,
+        val usage: CodexRolloutUsage?,
+        val inheritedUsage: CodexRolloutUsage?
+    )
+
+    /** What one Codex sub-agent thread spent during this invocation. */
+    internal data class CodexSubAgentUsage(
+        val threadId: String,
+        val agentPath: String?,
+        val usage: CodexRolloutUsage
+    )
+
+    /**
      * A rollout `token_count.info.total_token_usage` snapshot, in raw Codex semantics:
      * [inputTokens] includes [cachedInputTokens] and [outputTokens] includes
      * [reasoningOutputTokens] — the same shape `turn.completed` reports.
@@ -3232,22 +3319,14 @@ class ExternalAgentTools(
          * while a shared home without a matching thread id yields nothing.
          */
         internal fun findCodexRollout(home: File, threadId: String?, exclusive: Boolean): File? {
-            val sessions = File(home, "sessions")
-            if (!sessions.isDirectory) return null
-            val rollouts = runCatching {
-                Files.walk(sessions.toPath(), CODEX_ROLLOUT_MAX_DEPTH).use { paths ->
-                    paths.filter { path ->
-                        val name = path.fileName.toString()
-                        name.startsWith("rollout-") && name.endsWith(".jsonl") &&
-                            Files.isRegularFile(path, NOFOLLOW_LINKS)
-                    }.toList()
-                }
-            }.getOrElse { return null }
+            val rollouts = listCodexRollouts(home)
             val id = threadId?.trim()?.takeIf { it.isNotEmpty() }
             val matching = id?.let { rollouts.filter { path -> path.fileName.toString().endsWith("-$it.jsonl") } }.orEmpty()
             val candidates = when {
                 matching.isNotEmpty() -> matching
-                exclusive -> rollouts
+                // Sub-agent threads keep rollouts of their own in the same home and are
+                // often the newest; they are never the run's own thread.
+                exclusive -> rollouts.filterNot { path -> readCodexRolloutMeta(path.toFile())?.subAgent == true }
                 else -> return null
             }
             return candidates
@@ -3257,22 +3336,174 @@ class ExternalAgentTools(
                 ?.toFile()
         }
 
+        /** Every `rollout-*.jsonl` under `<home>/sessions`; empty when there is none or it cannot be listed. */
+        private fun listCodexRollouts(home: File): List<Path> {
+            val sessions = File(home, "sessions")
+            if (!sessions.isDirectory) return emptyList()
+            return runCatching {
+                Files.walk(sessions.toPath(), CODEX_ROLLOUT_MAX_DEPTH).use { paths ->
+                    paths.filter { path ->
+                        val name = path.fileName.toString()
+                        name.startsWith("rollout-") && name.endsWith(".jsonl") &&
+                            Files.isRegularFile(path, NOFOLLOW_LINKS)
+                    }.toList()
+                }
+            }.getOrDefault(emptyList())
+        }
+
+        /** Byte size of every rollout under [home], keyed by absolute path, to tell later what a run added. */
+        internal fun snapshotCodexRolloutSizes(home: File): Map<String, Long> =
+            listCodexRollouts(home).associate { path ->
+                path.toAbsolutePath().toString() to runCatching { Files.size(path) }.getOrDefault(0L)
+            }
+
         /**
          * The last cumulative usage in a rollout: lines
          * `{"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{…}}}}`.
          * Malformed lines (including one cut off by a kill mid-write), `info: null`
          * rate-limit updates and missing fields are ignored; null when nothing usable
-         * remains or the file cannot be read.
+         * remains or the file cannot be read. [limitBytes] reads only the file's prefix
+         * (its content at an earlier [snapshotCodexRolloutSizes]).
          */
-        internal fun readCodexRolloutUsage(rollout: File): CodexRolloutUsage? = runCatching {
+        internal fun readCodexRolloutUsage(rollout: File, limitBytes: Long = Long.MAX_VALUE): CodexRolloutUsage? = runCatching {
             var last: CodexRolloutUsage? = null
-            rollout.bufferedReader(Charsets.UTF_8).useLines { lines ->
+            BoundedInputStream(rollout.inputStream(), limitBytes).bufferedReader(Charsets.UTF_8).useLines { lines ->
                 lines.filter { it.contains("\"token_count\"") }
                     .mapNotNull(::parseCodexTokenCountLine)
                     .forEach { last = it }
             }
             last
         }.getOrNull()
+
+        /**
+         * Every Codex sub-agent thread that spent tokens during this run, with what it
+         * spent. A sub-agent is a rollout whose own `session_meta` has a `subagent`
+         * source (or a parent thread) and whose id is not [primaryThreadId]. An
+         * [exclusive] home belongs to this run alone; in a shared one a thread must
+         * descend from [primaryThreadId] (`session_id` names the root thread) and have
+         * grown since [rolloutSizesBefore], and only the growth is charged.
+         */
+        internal fun codexSubAgentUsages(
+            home: File,
+            primaryThreadId: String?,
+            exclusive: Boolean,
+            rolloutSizesBefore: Map<String, Long>
+        ): List<CodexSubAgentUsage> {
+            val primary = primaryThreadId?.trim()?.takeIf { it.isNotEmpty() }
+            if (!exclusive && primary == null) return emptyList()
+            return listCodexRollouts(home).sortedBy { it.toString() }.mapNotNull { path ->
+                val sizeBefore = rolloutSizesBefore[path.toAbsolutePath().toString()]
+                if (sizeBefore != null && runCatching { Files.size(path) }.getOrDefault(0L) <= sizeBefore) {
+                    return@mapNotNull null
+                }
+                val rollout = path.toFile()
+                // The header decides; only sub-agent rollouts are read in full.
+                val meta = readCodexRolloutMeta(rollout) ?: return@mapNotNull null
+                if (!meta.subAgent || meta.threadId == primary) return@mapNotNull null
+                if (!exclusive && meta.rootSessionId != primary) return@mapNotNull null
+                val thread = readCodexThreadRollout(rollout) ?: return@mapNotNull null
+                val total = thread.usage ?: return@mapNotNull null
+                // A pre-existing rollout already counted what it held then; that prefix
+                // also covers any total a fork inherited.
+                val baseline = if (sizeBefore != null) readCodexRolloutUsage(rollout, sizeBefore) else thread.inheritedUsage
+                val usage = baseline?.let { total - it } ?: total
+                if (usage.isEmpty()) null else CodexSubAgentUsage(meta.threadId, meta.agentPath, usage)
+            }
+        }
+
+        /**
+         * A rollout's thread id, cumulative usage and, for a fork, the total it inherited.
+         * Codex 0.159 `exec` threads use paginated history, whose forks drop the parent's
+         * `token_count` events and count from zero; a legacy-history fork copies them
+         * ahead of its own `thread_settings_applied` and keeps counting from the last
+         * one, which [CodexThreadRollout.inheritedUsage] records.
+         */
+        internal fun readCodexThreadRollout(rollout: File): CodexThreadRollout? = runCatching {
+            rollout.bufferedReader(Charsets.UTF_8).useLines { lines ->
+                var meta: CodexRolloutMeta? = null
+                var last: CodexRolloutUsage? = null
+                var inherited: CodexRolloutUsage? = null
+                var inheritedSettled = false
+                for (line in lines) {
+                    val own = meta
+                    if (own == null) {
+                        if (line.contains("\"session_meta\"")) meta = parseCodexSessionMeta(line)
+                        continue
+                    }
+                    if (line.contains("\"token_count\"")) {
+                        parseCodexTokenCountLine(line)?.let { last = it }
+                    } else if (own.forked && !inheritedSettled && line.contains("\"thread_settings_applied\"") &&
+                        isCodexEventMsg(line, "thread_settings_applied")
+                    ) {
+                        inheritedSettled = true
+                        inherited = last
+                    }
+                }
+                meta?.let { own -> CodexThreadRollout(own.threadId, last, inherited) }
+            }
+        }.getOrNull()
+
+        private class CodexRolloutMeta(
+            val threadId: String,
+            val rootSessionId: String?,
+            val subAgent: Boolean,
+            val forked: Boolean,
+            val agentPath: String?
+        )
+
+        /** The rollout's own `session_meta`, which Codex writes first. */
+        private fun readCodexRolloutMeta(rollout: File): CodexRolloutMeta? = runCatching {
+            rollout.bufferedReader(Charsets.UTF_8).useLines { lines ->
+                lines.take(CODEX_SESSION_META_MAX_LINE)
+                    .firstOrNull { it.contains("\"session_meta\"") }
+                    ?.let(::parseCodexSessionMeta)
+            }
+        }.getOrNull()
+
+        private const val CODEX_SESSION_META_MAX_LINE = 8
+
+        private fun parseCodexSessionMeta(line: String): CodexRolloutMeta? {
+            val obj = parseJsonObjectOrNullStatic(line.trim()) ?: return null
+            if (obj.stringField("type") != "session_meta") return null
+            val payload = obj["payload"] as? JsonObject ?: return null
+            val id = payload.stringField("id")?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+            // `"source":{"subagent":{"thread_spawn":{"parent_thread_id":…,"agent_path":…}}}`
+            val subAgentSource = (payload["source"] as? JsonObject)?.get("subagent")
+            val threadSpawn = (subAgentSource as? JsonObject)?.get("thread_spawn") as? JsonObject
+            return CodexRolloutMeta(
+                threadId = id,
+                rootSessionId = payload.stringField("session_id")?.trim()?.takeIf { it.isNotEmpty() },
+                subAgent = subAgentSource != null || !payload.stringField("parent_thread_id").isNullOrBlank(),
+                forked = !payload.stringField("forked_from_id").isNullOrBlank(),
+                agentPath = (payload.stringField("agent_path") ?: threadSpawn?.stringField("agent_path"))
+                    ?.let(::detailSafeValue)
+            )
+        }
+
+        private fun isCodexEventMsg(line: String, payloadType: String): Boolean {
+            val obj = parseJsonObjectOrNullStatic(line.trim()) ?: return false
+            return obj.stringField("type") == "event_msg" &&
+                (obj["payload"] as? JsonObject)?.stringField("type") == payloadType
+        }
+
+        /** A value safe inside a `key=value, …` event detail. */
+        private fun detailSafeValue(value: String): String? =
+            value.replace(Regex("[\\s,;=]+"), "_").take(160).takeIf { it.isNotBlank() }
+
+        /** Reads at most [remaining] bytes of [input]. */
+        private class BoundedInputStream(input: InputStream, private var remaining: Long) : FilterInputStream(input) {
+            override fun read(): Int {
+                if (remaining <= 0L) return -1
+                return super.read().also { if (it >= 0) remaining-- }
+            }
+
+            override fun read(b: ByteArray, off: Int, len: Int): Int {
+                if (remaining <= 0L) return -1
+                val n = super.read(b, off, minOf(len.toLong(), remaining).toInt())
+                if (n > 0) remaining -= n
+                return n
+            }
+        }
 
         private fun parseCodexTokenCountLine(line: String): CodexRolloutUsage? {
             val obj = parseJsonObjectOrNullStatic(line.trim()) ?: return null

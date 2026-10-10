@@ -448,4 +448,253 @@ class ExternalAgentToolsCodexUsageRecoveryTest {
         assertNotNull(events.single { it.type == "codex_sub_agent_completed" })
         assertNull(field(events.single { it.type == "codex_sub_agent_completed" }.detail, "input_tokens"))
     }
+
+    // ---- Codex multi-agent sub-agents -------------------------------------------------
+    // Shapes verified against codex-cli 0.159.0 source and 0.160 rollouts: a thread's own
+    // session_meta comes first (a fork also copies its parent's), `session_id` names the
+    // root thread, and a paginated-history fork drops the parent's token_count events.
+
+    private fun sessionMetaLine(
+        threadId: String,
+        rootId: String,
+        spawnedBy: String? = null,
+        forkedFrom: String? = null,
+        agentPath: String? = null
+    ): String {
+        val source = if (spawnedBy == null) {
+            "\"exec\""
+        } else {
+            """{"subagent":{"thread_spawn":{"parent_thread_id":"$spawnedBy","depth":1,""" +
+                """"agent_path":${agentPath?.let { "\"$it\"" } ?: "null"},"agent_nickname":"Ada","agent_role":null}}}"""
+        }
+        return """{"timestamp":"2026-10-09T03:00:00.000Z","ordinal":0,"type":"session_meta","payload":{""" +
+            """"session_id":"$rootId","id":"$threadId",""" +
+            (forkedFrom?.let { """"forked_from_id":"$it",""" } ?: "") +
+            (spawnedBy?.let { """"parent_thread_id":"$it",""" } ?: "") +
+            """"timestamp":"2026-10-09T03:00:00.000Z","cwd":"/workspace","originator":"codex_exec",""" +
+            """"cli_version":"0.159.0","source":$source,""" +
+            (agentPath?.let { """"agent_path":"$it",""" } ?: "") +
+            """"model_provider":"openai","history_mode":"paginated","multi_agent_version":"v2"}}"""
+    }
+
+    private val copiedUserMessageLine =
+        """{"timestamp":"2026-10-09T03:00:01.000Z","type":"response_item","payload":{"type":"message","role":"user",""" +
+            """"content":[{"type":"input_text","text":"Draft three directions for the onboarding screens"}]}}"""
+
+    private val threadSettingsAppliedLine =
+        """{"timestamp":"2026-10-09T03:00:01.000Z","type":"event_msg","payload":{"type":"thread_settings_applied","model":"gpt-6-astra"}}"""
+
+    /** A rollout with exactly [lines] (no implicit session_meta), named the way Codex names it. */
+    private fun writeThreadRollout(home: File, threadId: String, vararg lines: String, day: String = "2026/10/09"): File {
+        val dir = File(home, "sessions/$day").apply { mkdirs() }
+        return File(dir, "rollout-2026-10-09T11-00-00-$threadId.jsonl").apply {
+            writeText(lines.joinToString(separator = "\n", postfix = "\n"))
+        }
+    }
+
+    private fun subAgentFinals(events: List<Event>) =
+        events.filter { it.type == "codex_sub_agent_usage_final" && field(it.detail, "source") == "codex_rollout_sub_agent" }
+
+    @Test
+    fun `sub-agent threads are reported once each and the main thread is not`(): Unit = runBlocking {
+        val main = "01a11d44-0000-7000-8000-00000000main"
+        val fresh = "01a11d44-0000-7000-8000-0000000fresh"
+        val forked = "01a11d44-0000-7000-8000-000000forked"
+        var home: File? = null
+        val executor = ScriptedExecutor { request ->
+            val codexHome = hostCodexHome(request)
+            home = codexHome
+            writeThreadRollout(
+                codexHome, main,
+                sessionMetaLine(main, rootId = main),
+                tokenCountLine(input = 90_000, cached = 70_000, output = 4_000, reasoning = 1_000)
+            )
+            // spawn_agent without history.
+            writeThreadRollout(
+                codexHome, fresh,
+                sessionMetaLine(fresh, rootId = main, spawnedBy = main, agentPath = "/root/visual_review_b"),
+                tokenCountLine(input = 41_000, cached = 18_000, output = 400, reasoning = 80, ordinal = 20),
+                rateLimitOnlyLine,
+                tokenCountLine(input = 83_000, cached = 59_000, output = 900, reasoning = 130, ordinal = 31)
+            )
+            // spawn_agent with fork_turns="all": the parent's meta and messages are copied,
+            // its token_count events are not, and the child counts from zero.
+            writeThreadRollout(
+                codexHome, forked,
+                sessionMetaLine(forked, rootId = main, spawnedBy = main, forkedFrom = main, agentPath = "/root/design_draft_a"),
+                sessionMetaLine(main, rootId = main),
+                copiedUserMessageLine,
+                threadSettingsAppliedLine,
+                tokenCountLine(input = 41_500, cached = 40_500, output = 76, reasoning = 0, ordinal = 38),
+                tokenCountLine(input = 125_000, cached = 110_000, output = 6_000, reasoning = 2_000, ordinal = 52)
+            )
+            ExecResult(
+                0,
+                listOf(
+                    threadStarted(main),
+                    """{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"drafts ready"}}""",
+                    """{"type":"turn.completed","usage":{"input_tokens":90000,"cached_input_tokens":70000,"output_tokens":4000,"reasoning_output_tokens":1000}}"""
+                ).joinToString("\n"),
+                "",
+                30_000
+            )
+        }
+        val events = mutableListOf<Event>()
+
+        val text = tools(executor, subscriptionParameters(), events)
+            .runCodexSubAgent(ExternalAgentContext(prompt = "x", name = "product_designer"))
+
+        assertEquals("drafts ready", text)
+        val invocationId = requireNotNull(field(events.first { it.type == "codex_sub_agent_starting" }.detail, "invocation_id"))
+        val subs = subAgentFinals(events).associateBy { field(it.detail, "invocation_id") }
+        assertEquals(setOf("$invocationId:sub:$fresh", "$invocationId:sub:$forked"), subs.keys, "events: $events")
+
+        val freshDetail = subs.getValue("$invocationId:sub:$fresh").detail
+        assertEquals("83000", field(freshDetail, "input_tokens"))
+        assertEquals("59000", field(freshDetail, "cache_read"))
+        assertEquals("900", field(freshDetail, "output_tokens"))
+        assertEquals("130", field(freshDetail, "reasoning_output_tokens"))
+        assertEquals("83900", field(freshDetail, "total_tokens"))
+        assertEquals(invocationId, field(freshDetail, "parent_invocation_id"))
+        assertEquals("/root/visual_review_b", field(freshDetail, "agent_path"))
+        assertEquals("false", field(freshDetail, "partial"))
+
+        val forkedDetail = subs.getValue("$invocationId:sub:$forked").detail
+        assertEquals("125000", field(forkedDetail, "input_tokens"))
+        assertEquals("110000", field(forkedDetail, "cache_read"))
+        assertEquals("6000", field(forkedDetail, "output_tokens"))
+
+        // The main thread is metered once, from turn.completed — never from its rollout.
+        assertTrue(events.filter { it.type == "codex_sub_agent_usage_final" }.all { field(it.detail, "invocation_id")!!.contains(":sub:") })
+        assertEquals(1, events.count { it.type == "codex_sub_agent_usage" })
+        assertEquals("90000", field(events.single { it.type == "codex_sub_agent_completed" }.detail, "input_tokens"))
+        assertFalse(requireNotNull(home).exists(), "per-run CODEX_HOME should still be deleted")
+    }
+
+    @Test
+    fun `a killed run recovers the main thread and still reports its sub-agents as partial`(): Unit = runBlocking {
+        val main = "thread-main-killed"
+        val sub = "thread-sub-killed"
+        val executor = ScriptedExecutor { request ->
+            val codexHome = hostCodexHome(request)
+            writeThreadRollout(codexHome, main, sessionMetaLine(main, rootId = main), tokenCountLine(20_000, 15_000, 700, 100))
+            writeThreadRollout(
+                codexHome, sub,
+                sessionMetaLine(sub, rootId = main, spawnedBy = main, agentPath = "/root/design_draft_b"),
+                tokenCountLine(9_000, 6_000, 300, 50)
+            )
+            timeoutResult(threadStarted(main))
+        }
+        val events = mutableListOf<Event>()
+
+        assertThrows(ExternalAgentTools.ExternalAgentTimeoutException::class.java) {
+            runBlocking { tools(executor, subscriptionParameters(), events).runCodexSubAgent(ExternalAgentContext(prompt = "x")) }
+        }
+
+        val invocationId = requireNotNull(field(events.first { it.type == "codex_sub_agent_starting" }.detail, "invocation_id"))
+        val finals = events.filter { it.type == "codex_sub_agent_usage_final" }
+        assertEquals(2, finals.size, "events: $events")
+        val mainFinal = finals.single { field(it.detail, "invocation_id") == invocationId }
+        assertEquals("20000", field(mainFinal.detail, "input_tokens"))
+        assertEquals("codex_rollout", field(mainFinal.detail, "source"))
+        val subFinal = finals.single { field(it.detail, "invocation_id") == "$invocationId:sub:$sub" }
+        assertEquals("9000", field(subFinal.detail, "input_tokens"))
+        assertEquals("true", field(subFinal.detail, "partial"))
+    }
+
+    @Test
+    fun `a legacy-history fork is charged only what it added to the total it inherited`() {
+        val home = Files.createTempDirectory("codex-legacy-fork").toFile()
+        try {
+            val main = "thread-legacy-main"
+            val child = "thread-legacy-child"
+            writeThreadRollout(
+                home, child,
+                sessionMetaLine(child, rootId = main, spawnedBy = main, forkedFrom = main),
+                sessionMetaLine(main, rootId = main),
+                copiedUserMessageLine,
+                // The parent's own cumulative counts, copied with its history.
+                tokenCountLine(10_000, 8_000, 500, 100),
+                tokenCountLine(25_000, 20_000, 1_200, 300),
+                threadSettingsAppliedLine,
+                // The child's turns keep counting from the inherited 25,000.
+                tokenCountLine(31_000, 24_500, 1_500, 350),
+                tokenCountLine(40_000, 31_000, 2_000, 400)
+            )
+
+            val usage = ExternalAgentTools.codexSubAgentUsages(home, main, exclusive = true, rolloutSizesBefore = emptyMap()).single()
+
+            assertEquals(child, usage.threadId)
+            assertEquals(
+                ExternalAgentTools.CodexRolloutUsage(inputTokens = 15_000, cachedInputTokens = 11_000, outputTokens = 800, reasoningOutputTokens = 100),
+                usage.usage
+            )
+        } finally {
+            home.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `a shared home charges only this run's sub-agent growth`() {
+        val home = Files.createTempDirectory("codex-shared-home").toFile()
+        try {
+            val main = "thread-chat-root"
+            val resumedSub = writeThreadRollout(
+                home, "thread-sub-resumed",
+                sessionMetaLine("thread-sub-resumed", rootId = main, spawnedBy = main),
+                tokenCountLine(5_000, 4_000, 200, 0)
+            )
+            writeThreadRollout(
+                home, "thread-sub-idle",
+                sessionMetaLine("thread-sub-idle", rootId = main, spawnedBy = main),
+                tokenCountLine(7_000, 1_000, 300, 0)
+            )
+            val before = ExternalAgentTools.snapshotCodexRolloutSizes(home)
+
+            // During the run: one earlier sub-agent works again, one is new, and another
+            // conversation sharing the home spawns its own.
+            resumedSub.appendText(tokenCountLine(8_000, 6_000, 350, 10) + "\n")
+            writeThreadRollout(
+                home, "thread-sub-new",
+                sessionMetaLine("thread-sub-new", rootId = main, spawnedBy = main),
+                tokenCountLine(2_000, 500, 90, 0)
+            )
+            writeThreadRollout(
+                home, "thread-other-sub",
+                sessionMetaLine("thread-other-sub", rootId = "thread-other-root", spawnedBy = "thread-other-root"),
+                tokenCountLine(6_000, 0, 60, 0)
+            )
+
+            val usages = ExternalAgentTools.codexSubAgentUsages(home, main, exclusive = false, rolloutSizesBefore = before)
+                .associate { it.threadId to it.usage }
+
+            assertEquals(setOf("thread-sub-resumed", "thread-sub-new"), usages.keys)
+            assertEquals(ExternalAgentTools.CodexRolloutUsage(3_000, 2_000, 150, 10), usages["thread-sub-resumed"])
+            assertEquals(ExternalAgentTools.CodexRolloutUsage(2_000, 500, 90, 0), usages["thread-sub-new"])
+            // Without the run's own thread id a shared home is never guessed at.
+            assertTrue(ExternalAgentTools.codexSubAgentUsages(home, null, exclusive = false, rolloutSizesBefore = before).isEmpty())
+        } finally {
+            home.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `an unknown thread id never resolves to a sub-agent rollout`() {
+        val home = Files.createTempDirectory("codex-rollouts-subagent").toFile()
+        try {
+            val own = writeThreadRollout(home, "thread-main", sessionMetaLine("thread-main", rootId = "thread-main"), tokenCountLine(900, 0, 90, 0))
+            val sub = writeThreadRollout(
+                home, "thread-sub",
+                sessionMetaLine("thread-sub", rootId = "thread-main", spawnedBy = "thread-main"),
+                tokenCountLine(5, 0, 1, 0),
+                day = "2026/10/10"
+            )
+            own.setLastModified(System.currentTimeMillis() - 60_000)
+            sub.setLastModified(System.currentTimeMillis())
+
+            assertEquals(own, ExternalAgentTools.findCodexRollout(home, null, exclusive = true))
+        } finally {
+            home.deleteRecursively()
+        }
+    }
 }
