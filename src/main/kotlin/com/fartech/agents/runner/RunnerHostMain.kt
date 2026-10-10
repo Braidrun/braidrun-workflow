@@ -36,7 +36,9 @@ fun main(args: Array<String>) {
         System.err.println("Runner host refused startup: ${failure.reason.name}"); 2
     } catch (failure: Exception) {
         // Class names only: messages may carry transport, path or account configuration.
-        System.err.println("Runner host refused startup or lost authority: ${failure.javaClass.name}" + (failure.cause?.let { " caused by ${it.javaClass.name}" } ?: "")); 2
+        // Admission/argument failures carry static policy text (capability, tool or path rule names), never secrets.
+        val detail = if (failure is IllegalArgumentException || failure is IllegalStateException) failure.message?.take(160)?.let { ": $it" }.orEmpty() else ""
+        System.err.println("Runner host refused startup or lost authority: ${failure.javaClass.name}$detail" + (failure.cause?.let { " caused by ${it.javaClass.name}" } ?: "")); 2
     }
     exitProcess(code)
 }

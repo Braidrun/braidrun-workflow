@@ -206,10 +206,10 @@ class RunnerWorkflowHost(
             return JsonPrimitive(key)
         }
         for ((provider, parameter) in mapOf("codex" to "external_agent_codex_auth_json", "claude" to "external_agent_claude_oauth_token")) {
-            val reference = parameters.firstOrNull { it.key == parameter }?.value?.jsonPrimitive?.content
-            if (!reference.isNullOrBlank()) {
-                require(RunnerAdmission.CREDENTIAL_REFERENCE.matches(reference)) { "Subscription requires scoped reference" }
-                cliPools[poolKey(provider, scope)] = RunnerSubscriptionPool(live, scope, provider, reference, secrets, ::emit)
+            val references = parameters.firstOrNull { it.key == parameter }?.value?.jsonPrimitive?.content?.split(',')?.map { it.trim() }?.filter { it.isNotEmpty() }.orEmpty()
+            if (references.isNotEmpty()) {
+                require(references.all { RunnerAdmission.CREDENTIAL_REFERENCE.matches(it) }) { "Subscription requires scoped references" }
+                cliPools[poolKey(provider, scope)] = RunnerSubscriptionPool(live, scope, provider, references, secrets, ::emit)
             }
         }
         suspend fun mcp(value: JsonElement): JsonElement {
