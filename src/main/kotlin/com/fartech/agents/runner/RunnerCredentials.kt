@@ -38,12 +38,14 @@ class RunnerCredentials(
             put("requestId", requestId); put("credentialRef", ref); put("expectedVersion", version)
             put("childExecutionPath", childPath(scope.rootExecutionId, scope.executionId)); put("purpose", purpose)
         }
+        var dispatched = false
         val grant = try {
-            ipc.requestCorrelated("credentialRequest", request, "credentialGrant", frameId = requestFrameId).payload
+            ipc.requestCorrelated("credentialRequest", request, "credentialGrant", frameId = requestFrameId,
+                onRequest = { dispatched = true }).payload
         } catch (cancelled: kotlinx.coroutines.CancellationException) {
             // The RPC waiter has been removed before cancellation escapes. A late response can never
             // become a usable lease. S can now retire only the grant associated with this exact request.
-            if (!ipc.businessFence.isClosed()) runCatching {
+            if (dispatched && !ipc.businessFence.isClosed()) runCatching {
                 onRequestCancelled(JsonObject(request + ("requestFrameId" to JsonPrimitive(requestFrameId))))
             }.onFailure { gate.invalidate("CREDENTIAL_REQUEST_CANCELLATION_UNREPORTED") }
             throw cancelled

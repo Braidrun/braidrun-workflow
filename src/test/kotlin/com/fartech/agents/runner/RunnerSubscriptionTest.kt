@@ -124,6 +124,26 @@ class RunnerSubscriptionTest {
         } }
     }
 
+    @Test fun `pre-dispatch cancellation creates no orphan request notification and backup stays usable`() = runBlocking<Unit> {
+        withTimeout(5000) { IpcHarness().use { h ->
+            val gate=RunnerEnvironmentGate(h.binding,setOf("engine-http"));gate.install(RunnerProtocolTest.environment(h.binding,Instant.now()))
+            val cancelled=java.util.concurrent.CopyOnWriteArrayList<JsonObject>()
+            val credentials=RunnerCredentials(h.ipc,gate,RunnerSecrets(),onRequestCancelled={cancelled+=it})
+            val root=h.binding.string("executionId");val scope=WorkflowHostScope(root,root,stepName="cli")
+            val beforeDispatch=launch(start=CoroutineStart.UNDISPATCHED) {
+                currentCoroutineContext().cancel()
+                credentials.acquire("account",3,scope,"subscription.codex")
+            }
+            beforeDispatch.join()
+            assertTrue(beforeDispatch.isCancelled);assertTrue(cancelled.isEmpty());assertFalse(h.ipc.businessFence.isClosed());gate.check()
+            val backup=async { credentials.acquire("backup",3,scope,"subscription.codex") }
+            val request=h.next();assertEquals("backup",request.obj("payload").string("credentialRef"))
+            val reply=grant(h,request,"backup-grant",buildJsonObject { put("authJson",original) })
+            h.ipc.accept(JsonObject(reply+("payload" to JsonObject(reply.obj("payload")+("credentialRef" to JsonPrimitive("backup"))))))
+            assertEquals(original,credentials.material(backup.await(),scope,"subscription.codex").string("authJson"));gate.check()
+        } }
+    }
+
     @Test fun `proxy validation applies even when URL has trailing slash`() {
         for (url in listOf("http://u:p@localhost:7890/", "file://localhost/", "http://localhost/")) {
             val properties = java.util.Properties().apply { setProperty(RunnerHttpClients.DECLARED_PROXY_PROPERTY, url) }
