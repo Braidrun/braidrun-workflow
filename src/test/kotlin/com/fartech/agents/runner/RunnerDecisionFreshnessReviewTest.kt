@@ -12,7 +12,7 @@ class RunnerDecisionFreshnessReviewTest {
     @Test fun `periodic wait probe wrong request and reused check cannot release approved occurrence`() = runBlocking {
         IpcHarness().use { h ->
             val gate = RunnerEnvironmentGate(h.binding, setOf("engine-http")); gate.install(fresh(h, "initial"))
-            val approved = async { RunnerApprovalHandler(h.ipc, gate).requestApproval(ApprovalRequest("root:step:2", "flow", h.binding.string("executionId"), "step", "Approve second", emptyList(), 0, "30", occurrenceId = "2")) }
+            val approved = async { RunnerApprovalHandler(h.ipc, gate).requestApproval(ApprovalRequest("root:step:2", "flow", h.binding.string("executionId"), "step", "Approve second", emptyList(), System.currentTimeMillis(), "30", occurrenceId = "2")) }
             val request = h.next(); val frameId = request.string("frameId")
             val periodicB = fresh(h, "periodic-B")
             gate.install(periodicB)

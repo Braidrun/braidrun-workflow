@@ -18,9 +18,16 @@ internal class IpcHarness(val binding: JsonObject = RunnerProtocolTest.binding()
     var failed = false
     val ipc = RunnerIpc(binding, engineInput, engineOutput, onControl = { synchronized(controls) { controls.add(it) }; onControl(it) }, onFailure = { failed = true })
     init { ipc.start() }
-    suspend fun next(): JsonObject = withContext(Dispatchers.IO) {
-        val raw = RunnerIpc.readLine(supervisorInput) ?: error("EOF")
-        RunnerProtocol().parse(raw.toString(Charsets.UTF_8))
+    suspend fun next(): JsonObject = withTimeout(10_000) {
+        try {
+            runInterruptible(Dispatchers.IO) {
+                val raw = RunnerIpc.readLine(supervisorInput) ?: error("EOF")
+                RunnerProtocol().parse(raw.toString(Charsets.UTF_8))
+            }
+        } catch (interrupted: java.io.InterruptedIOException) {
+            currentCoroutineContext().ensureActive()
+            throw interrupted
+        }
     }
     fun reply(request: JsonObject, type: String, payload: JsonObject): JsonObject = RunnerProtocolTest.frame(binding, type, payload, request.string("frameId"))
     fun eof() { supervisorOutput.close() }
@@ -28,6 +35,14 @@ internal class IpcHarness(val binding: JsonObject = RunnerProtocolTest.binding()
 }
 
 class RunnerIpcTest {
+    @Test fun `cancelled fixture reader cannot hang the test scope`() = runBlocking<Unit> {
+        IpcHarness().use { h ->
+            val waiting=launch { h.next() }
+            delay(30)
+            withTimeout(1000) { waiting.cancelAndJoin() }
+            assertTrue(waiting.isCancelled)
+        }
+    }
     @Test fun `approval and askUser round trip preserve request correlation`() = runBlocking {
         IpcHarness().use { harness ->
             val gate = RunnerEnvironmentGate(harness.binding, setOf("engine-http"))
