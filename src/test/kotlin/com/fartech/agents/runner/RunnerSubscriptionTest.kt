@@ -94,6 +94,36 @@ class RunnerSubscriptionTest {
         } }
     }
 
+    @Test fun `cancelled renewal publishes its original request identity and late grant never becomes held`() = runBlocking<Unit> {
+        withTimeout(5000) { IpcHarness().use { h ->
+            val gate = RunnerEnvironmentGate(h.binding, setOf("engine-http")); gate.install(RunnerProtocolTest.environment(h.binding, Instant.now()))
+            val cancelled = java.util.concurrent.CopyOnWriteArrayList<JsonObject>()
+            val credentials = RunnerCredentials(h.ipc, gate, RunnerSecrets(), onRequestCancelled = { cancelled += it })
+            val releases = java.util.concurrent.CopyOnWriteArrayList<String>()
+            val live = RunnerLiveCredentials(credentials, gate, renewalIntervalMs = 30, onReleased = { lease, _ -> releases += lease.leaseId })
+            val root = h.binding.string("executionId"); val scope = WorkflowHostScope(root, root, stepName = "cli")
+            try {
+                val pending = async { live.acquire("credential:account@3", scope, "subscription.codex") }
+                h.ipc.accept(grant(h, h.next(), "grant-a", buildJsonObject { put("authJson", original) }))
+                val handle = pending.await()
+                val renewal = h.next() // S has recorded a grant, but its reply is deliberately withheld from E.
+                live.release(handle)
+                assertEquals(1, cancelled.size)
+                assertEquals(renewal.string("frameId"), cancelled.single().string("requestFrameId"))
+                assertEquals(renewal.obj("payload"), JsonObject(cancelled.single() - "requestFrameId"))
+                h.ipc.accept(grant(h, renewal, "grant-r-late", buildJsonObject { put("authJson", original) }))
+                assertEquals("grant-a", handle.latest.get().leaseId)
+                assertEquals(listOf("grant-a"), releases)
+                assertFailsWith<IllegalArgumentException> { live.checked(handle, scope, "subscription.codex") }
+                gate.check()
+                val replacement = async { live.acquire("credential:account@3", scope.copy(stepName = "replacement"), "subscription.codex") }
+                h.ipc.accept(grant(h, h.next(), "grant-b", buildJsonObject { put("authJson", original) }))
+                val b=replacement.await(); assertEquals("grant-b", b.latest.get().leaseId);gate.check()
+                live.release(b)
+            } finally { live.close(); credentials.clear() }
+        } }
+    }
+
     @Test fun `proxy validation applies even when URL has trailing slash`() {
         for (url in listOf("http://u:p@localhost:7890/", "file://localhost/", "http://localhost/")) {
             val properties = java.util.Properties().apply { setProperty(RunnerHttpClients.DECLARED_PROXY_PROPERTY, url) }

@@ -25,17 +25,29 @@ class RunnerCredentials(
     private val gate: RunnerEnvironmentGate,
     private val secrets: RunnerSecrets,
     private val now: () -> Instant = Instant::now,
-    private val nanoTime: () -> Long = System::nanoTime
+    private val nanoTime: () -> Long = System::nanoTime,
+    private val onRequestCancelled: (JsonObject) -> Unit = {}
 ) {
     private val leases = ConcurrentHashMap<String, RunnerCredentialLease>()
     suspend fun acquire(ref: String, version: Long, scope: WorkflowHostScope, purpose: String): RunnerCredentialLease {
         ipc.businessFence.check(); gate.check()
         require(scope.rootExecutionId == ipc.binding.string("executionId")) { "Credential scope mismatch" }
         val requestId = UUID.randomUUID().toString()
-        val grant = ipc.request("credentialRequest", buildJsonObject {
+        val requestFrameId = UUID.randomUUID().toString()
+        val request = buildJsonObject {
             put("requestId", requestId); put("credentialRef", ref); put("expectedVersion", version)
             put("childExecutionPath", childPath(scope.rootExecutionId, scope.executionId)); put("purpose", purpose)
-        }, "credentialGrant")
+        }
+        val grant = try {
+            ipc.requestCorrelated("credentialRequest", request, "credentialGrant", frameId = requestFrameId).payload
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            // The RPC waiter has been removed before cancellation escapes. A late response can never
+            // become a usable lease. S can now retire only the grant associated with this exact request.
+            if (!ipc.businessFence.isClosed()) runCatching {
+                onRequestCancelled(JsonObject(request + ("requestFrameId" to JsonPrimitive(requestFrameId))))
+            }.onFailure { gate.invalidate("CREDENTIAL_REQUEST_CANCELLATION_UNREPORTED") }
+            throw cancelled
+        }
         // Register FIRST: even a rejected grant must never appear in late logs.
         secrets.register(grant.obj("material"))
         require(grant.string("requestId") == requestId && grant.string("credentialRef") == ref && grant.long("version") == version) { "Credential grant mismatch" }

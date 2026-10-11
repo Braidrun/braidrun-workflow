@@ -137,7 +137,9 @@ class RunnerWorkflowHost(
     override val workflowResolver: WorkflowResolver get() = bundle
     override val approvalHandler: RunnerApprovalHandler = RunnerApprovalHandler(ipc, gate,
         journal = RunnerApprovalJournal(bundle.executionDirectory, ipc.binding, store, secrets), beforeRequest = ::checkBusinessOpen)
-    private val credentials = RunnerCredentials(ipc, gate, secrets)
+    private val credentials = RunnerCredentials(ipc, gate, secrets, onRequestCancelled = { request ->
+        emit("usage", JsonObject(request + ("outcome" to JsonPrimitive("REQUEST_CANCELLED"))))
+    })
     override val privateDirectory: java.io.File get() = bundle.executionDirectory.resolve(".runner-private").toFile()
     override fun observeCredentialFile(scope: WorkflowHostScope, path: java.nio.file.Path): AutoCloseable {
         checkBusinessOpen(); require(scope.rootExecutionId == binding.executionId) { "Credential file scope mismatch" }
