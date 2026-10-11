@@ -5,10 +5,54 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.4.2] - 2026-10-10
 
 ### Fixed
 
+- **Codex sub-agent threads are metered.** With multi-agent enabled, Codex runs
+  `spawn_agent` children as separate threads, and `codex exec --json` reports
+  only the main thread: `turn.completed` (and the rollout recovery of 1.4.1)
+  never included what the sub-agents spent. Before the run's `CODEX_HOME` is
+  cleaned up, on every exit path, the engine now reads each sub-agent thread's
+  own rollout (`session_meta` with a `subagent` source) and emits its last
+  cumulative `token_count` once as `codex_sub_agent_usage_final` under
+  `invocation_id=<invocation>:sub:<thread id>`, with `parent_invocation_id`,
+  raw Codex `input_tokens` / `output_tokens` / `cache_read` /
+  `reasoning_output_tokens`, `partial`, `agent_path` and
+  `source=codex_rollout_sub_agent`. The main thread is never reported twice.
+  A per-run home is read whole; in a shared, persistent home only threads under
+  the run's root session that grew during the run count, and only by what they
+  added. A legacy-history fork, which keeps counting from its parent's copied
+  total, is charged only its own share (codex 0.159 `exec` forks use paginated
+  history and start from zero).
+- When the run's thread id is unknown, usage recovery no longer mistakes the
+  newest sub-agent rollout for the run's own.
+
+## [1.4.1] - 2026-10-04
+
+### Fixed
+
+- **External agent runs may now last up to four hours.** `MAX_TIMEOUT_SECONDS`
+  was 3600, so every template budget above one hour (App Factory developers,
+  repairers and visual reviewers ask for 7200 s, the designer for 5400 s) was
+  silently cut to one hour. The ceiling is now 14400 s; it still stops absurd
+  values, and the template value is used as configured below it.
+- **Codex runs that never report `turn.completed` are no longer metered at
+  zero.** `codex exec --json` prints usage only in its final event, so a run
+  killed by its timeout, cancelled by the step, exiting non-zero, or whose
+  stdout overflowed the 8 MiB capture published no tokens at all. The engine
+  now reads the last cumulative `token_count` from the run's session rollout
+  (`$CODEX_HOME/sessions/**/rollout-*-<thread id>.jsonl`, on the host and
+  before the per-run home is deleted) and emits it once as
+  `codex_sub_agent_usage_final` with `partial=true|false` and
+  `reason=timeout|failed|cancelled|missing_usage`. It is skipped whenever a
+  `turn.completed` usage was already seen, and a resumed thread is charged only
+  what the invocation added.
+- **Docker API-key Codex runs keep `CODEX_HOME` on a per-invocation host
+  directory** bind-mounted at `/codex-home` (instead of the container tmpfs), so
+  the rollout outlives the container; it is deleted after the run, and the
+  tmpfs remains the fallback when the directory cannot be created. Native
+  API-key runs still use the operator's own `CODEX_HOME` and are not recovered.
 - **Concurrent runs no longer act on a step that has not finished.** With
   `concurrency.enabled`, a step was recorded as a satisfied dependency before
   its `extract` landed, so a sibling finishing in that window let dependents
@@ -21,6 +65,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   step as unfinished until its completion, and step results (including
   `iterate_over`) are recorded after their output, extract and
   `publish_outputs`, with the variable savepoint.
+
 
 ## [1.4.0]
 

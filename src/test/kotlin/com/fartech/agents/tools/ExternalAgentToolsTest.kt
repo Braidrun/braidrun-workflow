@@ -1156,6 +1156,15 @@ class ExternalAgentToolsTest {
         assertEquals(ExternalAgentTools.MAX_TIMEOUT_SECONDS.toLong(), executor.lastRequest!!.timeoutSeconds)
     }
 
+    @Test
+    fun `a two hour template budget is honoured`() = runBlocking {
+        val executor = FakeSubprocessExecutor(ExecResult(0, """{"result":"ok"}""", "", 1))
+        val (tools, _) = buildTools(executor)
+
+        tools.runClaudeCodeSubAgent(ExternalAgentContext(prompt = "x", timeoutSeconds = 7200))
+        assertEquals(7200L, executor.lastRequest!!.timeoutSeconds)
+    }
+
     // ------------------------------------------------------------------------
     // Image hint / working dir
     // ------------------------------------------------------------------------
