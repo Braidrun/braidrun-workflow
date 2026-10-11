@@ -43,7 +43,8 @@ class RunnerSubscriptionTest {
         withTimeout(5000) { IpcHarness().use { h ->
             val gate = RunnerEnvironmentGate(h.binding, setOf("engine-http")); gate.install(RunnerProtocolTest.environment(h.binding, Instant.now()))
             val secrets = RunnerSecrets(); val credentials = RunnerCredentials(h.ipc, gate, secrets)
-            val live = RunnerLiveCredentials(credentials, gate, renewalIntervalMs = 30)
+            val releases = mutableListOf<String>()
+            val live = RunnerLiveCredentials(credentials, gate, renewalIntervalMs = 30, onReleased = { lease, _ -> releases += lease.leaseId })
             val scope = WorkflowHostScope(h.binding.string("executionId"), h.binding.string("executionId"), stepName = "cli")
             val events = mutableListOf<JsonObject>()
             val pool = RunnerSubscriptionPool(live, scope, "codex", listOf("credential:account@3", "credential:backup@3"), secrets) { _, payload -> events += payload }
@@ -60,7 +61,35 @@ class RunnerSubscriptionTest {
                 reply(pendingOldRenewal, "late-old")
                 val renewal = h.next(); assertEquals("backup", renewal.obj("payload").string("credentialRef")); reply(renewal, "renewed-second")
                 gate.check()
-                assertEquals("account", events.single { it["outcome"]?.jsonPrimitive?.content == "RELEASED" }.string("credentialRef"))
+                assertTrue("first" in releases)
+                assertFalse("second" in releases && "renewed-second" in releases)
+            } finally { live.close(); credentials.clear() }
+        } }
+    }
+
+    @Test fun `pending same-reference acquire survives another handle release with exact grant identity`() = runBlocking<Unit> {
+        withTimeout(5000) { IpcHarness().use { h ->
+            val gate = RunnerEnvironmentGate(h.binding, setOf("engine-http")); gate.install(RunnerProtocolTest.environment(h.binding, Instant.now()))
+            val credentials = RunnerCredentials(h.ipc, gate, RunnerSecrets())
+            val released = java.util.concurrent.CopyOnWriteArrayList<String>()
+            val live = RunnerLiveCredentials(credentials, gate, renewalIntervalMs = 30_000, onReleased = { lease, _ -> released += lease.leaseId })
+            val root = h.binding.string("executionId")
+            val aScope = WorkflowHostScope(root, root, stepName = "a")
+            val bScope = WorkflowHostScope(root, root, stepName = "b")
+            try {
+                val acquiringA = async { live.acquire("credential:account@3", aScope, "subscription.codex") }
+                h.ipc.accept(grant(h, h.next(), "grant-a", buildJsonObject { put("authJson", original) }))
+                val a = acquiringA.await()
+                val acquiringB = async(start = CoroutineStart.UNDISPATCHED) { live.acquire("credential:account@3", bScope, "subscription.codex") }
+                val requestB = h.next()
+                // S has written grant-b to its watchdog journal; E has not received/registered it yet.
+                live.release(a)
+                assertEquals(listOf("grant-a"), released)
+                h.ipc.accept(grant(h, requestB, "grant-b", buildJsonObject { put("authJson", original) }))
+                val b = acquiringB.await()
+                assertEquals(original, live.checked(b, bScope, "subscription.codex").string("authJson"))
+                gate.check(); assertFalse("grant-b" in released)
+                live.release(b); assertEquals(listOf("grant-a", "grant-b"), released)
             } finally { live.close(); credentials.clear() }
         } }
     }

@@ -20,13 +20,9 @@ class RunnerSubscriptionPool(
     override suspend fun acquire(excludedCredentialIds: Set<String>): ClaudeCredentialProvider.Credential? {
         // CLI failover is sequential. No abandoned card may retain a renewal/expiry task.
         handles.entries.filter { it.key in excludedCredentialIds }.forEach { (ref, previous) ->
-            val lineageReleased = live.release(previous)
+            live.release(previous)
             handles.remove(ref, previous)
             if (handle === previous) handle = null
-            if (lineageReleased) record("usage", buildJsonObject {
-                put("credentialRef", ref); put("provider", provider); put("outcome", "RELEASED")
-                put("childExecutionPath", childPath(scope.rootExecutionId, scope.executionId)); put("purpose", purpose)
-            })
         }
         var refused: Exception? = null
         for (reference in references) {

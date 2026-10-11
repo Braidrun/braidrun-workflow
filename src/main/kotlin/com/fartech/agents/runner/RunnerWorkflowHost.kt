@@ -152,6 +152,11 @@ class RunnerWorkflowHost(
         store.writePrivate(path, canonical(buildJsonObject { put("binding", ipc.binding); put("credentialRef", lease.credentialRef); put("expectedVersion", lease.version); put("material", material) }).toByteArray())
         val cleanup: () -> Unit = { java.nio.file.Files.deleteIfExists(confinedPath(bundle.executionDirectory, path)) }
         cleanup
+    }, onReleased = { lease, purpose ->
+        emit("usage", buildJsonObject {
+            put("outcome", "RELEASED"); put("credentialRef", lease.credentialRef); put("credentialLeaseId", lease.leaseId)
+            put("childExecutionPath", childPath(lease.scope.rootExecutionId, lease.scope.executionId)); put("purpose", purpose)
+        })
     })
     private val cliPools = java.util.concurrent.ConcurrentHashMap<String, RunnerSubscriptionPool>()
     private fun poolKey(provider: String, scope: WorkflowHostScope) = "$provider:${scope.executionId}:${scope.stepName}"

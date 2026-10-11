@@ -14,9 +14,10 @@ class RunnerLiveCredentials(
     private val credentials: RunnerCredentials,
     private val gate: RunnerEnvironmentGate,
     private val renewalIntervalMs: Long = 15_000,
-    private val preserveRotation: ((RunnerCredentialLease, JsonObject) -> (() -> Unit))? = null
+    private val preserveRotation: ((RunnerCredentialLease, JsonObject) -> (() -> Unit))? = null,
+    private val onReleased: (RunnerCredentialLease, String) -> Unit = { _, _ -> }
 ) : AutoCloseable {
-    class Handle internal constructor(val latest: AtomicReference<RunnerCredentialLease>, internal val job: AtomicReference<Job?> = AtomicReference()) {
+    class Handle internal constructor(val latest: AtomicReference<RunnerCredentialLease>, internal val purpose: String, internal val job: AtomicReference<Job?> = AtomicReference()) {
         internal val expiryJob = AtomicReference<Job?>()
         internal val active = java.util.concurrent.atomic.AtomicBoolean(true)
     }
@@ -33,8 +34,8 @@ class RunnerLiveCredentials(
         val k = key(ref, executionScope, purpose)
         handles[k]?.let { checked(it, executionScope, purpose); return it }
         val lease = credentials.acquire(ref, versions.getValue(ref), executionScope, purpose)
-        val handle = Handle(AtomicReference(lease))
-        if (handles.putIfAbsent(k, handle) != null) return handles.getValue(k)
+        val handle = Handle(AtomicReference(lease), purpose)
+        handles.putIfAbsent(k, handle)?.let { existing -> discard(handle, lease); return existing }
         handle.expiryJob.set(scope.launch {
             while (isActive && handle.active.get()) {
                 val remaining = synchronized(handle) { credentials.remainingNanos(handle.latest.get()) }
@@ -60,14 +61,14 @@ class RunnerLiveCredentials(
                     val next = credentials.acquire(ref, old.version, executionScope, purpose)
                     synchronized(handle) {
                         if (!handle.active.get()) {
-                            credentials.discard(next); return@launch
+                            discard(handle, next); return@launch
                         }
                         if (credentials.remainingNanos(old) <= 0) {
-                            credentials.discard(next); gate.invalidate("CREDENTIAL_RENEWAL_AFTER_EXPIRY"); throw RunnerAuthorityLost()
+                            discard(handle, next); gate.invalidate("CREDENTIAL_RENEWAL_AFTER_EXPIRY"); throw RunnerAuthorityLost()
                         }
                         gate.check()
                         if (next.material != old.material) throw RunnerAuthorityLost()
-                        handle.latest.set(next); credentials.discard(old)
+                        handle.latest.set(next); discard(handle, old)
                     }
                 }
             } catch (e: CancellationException) {
@@ -91,22 +92,23 @@ class RunnerLiveCredentials(
         handle.active.set(false); handle.expiryJob.getAndSet(null)?.cancelAndJoin()
         versions[old.credentialRef] = old.version + 1
         handles.entries.removeIf { it.value === handle }
+        onReleased(old, handle.purpose)
     }
     /** Stop the abandoned card before another card starts. Wait for in-flight renewal to settle. */
-    suspend fun release(handle: Handle): Boolean {
+    private fun discard(handle: Handle, lease: RunnerCredentialLease) {
+        credentials.discard(lease)
+        onReleased(lease, handle.purpose)
+    }
+    suspend fun release(handle: Handle) {
         synchronized(handle) { handle.active.set(false) }
         handle.job.getAndSet(null)?.cancelAndJoin()
         handle.expiryJob.getAndSet(null)?.cancelAndJoin()
         handles.entries.removeIf { it.value === handle }
-        val old = handle.latest.get()
-        credentials.discard(old)
-        return handles.values.none { other -> other.active.get() && other.latest.get().let {
-            it.credentialRef == old.credentialRef && it.scope.executionId == old.scope.executionId && it.operations == old.operations
-        } }
+        discard(handle, handle.latest.get())
     }
     fun release(executionId: String, step: String) {
         handles.entries.filter { it.value.latest.get().scope.let { s -> s.executionId == executionId && (s.stepName == step || s.stepName?.startsWith("$step:") == true) } }
-            .forEach { (key, handle) -> handle.active.set(false); handle.job.get()?.cancel(); handle.expiryJob.get()?.cancel(); handles.remove(key, handle); credentials.discard(handle.latest.get()) }
+            .forEach { (key, handle) -> handle.active.set(false); handle.job.get()?.cancel(); handle.expiryJob.get()?.cancel(); handles.remove(key, handle); discard(handle, handle.latest.get()) }
     }
     fun state(): Map<String, Any> = mapOf("credentialPlans" to plans.toMap(), "credentialVersions" to versions.toMap())
     fun restore(state: Map<String, Any>) {
