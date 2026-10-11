@@ -39,6 +39,39 @@ class RunnerSubscriptionTest {
             } finally { live.close(); credentials.clear() }
         }
     }
+    @Test fun `failover releases abandoned renewal without invalidating the replacement card`() = runBlocking<Unit> {
+        withTimeout(5000) { IpcHarness().use { h ->
+            val gate = RunnerEnvironmentGate(h.binding, setOf("engine-http")); gate.install(RunnerProtocolTest.environment(h.binding, Instant.now()))
+            val secrets = RunnerSecrets(); val credentials = RunnerCredentials(h.ipc, gate, secrets)
+            val live = RunnerLiveCredentials(credentials, gate, renewalIntervalMs = 30)
+            val scope = WorkflowHostScope(h.binding.string("executionId"), h.binding.string("executionId"), stepName = "cli")
+            val events = mutableListOf<JsonObject>()
+            val pool = RunnerSubscriptionPool(live, scope, "codex", listOf("credential:account@3", "credential:backup@3"), secrets) { _, payload -> events += payload }
+            fun reply(request: JsonObject, id: String) {
+                val response = grant(h, request, id, buildJsonObject { put("authJson", original) })
+                h.ipc.accept(JsonObject(response + ("payload" to JsonObject(response.obj("payload") + ("credentialRef" to request.obj("payload").getValue("credentialRef"))))))
+            }
+            try {
+                val first = async { pool.acquire(emptySet()) }; reply(h.next(), "first"); assertEquals("account", first.await()!!.id)
+                val pendingOldRenewal = h.next() // Failover while the old card's renewal reply is withheld.
+                val second = async { pool.acquire(setOf("account")) }
+                val next = h.next(); assertEquals("backup", next.obj("payload").string("credentialRef")); reply(next, "second")
+                assertEquals("backup", second.await()!!.id)
+                reply(pendingOldRenewal, "late-old")
+                val renewal = h.next(); assertEquals("backup", renewal.obj("payload").string("credentialRef")); reply(renewal, "renewed-second")
+                gate.check()
+                assertEquals("account", events.single { it["outcome"]?.jsonPrimitive?.content == "RELEASED" }.string("credentialRef"))
+            } finally { live.close(); credentials.clear() }
+        } }
+    }
+
+    @Test fun `proxy validation applies even when URL has trailing slash`() {
+        for (url in listOf("http://u:p@localhost:7890/", "file://localhost/", "http://localhost/")) {
+            val properties = java.util.Properties().apply { setProperty(RunnerHttpClients.DECLARED_PROXY_PROPERTY, url) }
+            assertFailsWith<IllegalArgumentException> { RunnerHttpClients.declaredProxy(properties) }
+        }
+    }
+
     @Test fun `short grant expiry cancels a blocked CLI and late renewal cannot revive it`() = runBlocking<Unit> {
         IpcHarness().use { h ->
             val gate = RunnerEnvironmentGate(h.binding, setOf("engine-http")); gate.install(RunnerProtocolTest.environment(h.binding, Instant.now()))

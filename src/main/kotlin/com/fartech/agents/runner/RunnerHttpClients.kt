@@ -40,7 +40,7 @@ class RunnerHttpClients(private val gate: RunnerEnvironmentGate, private val cre
         fun declaredProxy(properties: java.util.Properties = System.getProperties()): java.net.URI? {
             val raw = properties.getProperty(DECLARED_PROXY_PROPERTY)?.trim()?.takeIf { it.isNotEmpty() } ?: return null
             val uri = java.net.URI(raw)
-            require(uri.scheme in setOf("http", "https") && !uri.host.isNullOrBlank() && uri.port in 1..65535 && uri.userInfo == null && uri.rawQuery == null && uri.rawFragment == null && uri.rawPath.isNullOrEmpty() || uri.rawPath == "/") { "Declared proxy must be a plain http(s)://host:port" }
+            require(uri.scheme in setOf("http", "https") && !uri.host.isNullOrBlank() && uri.port in 1..65535 && uri.userInfo == null && uri.rawQuery == null && uri.rawFragment == null && (uri.rawPath.isNullOrEmpty() || uri.rawPath == "/")) { "Declared proxy must be a plain http(s)://host:port" }
             return uri
         }
         /** Shared transport configuration for business clients and the bounded public probe. */

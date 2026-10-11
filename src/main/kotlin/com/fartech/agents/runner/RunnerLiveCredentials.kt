@@ -59,7 +59,10 @@ class RunnerLiveCredentials(
                     gate.check()
                     val next = credentials.acquire(ref, old.version, executionScope, purpose)
                     synchronized(handle) {
-                        if (!handle.active.get() || credentials.remainingNanos(old) <= 0) {
+                        if (!handle.active.get()) {
+                            credentials.discard(next); return@launch
+                        }
+                        if (credentials.remainingNanos(old) <= 0) {
                             credentials.discard(next); gate.invalidate("CREDENTIAL_RENEWAL_AFTER_EXPIRY"); throw RunnerAuthorityLost()
                         }
                         gate.check()
@@ -68,9 +71,9 @@ class RunnerLiveCredentials(
                     }
                 }
             } catch (e: CancellationException) {
-                if (currentCoroutineContext().isActive) gate.invalidate("CREDENTIAL_PERMISSION_RENEWAL_FAILED")
+                if (currentCoroutineContext().isActive && handle.active.get()) gate.invalidate("CREDENTIAL_PERMISSION_RENEWAL_FAILED")
                 throw e
-            } catch (_: Exception) { gate.invalidate("CREDENTIAL_PERMISSION_RENEWAL_FAILED") }
+            } catch (_: Exception) { if (handle.active.get()) gate.invalidate("CREDENTIAL_PERMISSION_RENEWAL_FAILED") }
         })
         return handle
     }
@@ -88,6 +91,18 @@ class RunnerLiveCredentials(
         handle.active.set(false); handle.expiryJob.getAndSet(null)?.cancelAndJoin()
         versions[old.credentialRef] = old.version + 1
         handles.entries.removeIf { it.value === handle }
+    }
+    /** Stop the abandoned card before another card starts. Wait for in-flight renewal to settle. */
+    suspend fun release(handle: Handle): Boolean {
+        synchronized(handle) { handle.active.set(false) }
+        handle.job.getAndSet(null)?.cancelAndJoin()
+        handle.expiryJob.getAndSet(null)?.cancelAndJoin()
+        handles.entries.removeIf { it.value === handle }
+        val old = handle.latest.get()
+        credentials.discard(old)
+        return handles.values.none { other -> other.active.get() && other.latest.get().let {
+            it.credentialRef == old.credentialRef && it.scope.executionId == old.scope.executionId && it.operations == old.operations
+        } }
     }
     fun release(executionId: String, step: String) {
         handles.entries.filter { it.value.latest.get().scope.let { s -> s.executionId == executionId && (s.stepName == step || s.stepName?.startsWith("$step:") == true) } }
