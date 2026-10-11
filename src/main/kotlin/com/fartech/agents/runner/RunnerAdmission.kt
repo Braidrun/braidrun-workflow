@@ -169,7 +169,10 @@ class RunnerAdmission(
                     }
                     if ((key.lowercase() in setOf("token", "api_key", "password", "authorization", "authjson") || key.lowercase().endsWith("_api_key") || key.lowercase().endsWith("_secret") || key.lowercase().endsWith("_password") || key.lowercase().endsWith("_token") || key.lowercase().endsWith("_auth_json") || key == "llm_provider_keys") && value != JsonNull && value.toString() !in setOf("{}", "\"\"")) {
                         val refs = if (value is JsonObject) value.values else listOf(value)
-                        require(refs.all { it is JsonPrimitive && it.isString && it.content.split(',').all { ref -> CREDENTIAL_REFERENCE.matches(ref.trim()) } }) { "Secrets must be leased at runtime" }
+                        val poolReference = key in setOf("external_agent_codex_auth_json", "external_agent_claude_oauth_token")
+                        require(refs.all { it is JsonPrimitive && it.isString &&
+                            (if (poolReference) it.content.split(',').all { ref -> CREDENTIAL_REFERENCE.matches(ref.trim()) }
+                             else CREDENTIAL_REFERENCE.matches(it.content)) }) { "Secrets must be leased at runtime" }
                     }
                     if (key == "im_progress_notify_enabled" && value == JsonPrimitive(true)) requireCapability("service.im-progress.v1")
                     services(value)

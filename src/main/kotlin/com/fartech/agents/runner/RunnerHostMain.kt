@@ -35,13 +35,15 @@ fun main(args: Array<String>) {
     } catch (failure: RunnerNegotiationException) {
         System.err.println("Runner host refused startup: ${failure.reason.name}"); 2
     } catch (failure: Exception) {
-        // Class names only: messages may carry transport, path or account configuration.
-        // Admission/argument failures carry static policy text (capability, tool or path rule names), never secrets.
-        val detail = if (failure is IllegalArgumentException || failure is IllegalStateException) failure.message?.take(160)?.let { ": $it" }.orEmpty() else ""
-        System.err.println("Runner host refused startup or lost authority: ${failure.javaClass.name}$detail" + (failure.cause?.let { " caused by ${it.javaClass.name}" } ?: "")); 2
+        System.err.println(runnerFailureSummary(failure)); 2
     }
     exitProcess(code)
 }
+
+/** Exception messages may contain unregistered endpoint query keys or local account paths. */
+internal fun runnerFailureSummary(failure: Exception): String =
+    "Runner host refused startup or lost authority: ${failure.javaClass.name}" +
+        (failure.cause?.let { " caused by ${it.javaClass.name}" } ?: "")
 
 class RunnerHostSession(
     private val binding: JsonObject,
