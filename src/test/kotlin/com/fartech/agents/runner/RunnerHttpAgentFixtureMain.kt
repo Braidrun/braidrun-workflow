@@ -123,10 +123,7 @@ private class FixtureHttpSession(
                 val executing = async { interpreter.execute(bundle.rootDefinition, payload.obj("inputs").mapValues { it.value.jsonPrimitive.content }, identity.executionId) }; task = executing
                 val result = try { executing.await() } catch (_: CancellationException) { null }
                 val status = when { stopReason == "CANCELLED" -> "CANCELLED"; stopReason != null || result == null -> "INTERRUPTED"; result.success -> "COMPLETED"; else -> "FAILED" }
-                val resultHash = store.writePrivate(".runner-state/result.json", secrets.redact(buildJsonObject {
-                    put("binding", binding); put("status", status); put("variables", JsonObject(result?.variables.orEmpty().mapValues { JsonPrimitive(it.value.toString()) }))
-                    put("outputs", JsonObject(result?.stepResults.orEmpty().mapValues { JsonPrimitive(it.value.output.orEmpty()) })); result?.error?.let { put("error", it) }
-                }).toString().toByteArray())
+                val resultHash = store.writePrivate(".runner-state/result.json", runnerResultDocument(binding, status, result, secrets).toString().toByteArray())
                 val manifestHash = store.writePrivate(".runner-state/artifact-manifest.json", "[]".toByteArray())
                 ipc.send("result", buildJsonObject {
                     put("binding", binding); put("finalEventSeq", normal.finalEventSeq()); put("resultHash", resultHash); put("artifactManifestHash", manifestHash); put("status", status)

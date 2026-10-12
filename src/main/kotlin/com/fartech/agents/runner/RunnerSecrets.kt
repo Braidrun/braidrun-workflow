@@ -48,16 +48,40 @@ class RunnerSecrets {
         values.sortedByDescending { it.length }.forEach { s = s.replace(it, "<redacted>") }
         return redactForLog(s)
     }
-    fun redact(value: JsonElement): JsonElement {
+    /** Scrubs every string: for content (outputs, errors, messages, logs) only, never for protocol control data. */
+    fun redact(value: JsonElement): JsonElement = redact(value, keepControl = false)
+    /**
+     * Scrubs the content of a protocol structure (event payload, metadata) but never its control
+     * fields ([CONTROL_FIELDS], at any depth). Those are platform-issued identities and protocol
+     * structure that S and the platform match exactly; registered values are matched as substrings,
+     * so a short credential field equal to e.g. "local" would otherwise turn `local-user` into
+     * `<redacted>-user` and fail binding, lineage or sequence validation.
+     */
+    fun redactContent(value: JsonElement): JsonElement = redact(value, keepControl = true)
+    private fun redact(value: JsonElement, keepControl: Boolean): JsonElement {
         val available = refresh()
         fun walk(v: JsonElement): JsonElement = when (v) {
-            is JsonObject -> JsonObject(v.mapValues { walk(it.value) })
+            is JsonObject -> JsonObject(v.mapValues { (key, field) -> if (keepControl && key in CONTROL_FIELDS) field else walk(field) })
             is JsonArray -> JsonArray(v.map(::walk))
             is JsonPrimitive -> if (v.isString) JsonPrimitive(if (available) scrub(v.content) else "[credential scope unavailable; output suppressed]") else v
         }
         return walk(value)
     }
-    fun containsSecret(value: JsonElement): Boolean = !refresh() || value.toString().let { raw -> values.any { raw.contains(it) } }
+    /**
+     * Whether any content string holds registered material. Object keys are structure, and so are the
+     * values of [control] fields. Protocol metadata uses [CONTROL_FIELDS]; a structure that carries
+     * user-named maps (workflow variables, approval items) passes only `binding`, so a user field that
+     * happens to be named like a control field is still checked.
+     */
+    fun containsSecret(value: JsonElement, control: Set<String> = CONTROL_FIELDS): Boolean {
+        if (!refresh()) return true
+        fun walk(v: JsonElement): Boolean = when (v) {
+            is JsonObject -> v.any { (key, field) -> key !in control && walk(field) }
+            is JsonArray -> v.any(::walk)
+            is JsonPrimitive -> v.isString && values.any { v.content.contains(it) }
+        }
+        return walk(value)
+    }
     /** Bounded whole-line buffering prevents partial PrintStream writes splitting a token. */
     fun logStream(destination: OutputStream): OutputStream = object : OutputStream() {
         private val line = java.io.ByteArrayOutputStream()
@@ -71,4 +95,23 @@ class RunnerSecrets {
         }
         @Synchronized override fun flush() { destination.flush() } // incomplete secret-bearing line waits for newline
     }
+    companion object {
+        /** Platform-issued identities and protocol structure: never content, never scrubbed or treated as secret. */
+        val CONTROL_FIELDS = setOf("binding", "protocolVersion", "frameId", "replyTo", "eventId", "eventSeq", "attemptId", "resumeEpoch",
+            "executionId", "rootExecutionId", "runnerId", "runnerInstanceId", "ownerId", "actorUserId", "billingOwnerId",
+            "definitionHash", "runtimeHash", "bundleHash", "environmentCheckId", "requestId", "requestFrameId", "credentialRef",
+            "credentialLeaseId", "childExecutionPath", "purpose", "provider", "outcome", "expectedVersion", "status", "kind",
+            "stepName", "workflowId", "producerStartEventId", "publicationId", "artifactId", "setId", "declarationIds")
+    }
+}
+
+/**
+ * A document that mixes identities with user content, as content only: [fields] are dropped from the
+ * top-level object and from the named nested [envelopes] (objects or arrays of objects) and nowhere
+ * else, so user maps (variables, approval items) below them are still checked in full.
+ */
+internal fun contentOf(value: JsonElement, fields: Set<String>, envelopes: Set<String>): JsonElement = when (value) {
+    is JsonObject -> JsonObject(value.filterKeys { it !in fields }.mapValues { (key, field) -> if (key in envelopes) contentOf(field, fields, envelopes) else field })
+    is JsonArray -> JsonArray(value.map { contentOf(it, fields, envelopes) })
+    else -> value
 }

@@ -14,7 +14,7 @@ class RunnerCheckpointStore(private val root: Path, private val binding: JsonObj
     private val mapper = jacksonObjectMapper()
     fun save(checkpoint: WorkflowHostCheckpoint, eventSeq: Long): JsonObject {
         val state = runnerJson.parseToJsonElement(mapper.writeValueAsString(checkpoint.state))
-        require(!secrets.containsSecret(state)) { "Credential material cannot be checkpointed" }
+        require(!secrets.containsSecret(state, control = emptySet())) { "Credential material cannot be checkpointed" }
         // JSON primitives/collections only: serializing an arbitrary object as a string changes
         // behavior on restoration. Reject unsupported runtime state instead of claiming recovery.
         validateVariables(checkpoint.state.variables)
@@ -36,7 +36,8 @@ class RunnerCheckpointStore(private val root: Path, private val binding: JsonObj
                 } }))
             } }))
         }
-        require(!secrets.containsSecret(value)) { "Secrets cannot be in approval state" }
+        // The state was checked above; the envelope's binding, directory and request identities are not material.
+        require(!secrets.containsSecret(contentOf(value, CHECKPOINT_IDENTITY, setOf("pendingApprovals")), control = emptySet())) { "Secrets cannot be in approval state" }
         val relative = ".runner-state/checkpoint-$id.json"
         writePrivate(relative, value.toString().toByteArray(Charsets.UTF_8))
         return buildJsonObject {
@@ -106,5 +107,9 @@ class RunnerCheckpointStore(private val root: Path, private val binding: JsonObj
             else -> error("Unsupported typed checkpoint value")
         }
     }
-    companion object { const val MAX_CHECKPOINT_BYTES = 16 * 1024 * 1024 }
+    companion object {
+        const val MAX_CHECKPOINT_BYTES = 16 * 1024 * 1024
+        private val CHECKPOINT_IDENTITY = setOf("binding", "executionDirectory", "workflowName", "executionId", "state",
+            "approvalId", "occurrenceId", "stepName", "approvers")
+    }
 }

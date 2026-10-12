@@ -23,12 +23,14 @@ internal class RunnerEventJournal(
             synchronized(this) {
                 if (broken || sealed) throw RunnerAuthorityLost()
                 require(kind != "approval") { "Approvals use the dedicated request channel" }
-                if (kind == "artifact") require(secrets.redact(payload) == payload) { "Artifact metadata cannot be altered" }
+                if (kind == "artifact") require(secrets.redactContent(payload) == payload) { "Artifact metadata cannot be altered" }
                 val next = sequence + 1
                 val event = buildJsonObject {
                     put("eventId", UUID.randomUUID().toString()); put("eventSeq", next)
                     put("attemptId", binding.string("attemptId")); put("resumeEpoch", binding.long("resumeEpoch"))
-                    put("type", kind); put("payload", secrets.redact(payload))
+                    // Producers redact their own free-text content (monitor output/error/summary/detail);
+                    // this second pass scrubs content but never the control fields S matches exactly.
+                    put("type", kind); put("payload", secrets.redactContent(payload))
                 }
                 val frame = buildJsonObject {
                     put("protocolVersion", 1); put("frameId", frameId); put("type", "event"); put("binding", binding); put("payload", event)

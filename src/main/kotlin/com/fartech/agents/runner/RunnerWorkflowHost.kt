@@ -396,7 +396,7 @@ class RunnerWorkflowHost(
         retain()
         parts.forEach { payload ->
             gate.check()
-            require(secrets.redact(payload) == payload) { "Ready metadata cannot be redacted or changed" }
+            require(secrets.redactContent(payload) == payload) { "Ready metadata cannot be redacted or changed" }
             val frame = eventJournal.append("step", payload, beforePersist = { original ->
                 require(canonical(original).toByteArray().size <= 65536)
                 frames += original; retain()

@@ -43,6 +43,19 @@ fun main(args: Array<String>) {
     exitProcess(code)
 }
 
+/**
+ * The engine's raw result. Only workflow content (variables, step outputs, error) is redacted. The
+ * binding and status are control data that S compares exactly (validate_result_file): scrubbing a
+ * registered substring out of them (a login label "local" inside `local-user`) turned a clean FAILED
+ * into a protocol failure and an INTERRUPTED execution.
+ */
+internal fun runnerResultDocument(binding: JsonObject, status: String, result: WorkflowExecutionResult?, secrets: RunnerSecrets): JsonObject = buildJsonObject {
+    put("binding", binding); put("status", status)
+    put("variables", secrets.redact(JsonObject(result?.variables.orEmpty().mapValues { JsonPrimitive(it.value.toString()) })))
+    put("outputs", secrets.redact(JsonObject(result?.stepResults.orEmpty().mapValues { JsonPrimitive(it.value.output.orEmpty()) })))
+    result?.error?.let { put("error", secrets.redact(it)) }
+}
+
 /** Exception messages may contain unregistered endpoint query keys or local account paths. */
 internal fun runnerFailureSummary(failure: Throwable): String =
     "Runner host refused startup or lost authority: ${failure.javaClass.name}" +
@@ -169,12 +182,7 @@ class RunnerHostSession(
                     put("phase", "E_BUSINESS_CLOSED_JVM_EXIT_PENDING"); put("businessOperationsClosed", true)
                     put("stopConfirmed", false); put("sourceAcceptance", "PENDING_P_S_FINAL_AUTHORITY")
                 }).toByteArray())
-                val resultBytes = secrets.redact(buildJsonObject {
-                    put("binding", binding); put("status", status)
-                    put("variables", JsonObject(result?.variables.orEmpty().mapValues { JsonPrimitive(it.value.toString()) }))
-                    put("outputs", JsonObject(result?.stepResults.orEmpty().mapValues { JsonPrimitive(it.value.output.orEmpty()) }))
-                    result?.error?.let { put("error", it) }
-                }).toString().toByteArray(Charsets.UTF_8)
+                val resultBytes = runnerResultDocument(binding, status, result, secrets).toString().toByteArray(Charsets.UTF_8)
                 val resultHash = store.writePrivate(".runner-state/result.json", resultBytes)
                 val artifactManifestHash = store.writePrivate(".runner-state/artifact-manifest.json", "[]".toByteArray())
                 val receipt = unconfirmedReceipt()

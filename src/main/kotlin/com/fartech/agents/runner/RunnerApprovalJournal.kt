@@ -23,7 +23,7 @@ class RunnerApprovalJournal(
         return runnerJson.parseToJsonElement(Files.readString(file)).jsonObject
     }
     private fun write(path: String, value: JsonObject) {
-        require(!secrets.containsSecret(value)) { "Approval journal contains credential material" }
+        require(!secrets.containsSecret(contentOf(value, IDENTITY, ENVELOPES), control = emptySet())) { "Approval journal contains credential material" }
         store.writePrivate(path, canonical(value).toByteArray())
     }
     @Synchronized fun prepare(request: ApprovalRequest, payload: JsonObject): JsonObject {
@@ -47,5 +47,11 @@ class RunnerApprovalJournal(
         require(saved.obj("binding") == binding && saved.obj("request") == context(request) && saved.obj("frame") == frame)
         saved["decision"]?.let { require(it == decision) { "Original human decision changed" } }
         write(relative, JsonObject(saved + ("decision" to decision)))
+    }
+    private companion object {
+        /** Platform and engine identities of the request, its frame and its decision; never credential material. */
+        val IDENTITY = setOf("binding", "protocolVersion", "frameId", "type", "approvalId", "occurrenceId", "idempotencyKey", "executionId",
+            "workflowName", "stepName", "stepId", "childExecutionPath", "approvers", "decidedBy")
+        val ENVELOPES = setOf("request", "frame", "payload", "decision")
     }
 }
