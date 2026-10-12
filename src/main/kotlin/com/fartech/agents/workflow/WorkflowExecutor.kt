@@ -1234,7 +1234,7 @@ class WorkflowExecutor(
             // 清理过期的旧执行目录
             if (dirIsolation.enabled && dirIsolation.cleanupAfterHours > 0) {
                 try {
-                    cleanupExpiredDirectories(dirIsolation)
+                    cleanupExpiredDirectories(dirIsolation, executionId)
                 } catch (e: Exception) {
                     logger.warn(e) { "[Workflow:${workflow.name}] Failed to cleanup expired directories" }
                 }
@@ -1371,26 +1371,14 @@ class WorkflowExecutor(
     }
 
     /**
-     * 清理过期的隔离目录
+     * 清理过期的隔离目录. Only provably expired flat-layout run directories are
+     * deleted; see [ExpiredRunDirectorySweep].
      */
-    private fun cleanupExpiredDirectories(config: DirectoryIsolationConfig) {
-        val baseDir = File(config.baseDir)
-        if (!baseDir.exists()) return
-
-        val cutoffTime = System.currentTimeMillis() - config.cleanupAfterHours * 3600_000L
-        var cleanedCount = 0
-
-        baseDir.listFiles()?.filter { it.isDirectory && it.lastModified() < cutoffTime }?.forEach { dir ->
-            try {
-                dir.deleteRecursively()
-                cleanedCount++
-            } catch (e: Exception) {
-                logger.warn { "[DirIsolation] Failed to cleanup expired directory: ${dir.path}" }
-            }
-        }
-
-        if (cleanedCount > 0) {
-            logger.info { "[DirIsolation] Cleaned up $cleanedCount expired execution directories" }
+    private fun cleanupExpiredDirectories(config: DirectoryIsolationConfig, currentExecutionId: String) {
+        val running = WorkflowMonitor.getActiveExecutions().mapTo(mutableSetOf()) { it.executionId } + currentExecutionId
+        val deleted = ExpiredRunDirectorySweep.sweep(config, System.currentTimeMillis(), running)
+        if (deleted.isNotEmpty()) {
+            logger.info { "[DirIsolation] Cleaned up ${deleted.size} expired execution directories" }
         }
     }
 
