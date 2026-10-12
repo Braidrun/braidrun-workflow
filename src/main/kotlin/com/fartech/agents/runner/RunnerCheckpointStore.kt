@@ -90,6 +90,14 @@ class RunnerCheckpointStore(private val root: Path, private val binding: JsonObj
         finally { Files.deleteIfExists(temp) }
         return sha256(bytes)
     }
+    /** A file this store wrote, or null when absent; never follows a planted link. */
+    fun readPrivate(relative: String): ByteArray? {
+        val path = confinedPath(root, relative)
+        if (!Files.isRegularFile(path, java.nio.file.LinkOption.NOFOLLOW_LINKS)) return null
+        return Files.newInputStream(path, java.nio.file.LinkOption.NOFOLLOW_LINKS).use { input ->
+            input.readNBytes(MAX_CHECKPOINT_BYTES + 1).also { require(it.size <= MAX_CHECKPOINT_BYTES) { "Runner state exceeds bounded size" } }
+        }
+    }
     private fun validateVariables(value: Any?) {
         when (value) {
             null, is String, is Boolean, is Byte, is Short, is Int, is Long, is Float, is Double -> Unit

@@ -27,6 +27,10 @@ class RunnerIpc(
 ) : AutoCloseable {
     val businessFence = RunnerBusinessFence()
     private val retainedOutbound = LinkedHashMap<String, String>()
+    /** Retained events by sequence, so a durable ACK can reclaim them. Guarded by [retainedOutbound]. */
+    private val retainedEvents = java.util.TreeMap<Long, String>()
+    private var reclaimedThrough = 0L
+    @Volatile private var durableEvent: ((Long) -> ByteArray?)? = null
     private var terminalResult: Pair<String, String>? = null
     private data class Pending(val type: String, val correlation: String?, val response: CompletableDeferred<JsonObject>)
     private val pending = ConcurrentHashMap<String, Pending>()
@@ -49,6 +53,9 @@ class RunnerIpc(
         }
     }
     private val seen = LinkedHashMap<String, String>()
+    /** Bounded windows for correlated replies: frame identity -> digest, replyTo -> reply content digest. */
+    private val recentReplies = boundedWindow()
+    private val recentReplyContents = boundedWindow()
     private val sent = java.util.concurrent.atomic.AtomicLong()
     private val written = java.util.concurrent.atomic.AtomicLong()
     private val writer = Thread({ writeLoop() }, "runner-ipc-write").apply { isDaemon = true }
@@ -79,22 +86,54 @@ class RunnerIpc(
         }
         if (businessFence.isClosed()) {
             synchronized(retainedOutbound) {
-                if (type !in TERMINAL_CONTROL_TYPES && !(type in RETAINED_EVIDENCE_TYPES && retainedOutbound[id] == digest)) throw RunnerAuthorityLost()
+                if (type !in TERMINAL_CONTROL_TYPES && !(type in RETAINED_EVIDENCE_TYPES && retainedOutbound[id] == digest) && !isReclaimedOriginal(frame, type, id)) throw RunnerAuthorityLost()
                 if (type == "result") require(terminalResult?.let { it == (id to digest) } != false) { "Original terminal result changed" }
                 enqueue()
                 if (type == "result") terminalResult = id to digest
             }
         } else businessFence.admit {
             synchronized(retainedOutbound) {
-                if (type in RETAINED_EVIDENCE_TYPES) {
+                val reclaimed = type == "event" && id !in retainedOutbound && eventSeq(frame) <= reclaimedThrough
+                if (reclaimed) {
+                    // Acknowledged and reclaimed: only the exact durably journaled original may travel again.
+                    require(isReclaimedOriginal(frame, type, id)) { "Retained evidence frame identity changed" }
+                } else if (type in RETAINED_EVIDENCE_TYPES) {
                     require(retainedOutbound[id]?.let { it == digest } != false) { "Retained evidence frame identity changed" }
                     require(id in retainedOutbound || retainedOutbound.size < MAX_INBOUND_IDENTITIES) { "Retained evidence bound exceeded" }
                 }
                 enqueue()
-                if (type in RETAINED_EVIDENCE_TYPES) retainedOutbound[id] = digest
+                if (type in RETAINED_EVIDENCE_TYPES && !reclaimed) {
+                    retainedOutbound[id] = digest
+                    if (type == "event") retainedEvents[eventSeq(frame)] = id
+                }
             }
         }
         return id
+    }
+
+    /**
+     * Events stay in the bounded retained set only until S durably ACKs them. The event journal
+     * already persists every original frame, so [reader] (event sequence -> persisted canonical
+     * frame bytes) proves an acknowledged original byte-for-byte when it is replayed later,
+     * including after the business fence closed. Checkpoint and collection evidence are never
+     * reclaimed. Without a durable reader nothing is reclaimed.
+     */
+    fun retainEventsDurably(reader: (Long) -> ByteArray?) { durableEvent = reader }
+    fun reclaimAcknowledged(ackSeq: Long) {
+        if (durableEvent == null) return
+        synchronized(retainedOutbound) {
+            val acknowledged = retainedEvents.headMap(ackSeq, true)
+            acknowledged.values.forEach { retainedOutbound.remove(it) }
+            acknowledged.clear()
+            if (ackSeq > reclaimedThrough) reclaimedThrough = ackSeq
+        }
+    }
+    internal fun retainedEvidenceCount(): Int = synchronized(retainedOutbound) { retainedOutbound.size }
+    private fun eventSeq(frame: JsonObject): Long = frame.obj("payload").long("eventSeq")
+    private fun isReclaimedOriginal(frame: JsonObject, type: String, id: String): Boolean {
+        if (type != "event" || id in retainedOutbound || eventSeq(frame) > reclaimedThrough) return false
+        val stored = runCatching { durableEvent?.invoke(eventSeq(frame)) }.getOrNull() ?: return false
+        return stored.contentEquals(canonical(frame).toByteArray(Charsets.UTF_8))
     }
 
     class CorrelatedReply(val frameId: String, val payload: JsonObject)
@@ -132,7 +171,12 @@ class RunnerIpc(
         if (frame.string("type") !in allowed) throw RunnerProtocolException()
         val id = frame.string("frameId")
         val digest = sha256(canonical(frame).toByteArray())
-        seen[id]?.let {
+        val replyTo = frame["replyTo"]?.jsonPrimitive?.content
+        // A correlated reply is inert once its waiter is gone (a late grant is dropped, an ACK is
+        // monotone), so it is deduplicated in a bounded window instead of consuming a permanent
+        // identity per renewal or event. Human continuations and uncorrelated controls stay permanent.
+        val correlatedReply = replyTo != null && frame.string("type") !in ALWAYS_CONTROL_TYPES && frame.string("type") !in HUMAN_CONTINUATION_TYPES
+        (seen[id] ?: recentReplies[id])?.let {
             if (it != digest) throw RunnerProtocolException()
             if (frame.string("type") == "approvalDecision") {
                 val original = frame["replyTo"]?.jsonPrimitive?.content?.let { pending[it] }
@@ -144,12 +188,18 @@ class RunnerIpc(
             if (frame.string("type") in setOf("artifactCollectRequest", "artifactSetCollectRequest", "artifactSetIndexAck") || (artifactSetsEnabled && frame.string("type") == "ack")) onControl(frame)
             return
         }
-        // Never evict dedupe identities and accidentally reaccept an old control. Refuse the
-        // attempt at the explicit bound; future contract can add compactable durable sequences.
-        if (seen.size >= MAX_INBOUND_IDENTITIES) throw RunnerProtocolException()
-        seen[id] = digest
-        val replyTo = frame["replyTo"]?.jsonPrimitive?.content
-        if (frame.string("type") in setOf("cancel", "environmentInvalidated", "leaseRenewed", "environmentRefreshed", "processExited", "processOutput", "processClosed", "artifactCollectRequest", "artifactSetCollectRequest", "artifactSetIndexAck")) {
+        if (correlatedReply) {
+            // A replay under a new frame identity must carry the same reply; a different one conflicts.
+            val content = sha256(canonical(JsonObject(frame - "frameId")).toByteArray())
+            if (recentReplyContents[requireNotNull(replyTo)]?.let { it != content } == true) throw RunnerProtocolException()
+            recentReplies[id] = digest; recentReplyContents[replyTo] = content
+        } else {
+            // Never evict dedupe identities and accidentally reaccept an old control. Refuse the
+            // attempt at the explicit bound; future contract can add compactable durable sequences.
+            if (seen.size >= MAX_INBOUND_IDENTITIES) throw RunnerProtocolException()
+            seen[id] = digest
+        }
+        if (frame.string("type") in ALWAYS_CONTROL_TYPES) {
             onControl(frame)
         } else if (replyTo != null) {
             val request = pending[replyTo] ?: run {
@@ -207,6 +257,12 @@ class RunnerIpc(
 
     companion object {
         private val TERMINAL_CONTROL_TYPES = setOf("result", "processCancel", "processOutputAck")
+        private val ALWAYS_CONTROL_TYPES = setOf("cancel", "environmentInvalidated", "leaseRenewed", "environmentRefreshed", "processExited", "processOutput", "processClosed", "artifactCollectRequest", "artifactSetCollectRequest", "artifactSetIndexAck")
+        private val HUMAN_CONTINUATION_TYPES = setOf("approvalDecision", "userResponse")
+        const val REPLY_WINDOW = 8192
+        private fun boundedWindow() = object : LinkedHashMap<String, String>() {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, String>) = size > REPLY_WINDOW
+        }
         private val RETAINED_EVIDENCE_TYPES = setOf("event", "checkpoint", "artifactCollectComplete", "artifactSetCollectComplete")
         const val MAX_FRAME_BYTES = 1024 * 1024
         const val MAX_INBOUND_IDENTITIES = 65536
