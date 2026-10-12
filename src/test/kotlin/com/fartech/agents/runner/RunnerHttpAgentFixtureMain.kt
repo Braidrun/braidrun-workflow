@@ -39,6 +39,7 @@ private class FixtureHttpSession(
 ) {
     private val start = CompletableDeferred<JsonObject>()
     @Volatile private var gate: RunnerEnvironmentGate? = null
+    private val earlyControls = RunnerEarlyControls(binding)
     @Volatile private var runtime: RunnerWorkflowHost? = null
     @Volatile private var task: Deferred<WorkflowExecutionResult>? = null
     @Volatile private var stopReason: String? = null
@@ -56,8 +57,8 @@ private class FixtureHttpSession(
             "resume" -> error("Fixture does not implement production restoration")
             "cancel" -> stop("CANCELLED")
             "environmentInvalidated", "error" -> stop()
-            "environmentRefreshed" -> requireNotNull(gate).install(body, frame["replyTo"]?.jsonPrimitive?.content)
-            "leaseRenewed" -> requireNotNull(gate).installLease(body.obj("lease"))
+            "environmentRefreshed" -> earlyControls.refreshed(body, frame["replyTo"]?.jsonPrimitive?.content)
+            "leaseRenewed" -> earlyControls.renewed(body.obj("lease"))
             "ack" -> requireNotNull(runtime).acknowledge(body)
             "artifactCollectRequest" -> requireNotNull(runtime).collectRequest(frame)
             "processExited" -> requireNotNull(processes).exited(body)
@@ -83,7 +84,7 @@ private class FixtureHttpSession(
             val required = payload.obj("authorization").array("requiredCapabilities").map { it.jsonPrimitive.content }.toSet()
             val mode = RunnerCodeControlNegotiation.select(required, RunnerHostSession.CAPABILITIES)
             val g = RunnerEnvironmentGate(binding, payload.obj("environment").array("egress").map { it.jsonObject.string("pathId") }.toSet()); gate = g
-            g.onInvalidated { stop() }; g.installLease(payload.obj("lease")); g.install(payload.obj("environment"))
+            g.onInvalidated { stop() }; earlyControls.attach(g, payload.obj("lease"), payload.obj("environment"))
             val root = Path.of(payload.string("executionDirectory")).toRealPath(); require(root == Path.of("").toRealPath())
             if (pause != null) { require(pause.startsWith(root.resolve(".runner-state"))); Files.createDirectories(pause) }
             val bundle = FrozenWorkflowBundle(root, payload.obj("bundle"), binding); bundle.verifyPortableAssets()

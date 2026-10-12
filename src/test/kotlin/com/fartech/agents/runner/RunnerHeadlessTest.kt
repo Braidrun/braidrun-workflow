@@ -28,8 +28,10 @@ class RunnerHeadlessTest {
 
     @Test fun `a lease renewal that arrives before ready and start does not stop the engine`(@TempDir directory: Path) = runFixture(directory, false, earlyLeaseId = "lease")
     @Test fun `an early lease renewal for another lease identity still refuses startup`(@TempDir directory: Path) = runFixture(directory, false, rejectStart = true, earlyLeaseId = "other-lease")
+    @Test fun `an environment refresh that arrives before ready and start does not stop the engine`(@TempDir directory: Path) = runFixture(directory, false, earlyEnvironment = "newer")
+    @Test fun `an early environment refresh for another attempt still stops the engine before any business frame`(@TempDir directory: Path) = runFixture(directory, false, earlyEnvironment = "foreign")
 
-    private fun runFixture(directory: Path, callbackEnabled: Boolean, childScope: Boolean = false, echoSecret: Boolean = callbackEnabled, perCall: Boolean = false, codeTimeout: Int = 30, rejectStart: Boolean = false, missingSupplement: Boolean = false, earlyLeaseId: String? = null) {
+    private fun runFixture(directory: Path, callbackEnabled: Boolean, childScope: Boolean = false, echoSecret: Boolean = callbackEnabled, perCall: Boolean = false, codeTimeout: Int = 30, rejectStart: Boolean = false, missingSupplement: Boolean = false, earlyLeaseId: String? = null, earlyEnvironment: String? = null) {
         val callbackEcho = if (echoSecret) "printf \"%s\\n\" \"${'$'}WF_API_TOKEN\"; printf \"%s\\n\" \"${'$'}WF_API_TOKEN\" >&2; " else ""
         val absence = if (perCall) "test -z \"${'$'}{WF_API_TOKEN+x}\"; test -z \"${'$'}{WF_VAR_WF_API_TOKEN+x}\"; " else ""
         val body = """
@@ -101,10 +103,25 @@ class RunnerHeadlessTest {
             }
             // S renews from claim time and forwards the renewal as soon as the JVM is spawned.
             if (earlyLeaseId != null) send("leaseRenewed", buildJsonObject { put("lease", JsonObject(RunnerProtocolTest.lease(Instant.now()) + ("leaseId" to JsonPrimitive(earlyLeaseId)))) })
+            fun evidence(at: Instant, checkId: String, forBinding: JsonObject = binding): JsonObject {
+                val base = RunnerProtocolTest.environment(forBinding, at)
+                return JsonObject(base + mapOf("environmentCheckId" to JsonPrimitive(checkId),
+                    "egress" to JsonArray(base.array("egress") + JsonObject(base.array("egress")[0].jsonObject + ("pathId" to JsonPrimitive("subprocess"))))))
+            }
+            // S refreshes evidence on its own schedule; this refresh is newer than the evidence the start frame carries.
+            val earlyAt = Instant.now()
+            if (earlyEnvironment == "newer") send("environmentRefreshed", evidence(earlyAt, "early-refresh"))
             val ready = RunnerProtocol().parse(reader.readLine()); assertEquals("ready", ready.string("type"))
+            if (earlyEnvironment == "foreign") {
+                send("environmentRefreshed", evidence(Instant.now(), "foreign-refresh", JsonObject(binding + ("attemptId" to JsonPrimitive("another-attempt")))))
+                assertNull(reader.readLine(), "A refresh for another attempt must stop the engine before any business frame")
+                assertTrue(process.waitFor(5, TimeUnit.SECONDS)); assertEquals(2, process.exitValue())
+                assertFalse(Files.exists(directory.resolve(".runner-state/events")))
+                assertTrue(Files.readString(directory.resolve("stderr.log")).contains("Runner host refused startup or lost authority"))
+                return
+            }
             val now = Instant.now()
-            val baseEnvironment = RunnerProtocolTest.environment(binding, now)
-            val environment = JsonObject(baseEnvironment + ("egress" to JsonArray(baseEnvironment.array("egress") + JsonObject(baseEnvironment.array("egress")[0].jsonObject + ("pathId" to JsonPrimitive("subprocess"))))))
+            val environment = evidence(if (earlyEnvironment == "newer") earlyAt.minusSeconds(5) else now, "start-check")
             val originalAuthorization = runnerJson.parseToJsonElement(RunnerProtocolTest.resource("fixtures/valid/claim.json")).jsonObject.obj("authorization")
             assertEquals(!missingSupplement, ready.obj("payload").array("capabilities").any { it.jsonPrimitive.content == "control.perCall.v1" })
             val requested = originalAuthorization.array("requiredCapabilities") +
