@@ -39,26 +39,44 @@ class RunnerCredentials(
             put("childExecutionPath", childPath(scope.rootExecutionId, scope.executionId)); put("purpose", purpose)
         }
         var dispatched = false
+        // S records the grant's watchdog lineage under this exact request frame. Whenever E will not
+        // hold the grant, the same request identity retires it there.
+        fun retireRequest() {
+            if (dispatched && !ipc.businessFence.isClosed()) runCatching {
+                onRequestCancelled(JsonObject(request + ("requestFrameId" to JsonPrimitive(requestFrameId))))
+            }.onFailure { gate.invalidate("CREDENTIAL_REQUEST_CANCELLATION_UNREPORTED") }
+        }
         val grant = try {
             ipc.requestCorrelated("credentialRequest", request, "credentialGrant", frameId = requestFrameId,
                 onRequest = { dispatched = true }).payload
         } catch (cancelled: kotlinx.coroutines.CancellationException) {
             // The RPC waiter has been removed before cancellation escapes. A late response can never
             // become a usable lease. S can now retire only the grant associated with this exact request.
-            if (dispatched && !ipc.businessFence.isClosed()) runCatching {
-                onRequestCancelled(JsonObject(request + ("requestFrameId" to JsonPrimitive(requestFrameId))))
-            }.onFailure { gate.invalidate("CREDENTIAL_REQUEST_CANCELLATION_UNREPORTED") }
+            retireRequest()
             throw cancelled
         }
-        // Register FIRST: even a rejected grant must never appear in late logs.
-        secrets.register(grant.obj("material"))
-        require(grant.string("requestId") == requestId && grant.string("credentialRef") == ref && grant.long("version") == version) { "Credential grant mismatch" }
-        val expiry = Instant.parse(grant.string("expiresAt"))
-        val operations = grant.array("allowedOperations").map { it.jsonPrimitive.content }.toSet()
-        require(expiry > now() && purpose in operations) { "Credential grant lacks live operation authority" }
-        ipc.businessFence.check(); gate.check()
-        return RunnerCredentialLease(ref, grant.string("credentialLeaseId"), version, scope, grant.obj("material"), operations, expiry, nanoTime() + java.time.Duration.between(now(), expiry).toNanos())
-            .also { check(leases.putIfAbsent(it.leaseId, it) == null) { "Credential lease identity reused" } }
+        val lease = try {
+            // Register FIRST: even a rejected grant must never appear in late logs.
+            grant["material"]?.let(secrets::register)
+            require(grant.string("requestId") == requestId && grant.string("credentialRef") == ref && grant.long("version") == version) { "Credential grant mismatch" }
+            val expiry = Instant.parse(grant.string("expiresAt"))
+            val operations = grant.array("allowedOperations").map { it.jsonPrimitive.content }.toSet()
+            require(expiry > now() && purpose in operations) { "Credential grant lacks live operation authority" }
+            ipc.businessFence.check(); gate.check()
+            RunnerCredentialLease(ref, grant.string("credentialLeaseId"), version, scope, grant.obj("material"), operations, expiry, nanoTime() + java.time.Duration.between(now(), expiry).toNanos())
+        } catch (refused: Exception) {
+            // Refused locally after S already armed its watchdog for this grant: retire it there, or the
+            // fallback card would run until the refused grant's deadline stops the whole attempt.
+            retireRequest()
+            throw refused
+        }
+        if (leases.putIfAbsent(lease.leaseId, lease) != null) {
+            // A reused grant identity names a lineage S may already hold for a live lease; retiring it
+            // would drop that lease's backstop. Fail closed instead.
+            gate.invalidate("CREDENTIAL_LEASE_IDENTITY_REUSED")
+            throw RunnerAuthorityLost()
+        }
+        return lease
     }
     fun material(lease: RunnerCredentialLease, scope: WorkflowHostScope, operation: String): JsonObject {
         ipc.businessFence.check(); gate.check()

@@ -207,6 +207,59 @@ class RunnerSubscriptionTest {
         } }
     }
 
+    @Test fun `locally refused grant is retired at S under its exact request identity`() = runBlocking<Unit> {
+        withTimeout(5000) { IpcHarness().use { h ->
+            val gate = RunnerEnvironmentGate(h.binding, setOf("engine-http")); gate.install(RunnerProtocolTest.environment(h.binding, Instant.now()))
+            val cancelled = java.util.concurrent.CopyOnWriteArrayList<JsonObject>()
+            val secrets = RunnerSecrets(); val credentials = RunnerCredentials(h.ipc, gate, secrets, onRequestCancelled = { cancelled += it })
+            val scope = WorkflowHostScope(h.binding.string("executionId"), h.binding.string("executionId"), stepName = "cli")
+            val material = buildJsonObject { put("authJson", original) }
+            // The platform's grant lacks this purpose, then one that has already expired by E's clock.
+            for ((leaseId, operations, expiresAt) in listOf(
+                Triple("grant-no-purpose", listOf("other"), Instant.now().plusSeconds(60)),
+                Triple("grant-expired", listOf("subscription.codex"), Instant.now().minusSeconds(1))
+            )) {
+                cancelled.clear()
+                val pending = async { runCatching { credentials.acquire("account", 3, scope, "subscription.codex") } }
+                val request = h.next()
+                reply(h, request, leaseId, material = material, operations = operations, expiresAt = expiresAt)
+                assertIs<IllegalArgumentException>(pending.await().exceptionOrNull())
+                assertEquals(request.string("frameId"), cancelled.single().string("requestFrameId"), leaseId)
+                assertEquals(request.obj("payload"), JsonObject(cancelled.single() - "requestFrameId"))
+                assertFalse(secrets.redact("fake-original-access").contains("fake-original"), "refused material stays redacted")
+            }
+            // A refused first card is reported, and the pool's fallback card still works.
+            val events = java.util.concurrent.CopyOnWriteArrayList<JsonObject>()
+            val live = RunnerLiveCredentials(credentials, gate, renewalIntervalMs = 60_000)
+            val pool = RunnerSubscriptionPool(live, scope, "codex", listOf("credential:account@3", "credential:backup@3"), secrets) { _, payload -> events += payload }
+            try {
+                cancelled.clear()
+                val acquiring = async { pool.acquire(emptySet()) }
+                val refusedRequest = h.next(); reply(h, refusedRequest, "refused", operations = listOf("other"))
+                val backupRequest = h.next(); assertEquals("backup", backupRequest.obj("payload").string("credentialRef")); reply(h, backupRequest, "backup")
+                assertEquals("backup", acquiring.await()!!.id)
+                assertEquals(listOf(refusedRequest.string("frameId")), cancelled.map { it.string("requestFrameId") })
+                assertEquals("LEASE_REFUSED", events.single().string("outcome"))
+                gate.check()
+            } finally { live.close(); credentials.clear() }
+        } }
+    }
+
+    @Test fun `reused grant identity fails closed instead of retiring a live lineage`() = runBlocking<Unit> {
+        withTimeout(5000) { IpcHarness().use { h ->
+            val gate = RunnerEnvironmentGate(h.binding, setOf("engine-http")); gate.install(RunnerProtocolTest.environment(h.binding, Instant.now()))
+            val cancelled = java.util.concurrent.CopyOnWriteArrayList<JsonObject>()
+            val credentials = RunnerCredentials(h.ipc, gate, RunnerSecrets(), onRequestCancelled = { cancelled += it })
+            val scope = WorkflowHostScope(h.binding.string("executionId"), h.binding.string("executionId"), stepName = "cli")
+            val first = async { credentials.acquire("account", 3, scope, "subscription.codex") }
+            reply(h, h.next(), "same"); first.await()
+            val second = async { runCatching { credentials.acquire("account", 3, scope, "subscription.codex") } }
+            reply(h, h.next(), "same")
+            assertIs<RunnerAuthorityLost>(second.await().exceptionOrNull())
+            assertTrue(cancelled.isEmpty()); assertFailsWith<RunnerAuthorityLost> { gate.check() }
+        } }
+    }
+
     @Test fun `pending same-reference acquire survives another handle release with exact grant identity`() = runBlocking<Unit> {
         withTimeout(5000) { IpcHarness().use { h ->
             val gate = RunnerEnvironmentGate(h.binding, setOf("engine-http")); gate.install(RunnerProtocolTest.environment(h.binding, Instant.now()))
@@ -492,5 +545,42 @@ class RunnerSubscriptionTest {
                 gate.check()
             } finally { pump.cancelAndJoin(); host.close(); h.supervisorInput.close() }
         }
+    }
+    @Test fun `refused credential file observation still deletes the materialised auth json and ends the hold`(@TempDir dir: Path) = runBlocking<Unit> {
+        val private = dir.resolve(".runner-private")
+        val calls = java.util.concurrent.CopyOnWriteArrayList<String>()
+        val pool = object : com.fartech.agents.tools.InvocationCredentialProvider {
+            override suspend fun acquire(excludedCredentialIds: Set<String>) =
+                com.fartech.agents.tools.ClaudeCredentialProvider.Credential("account", original).also { calls += "acquire" }
+            override suspend fun markRateLimited(credential: com.fartech.agents.tools.ClaudeCredentialProvider.Credential, resetAtMillis: Long) {}
+            override suspend fun markSucceeded(credential: com.fartech.agents.tools.ClaudeCredentialProvider.Credential, executionId: String?, stepName: String?) {}
+            override fun rotated(credential: com.fartech.agents.tools.ClaudeCredentialProvider.Credential, authJson: String) { calls += "rotated" }
+            override suspend fun release(credential: com.fartech.agents.tools.ClaudeCredentialProvider.Credential) { calls += "release" }
+        }
+        var observed: Path? = null
+        val host = object : WorkflowHost by WorkflowHostTest.Host(dir) {
+            override val privateDirectory get() = private.toFile()
+            override fun observeCredentialFile(scope: WorkflowHostScope, path: Path): AutoCloseable {
+                observed = path; assertTrue(Files.exists(path))
+                throw RunnerAuthorityLost() // The business fence closed between materialisation and observation.
+            }
+        }
+        var executed = false
+        val tools = com.fartech.agents.tools.ExternalAgentTools(
+            executor = object : SubprocessExecutor {
+                override suspend fun execute(request: SubprocessExecutor.ExecRequest): SubprocessExecutor.ExecResult { executed = true; error("must not start") }
+            },
+            parameters = listOf(com.fartech.ftapp2.commonsKt.ConfigurationParameter("external_agent_codex_auth_mode", JsonPrimitive("subscription"))),
+            context = com.fartech.agents.tools.exec.SubprocessToolContext(workspaceDir = dir.toFile(), executionId = "root", stepName = "cli"),
+            codexCredentialProvider = pool
+        )
+        assertFailsWith<RunnerAuthorityLost> {
+            WorkflowHostContext.withHost(host) { WorkflowHostContext.withScope(WorkflowHostScope("root", "root", stepName = "cli")) {
+                tools.runCodexSubAgent(com.fartech.agents.tools.ExternalAgentContext(prompt = "x"))
+            } }
+        }
+        assertFalse(executed)
+        assertTrue(observed!!.startsWith(private)); assertFalse(Files.exists(observed), "live token file must not outlive a refused observation")
+        assertEquals(listOf("acquire", "release"), calls)
     }
 }

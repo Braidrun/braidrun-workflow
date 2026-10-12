@@ -20,6 +20,8 @@ fun main(args: Array<String>) {
     System.setErr(redactedLogs); System.setOut(redactedLogs)
     System.setProperty("kotlin-logging.logStartupMessage", "false")
     System.setProperty("braidrun.quietConsole", "true")
+    // Background threads (IO dispatchers, static initializers) must not print messages or cause chains either.
+    Thread.setDefaultUncaughtExceptionHandler { _, failure -> System.err.println(runnerFailureSummary(failure)) }
     if (args.size == 1 && args[0] == "--capabilities") {
         // Offline adapter inventory for packaging/registration: no binding, network, process or credential use.
         protocolOutput.println(JsonArray(RunnerHostSession.CAPABILITIES.map(::JsonPrimitive)).toString())
@@ -34,14 +36,15 @@ fun main(args: Array<String>) {
         runBlocking { RunnerHostSession(binding, System.`in`, protocolOutput, secrets).run() }
     } catch (failure: RunnerNegotiationException) {
         System.err.println("Runner host refused startup: ${failure.reason.name}"); 2
-    } catch (failure: Exception) {
+    } catch (failure: Throwable) {
+        // Errors too (e.g. ExceptionInInitializerError wrapping a URL with a query key): class names only.
         System.err.println(runnerFailureSummary(failure)); 2
     }
     exitProcess(code)
 }
 
 /** Exception messages may contain unregistered endpoint query keys or local account paths. */
-internal fun runnerFailureSummary(failure: Exception): String =
+internal fun runnerFailureSummary(failure: Throwable): String =
     "Runner host refused startup or lost authority: ${failure.javaClass.name}" +
         (failure.cause?.let { " caused by ${it.javaClass.name}" } ?: "")
 

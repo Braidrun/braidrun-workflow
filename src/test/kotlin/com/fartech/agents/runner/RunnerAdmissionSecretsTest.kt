@@ -37,6 +37,14 @@ class RunnerAdmissionSecretsTest {
         assertFailsWith<IllegalArgumentException> { RunnerAdmission.requireLeasedProcessMaps(mcp("env", mapOf("OPENAI_KEY" to "sk-raw")).getValue("search")) }
         RunnerAdmission.requireLeasedProcessMaps(mcp("env", mapOf("OPENAI_KEY" to "credential:openai@1")).getValue("search"))
     }
+    @Test fun `startup errors are summarised by class name only`() {
+        val failure = ExceptionInInitializerError(IllegalArgumentException("https://example.invalid?key=synthetic-key"))
+        val rendered = runnerFailureSummary(failure)
+        assertTrue(rendered.contains("ExceptionInInitializerError")); assertTrue(rendered.contains("IllegalArgumentException"))
+        assertFalse(rendered.contains("synthetic")); assertFalse(rendered.contains("example.invalid"))
+        val error = runnerFailureSummary(OutOfMemoryError("https://example.invalid?key=synthetic-key"))
+        assertTrue(error.contains("OutOfMemoryError")); assertFalse(error.contains("synthetic"))
+    }
     @Test fun `only subscription fields allow a list of delegated references`() {
         val list = JsonPrimitive("credential:first@1,credential:second@1")
         for (key in listOf("api_key", "password", "authorization", "service_token")) {

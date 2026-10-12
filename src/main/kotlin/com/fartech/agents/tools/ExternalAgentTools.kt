@@ -422,13 +422,9 @@ class ExternalAgentTools(
             throw e
         }
 
-        val credentialFileObservation = auth.codexHomeHostDir?.let { directory ->
-            com.fartech.agents.workflow.WorkflowHostContext.current?.let { host ->
-                val scope = com.fartech.agents.workflow.WorkflowHostContext.scope
-                    ?: com.fartech.agents.workflow.WorkflowHostScope(host.binding.executionId, context.executionId ?: host.binding.executionId, stepName = context.stepName)
-                host.observeCredentialFile(scope, File(directory, "auth.json").toPath())
-            }
-        }
+        // Assigned inside the try below: a refused observation must still delete the
+        // materialised auth.json and release this attempt's credential hold.
+        var credentialFileObservation: AutoCloseable? = null
         // Codex usage recovery: always observe the stream (even with no emitter) so a
         // killed run still knows its thread id and whether usage was already reported.
         val codexObserver = if (engine == Engine.CODEX) CodexRunObserver() else null
@@ -442,6 +438,13 @@ class ExternalAgentTools(
         // materialise on the host) is always removed once the subprocess finishes —
         // on success, failure, or timeout. Avoids leaving customer tokens on disk.
         try {
+        credentialFileObservation = auth.codexHomeHostDir?.let { directory ->
+            com.fartech.agents.workflow.WorkflowHostContext.current?.let { host ->
+                val scope = com.fartech.agents.workflow.WorkflowHostContext.scope
+                    ?: com.fartech.agents.workflow.WorkflowHostScope(host.binding.executionId, context.executionId ?: host.binding.executionId, stepName = context.stepName)
+                host.observeCredentialFile(scope, File(directory, "auth.json").toPath())
+            }
+        }
 
         // Build the command. Operators can override the binary name (e.g. "npx -y @anthropic-ai/claude-code")
         // by setting external_agent_<engine>_command / _extra_args parameters; default is "claude" / "codex"
