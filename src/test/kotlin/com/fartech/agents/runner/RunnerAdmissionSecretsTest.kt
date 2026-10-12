@@ -32,10 +32,27 @@ class RunnerAdmissionSecretsTest {
         assertFailsWith<IllegalArgumentException> { inspect("mcp_servers", mcp("headers", mapOf("X-Custom" to "raw"))) }
         inspect("mcp_servers", mcp("env", mapOf("TAVILY_KEY" to "credential:tavily@1", "NODE_ENV" to "production", "LOG_LEVEL" to "info", "PATH" to "/usr/bin:/bin")))
         // Stdio MCP has no headers today; the rule still covers them for any future transport.
-        RunnerAdmission.requireLeasedProcessMaps(mcp("headers", mapOf("Authorization" to "credential:search@2", "Content-Type" to "application/json")).getValue("search"))
+        RunnerAdmission.requireLeasedProcessInputs(mcp("headers", mapOf("Authorization" to "credential:search@2", "Content-Type" to "application/json")).getValue("search"))
         // The host repeats the same rule before it leases and launches.
-        assertFailsWith<IllegalArgumentException> { RunnerAdmission.requireLeasedProcessMaps(mcp("env", mapOf("OPENAI_KEY" to "sk-raw")).getValue("search")) }
-        RunnerAdmission.requireLeasedProcessMaps(mcp("env", mapOf("OPENAI_KEY" to "credential:openai@1")).getValue("search"))
+        assertFailsWith<IllegalArgumentException> { RunnerAdmission.requireLeasedProcessInputs(mcp("env", mapOf("OPENAI_KEY" to "sk-raw")).getValue("search")) }
+        RunnerAdmission.requireLeasedProcessInputs(mcp("env", mapOf("OPENAI_KEY" to "credential:openai@1")).getValue("search"))
+    }
+    private fun server(vararg fields: Pair<String, JsonElement>) = JsonObject(mapOf("command" to JsonPrimitive("search-mcp")) + fields)
+    private fun args(vararg values: String) = "args" to JsonArray(values.map(::JsonPrimitive))
+    @Test fun `MCP argv cannot carry a secret-named flag value or a literal token`() {
+        for (rejected in listOf(args("--api-key", "tvly-synthetic"), args("--token=abc"), args("--api-key", "credential:search@1"),
+                args("-y", "search-mcp", "--auth-token", "opaque"), args("--key", "opaque"), args("serve", "sk-synthetic"))) {
+            assertFailsWith<IllegalArgumentException>(rejected.toString()) { RunnerAdmission.requireLeasedProcessInputs(server(rejected)) }
+            assertFailsWith<IllegalArgumentException> { inspect("mcp_servers", buildJsonObject { put("search", server(rejected)) }) }
+        }
+        assertFailsWith<IllegalArgumentException> { RunnerAdmission.requireLeasedProcessInputs(JsonObject(mapOf("command" to JsonPrimitive("ghp_synthetic")))) }
+        // Allowlisted nonsecret settings still may not hold a literal token.
+        assertFailsWith<IllegalArgumentException> { RunnerAdmission.requireLeasedProcessInputs(mcp("env", mapOf("DEBUG" to "tvly-synthetic")).getValue("search")) }
+        for (accepted in listOf(args("-y", "search-mcp"), args("--api-key-env", "SEARCH_KEY"), args("--verbose", "--port", "8080"), args("--token"))) {
+            RunnerAdmission.requireLeasedProcessInputs(server(accepted))
+        }
+        RunnerAdmission.requireLeasedProcessInputs(mcp("env", mapOf("DEBUG" to "1", "SEARCH_KEY" to "credential:search@1")).getValue("search"))
+        inspect("mcp_servers", buildJsonObject { put("search", server(args("-y", "search-mcp"), "env" to buildJsonObject { put("SEARCH_KEY", "credential:search@1") })) })
     }
     @Test fun `startup errors are summarised by class name only`() {
         val failure = ExceptionInInitializerError(IllegalArgumentException("https://example.invalid?key=synthetic-key"))

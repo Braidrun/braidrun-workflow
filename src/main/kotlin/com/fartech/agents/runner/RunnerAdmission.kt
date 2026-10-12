@@ -157,7 +157,7 @@ class RunnerAdmission(
                         requireCapability("service.mcp_servers.v1")
                         val servers = value.jsonObject
                         servers.values.forEach { server ->
-                            requireLeasedProcessMaps(server)
+                            requireLeasedProcessInputs(server)
                             val config = runnerJson.decodeFromJsonElement(com.fartech.agents.commons.McpServerConfig.serializer(), server)
                             if (config.enabled) {
                                 require(config.url.isNullOrBlank()) { "HTTP MCP adapter not yet accepted" }
@@ -249,19 +249,46 @@ class RunnerAdmission(
         private val NONSECRET_PROCESS_KEYS = setOf("path", "home", "lang", "lcall", "lcctype", "tz", "term", "nodeenv",
             "pythonunbuffered", "pythonioencoding", "pythondontwritebytecode", "debug", "loglevel", "nocolor", "forcecolor", "ci",
             "accept", "acceptlanguage", "acceptencoding", "contenttype", "useragent")
+        /** Literal token shapes that never belong in a nonsecret setting or a command line. */
+        private val LITERAL_SECRET = Regex("^(?:Bearer\\s|Basic\\s|sk-|sk_|rk_|pk_live_|tvly-|ghp_|gho_|ghs_|github_pat_|glpat-|xox[abpr]-|AIza|ya29\\.|AKIA|eyJ)")
         /**
          * MCP `env`/`headers` are injected into the child as a whole, so a key-name deny list cannot
          * see a secret behind an arbitrary name (`TAVILY_KEY`, `X-Custom`). Every value must be a leased
-         * reference unless its key is an explicitly nonsecret setting.
+         * reference unless its key is an explicitly nonsecret setting, and even then it may not carry a
+         * literal token shape.
          */
         fun leasedProcessValue(key: String, value: JsonElement): Boolean =
-            value is JsonPrimitive && value.isString &&
-                (CREDENTIAL_REFERENCE.matches(value.content) || normalizedKey(key) in NONSECRET_PROCESS_KEYS)
-        fun requireLeasedProcessMaps(server: JsonElement) {
+            value is JsonPrimitive && value.isString && (CREDENTIAL_REFERENCE.matches(value.content) ||
+                (normalizedKey(key) in NONSECRET_PROCESS_KEYS && !LITERAL_SECRET.containsMatchIn(value.content)))
+        /** `--api-key`, `--token`, `-k`-style flags whose name is secret-like or ends in `key`. */
+        private fun secretFlag(name: String): Boolean = isSecretKey(name) || normalizedKey(name).endsWith("key")
+        /**
+         * Misconfiguration defence, not a confinement boundary: the admitted MCP command is arbitrary code
+         * and could read or print anything it is given. What this layer guarantees is that a definition
+         * cannot plant a raw secret where Runner never registers it for redaction and never leases it:
+         * `env`/`headers` values (above), and argv. A secret-named flag (`--api-key x`, `--token=x`) may
+         * not carry a value at all, not even a reference (argv is visible to `ps` and is never leased);
+         * pass it through a leased `env` entry. `command`, `args` and `cwd` may not contain literal token shapes.
+         */
+        fun requireLeasedProcessInputs(server: JsonElement) {
             if (server !is JsonObject) return
             for (field in listOf("env", "headers")) {
                 val entries = server[field]?.takeUnless { it == JsonNull } ?: continue
                 require(entries is JsonObject && entries.all { (key, value) -> leasedProcessValue(key, value) }) { "Secrets must be leased at runtime" }
+            }
+            val args = server["args"]?.takeUnless { it == JsonNull }?.let { value ->
+                require(value is JsonArray && value.all { it is JsonPrimitive && it.isString }) { "Invalid MCP arguments" }
+                value.map { it.jsonPrimitive.content }
+            }.orEmpty()
+            val literals = args + listOfNotNull(server["command"], server["cwd"]).filterIsInstance<JsonPrimitive>().filter { it.isString }.map { it.content }
+            require(literals.none { text -> text.split('=', ' ').any { LITERAL_SECRET.containsMatchIn(it) } }) { "Secrets must be leased at runtime" }
+            args.forEachIndexed { index, arg ->
+                if (!arg.startsWith("-")) return@forEachIndexed
+                val name = arg.trimStart('-').substringBefore('=')
+                if (name.isEmpty() || !secretFlag(name)) return@forEachIndexed
+                val inline = arg.contains('=')
+                val following = args.getOrNull(index + 1)?.takeUnless { it.startsWith("-") }
+                require(!inline && following == null) { "Secrets must be leased at runtime" }
             }
         }
     }
