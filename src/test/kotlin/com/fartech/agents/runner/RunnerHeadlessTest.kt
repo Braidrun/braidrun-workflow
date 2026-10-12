@@ -26,7 +26,10 @@ class RunnerHeadlessTest {
 
     @Test fun `missing packaged supplement refuses per-call NDJSON before business execution`(@TempDir directory: Path) = runFixture(directory, false, perCall = true, rejectStart = true, missingSupplement = true)
 
-    private fun runFixture(directory: Path, callbackEnabled: Boolean, childScope: Boolean = false, echoSecret: Boolean = callbackEnabled, perCall: Boolean = false, codeTimeout: Int = 30, rejectStart: Boolean = false, missingSupplement: Boolean = false) {
+    @Test fun `a lease renewal that arrives before ready and start does not stop the engine`(@TempDir directory: Path) = runFixture(directory, false, earlyLeaseId = "lease")
+    @Test fun `an early lease renewal for another lease identity still refuses startup`(@TempDir directory: Path) = runFixture(directory, false, rejectStart = true, earlyLeaseId = "other-lease")
+
+    private fun runFixture(directory: Path, callbackEnabled: Boolean, childScope: Boolean = false, echoSecret: Boolean = callbackEnabled, perCall: Boolean = false, codeTimeout: Int = 30, rejectStart: Boolean = false, missingSupplement: Boolean = false, earlyLeaseId: String? = null) {
         val callbackEcho = if (echoSecret) "printf \"%s\\n\" \"${'$'}WF_API_TOKEN\"; printf \"%s\\n\" \"${'$'}WF_API_TOKEN\" >&2; " else ""
         val absence = if (perCall) "test -z \"${'$'}{WF_API_TOKEN+x}\"; test -z \"${'$'}{WF_VAR_WF_API_TOKEN+x}\"; " else ""
         val body = """
@@ -96,6 +99,8 @@ class RunnerHeadlessTest {
             fun send(type: String, payload: JsonObject, reply: String? = null) {
                 writer.write(RunnerProtocolTest.frame(binding, type, payload, reply).toString()); writer.newLine(); writer.flush()
             }
+            // S renews from claim time and forwards the renewal as soon as the JVM is spawned.
+            if (earlyLeaseId != null) send("leaseRenewed", buildJsonObject { put("lease", JsonObject(RunnerProtocolTest.lease(Instant.now()) + ("leaseId" to JsonPrimitive(earlyLeaseId)))) })
             val ready = RunnerProtocol().parse(reader.readLine()); assertEquals("ready", ready.string("type"))
             val now = Instant.now()
             val baseEnvironment = RunnerProtocolTest.environment(binding, now)
@@ -112,7 +117,8 @@ class RunnerHeadlessTest {
                 assertNull(reader.readLine(), "Rejected negotiation must produce no business frames")
                 assertTrue(process.waitFor(5, TimeUnit.SECONDS)); assertEquals(2, process.exitValue())
                 assertFalse(Files.exists(directory.resolve(".runner-state/events")))
-                assertTrue(Files.readString(directory.resolve("stderr.log")).contains(if (missingSupplement) "RUNNER_CONTROL_SUPPLEMENT_UNAVAILABLE" else "RUNNER_CONTROL_MODE_CONFLICT"))
+                assertTrue(Files.readString(directory.resolve("stderr.log")).contains(when {
+                    earlyLeaseId != null -> "RunnerAuthorityLost"; missingSupplement -> "RUNNER_CONTROL_SUPPLEMENT_UNAVAILABLE"; else -> "RUNNER_CONTROL_MODE_CONFLICT" }))
                 return
             }
             var codeStartEvent: JsonObject? = null

@@ -72,6 +72,7 @@ class RunnerHostSession(
     private val stopped = AtomicBoolean()
     private val stopReason = java.util.concurrent.atomic.AtomicReference<String?>()
     @Volatile private var gate: RunnerEnvironmentGate? = null
+    private val earlyLease = RunnerEarlyLease()
     @Volatile private var execution: Job? = null
     @Volatile private var host: RunnerWorkflowHost? = null
     @Volatile private var processes: RunnerProcesses? = null
@@ -89,7 +90,7 @@ class RunnerHostSession(
             "environmentInvalidated" -> stop("RUNNER_ENVIRONMENT_INVALIDATED")
             "error" -> stop("RUNNER_CONTROL_ERROR")
             "environmentRefreshed" -> requireNotNull(gate).install(payload, frame["replyTo"]?.jsonPrimitive?.content)
-            "leaseRenewed" -> requireNotNull(gate).installLease(payload.obj("lease"))
+            "leaseRenewed" -> earlyLease.renewed(payload.obj("lease")) // may precede start; see RunnerEarlyLease
             "ack" -> { requireNotNull(host).acknowledge(payload); requireNotNull(host).setControl(frame) }
             "processExited" -> requireNotNull(processes).exited(payload)
             "processOutput" -> requireNotNull(interactive).output(payload)
@@ -114,7 +115,7 @@ class RunnerHostSession(
             val environment = RunnerEnvironmentGate(binding, payload.obj("environment").array("egress").map { it.jsonObject.string("pathId") }.toSet())
             gate = environment
             environment.onInvalidated { stop() }
-            environment.installLease(payload.obj("lease")); environment.install(payload.obj("environment"))
+            earlyLease.attach(environment, payload.obj("lease")); environment.install(payload.obj("environment"))
             if (stopped.get()) throw RunnerAuthorityLost()
             val directory = Path.of(payload.string("executionDirectory")).toRealPath()
             // Relative runtime paths cannot accidentally refer to the JVM launcher's directory.
