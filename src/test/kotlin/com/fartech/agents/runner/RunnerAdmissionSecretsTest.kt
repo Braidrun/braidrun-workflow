@@ -40,19 +40,32 @@ class RunnerAdmissionSecretsTest {
     private fun server(vararg fields: Pair<String, JsonElement>) = JsonObject(mapOf("command" to JsonPrimitive("search-mcp")) + fields)
     private fun args(vararg values: String) = "args" to JsonArray(values.map(::JsonPrimitive))
     @Test fun `MCP argv cannot carry a secret-named flag value or a literal token`() {
-        for (rejected in listOf(args("--api-key", "tvly-synthetic"), args("--token=abc"), args("--api-key", "credential:search@1"),
-                args("-y", "search-mcp", "--auth-token", "opaque"), args("--key", "opaque"), args("serve", "sk-synthetic"))) {
+        val token = "tvly-SYNTHETIC0123456789abcdef"
+        for (rejected in listOf(args("--api-key", "opaque-raw"), args("--token=abc"), args("--api-key", "credential:search@1"),
+                args("-y", "search-mcp", "--auth-token", "opaque"), args("--key", "opaque"), args("serve", "sk-synthetic0123456789abcd"),
+                // Shapes a README commonly teaches (R3-4).
+                args("-H", "Authorization: Bearer opaque-raw-123"), args("--header=Authorization: Bearer opaque-raw-123"),
+                args("TAVILY_API_KEY=opaque-raw", "tavily-mcp"), args("-c", "TAVILY_API_KEY=opaque-raw tavily-mcp"),
+                args("--auth", "user:ghp_SYNTHETIC0123456789abcdef"), args("-H", "X-Api-Key: opaque-raw"))) {
             assertFailsWith<IllegalArgumentException>(rejected.toString()) { RunnerAdmission.requireLeasedProcessInputs(server(rejected)) }
             assertFailsWith<IllegalArgumentException> { inspect("mcp_servers", buildJsonObject { put("search", server(rejected)) }) }
         }
-        assertFailsWith<IllegalArgumentException> { RunnerAdmission.requireLeasedProcessInputs(JsonObject(mapOf("command" to JsonPrimitive("ghp_synthetic")))) }
-        // Allowlisted nonsecret settings still may not hold a literal token.
-        assertFailsWith<IllegalArgumentException> { RunnerAdmission.requireLeasedProcessInputs(mcp("env", mapOf("DEBUG" to "tvly-synthetic")).getValue("search")) }
-        for (accepted in listOf(args("-y", "search-mcp"), args("--api-key-env", "SEARCH_KEY"), args("--verbose", "--port", "8080"), args("--token"))) {
+        assertFailsWith<IllegalArgumentException> { RunnerAdmission.requireLeasedProcessInputs(JsonObject(mapOf("command" to JsonPrimitive("ghp_SYNTHETIC0123456789abcdef")))) }
+        // Allowlisted nonsecret settings still may not hold a literal token or a credential behind an auth scheme.
+        for (env in listOf(mapOf("DEBUG" to token), mapOf("DEBUG" to "1 $token"), mapOf("USER_AGENT" to "bot Bearer opaque-raw"), mapOf("LANG" to "opaque-raw"))) {
+            assertFailsWith<IllegalArgumentException>(env.toString()) { RunnerAdmission.requireLeasedProcessInputs(mcp("env", env).getValue("search")) }
+        }
+        // Not tokens: locales, key-file paths, names ending in "key" and token counts (R3-3).
+        for (accepted in listOf(args("-y", "search-mcp"), args("--api-key-env", "SEARCH_KEY"), args("--verbose", "--port", "8080"), args("--token"),
+                args("--locale", "sk_SK"), args("--public-key", "/etc/mcp/pub.pem"), args("--ssh-key", "~/.ssh/id_ed25519"),
+                args("--sort-key", "name"), args("--private-key", "/etc/mcp/key.pem"), args("--max-token", "4096"),
+                args("--url", "http://localhost:8080/mcp"), args("--auth-scheme", "bearer", "--port", "1"))) {
             RunnerAdmission.requireLeasedProcessInputs(server(accepted))
         }
-        RunnerAdmission.requireLeasedProcessInputs(mcp("env", mapOf("DEBUG" to "1", "SEARCH_KEY" to "credential:search@1")).getValue("search"))
+        RunnerAdmission.requireLeasedProcessInputs(mcp("env", mapOf("DEBUG" to "1", "LANG" to "sk_SK.UTF-8", "LC_ALL" to "C.UTF-8", "SEARCH_KEY" to "credential:search@1")).getValue("search"))
         inspect("mcp_servers", buildJsonObject { put("search", server(args("-y", "search-mcp"), "env" to buildJsonObject { put("SEARCH_KEY", "credential:search@1") })) })
+        // The bundled default server stays admissible.
+        inspect("mcp_servers", buildJsonObject { put("playwright", server(args("@playwright/mcp@latest")) .let { JsonObject(it + ("command" to JsonPrimitive("npx"))) }) })
     }
     @Test fun `startup errors are summarised by class name only`() {
         val failure = ExceptionInInitializerError(IllegalArgumentException("https://example.invalid?key=synthetic-key"))

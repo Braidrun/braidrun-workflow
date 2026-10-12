@@ -108,7 +108,10 @@ class RunnerTerminalLifecycleTest {
             assertFailsWith<RunnerAuthorityLost> { host.beforeOperation(scope, "late-model-or-code") }
             assertFailsWith<RunnerAuthorityLost> { host.approvalHandler.requestApproval(request) }
             assertFailsWith<RunnerAuthorityLost> { host.monitor(WorkflowMonitorUpdate(identity.executionId, "step_started", "late-code")) }
+            val retainedBefore = h.ipc.retainedEvidenceCount()
             host.acknowledge(buildJsonObject { put("ackSeq", event.obj("payload").long("eventSeq")) })
+            // The host's ACK path reclaims the event; its replay below is proven by the journal's durable copy.
+            assertEquals(retainedBefore - 1, h.ipc.retainedEvidenceCount())
             assertFailsWith<RunnerAuthorityLost> { host.scriptContents("root.yaml") }
             assertFailsWith<RunnerAuthorityLost> { oldProcess.execute(processRequest) }
             assertFailsWith<RunnerAuthorityLost> { directProcesses.execute(processRequest) }
@@ -134,6 +137,7 @@ class RunnerTerminalLifecycleTest {
             assertFails { h.ipc.sendFrame(JsonObject(terminal + ("frameId" to JsonPrimitive("replacement-result")))) }
             h.ipc.sendFrame(event); assertEquals(event, withTimeout(1000) { h.next() }, "Exact retained original event remains transportable without allocating a new event")
             assertFailsWith<RunnerAuthorityLost> { h.ipc.sendFrame(JsonObject(event + ("frameId" to JsonPrimitive("new-event")))) }
+            assertFailsWith<RunnerAuthorityLost> { h.ipc.sendFrame(JsonObject(event + ("payload" to JsonObject(event.obj("payload") + ("payload" to buildJsonObject { put("kind", "forged") }))))) }
             assertFailsWith<RunnerAuthorityLost> { h.ipc.send("userInteraction", buildJsonObject {
                 put("idempotencyKey", "late"); put("operation", "tellUser"); put("childExecutionPath", JsonArray(emptyList())); put("message", "late raw adapter"); put("options", JsonArray(emptyList()))
             }) }

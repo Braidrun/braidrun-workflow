@@ -213,7 +213,8 @@ class RunnerSubscriptionTest {
             val releases = java.util.concurrent.CopyOnWriteArrayList<String>()
             val live = RunnerLiveCredentials(credentials, gate, renewalIntervalMs = 60_000, onReleased = { lease, _ -> releases += lease.leaseId })
             val scope = WorkflowHostScope(h.binding.string("executionId"), h.binding.string("executionId"), stepName = "cli")
-            val pool = RunnerSubscriptionPool(live, scope, "codex", listOf("credential:account@3"), secrets) { _, _ -> }
+            val events = java.util.concurrent.CopyOnWriteArrayList<JsonObject>()
+            val pool = RunnerSubscriptionPool(live, scope, "codex", listOf("credential:account@3"), secrets) { _, payload -> events += payload }
             try {
                 val acquiringA = async { pool.acquire(emptySet()) }; reply(h, h.next(), "v3"); val a = acquiringA.await()!!
                 val b = pool.acquire(emptySet())!!
@@ -226,8 +227,41 @@ class RunnerSubscriptionTest {
                 val next = h.next()
                 assertEquals("credentialRequest", next.string("type"), "no second rotation was sent for the superseded version")
                 assertEquals("probe", next.obj("payload").string("credentialRef")); reply(h, next, "probe-grant"); probe.await()
+                // Not silently dropped: a secret-free audit event names the card and both versions.
+                val superseded = events.single { it.string("outcome") == "ROTATION_SUPERSEDED" }
+                assertEquals("account", superseded.string("credentialRef")); assertEquals(3L, superseded.long("baseVersion")); assertEquals(4L, superseded.long("currentVersion"))
+                assertFalse(superseded.toString().contains("fake-b"))
                 pool.release(a); pool.release(b); assertEquals(listOf("v3", "v4"), releases)
                 gate.check()
+            } finally { live.close(); credentials.clear() }
+        } }
+    }
+
+    @Test fun `concurrent rotations of one handle are serialized and the later one never sends a second CAS`() = runBlocking<Unit> {
+        withTimeout(10_000) { IpcHarness().use { h ->
+            val gate = RunnerEnvironmentGate(h.binding, setOf("engine-http")); gate.install(RunnerProtocolTest.environment(h.binding, Instant.now()))
+            val secrets = RunnerSecrets(); val credentials = RunnerCredentials(h.ipc, gate, secrets)
+            val events = java.util.concurrent.CopyOnWriteArrayList<JsonObject>()
+            val live = RunnerLiveCredentials(credentials, gate, renewalIntervalMs = 60_000)
+            val scope = WorkflowHostScope(h.binding.string("executionId"), h.binding.string("executionId"), stepName = "cli")
+            val pool = RunnerSubscriptionPool(live, scope, "codex", listOf("credential:account@3"), secrets) { _, payload -> events += payload }
+            try {
+                val acquiringA = async { pool.acquire(emptySet()) }; reply(h, h.next(), "v3"); val a = acquiringA.await()!!
+                val b = pool.acquire(emptySet())!!
+                val rotatingA = async(Dispatchers.IO) { pool.rotated(a, refreshed) }
+                val rotationA = h.next(); assertEquals("credentialRotation", rotationA.string("type"))
+                // B publishes while A's version-3 CAS is still unanswered.
+                val rotatingB = async(Dispatchers.IO) { pool.rotated(b, """{"tokens":{"access_token":"fake-b-access","refresh_token":"fake-b-refresh"}}""") }
+                assertNull(withTimeoutOrNull(500) { h.next() }, "a second expectedVersion=3 CAS while the first is in flight")
+                assertFalse(rotatingB.isCompleted)
+                rotationAck(h, rotationA)
+                reply(h, h.next(), "v4", material = buildJsonObject { put("authJson", refreshed) })
+                rotatingA.await(); rotatingB.await()
+                assertEquals(listOf("ROTATION_SUPERSEDED"), events.map { it.string("outcome") })
+                val probe = async { credentials.acquire("probe", 1, scope, "subscription.codex") }
+                val next = h.next(); assertEquals("probe", next.obj("payload").string("credentialRef")); reply(h, next, "probe-grant"); probe.await()
+                gate.check()
+                pool.release(a); pool.release(b)
             } finally { live.close(); credentials.clear() }
         } }
     }

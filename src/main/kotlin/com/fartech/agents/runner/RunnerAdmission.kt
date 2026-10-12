@@ -249,26 +249,56 @@ class RunnerAdmission(
         private val NONSECRET_PROCESS_KEYS = setOf("path", "home", "lang", "lcall", "lcctype", "tz", "term", "nodeenv",
             "pythonunbuffered", "pythonioencoding", "pythondontwritebytecode", "debug", "loglevel", "nocolor", "forcecolor", "ci",
             "accept", "acceptlanguage", "acceptencoding", "contenttype", "useragent")
-        /** Literal token shapes that never belong in a nonsecret setting or a command line. */
-        private val LITERAL_SECRET = Regex("^(?:Bearer\\s|Basic\\s|sk-|sk_|rk_|pk_live_|tvly-|ghp_|gho_|ghs_|github_pat_|glpat-|xox[abpr]-|AIza|ya29\\.|AKIA|eyJ)")
+        /**
+         * Literal token shapes, found anywhere a word starts (`user:ghp_...`, `"1 sk-..."`). Each needs a
+         * token-length body, so locale or package names such as `sk_SK.UTF-8` are not tokens.
+         */
+        private val LITERAL_SECRET = Regex("(?<![A-Za-z0-9])(?:(?:sk-|sk_|rk_|pk_live_|tvly-|ghp_|gho_|ghs_|ghu_|github_pat_|glpat-|xox[abpr]-|ya29\\.)[A-Za-z0-9._-]{16,}" +
+            "|AIza[A-Za-z0-9_-]{30,}|AKIA[A-Z0-9]{16}|eyJ[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,})")
+        private val LOCALE_KEYS = setOf("lang", "lcall", "lcctype")
+        private val LOCALE = Regex("^(?:[A-Za-z]{2,3}(?:_[A-Za-z]{2})?(?:\\.[A-Za-z0-9-]+)?(?:@[A-Za-z0-9]+)?|C(?:\\.UTF-8)?|POSIX)$")
+        /** Bare `key`-named flags that conventionally carry a secret; `--public-key`, `--sort-key` do not. */
+        private val SECRET_KEY_FLAGS = setOf("key", "licensekey", "masterkey", "encryptionkey", "servicekey", "subscriptionkey", "authkey")
+        private val PATH_VALUE = Regex("^(?:/|~/|\\./|\\.\\./)\\S*$")
+        private val ASSIGNED_NAME = Regex("^[A-Za-z_][A-Za-z0-9_.-]*$")
+        private fun words(text: String) = text.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
+        /** `Authorization: Bearer x`, `USER_AGENT="bot Bearer x"`: an auth scheme followed by a credential word. */
+        private fun carriesAuthScheme(words: List<String>) = words.dropLast(1).withIndex().any { (index, word) ->
+            word.trim('"', '\'', ',', ';').lowercase(java.util.Locale.ROOT) in setOf("bearer", "basic") && !words[index + 1].startsWith("-")
+        }
+        private fun plainValueAllowed(key: String, text: String): Boolean = when (key) {
+            in LOCALE_KEYS -> LOCALE.matches(text)
+            in NONSECRET_PROCESS_KEYS -> !LITERAL_SECRET.containsMatchIn(text) && !carriesAuthScheme(words(text))
+            else -> false
+        }
         /**
          * MCP `env`/`headers` are injected into the child as a whole, so a key-name deny list cannot
          * see a secret behind an arbitrary name (`TAVILY_KEY`, `X-Custom`). Every value must be a leased
-         * reference unless its key is an explicitly nonsecret setting, and even then it may not carry a
-         * literal token shape.
+         * reference unless its key is an explicitly nonsecret setting, and even then it must look like
+         * that setting (a locale for LANG/LC_*) and carry no literal token shape or auth scheme.
          */
         fun leasedProcessValue(key: String, value: JsonElement): Boolean =
-            value is JsonPrimitive && value.isString && (CREDENTIAL_REFERENCE.matches(value.content) ||
-                (normalizedKey(key) in NONSECRET_PROCESS_KEYS && !LITERAL_SECRET.containsMatchIn(value.content)))
-        /** `--api-key`, `--token`, `-k`-style flags whose name is secret-like or ends in `key`. */
-        private fun secretFlag(name: String): Boolean = isSecretKey(name) || normalizedKey(name).endsWith("key")
+            value is JsonPrimitive && value.isString && (CREDENTIAL_REFERENCE.matches(value.content) || plainValueAllowed(normalizedKey(key), value.content))
+        private fun secretFlag(name: String): Boolean = isSecretKey(name) || normalizedKey(name) in SECRET_KEY_FLAGS
+        /** A file path (`--private-key /etc/mcp/key.pem`) or a numeric token count (`--max-token 4096`) is not a secret. */
+        private fun flagValueAllowed(name: String, value: String): Boolean =
+            (PATH_VALUE.matches(value) && !LITERAL_SECRET.containsMatchIn(value)) ||
+                (normalizedKey(name) in TOKEN_COUNT_KEYS && value.isNotEmpty() && value.all { it.isDigit() })
         /**
-         * Misconfiguration defence, not a confinement boundary: the admitted MCP command is arbitrary code
-         * and could read or print anything it is given. What this layer guarantees is that a definition
-         * cannot plant a raw secret where Runner never registers it for redaction and never leases it:
-         * `env`/`headers` values (above), and argv. A secret-named flag (`--api-key x`, `--token=x`) may
-         * not carry a value at all, not even a reference (argv is visible to `ps` and is never leased);
-         * pass it through a leased `env` entry. `command`, `args` and `cwd` may not contain literal token shapes.
+         * Misconfiguration defence, NOT an isolation boundary. The admitted MCP command is arbitrary code
+         * and can read or print anything it is given; and no syntactic check can prove a command line free
+         * of secrets. This layer intercepts the common shapes of a definition planting a raw secret where
+         * Runner never leases it nor registers it for redaction (argv is also visible to `ps`), and gives no
+         * guarantee beyond them:
+         * - `env`/`headers` values: leased reference, or an allowlisted nonsecret setting (above).
+         * - Across command and args words: a secret-named flag (`--api-key x`, `--token=x`), a secret-named
+         *   `NAME=value` assignment (`env TAVILY_API_KEY=x cmd`, `sh -c "API_TOKEN=x ..."`) or header
+         *   (`X-Api-Key: x`) may carry only a file path or, for token counts, a number; never a value, not
+         *   even a reference (argv is never leased): pass secrets through a leased `env` entry.
+         * - An auth scheme followed by a credential (`-H "Authorization: Bearer x"`).
+         * - Literal token shapes anywhere in command, args or cwd.
+         * Not intercepted: short flags whose meaning depends on the program (`-k x`, `-t x`), and secrets
+         * without a recognisable name or shape.
          */
         fun requireLeasedProcessInputs(server: JsonElement) {
             if (server !is JsonObject) return
@@ -280,15 +310,22 @@ class RunnerAdmission(
                 require(value is JsonArray && value.all { it is JsonPrimitive && it.isString }) { "Invalid MCP arguments" }
                 value.map { it.jsonPrimitive.content }
             }.orEmpty()
-            val literals = args + listOfNotNull(server["command"], server["cwd"]).filterIsInstance<JsonPrimitive>().filter { it.isString }.map { it.content }
-            require(literals.none { text -> text.split('=', ' ').any { LITERAL_SECRET.containsMatchIn(it) } }) { "Secrets must be leased at runtime" }
-            args.forEachIndexed { index, arg ->
-                if (!arg.startsWith("-")) return@forEachIndexed
-                val name = arg.trimStart('-').substringBefore('=')
-                if (name.isEmpty() || !secretFlag(name)) return@forEachIndexed
-                val inline = arg.contains('=')
-                val following = args.getOrNull(index + 1)?.takeUnless { it.startsWith("-") }
-                require(!inline && following == null) { "Secrets must be leased at runtime" }
+            fun text(field: String) = (server[field] as? JsonPrimitive)?.takeIf { it.isString }?.content
+            val literals = listOfNotNull(text("command"), text("cwd")) + args
+            require(literals.none { LITERAL_SECRET.containsMatchIn(it) }) { "Secrets must be leased at runtime" }
+            val sequence = listOfNotNull(text("command")).flatMap(::words) + args.flatMap(::words)
+            require(!carriesAuthScheme(sequence)) { "Secrets must be leased at runtime" }
+            sequence.forEachIndexed { index, word ->
+                val following = sequence.getOrNull(index + 1)?.takeUnless { it.startsWith("-") }
+                val (name, value) = when {
+                    word.startsWith("-") -> word.trimStart('-').let { flag ->
+                        flag.substringBefore('=') to (if ('=' in flag) flag.substringAfter('=') else following) }
+                    '=' in word -> word.substringBefore('=').trim('"', '\'').let { it.takeIf(ASSIGNED_NAME::matches) ?: "" } to word.substringAfter('=').trim('"', '\'')
+                    ':' in word && !word.contains("://") -> word.substringBefore(':') to word.substringAfter(':').ifEmpty { following }
+                    else -> return@forEachIndexed
+                }
+                if (name.isEmpty() || !secretFlag(name) || value.isNullOrEmpty()) return@forEachIndexed
+                require(flagValueAllowed(name, value)) { "Secrets must be leased at runtime" }
             }
         }
     }

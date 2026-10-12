@@ -276,7 +276,7 @@ class RunnerWorkflowHost(
         },
         failed = { gate.invalidate("RUNNER_EVENT_JOURNAL_FAILED") }, businessFence = businessFence)
     // The journal's own durable copy proves an acknowledged event, so S's ACK releases its retained slot.
-    init { ipc.retainEventsDurably { seq -> store.readPrivate(".runner-state/events/$seq.json") } }
+    init { ipc.retainEventsDurably { seq -> store.readPrivate(RunnerEventJournal.eventPath(seq)) } }
     override val codeEnvironment: Map<String, String> = mapOf(
         "WF_RUNNER_ID" to binding.runnerId, "WF_ROOT_EXECUTION_ID" to binding.executionId,
         "WF_OWNER_ID" to binding.ownerId, "WF_ACTOR_USER_ID" to binding.actorUserId,

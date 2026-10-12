@@ -55,14 +55,28 @@ class RunnerSubscriptionPool(
     override suspend fun markSucceeded(credential: ClaudeCredentialProvider.Credential, executionId: String?, stepName: String?) {
         record("usage", buildJsonObject { put("credentialRef", credential.id); put("provider", provider); put("outcome", "SUCCEEDED") })
     }
-    /** Publishes the rotation produced on exactly this hold's card, while the hold is still live. A refresh
-     * derived from a version another holder of the card already rotated is not written over it. */
+    /**
+     * Publishes the rotation produced on exactly this hold's card, while the hold is still live. A refresh
+     * derived from a version another holder of the card already rotated is not written over it, but it is
+     * never dropped silently: a secret-free ROTATION_SUPERSEDED usage event records the card and both
+     * versions so a later 401 on the account can be traced to it.
+     *
+     * No pending-rotation receipt is written for it. A receipt is the recovery intent of a version CAS
+     * (binding, card, expectedVersion, material); a superseded refresh has no valid CAS target: replaying it
+     * at its base version fails, and replaying it at the current version would overwrite the newer vault
+     * material this rule exists to keep. Nothing consumes receipts outside an in-flight rotation, so it
+     * would only leave a live refresh token on disk after the invocation deleted its CODEX_HOME.
+     */
     override fun rotated(credential: ClaudeCredentialProvider.Credential, authJson: String) {
         val selected = requireNotNull(synchronized(holds) { holds[credential] }) { "Rotation has no scoped subscription lease" }
         require(provider == "codex" && credential.id == selected.handle.latest.get().credentialRef) { "Rotation credential scope mismatch" }
         val json = runnerJson.parseToJsonElement(authJson).jsonObject
         secrets.register(json); secrets.register(JsonPrimitive(authJson))
-        runBlocking { live.rotate(selected.handle, scope, selected.version) { material -> JsonObject(material + ("authJson" to JsonPrimitive(authJson))) } }
+        val outcome = runBlocking { live.rotate(selected.handle, scope, selected.version) { material -> JsonObject(material + ("authJson" to JsonPrimitive(authJson))) } }
+        if (outcome == RunnerLiveCredentials.RotationOutcome.SUPERSEDED) record("usage", buildJsonObject {
+            put("credentialRef", credential.id); put("provider", provider); put("outcome", "ROTATION_SUPERSEDED")
+            put("baseVersion", selected.version); put("currentVersion", selected.handle.latest.get().version)
+        })
     }
     /** Ends this invocation's hold once; the grant is released when no concurrent invocation still holds it. */
     override suspend fun release(credential: ClaudeCredentialProvider.Credential) {

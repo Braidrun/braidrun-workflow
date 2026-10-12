@@ -37,7 +37,7 @@ internal class RunnerEventJournal(
                 sequence = next
                 try {
                     beforePersist(frame)
-                    write(".runner-state/events/$next.json", canonical(frame).toByteArray())
+                    write(eventPath(next), canonical(frame).toByteArray())
                     enqueue(frame) // n+1 cannot be reserved/enqueued before n reaches the FIFO
                 } catch (_: Exception) {
                     broken = true; throw PersistenceFailure() // no later event may fill/reuse a hole
@@ -60,4 +60,8 @@ internal class RunnerEventJournal(
     }
     @Synchronized fun acknowledged() = ack
     @Synchronized fun lastSequence() = sequence
+    companion object {
+        /** The durable copy of an event's original frame; the IPC proves acknowledged replays against it. */
+        fun eventPath(sequence: Long) = ".runner-state/events/$sequence.json"
+    }
 }

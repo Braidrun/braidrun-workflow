@@ -145,23 +145,33 @@ class RunnerLiveCredentials(
             }
         }
     }
+    enum class RotationOutcome { PUBLISHED, UNCHANGED, SUPERSEDED }
     /**
      * Publishes locally refreshed material produced on the lease of [baseVersion]. Rotations of one
      * handle run one at a time; one built on a version another holder already rotated is not
-     * published over the newer vault material. Preconditions run before renewal stops. When other
-     * invocations still hold this handle, they keep running on the same account, so the handle
-     * continues under a grant for the new vault version instead of leaving them without permission.
-     * Returns whether a rotation was published.
+     * published over the newer vault material ([RotationOutcome.SUPERSEDED]; the caller reports it).
+     * Preconditions run before renewal stops. When other invocations still hold this handle, they
+     * keep running on the same account, so the handle continues under a grant for the new vault
+     * version instead of leaving them without permission.
+     *
+     * Known window (inherent to sharing one OAuth account between concurrent CLIs): a CLI may refresh
+     * its token long before its invocation ends and publishes. Until then the vault, and so any holder
+     * joining meanwhile, still has the previous refresh token, which the provider may already treat as
+     * used. That joiner then fails its own refresh (401: auth failover or a failed invocation), and a
+     * provider that revokes the whole token family on reuse also invalidates the first CLI's new token,
+     * leaving the account to be logged in again. The [rotating] wait covers only the publication itself.
      */
-    suspend fun rotate(handle: Handle, executionScope: WorkflowHostScope, baseVersion: Long, update: (JsonObject) -> JsonObject): Boolean = handle.rotation.withLock {
+    suspend fun rotate(handle: Handle, executionScope: WorkflowHostScope, baseVersion: Long, update: (JsonObject) -> JsonObject): RotationOutcome = handle.rotation.withLock {
         val snapshot = synchronized(handle) {
             require(handle.active.get()) { "Credential generation is no longer active" }
             handle.latest.get().also { if (it.version == baseVersion) { handle.rotating = true; handle.rotationDone = CompletableDeferred() } }
         }
-        if (snapshot.version != baseVersion) return@withLock false
+        if (snapshot.version != baseVersion) {
+            return@withLock if (update(snapshot.material) == snapshot.material) RotationOutcome.UNCHANGED else RotationOutcome.SUPERSEDED
+        }
         try {
             val material = update(snapshot.material)
-            if (material == snapshot.material) return@withLock false
+            if (material == snapshot.material) return@withLock RotationOutcome.UNCHANGED
             credentials.material(snapshot, executionScope, "credential.rotate")
             val cleanReceipt = preserveRotation?.invoke(snapshot, material)
             handle.job.getAndSet(null)?.cancelAndJoin()
@@ -182,10 +192,10 @@ class RunnerLiveCredentials(
                 val continued = synchronized(handle) {
                     if (handle.active.get()) { handle.latest.set(next); true } else { discard(handle, next); false }
                 }
-                if (continued) { onReleased(old, handle.purpose); renew(handle); return@withLock true }
+                if (continued) { onReleased(old, handle.purpose); renew(handle); return@withLock RotationOutcome.PUBLISHED }
             }
             finishRotation(handle, old)
-            true
+            RotationOutcome.PUBLISHED
         } finally {
             synchronized(handle) { handle.rotating = false }
             handle.rotationDone?.complete(Unit)
