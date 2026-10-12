@@ -164,7 +164,7 @@ class RunnerWorkflowHost(
     private fun poolKey(provider: String, scope: WorkflowHostScope) = "$provider:${scope.executionId}:${scope.stepName}"
     override fun claudeCredentialsFor(scope: WorkflowHostScope) = cliPools[poolKey("claude", scope)]
     override fun codexCredentialsFor(scope: WorkflowHostScope) = cliPools[poolKey("codex", scope)]
-    override fun codexAuthRotationFor(scope: WorkflowHostScope): ((String?, String) -> Unit)? = cliPools[poolKey("codex", scope)]?.let { pool -> { id, json -> pool.rotated(id, json) } }
+    // No id-keyed rotation callback: ExternalAgentTools rotates through the invocation's own hold on the pool.
     override suspend fun interactiveProcess(scope: WorkflowHostScope, request: com.fartech.agents.tools.exec.SubprocessExecutor.ExecRequest): WorkflowInteractiveProcess =
         run { checkBusinessOpen(); requireNotNull(interactiveBroker) { "Interactive broker not assembled" }.open(scope, request) }
     override suspend fun mcpTransport(scope: WorkflowHostScope, name: String, config: com.fartech.agents.commons.McpServerConfig): io.modelcontextprotocol.kotlin.sdk.shared.Transport {

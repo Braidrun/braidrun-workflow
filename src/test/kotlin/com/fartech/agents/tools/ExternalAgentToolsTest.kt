@@ -1644,6 +1644,101 @@ class ExternalAgentToolsTest {
         assertTrue(rateLimited.detail!!.contains("credential_id=codex-a"))
     }
 
+    /** Holds are per invocation: records the order in which one invocation's holds are used and ended. */
+    private class HoldingCredentialPool(
+        private val candidates: List<ClaudeCredentialProvider.Credential>,
+        private val failRotation: Boolean = false
+    ) : InvocationCredentialProvider {
+        val calls = mutableListOf<String>()
+        private val held = java.util.IdentityHashMap<ClaudeCredentialProvider.Credential, Boolean>()
+
+        override suspend fun acquire(excludedCredentialIds: Set<String>) =
+            candidates.firstOrNull { it.id !in excludedCredentialIds }?.copy()?.also { held[it] = true; calls += "acquire:${it.id}" }
+
+        override suspend fun markRateLimited(credential: ClaudeCredentialProvider.Credential, resetAtMillis: Long) {
+            calls += "limited:${credential.id}"
+        }
+
+        override suspend fun markSucceeded(credential: ClaudeCredentialProvider.Credential, executionId: String?, stepName: String?) {
+            calls += "succeeded:${credential.id}"
+        }
+
+        override fun rotated(credential: ClaudeCredentialProvider.Credential, authJson: String) {
+            assertTrue(held[credential] == true, "rotation must use a live hold")
+            calls += "rotated:${credential.id}"
+            if (failRotation) throw IllegalStateException("rotation publication failed")
+        }
+
+        override suspend fun release(credential: ClaudeCredentialProvider.Credential) {
+            assertTrue(held.remove(credential) == true, "each hold is released exactly once")
+            calls += "release:${credential.id}"
+        }
+    }
+
+    private fun rotatingCodexExecutor(executions: MutableList<String>) = FakeSubprocessExecutor(resultForRequest = { request ->
+        val auth = File(request.env["CODEX_HOME"]!!, "auth.json")
+        if ("acct-a" in auth.readText()) {
+            executions += "acct-a"
+            // The CLI refreshed acct-a's token before it hit the quota.
+            auth.writeText(codexAuthJson("acct-a").replace("\"refresh_token\":\"r\"", "\"refresh_token\":\"r2\""))
+            ExecResult(1, "", "stream error: 429 Too Many Requests (usage limit reached)", 10)
+        } else {
+            executions += "acct-b"
+            ExecResult(0, """{"type":"item.completed","item":{"type":"agent_message","text":"fallback ok"}}""", "", 10)
+        }
+    })
+
+    @Test
+    fun `codex failover publishes and releases the abandoned hold before the replacement runs`() = runBlocking {
+        val pool = HoldingCredentialPool(
+            listOf(
+                ClaudeCredentialProvider.Credential("codex-a", codexAuthJson("acct-a")),
+                ClaudeCredentialProvider.Credential("codex-b", codexAuthJson("acct-b"))
+            )
+        )
+        val executions = mutableListOf<String>()
+        val tools = ExternalAgentTools(
+            executor = rotatingCodexExecutor(executions),
+            parameters = codexSubscriptionParams(),
+            codexCredentialProvider = pool
+        )
+
+        assertEquals("fallback ok", tools.runCodexSubAgent(ExternalAgentContext(prompt = "x")))
+        assertEquals(listOf("acct-a", "acct-b"), executions)
+        assertEquals(
+            listOf(
+                "acquire:codex-a", "limited:codex-a", "rotated:codex-a", "release:codex-a",
+                "acquire:codex-b", "succeeded:codex-b", "release:codex-b"
+            ),
+            pool.calls
+        )
+    }
+
+    @Test
+    fun `a failed rotation publication stops the run before any replacement credential is used`() {
+        val pool = HoldingCredentialPool(
+            listOf(
+                ClaudeCredentialProvider.Credential("codex-a", codexAuthJson("acct-a")),
+                ClaudeCredentialProvider.Credential("codex-b", codexAuthJson("acct-b"))
+            ),
+            failRotation = true
+        )
+        val executions = mutableListOf<String>()
+        val tools = ExternalAgentTools(
+            executor = rotatingCodexExecutor(executions),
+            parameters = codexSubscriptionParams(),
+            codexCredentialProvider = pool
+        )
+
+        val failure = assertThrows(IllegalStateException::class.java) {
+            runBlocking { tools.runCodexSubAgent(ExternalAgentContext(prompt = "x")) }
+        }
+        assertEquals("rotation publication failed", failure.message)
+        // The replacement never ran, so no success of it could be overwritten; the abandoned hold still ended.
+        assertEquals(listOf("acct-a"), executions)
+        assertEquals(listOf("acquire:codex-a", "limited:codex-a", "rotated:codex-a", "release:codex-a"), pool.calls)
+    }
+
     @Test
     fun `codex quota after a shell command cools the credential without replaying it`() {
         val pool = RecordingCredentialPool(
