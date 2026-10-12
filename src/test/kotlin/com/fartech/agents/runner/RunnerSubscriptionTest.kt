@@ -142,6 +142,179 @@ class RunnerSubscriptionTest {
         } }
     }
 
+    private fun rotationAck(h: IpcHarness, rotation: JsonObject) =
+        h.ipc.accept(h.reply(rotation, "ack", buildJsonObject { put("ackSeq", 0); put("revision", 2); put("serverTime", Instant.now().toString()) }))
+
+    @Test fun `a holder joining during rotation waits for the rotated material while model requests stay authorized`() = runBlocking<Unit> {
+        withTimeout(10_000) { IpcHarness().use { h ->
+            val gate = RunnerEnvironmentGate(h.binding, setOf("engine-http")); gate.install(RunnerProtocolTest.environment(h.binding, Instant.now()))
+            val secrets = RunnerSecrets(); val credentials = RunnerCredentials(h.ipc, gate, secrets)
+            val releases = java.util.concurrent.CopyOnWriteArrayList<String>()
+            val events = java.util.concurrent.CopyOnWriteArrayList<JsonObject>()
+            val live = RunnerLiveCredentials(credentials, gate, renewalIntervalMs = 60_000, onReleased = { lease, _ -> releases += lease.leaseId })
+            val scope = WorkflowHostScope(h.binding.string("executionId"), h.binding.string("executionId"), stepName = "cli")
+            val pool = RunnerSubscriptionPool(live, scope, "codex", listOf("credential:account@3"), secrets) { _, payload -> events += payload }
+            try {
+                val acquiringA = async { pool.acquire(emptySet()) }; reply(h, h.next(), "v3"); val a = acquiringA.await()!!
+                val b = pool.acquire(emptySet())!!
+                val rotating = async(Dispatchers.IO) { pool.rotated(a, refreshed) }
+                val rotation = h.next(); assertEquals("credentialRotation", rotation.string("type"))
+                // C arrives while A's refresh is being published: the lease it would join is being consumed.
+                val joining = async(Dispatchers.IO) { pool.acquire(emptySet()) }
+                delay(50); assertFalse(joining.isCompleted, "a joiner waits for the rotation instead of taking the consumed material")
+                live.checkAll()
+                rotationAck(h, rotation)
+                val successor = h.next(); assertEquals(4L, successor.obj("payload").long("expectedVersion"))
+                // The rotated lease has left the lease table and the successor grant is still in flight.
+                live.checkAll()
+                assertFalse(joining.isCompleted)
+                reply(h, successor, "v4", material = buildJsonObject { put("authJson", refreshed) })
+                rotating.await()
+                val c = joining.await()!!
+                assertEquals(refreshed, c.token, "the joiner runs on the rotated account material")
+                assertTrue(events.none { it.string("outcome") == "LEASE_REFUSED" })
+                pool.release(a); pool.release(b); assertEquals(listOf("v3"), releases)
+                pool.release(c); assertEquals(listOf("v3", "v4"), releases)
+                gate.check()
+            } finally { live.close(); credentials.clear() }
+        } }
+    }
+
+    @Test fun `step end leaves a held subscription grant to its invocation so a late rotation still publishes`() = runBlocking<Unit> {
+        withTimeout(10_000) { IpcHarness().use { h ->
+            val gate = RunnerEnvironmentGate(h.binding, setOf("engine-http")); gate.install(RunnerProtocolTest.environment(h.binding, Instant.now()))
+            val secrets = RunnerSecrets(); val credentials = RunnerCredentials(h.ipc, gate, secrets)
+            val releases = java.util.concurrent.CopyOnWriteArrayList<String>()
+            val live = RunnerLiveCredentials(credentials, gate, renewalIntervalMs = 60_000, onReleased = { lease, _ -> releases += lease.leaseId })
+            val scope = WorkflowHostScope(h.binding.string("executionId"), h.binding.string("executionId"), stepName = "cli")
+            val pool = RunnerSubscriptionPool(live, scope, "codex", listOf("credential:account@3"), secrets) { _, _ -> }
+            try {
+                val acquiring = async { pool.acquire(emptySet()) }; reply(h, h.next(), "v3"); val a = acquiring.await()!!
+                val model = async { live.acquire("credential:model@1", scope, "llm.request") }
+                reply(h, h.next(), "model-grant", material = buildJsonObject { put("apiKey", "synthetic-model-key") }, operations = listOf("llm.request"))
+                model.await()
+                // A concurrent workflow reports step_cancelled before it cancels the still-running invocation.
+                live.release(scope.executionId, "cli")
+                assertEquals(listOf("model-grant"), releases, "unheld step handles retire at step end; the held one stays live")
+                val rotating = async(Dispatchers.IO) { pool.rotated(a, refreshed) }
+                val rotation = h.next(); assertEquals("v3", rotation.obj("payload").string("credentialLeaseId"))
+                rotationAck(h, rotation); rotating.await()
+                assertEquals(listOf("model-grant", "v3"), releases)
+                pool.release(a); assertEquals(listOf("model-grant", "v3"), releases)
+                gate.check()
+            } finally { live.close(); credentials.clear() }
+        } }
+    }
+
+    @Test fun `a rotation built on a version another holder already rotated is not published over it`() = runBlocking<Unit> {
+        withTimeout(10_000) { IpcHarness().use { h ->
+            val gate = RunnerEnvironmentGate(h.binding, setOf("engine-http")); gate.install(RunnerProtocolTest.environment(h.binding, Instant.now()))
+            val secrets = RunnerSecrets(); val credentials = RunnerCredentials(h.ipc, gate, secrets)
+            val releases = java.util.concurrent.CopyOnWriteArrayList<String>()
+            val live = RunnerLiveCredentials(credentials, gate, renewalIntervalMs = 60_000, onReleased = { lease, _ -> releases += lease.leaseId })
+            val scope = WorkflowHostScope(h.binding.string("executionId"), h.binding.string("executionId"), stepName = "cli")
+            val pool = RunnerSubscriptionPool(live, scope, "codex", listOf("credential:account@3"), secrets) { _, _ -> }
+            try {
+                val acquiringA = async { pool.acquire(emptySet()) }; reply(h, h.next(), "v3"); val a = acquiringA.await()!!
+                val b = pool.acquire(emptySet())!!
+                val rotatingA = async(Dispatchers.IO) { pool.rotated(a, refreshed) }
+                val rotation = h.next(); rotationAck(h, rotation)
+                reply(h, h.next(), "v4", material = buildJsonObject { put("authJson", refreshed) }); rotatingA.await()
+                // B also refreshed from version 3; the vault already holds A's newer version 4.
+                withContext(Dispatchers.IO) { pool.rotated(b, """{"tokens":{"access_token":"fake-b-access","refresh_token":"fake-b-refresh"}}""") }
+                val probe = async { credentials.acquire("probe", 1, scope, "subscription.codex") }
+                val next = h.next()
+                assertEquals("credentialRequest", next.string("type"), "no second rotation was sent for the superseded version")
+                assertEquals("probe", next.obj("payload").string("credentialRef")); reply(h, next, "probe-grant"); probe.await()
+                pool.release(a); pool.release(b); assertEquals(listOf("v3", "v4"), releases)
+                gate.check()
+            } finally { live.close(); credentials.clear() }
+        } }
+    }
+
+    @Test fun `a rotation that fails its preconditions keeps the handle renewing`() = runBlocking<Unit> {
+        withTimeout(15_000) { IpcHarness().use { h ->
+            val gate = RunnerEnvironmentGate(h.binding, setOf("engine-http")); gate.install(RunnerProtocolTest.environment(h.binding, Instant.now()))
+            val secrets = RunnerSecrets(); val credentials = RunnerCredentials(h.ipc, gate, secrets)
+            val live = RunnerLiveCredentials(credentials, gate, renewalIntervalMs = 50,
+                preserveRotation = { _, _ -> throw java.io.IOException("pending-rotations unwritable") })
+            val scope = WorkflowHostScope(h.binding.string("executionId"), h.binding.string("executionId"), stepName = "cli")
+            val pool = RunnerSubscriptionPool(live, scope, "codex", listOf("credential:account@3"), secrets) { _, _ -> }
+            try {
+                val acquiring = async { pool.acquire(emptySet()) }; reply(h, h.next(), "v3"); val a = acquiring.await()!!
+                assertFailsWith<java.io.IOException> { withContext(Dispatchers.IO) { pool.rotated(a, refreshed) } }
+                val renewal = h.next()
+                assertEquals("credentialRequest", renewal.string("type"), "renewal was not stopped by a rotation that never started")
+                assertEquals(3L, renewal.obj("payload").long("expectedVersion")); reply(h, renewal, "renewed")
+                gate.check()
+                pool.release(a)
+            } finally { live.close(); credentials.clear() }
+        } }
+    }
+
+    @Test fun `a refused successor grant during a shared rotation fails closed with one RELEASED`() = runBlocking<Unit> {
+        withTimeout(10_000) { IpcHarness().use { h ->
+            val gate = RunnerEnvironmentGate(h.binding, setOf("engine-http")); gate.install(RunnerProtocolTest.environment(h.binding, Instant.now()))
+            val cancelled = java.util.concurrent.CopyOnWriteArrayList<JsonObject>()
+            val secrets = RunnerSecrets(); val credentials = RunnerCredentials(h.ipc, gate, secrets, onRequestCancelled = { cancelled += it })
+            val releases = java.util.concurrent.CopyOnWriteArrayList<String>()
+            val live = RunnerLiveCredentials(credentials, gate, renewalIntervalMs = 60_000, onReleased = { lease, _ -> releases += lease.leaseId })
+            val scope = WorkflowHostScope(h.binding.string("executionId"), h.binding.string("executionId"), stepName = "cli")
+            val pool = RunnerSubscriptionPool(live, scope, "codex", listOf("credential:account@3"), secrets) { _, _ -> }
+            try {
+                val acquiringA = async { pool.acquire(emptySet()) }; reply(h, h.next(), "v3"); val a = acquiringA.await()!!
+                val b = pool.acquire(emptySet())!!
+                val rotating = async(Dispatchers.IO) { runCatching { pool.rotated(a, refreshed) } }
+                rotationAck(h, h.next())
+                val successor = h.next(); reply(h, successor, "v4-refused", operations = listOf("other"))
+                assertIs<IllegalArgumentException>(rotating.await().exceptionOrNull())
+                assertFailsWith<RunnerAuthorityLost> { gate.check() }
+                assertEquals(listOf("v3"), releases)
+                assertEquals(listOf(successor.string("frameId")), cancelled.map { it.string("requestFrameId") })
+                pool.release(a); pool.release(b); assertEquals(listOf("v3"), releases)
+            } finally { live.close(); credentials.clear() }
+        } }
+    }
+
+    @Test fun `a grant whose identity does not match its request is retired at S`() = runBlocking<Unit> {
+        withTimeout(5000) { IpcHarness().use { h ->
+            val gate = RunnerEnvironmentGate(h.binding, setOf("engine-http")); gate.install(RunnerProtocolTest.environment(h.binding, Instant.now()))
+            val cancelled = java.util.concurrent.CopyOnWriteArrayList<JsonObject>()
+            val credentials = RunnerCredentials(h.ipc, gate, RunnerSecrets(), onRequestCancelled = { cancelled += it })
+            val scope = WorkflowHostScope(h.binding.string("executionId"), h.binding.string("executionId"), stepName = "cli")
+            val pending = async { runCatching { credentials.acquire("account", 3, scope, "subscription.codex") } }
+            val request = h.next()
+            h.ipc.accept(h.reply(request, "credentialGrant", buildJsonObject {
+                put("requestId", request.obj("payload").string("requestId")); put("credentialLeaseId", "mismatched"); put("credentialRef", "account")
+                put("version", 9); put("revision", 1); put("expiresAt", Instant.now().plusSeconds(60).toString())
+                put("allowedOperations", JsonArray(listOf(JsonPrimitive("subscription.codex")))); put("material", buildJsonObject { put("authJson", original) })
+            }))
+            assertIs<IllegalArgumentException>(pending.await().exceptionOrNull())
+            assertEquals(listOf(request.string("frameId")), cancelled.map { it.string("requestFrameId") })
+            gate.check()
+        } }
+    }
+
+    @Test fun `a cancelled acquisition records no refused cards`() = runBlocking<Unit> {
+        withTimeout(5000) { IpcHarness().use { h ->
+            val gate = RunnerEnvironmentGate(h.binding, setOf("engine-http")); gate.install(RunnerProtocolTest.environment(h.binding, Instant.now()))
+            val cancelled = java.util.concurrent.CopyOnWriteArrayList<JsonObject>()
+            val secrets = RunnerSecrets(); val credentials = RunnerCredentials(h.ipc, gate, secrets, onRequestCancelled = { cancelled += it })
+            val live = RunnerLiveCredentials(credentials, gate, renewalIntervalMs = 60_000)
+            val scope = WorkflowHostScope(h.binding.string("executionId"), h.binding.string("executionId"), stepName = "cli")
+            val events = java.util.concurrent.CopyOnWriteArrayList<JsonObject>()
+            val pool = RunnerSubscriptionPool(live, scope, "codex", listOf("credential:account@3", "credential:backup@3"), secrets) { _, payload -> events += payload }
+            try {
+                val acquiring = launch { pool.acquire(emptySet()) }
+                val request = h.next()
+                acquiring.cancelAndJoin()
+                assertTrue(events.isEmpty(), "cancellation is not a platform refusal of any card")
+                assertEquals(listOf(request.string("frameId")), cancelled.map { it.string("requestFrameId") })
+                gate.check()
+            } finally { live.close(); credentials.clear() }
+        } }
+    }
+
     @Test fun `step release that races a renewal swap retires the new grant instead of leaking it`() = runBlocking<Unit> {
         withTimeout(10_000) { IpcHarness().use { h ->
             val gate = RunnerEnvironmentGate(h.binding, setOf("engine-http")); gate.install(RunnerProtocolTest.environment(h.binding, Instant.now()))
