@@ -157,6 +157,7 @@ class RunnerAdmission(
                         requireCapability("service.mcp_servers.v1")
                         val servers = value.jsonObject
                         servers.values.forEach { server ->
+                            requireLeasedProcessMaps(server)
                             val config = runnerJson.decodeFromJsonElement(com.fartech.agents.commons.McpServerConfig.serializer(), server)
                             if (config.enabled) {
                                 require(config.url.isNullOrBlank()) { "HTTP MCP adapter not yet accepted" }
@@ -167,7 +168,7 @@ class RunnerAdmission(
                     if (key in setOf("redis_client_url", "langfuse_url", "mongo_connection_string", "sql_jdbc_url") && value != JsonNull) {
                         requireCapability("service.$key.v1")
                     }
-                    if ((key.lowercase() in setOf("token", "api_key", "password", "authorization", "authjson") || key.lowercase().endsWith("_api_key") || key.lowercase().endsWith("_secret") || key.lowercase().endsWith("_password") || key.lowercase().endsWith("_token") || key.lowercase().endsWith("_auth_json") || key == "llm_provider_keys") && value != JsonNull && value.toString() !in setOf("{}", "\"\"")) {
+                    if ((isSecretKey(key, value) || key == "llm_provider_keys") && value != JsonNull && value.toString() !in setOf("{}", "\"\"")) {
                         val refs = if (value is JsonObject) value.values else listOf(value)
                         val poolReference = key in setOf("external_agent_codex_auth_json", "external_agent_claude_oauth_token")
                         require(refs.all { it is JsonPrimitive && it.isString &&
@@ -229,5 +230,39 @@ class RunnerAdmission(
         requireCapability("workflow.full.v1"); walk(root, 0)
         return required
     }
-    companion object { val CREDENTIAL_REFERENCE = Regex("credential:([A-Za-z0-9_.-]+)@([0-9]+)") }
+    companion object {
+        val CREDENTIAL_REFERENCE = Regex("credential:([A-Za-z0-9_.-]+)@([0-9]+)")
+        /** `x-api-key`, `apiKey` and `API_KEY` are the same field: compare without case, `-` or `_`. */
+        private fun normalizedKey(key: String) = key.lowercase(java.util.Locale.ROOT).filter { it != '-' && it != '_' }
+        private val SECRET_KEY_SUFFIXES = listOf("apikey", "secret", "secretkey", "password", "passwd", "passphrase", "token",
+            "authjson", "privatekey", "accesskey", "signingkey", "clientkey", "cookie", "bearer", "credential", "credentials")
+        private val SECRET_KEYS = setOf("authorization", "proxyauthorization")
+        /** Model sizing, never a credential; `max_token` is how workflow LLM configs spell the context length. */
+        private val TOKEN_COUNT_KEYS = setOf("maxtoken", "maxtokens")
+        /** Name-based detection for scalar fields anywhere in an agent definition. */
+        fun isSecretKey(key: String, value: JsonElement? = null): Boolean {
+            val normalized = normalizedKey(key)
+            if (normalized in TOKEN_COUNT_KEYS && value is JsonPrimitive && !value.isString) return false
+            return normalized in SECRET_KEYS || SECRET_KEY_SUFFIXES.any { normalized.endsWith(it) }
+        }
+        /** The only plain values a whole-map process injection (MCP `env`/`headers`) may carry. */
+        private val NONSECRET_PROCESS_KEYS = setOf("path", "home", "lang", "lcall", "lcctype", "tz", "term", "nodeenv",
+            "pythonunbuffered", "pythonioencoding", "pythondontwritebytecode", "debug", "loglevel", "nocolor", "forcecolor", "ci",
+            "accept", "acceptlanguage", "acceptencoding", "contenttype", "useragent")
+        /**
+         * MCP `env`/`headers` are injected into the child as a whole, so a key-name deny list cannot
+         * see a secret behind an arbitrary name (`TAVILY_KEY`, `X-Custom`). Every value must be a leased
+         * reference unless its key is an explicitly nonsecret setting.
+         */
+        fun leasedProcessValue(key: String, value: JsonElement): Boolean =
+            value is JsonPrimitive && value.isString &&
+                (CREDENTIAL_REFERENCE.matches(value.content) || normalizedKey(key) in NONSECRET_PROCESS_KEYS)
+        fun requireLeasedProcessMaps(server: JsonElement) {
+            if (server !is JsonObject) return
+            for (field in listOf("env", "headers")) {
+                val entries = server[field]?.takeUnless { it == JsonNull } ?: continue
+                require(entries is JsonObject && entries.all { (key, value) -> leasedProcessValue(key, value) }) { "Secrets must be leased at runtime" }
+            }
+        }
+    }
 }

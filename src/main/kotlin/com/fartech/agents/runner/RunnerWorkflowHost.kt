@@ -222,6 +222,7 @@ class RunnerWorkflowHost(
         suspend fun mcp(value: JsonElement): JsonElement {
             return JsonObject(value.jsonObject.mapValues { (_, config) ->
                 val server = config.jsonObject
+                RunnerAdmission.requireLeasedProcessMaps(server) // the same rule admission froze; never a plain secret
                 val env = server["env"]?.takeUnless { it == JsonNull }?.jsonObject?.mapValues { (_, entry) ->
                     val ref = entry.jsonPrimitive.content
                     if (RunnerAdmission.CREDENTIAL_REFERENCE.matches(ref)) {
