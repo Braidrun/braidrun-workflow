@@ -21,26 +21,52 @@ class RunnerSecrets {
                 require(java.nio.file.Files.isRegularFile(path, java.nio.file.LinkOption.NOFOLLOW_LINKS) && !java.nio.file.Files.isSymbolicLink(path) && java.nio.file.Files.size(path) <= RunnerIpc.MAX_FRAME_BYTES)
                 val material = runnerJson.parseToJsonElement(java.nio.file.Files.readString(path))
                 require(material is JsonObject)
-                register(material)
+                registerLogin(material)
             } catch (_: Exception) { available = false }
         }
         return available
     }
+    /**
+     * Credential material (API keys, MCP/callback tokens, connector secret fields, a login's whole authJson):
+     * every string value is secret as a whole, however short; an 8-character connector password is masked
+     * and refused like any token. Only values of 1-3 characters are left out: masking or refusing them would
+     * hit ordinary text everywhere. A value that is itself a login document (authJson) is also registered by
+     * the login rules, so its individual tokens are masked wherever the CLI prints them.
+     * Same rules as the Supervisor's remember_secrets / remember_login_secrets.
+     */
     fun register(material: JsonElement) {
         when (material) {
             is JsonObject -> material.values.forEach(::register)
             is JsonArray -> material.forEach(::register)
-            is JsonPrimitive -> if (material.isString && material.content.isNotEmpty()) {
-                values.add(material.content)
-                values.add(java.net.URLEncoder.encode(material.content, Charsets.UTF_8))
-                values.add(JsonPrimitive(material.content).toString().removeSurrounding("\""))
+            is JsonPrimitive -> if (material.isString && material.content.length > 3) {
+                add(material.content)
                 if (material.content.startsWith("{") || material.content.startsWith("[")) {
                     runCatching { runnerJson.parseToJsonElement(material.content) }.getOrNull()?.let { parsed ->
-                        if (parsed is JsonObject || parsed is JsonArray) register(parsed)
+                        if (parsed is JsonObject || parsed is JsonArray) registerLogin(parsed)
                     }
                 }
             }
         }
+    }
+    /**
+     * A subscription login document (Codex auth.json, Claude .credentials.json): its token fields are secret,
+     * its descriptive metadata is not. Taking every string for a secret made labels such as `auth_mode: local`
+     * or `chatgpt` secret, and checkpoints, results and events merely containing `mac_mode=local` or an
+     * attempt path were refused or mangled. Unknown fields count when their value looks like a token.
+     */
+    fun registerLogin(value: JsonElement, key: String? = null) {
+        val name = key.orEmpty().lowercase(java.util.Locale.ROOT).replace("_", "").replace("-", "")
+        when (value) {
+            is JsonObject -> value.forEach { (child, item) -> registerLogin(item, child) }
+            is JsonArray -> value.forEach { registerLogin(it, key) }
+            is JsonPrimitive -> if (value.isString && value.content.length > 3 && name !in LOGIN_METADATA_KEYS &&
+                (name in LOGIN_TOKEN_KEYS || looksLikeToken(value.content))) add(value.content)
+        }
+    }
+    private fun add(value: String) {
+        values.add(value)
+        values.add(java.net.URLEncoder.encode(value, Charsets.UTF_8))
+        values.add(JsonPrimitive(value).toString().removeSurrounding("\""))
     }
     fun redact(text: String): String = if (!refresh()) "[credential scope unavailable; output suppressed]" else scrub(text)
     private fun scrub(text: String): String {
@@ -96,6 +122,20 @@ class RunnerSecrets {
         @Synchronized override fun flush() { destination.flush() } // incomplete secret-bearing line waits for newline
     }
     companion object {
+        /** Login token fields, keys compared lower-case without `_`/`-` (Supervisor LOGIN_TOKEN_KEYS). */
+        private val LOGIN_TOKEN_KEYS = setOf("accesstoken", "refreshtoken", "idtoken", "openaiapikey", "apikey", "token", "sessiontoken",
+            "sessionkey", "cookie", "cookies", "clientsecret", "secret", "password")
+        /** Descriptive login metadata, never secret (Supervisor LOGIN_METADATA_KEYS). */
+        private val LOGIN_METADATA_KEYS = setOf("authmode", "lastrefresh", "scopes", "subscriptiontype", "ratelimittier", "expiresat",
+            "tokentype", "type", "provider", "accountid", "email", "plan", "organizationid")
+        /** An unknown login field holding a token: one long, unbroken, high-entropy string (>= 24 chars, >= 3 bits/char). */
+        internal fun looksLikeToken(value: String): Boolean {
+            if (value.length < 24 || value.any { it.isWhitespace() }) return false
+            val entropy = value.groupingBy { it }.eachCount().values.sumOf { count ->
+                val p = count.toDouble() / value.length; -p * kotlin.math.ln(p) / kotlin.math.ln(2.0)
+            }
+            return entropy >= 3.0
+        }
         /** Platform-issued identities and protocol structure: never content, never scrubbed or treated as secret. */
         val CONTROL_FIELDS = setOf("binding", "protocolVersion", "frameId", "replyTo", "eventId", "eventSeq", "attemptId", "resumeEpoch",
             "executionId", "rootExecutionId", "runnerId", "runnerInstanceId", "ownerId", "actorUserId", "billingOwnerId",

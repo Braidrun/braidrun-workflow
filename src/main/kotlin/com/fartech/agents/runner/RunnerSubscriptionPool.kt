@@ -71,7 +71,7 @@ class RunnerSubscriptionPool(
         val selected = requireNotNull(synchronized(holds) { holds[credential] }) { "Rotation has no scoped subscription lease" }
         require(provider == "codex" && credential.id == selected.handle.latest.get().credentialRef) { "Rotation credential scope mismatch" }
         val json = runnerJson.parseToJsonElement(authJson).jsonObject
-        secrets.register(json); secrets.register(JsonPrimitive(authJson))
+        secrets.registerLogin(json); secrets.register(JsonPrimitive(authJson))
         val outcome = runBlocking { live.rotate(selected.handle, scope, selected.version) { material -> JsonObject(material + ("authJson" to JsonPrimitive(authJson))) } }
         if (outcome == RunnerLiveCredentials.RotationOutcome.SUPERSEDED) record("usage", buildJsonObject {
             put("credentialRef", credential.id); put("provider", provider); put("outcome", "ROTATION_SUPERSEDED")
