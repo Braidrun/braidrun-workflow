@@ -5,6 +5,10 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.5] - 2026-10-13
+
+- Build only: re-tag of 1.4.4 — its JitPack build hit a Maven Central 429 (rate limit) and JitPack caches failed builds. No code changes since 1.4.3.
+
 ## [1.4.4] - 2026-10-13
 
 - Build: pin JitPack's JDK to 21.0.2-open (the 1.4.3 JitPack build failed downloading 21.0.0.0+35-open). No code changes since 1.4.3.
