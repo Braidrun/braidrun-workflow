@@ -92,7 +92,11 @@ data class DirectoryIsolationConfig(
     @SerialName("cleanup_on_completion")
     val cleanupOnCompletion: Boolean = false,
 
-    /** 自动清理超过指定小时数的旧执行目录（0 = 不自动清理） */
+    /**
+     * 自动清理超过指定小时数的旧执行目录（0 = 不自动清理）。Only the flat layout
+     * (`{base_dir}/{execution_id}/…`) is swept, and never a directory holding
+     * [KEEP_MARKER_FILE] or run directories of its own; see ExpiredRunDirectorySweep.
+     */
     @SerialName("cleanup_after_hours")
     val cleanupAfterHours: Int = 72
 ) {
@@ -169,6 +173,13 @@ data class DirectoryIsolationConfig(
 
         /** 禁用隔离的配置（向后兼容） */
         val DISABLED = DirectoryIsolationConfig(enabled = false)
+
+        /**
+         * A directory under [baseDir] containing this file is never deleted by the
+         * `cleanup_after_hours` sweep. Hosts write it into directories they keep there,
+         * such as the owner directories of the `{base_dir}/{user_id}/…` layout.
+         */
+        const val KEEP_MARKER_FILE: String = ".braidrun-keep"
     }
 }
 

@@ -3,7 +3,9 @@
 # or the on-demand build will fail. The artifact is produced via the
 # maven-publish plugin (publishToMavenLocal); tests are skipped to keep the
 # JitPack build fast and deterministic (CI already runs the full suite).
-jdk:
-  - openjdk21
+before_install:
+  # 2026-10-13: JitPack resolved openjdk21 to 21.0.0.0+35-open, which SDKMAN can no longer download (1.4.3 failed).
+  - sdk install java 21.0.2-open
+  - sdk use java 21.0.2-open
 install:
   - ./gradlew publishToMavenLocal -x test

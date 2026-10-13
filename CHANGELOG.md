@@ -5,6 +5,33 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.5] - 2026-10-13
+
+- Build only: re-tag of 1.4.4 — its JitPack build hit a Maven Central 429 (rate limit) and JitPack caches failed builds. No code changes since 1.4.3.
+
+## [1.4.4] - 2026-10-13
+
+- Build: pin JitPack's JDK to 21.0.2-open (the 1.4.3 JitPack build failed downloading 21.0.0.0+35-open). No code changes since 1.4.3.
+
+## [1.4.3] - 2026-10-13
+
+### Fixed
+
+- **The `cleanup_after_hours` sweep no longer deletes owner directories.** It
+  deleted every direct child of `base_dir` older than the cutoff. A shared base
+  directory also holds the owner directories of the default
+  `{base_dir}/{user_id}/{execution_id}` layout, whose mtime only moves when a run
+  directory is created directly inside them, so an owner who started nothing new
+  for `cleanup_after_hours` lost every run, in-progress ones included, the next
+  time any isolation-enabled workflow finished. The sweep now runs only for
+  workflows whose working, output and persistence patterns all put the execution
+  id directly under `{base_dir}`, and deletes a top-level entry only when it is a
+  real directory, not hidden, not a running execution, older than the cutoff,
+  holds no `DirectoryIsolationConfig.KEEP_MARKER_FILE` (`.braidrun-keep`) and no
+  directory named like an execution id. Links are removed, never followed.
+- Each deletion is logged at INFO with its path, age and rule; previously only
+  a count was logged.
+
 ## [1.4.2] - 2026-10-10
 
 ### Fixed
