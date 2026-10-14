@@ -479,6 +479,10 @@ class ExternalAgentTools(
             env = buildEnvironment(engine, auth, ctx),
             mounts = buildMounts(auth),
             imageHint = "node",
+            // Opt into the host's agent working-set estimate, independently of the
+            // default 512 MiB container hard limit. Old hosts conservatively keep
+            // reserving the hard limit for this otherwise ordinary subprocess.
+            admissionKind = "AGENT_SUBPROCESS",
             userId = userId,
             stdoutLineCallback = if (streamEmitter == null && codexObserver == null) {
                 null
