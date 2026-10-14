@@ -61,7 +61,10 @@ interface SubprocessExecutor {
         /** Concrete executor confirms termination before a host may release its resource reservation.
          * An uncertain Docker create/remove acknowledgement must NOT invoke this callback. */
         val onSettled: (() -> Unit)? = null,
-        /** Trusted runtime classification used to prove that a queued code step never started. */
+        /** Trusted runtime classification used to prove that a queued code step never started.
+         * AGENT_SUBPROCESS opts the standard external-agent request into a host working-set
+         * estimate; it does not alter memoryLimitMb. Unaware hosts reserve the hard limit.
+         */
         val admissionKind: String = "SUBPROCESS"
     )
 

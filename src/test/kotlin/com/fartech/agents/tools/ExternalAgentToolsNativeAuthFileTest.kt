@@ -86,6 +86,8 @@ class ExternalAgentToolsNativeAuthFileTest {
         }
         assertEquals("done", run(tools(source, executor, events = events)))
         val request = executor.request!!
+        assertEquals("AGENT_SUBPROCESS", request.admissionKind)
+        assertEquals(512L, request.memoryLimitMb)
         assertTrue(request.command.contains("--ignore-user-config"))
         assertTrue(request.command.contains("gpt-6-astra"))
         assertFalse(request.command.joinToString(" ").contains("fake-original-secret"))
