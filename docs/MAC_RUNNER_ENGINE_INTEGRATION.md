@@ -204,7 +204,7 @@ Compatibility evidence: 13 targeted tests, 0 failures/errors/skips, passed in
 
 ## Independent 0d4f7de review repair evidence
 
-This batch addresses engine review `/Users/liguoliang/Documents/Codex/2026-10-08/mac-runner-development/reviews/engine-0d4f7de.md`.
+This batch addresses engine review `<internal evidence archive>`.
 The engine now pins semantics commit `39a264aacca2f46ff8fb3e53232b2e76eee627ac`; schema bytes
 remain hash `09a3c3f6d6bd430a126303f25ad9795c5818d72eec62bc2896cfe84af40a504a` (81d shape).
 
@@ -274,4 +274,4 @@ installed `runner-host.jar` reports schema-source `81d611a65b7c93e3341c69db51c77
 contains the unchanged schema hash above and the separate semantics provenance. A standalone
 contract harness loaded this installed distribution and passed all 22 bundled positive/negative
 contract fixtures. These are engine distribution checks, not combined platform package acceptance.
-Evidence: `/Users/liguoliang/Documents/Codex/2026-10-08/mac-runner-development/engine-recovery-evidence/`.
+Evidence: `<internal evidence archive>`.

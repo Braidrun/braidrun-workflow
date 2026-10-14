@@ -93,7 +93,7 @@ P/S 可使用此受限工具获得自身绑定的 fresh probe，须自行验证�
 
 ## 固定批次证据与最新只读诊断
 
-证据根目录：`/Users/liguoliang/Documents/Codex/2026-10-08/mac-runner-development/engine-continuation-evidence/batches/`。
+证据根目录：`<internal evidence archive>`。
 每批 `<完整 SHA>/receipt.json` 记录原日志/XML/source.tar 的大小和 SHA-256。
 
 - `c69ff8a4441dea74f255fc329678bf8c21967f3c`：原 runner-host.jar 哈希
