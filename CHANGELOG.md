@@ -5,6 +5,17 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.6-rc.20261016.1] - 2026-10-16
+
+### Fixed
+
+- **Runner resume could not read back the engine's own checkpoint.** `RunnerCheckpointStore`
+  serialized `WorkflowResumeState` with Jackson including computed getters
+  (`StepExecutionResult.durationSeconds`) and read it back with the same default mapper,
+  which fails on unknown properties, so every savepoint with a preserved step was refused with
+  `UnrecognizedPropertyException` on resume. The checkpoint mapper now ignores unknown properties
+  on read (`FAIL_ON_UNKNOWN_PROPERTIES=false`); files written by 1.4.6-rc.20261014.1 restore as well.
+
 ## [1.4.5] - 2026-10-13
 
 - Build only: re-tag of 1.4.4 — its JitPack build hit a Maven Central 429 (rate limit) and JitPack caches failed builds. No code changes since 1.4.3.

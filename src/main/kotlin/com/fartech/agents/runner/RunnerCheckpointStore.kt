@@ -1,6 +1,7 @@
 package com.fartech.agents.runner
 
 import com.fartech.agents.workflow.*
+import com.fasterxml.jackson.databind.DeserializationFeature
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import kotlinx.serialization.json.*
 import java.nio.file.Files
@@ -11,7 +12,14 @@ import java.util.UUID
 
 /** Runtime-local format 1, announcement uses the official checkpoint DTO. No secrets in state. */
 class RunnerCheckpointStore(private val root: Path, private val binding: JsonObject, private val secrets: RunnerSecrets) {
-    private val mapper = jacksonObjectMapper()
+    /**
+     * Writes `WorkflowResumeState` with every readable property, computed getters included
+     * (`StepExecutionResult.durationSeconds`), and must read its own files back: a savepoint with a
+     * preserved step could never be restored while unknown properties failed deserialization
+     * ("Unrecognized field durationSeconds", Runner resume acceptance 2026-10-16). Unknown properties
+     * are ignored on read only; the state's own fields stay typed and validated as before.
+     */
+    private val mapper = jacksonObjectMapper().configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
     fun save(checkpoint: WorkflowHostCheckpoint, eventSeq: Long): JsonObject {
         val state = runnerJson.parseToJsonElement(mapper.writeValueAsString(checkpoint.state))
         require(!secrets.containsSecret(state, control = emptySet())) { "Credential material cannot be checkpointed" }
