@@ -142,6 +142,24 @@ object WorkflowMonitor {
     }
 
     /**
+     * One occurrence of a loop step (an `iterate_over` item) started. [stepName] is the occurrence's own name,
+     * `<step>:<occurrence>`. Reported to the host only: occurrences never become step records or step counts,
+     * the loop step's own start/complete decide its status.
+     */
+    fun startOccurrence(executionId: String, stepName: String, occurrence: String) =
+        emit(WorkflowMonitorUpdate(executionId, "occurrence_started", stepName, occurrence = occurrence))
+
+    /** The occurrence ended on its own; its output stays in the loop step's aggregated result. */
+    fun completeOccurrence(executionId: String, stepName: String, occurrence: String, success: Boolean, error: String? = null) =
+        emit(WorkflowMonitorUpdate(executionId, "occurrence_completed", stepName, success = success, error = error?.take(MAX_OCCURRENCE_ERROR_CHARS), occurrence = occurrence))
+
+    /** The occurrence was cancelled (a sibling failed, or the run was stopped) before it ended. */
+    fun cancelOccurrence(executionId: String, stepName: String, occurrence: String) =
+        emit(WorkflowMonitorUpdate(executionId, "occurrence_cancelled", stepName, occurrence = occurrence))
+
+    private const val MAX_OCCURRENCE_ERROR_CHARS = 2000
+
+    /**
      * 标记一个已经启动但被上层并发失败/停止信号取消的步骤。
      */
     fun cancelStep(executionId: String, stepName: String, reason: String? = null) {
@@ -171,8 +189,8 @@ object WorkflowMonitor {
      * which was unsafe against concurrent writes from different agent coroutines and
      * concurrent reads by the SSE / UI subscriber.
      */
-    fun addEvent(executionId: String, stepName: String, event: AgentEvent) {
-        emit(WorkflowMonitorUpdate(executionId, "agent_event", stepName, event))
+    fun addEvent(executionId: String, stepName: String, event: AgentEvent, occurrence: String? = null) {
+        emit(WorkflowMonitorUpdate(executionId, "agent_event", stepName, event, occurrence = occurrence))
         val allSteps = activeExecutions[executionId]?.stepMetrics ?: return
         // Sub-agent runs emit events under derived names ("step:classifier",
         // "step:group_chat:round1:alice", ...) that only the state-machine path

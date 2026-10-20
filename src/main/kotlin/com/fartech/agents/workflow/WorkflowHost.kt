@@ -61,6 +61,13 @@ interface WorkflowHost {
     fun monitor(update: WorkflowMonitorUpdate)
     /** Persist a consistent savepoint. Called outside running steps; not an arbitrary replay permit. */
     suspend fun checkpoint(checkpoint: WorkflowHostCheckpoint)
+    /** An `iterate_over` loop's items are known and none has started. [concurrency] is how many items may run at
+     * once (1 for a sequential loop). A host bounds fan-out here; throwing fails the loop step before any item runs. */
+    fun admitLoop(scope: WorkflowHostScope, step: WorkflowStep, items: Int, concurrency: Int) {}
+    /** One loop occurrence ended, whatever its outcome, cancellation included. [scope] names the loop step and the
+     * [WorkflowHostScope.occurrence]; whatever the host keyed under the occurrence's name can be released now
+     * instead of at the loop step's end. Runs in a finally block: it must not suspend. */
+    fun occurrenceEnded(scope: WorkflowHostScope) {}
 }
 
 data class WorkflowHostBinding(
@@ -80,7 +87,11 @@ data class WorkflowHostScope(
     val rootExecutionId: String,
     val executionId: String,
     val parentExecutionId: String? = null,
-    val stepName: String? = null
+    val stepName: String? = null,
+    /** One run of a loop step, e.g. `iterate:3` for the fourth `iterate_over` item; null outside loops. Items of
+     * one loop share [stepName] (Agent items already run as `<step>:<occurrence>`, the occurrence's own name),
+     * so a host that keys per-run state by step must include it, or parallel items collide. */
+    val occurrence: String? = null
 )
 
 data class WorkflowHostCheckpoint(
@@ -99,5 +110,7 @@ data class WorkflowMonitorUpdate(
     val event: AgentEvent? = null,
     val success: Boolean? = null,
     val output: String? = null,
-    val error: String? = null
+    val error: String? = null,
+    /** Set when the update belongs to one loop occurrence (see [WorkflowHostScope.occurrence]). */
+    val occurrence: String? = null
 )

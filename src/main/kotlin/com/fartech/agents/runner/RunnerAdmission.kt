@@ -201,6 +201,7 @@ class RunnerAdmission(
             workflow.agents.values.forEach(::inspectAgent)
             workflow.workflow.forEach { step ->
                 if (step.retry != null) require(step.idempotent) { "Runner retry requires an explicitly idempotent step" }
+                if (step.iterateOver != null || step.repeatUntil != null) { requireCapability(RunnerLoopPolicy.CAPABILITY); RunnerLoopPolicy.admit(workflow, step) }
                 if (step.code != null) requireCapability("step.script.v1")
                 if (step.classifier?.jev != null || step.repeatUntil?.jev != null) requireCapability("decision.jev.v1")
                 if (step.classifier != null) requireCapability("step.classifier.v1")

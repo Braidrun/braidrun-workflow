@@ -2470,6 +2470,8 @@ data class WorkflowExecutionContext(
     val pendingApprovalIds: MutableMap<String, String> = ConcurrentHashMap(),
     val pendingApprovalRequestedAt: MutableMap<String, Long> = ConcurrentHashMap(),
     val childInvocationCounts: MutableMap<String, Long> = ConcurrentHashMap(),
+    /** The loop occurrence this context runs (see [WorkflowHostScope.occurrence]); inherited by snapshots and copies. */
+    val hostOccurrence: String? = null,
 ) {
     /** 工作流级共享知识库实例（由 WorkflowExecutor 初始化） */
     @Transient
@@ -2502,7 +2504,7 @@ data class WorkflowExecutionContext(
         return variables.entries.associate { (key, value) -> key to value.toString() }
     }
 
-    fun snapshot(extraVariables: Map<String, Any> = emptyMap()): WorkflowExecutionContext {
+    fun snapshot(extraVariables: Map<String, Any> = emptyMap(), hostOccurrence: String? = this.hostOccurrence): WorkflowExecutionContext {
         val snapshot = WorkflowExecutionContext(
             workflowName = workflowName,
             executionId = executionId,
@@ -2515,6 +2517,7 @@ data class WorkflowExecutionContext(
             recoveredFailures = Collections.newSetFromMap(ConcurrentHashMap<String, Boolean>()),
             parentExecutionId = parentExecutionId,
             rootExecutionId = rootExecutionId,
+            hostOccurrence = hostOccurrence,
         )
         snapshot.variables.putAll(extraVariables)
         snapshot.skippedSteps.addAll(skippedSteps)

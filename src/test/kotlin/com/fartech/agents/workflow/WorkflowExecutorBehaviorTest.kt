@@ -535,6 +535,28 @@ class WorkflowExecutorBehaviorTest {
     }
 
     @Test
+    fun `parallel iterate_over without a host keeps item order, adds no item step records and accepts an empty list`() = runBlocking {
+        if (System.getProperty("os.name").lowercase().contains("win")) return@runBlocking
+        WorkflowMonitor.clear()
+        try {
+            val loop = { name: String, source: String -> WorkflowStep(name, code = CodeStepConfig(language = "bash", script = "echo {{var:item}}"),
+                iterateOver = IterateOverConfig(source = source, delimiter = ",", itemVariable = "item", parallel = true, resultsVariable = "${name}_all")) }
+            val workflow = WorkflowDefinition(name = "iterate-library", agents = emptyMap(), workflow = listOf(
+                loop("fanout", "a,b,c"), loop("empty", "{{var:nothing}}").copy(dependsOn = listOf("fanout"))))
+            val result = WorkflowExecutor(HttpAccess(), emptyList(), enableMonitoring = true)
+                .execute(workflow, mapOf("nothing" to ""), externalExecutionId = "iterate-library")
+            assertTrue(result.success, result.error)
+            assertEquals("a\n---\nb\n---\nc", result.variables["fanout_all"])
+            assertEquals("", result.variables["empty_all"], "an empty list with no max_parallel runs no item instead of failing")
+            val metrics = assertNotNull(WorkflowMonitor.getMetrics("iterate-library"))
+            assertEquals(setOf("fanout", "empty"), metrics.stepMetrics.keys, "items stay occurrences of their loop step")
+            assertEquals(2, metrics.completedSteps)
+        } finally {
+            WorkflowMonitor.clear()
+        }
+    }
+
+    @Test
     fun `retry step keeps a single monitor record and preserves retry count`() = runBlocking {
         val isWindows = System.getProperty("os.name").lowercase().contains("win")
         if (isWindows) {

@@ -832,7 +832,7 @@ class WorkflowExecutor(
 
     private fun hostScope(context: WorkflowExecutionContext, step: String? = null) = WorkflowHostScope(
         host?.binding?.executionId ?: context.rootExecutionId ?: context.executionId,
-        context.executionId, context.parentExecutionId, step
+        context.executionId, context.parentExecutionId, step, context.hostOccurrence
     )
 
     private fun hostSavepoint(workflow: WorkflowDefinition, context: WorkflowExecutionContext, safe: Boolean) =
@@ -2843,7 +2843,7 @@ class WorkflowExecutor(
                     summary = "⚙️ 代码步骤开始: ${config.language}",
                     detail = "language=${config.language}, timeout=${config.timeout}s" +
                         if (codeStepExecutor != null) ", sandboxed=true" else ""
-                )
+                ), occurrence = context.hostOccurrence
             )
         }
 
@@ -2907,7 +2907,7 @@ class WorkflowExecutor(
                     subCategory = "code",
                     summary = "⚙️ 代码步骤完成: exit_code=$exitCode",
                     detail = truncatedOutput.take(500)
-                )
+                ), occurrence = context.hostOccurrence
             )
         }
 
@@ -4531,6 +4531,13 @@ class WorkflowExecutor(
 
     /**
      * 遍历列表并对每项执行步骤
+     *
+     * The loop is one atomic step: items run on context snapshots, no savepoint is taken while items run, and the
+     * loop's result is recorded only after every item finished, so a resume reruns the whole loop. Each item is an
+     * occurrence (`iterate:<index>`): it is reported to the host as `<step>:iterate:<index>` and ends with
+     * [WorkflowHost.occurrenceEnded], so per-item host state (credential leases, CLI pools) is held only while the
+     * item runs. Cost: every running Agent item holds its own agent instance (prompt history, tool registry, model
+     * client and in-flight response), so peak memory grows with the concurrency (`max_parallel`), not the item count.
      */
     private suspend fun executeWithIteration(
         step: WorkflowStep,
@@ -4582,11 +4589,14 @@ class WorkflowExecutor(
 
         val startTime = System.currentTimeMillis()
         val results = mutableListOf<String>()
+        // A sequential loop runs one item at a time. An empty list still needs one permit.
+        val concurrency = if (config.parallel) (config.maxParallel ?: effectiveItems.size).coerceAtLeast(1) else 1
 
+        try {
+        host?.admitLoop(hostScope(context, step.step), step, effectiveItems.size, concurrency)
         if (config.parallel) {
             // 并行遍历
-            val maxParallel = config.maxParallel ?: effectiveItems.size
-            val semaphore = Semaphore(maxParallel)
+            val semaphore = Semaphore(concurrency)
 
             val parallelResults = coroutineScope {
                 effectiveItems.mapIndexed { index, item ->
@@ -4612,6 +4622,15 @@ class WorkflowExecutor(
                 val result = executeSingleIteration(step, workflow, context, item, index, effectiveItems.size)
                 results.add(result)
             }
+        }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // Like executeStepOnce: a failed loop closes its own step record (the caller's failure handling does not).
+            if (enableMonitoring) {
+                WorkflowMonitor.completeStep(context.executionId, step.step, success = false, error = e.message)
+            }
+            throw e
         }
 
         val endTime = System.currentTimeMillis()
@@ -4675,14 +4694,22 @@ class WorkflowExecutor(
         val config = step.iterateOver
             ?: throw WorkflowExecutionException("iterateOver configuration missing for step '${step.step}'")
         val dirIsolation = workflow.directoryIsolation
+        val occurrence = "iterate:$index"
         val iterationContext = context.snapshot(
             extraVariables = mapOf(
                 config.itemVariable to item,
                 config.indexVariable to index.toString(),
                 "${config.itemVariable}_total" to totalItems.toString()
-            )
+            ),
+            hostOccurrence = occurrence
         )
-        val iterationStepName = "${step.step}:iterate:$index"
+        val iterationStepName = "${step.step}:$occurrence"
+        val occurrenceScope = hostScope(context, step.step).copy(occurrence = occurrence)
+        if (enableMonitoring) {
+            WorkflowMonitor.startOccurrence(context.executionId, iterationStepName, occurrence)
+        }
+        var failure: Throwable? = null
+        try {
         val iterationTemplateContext = createStepTemplateContext(
             iterationContext,
             iterationStepName,
@@ -4736,6 +4763,23 @@ class WorkflowExecutor(
         }
 
         return result.output ?: ""
+        } catch (t: Throwable) {
+            failure = t
+            throw t
+        } finally {
+            try {
+                if (enableMonitoring) {
+                    // Only a clean end may fail on its report; an item already failing keeps its own error.
+                    when (failure) {
+                        null -> WorkflowMonitor.completeOccurrence(context.executionId, iterationStepName, occurrence, success = true)
+                        is CancellationException -> runCatching { WorkflowMonitor.cancelOccurrence(context.executionId, iterationStepName, occurrence) }
+                        else -> runCatching { WorkflowMonitor.completeOccurrence(context.executionId, iterationStepName, occurrence, success = false, error = failure.message) }
+                    }
+                }
+            } finally {
+                host?.occurrenceEnded(occurrenceScope)
+            }
+        }
     }
 
     // ==================== 多路径变量聚合 ====================

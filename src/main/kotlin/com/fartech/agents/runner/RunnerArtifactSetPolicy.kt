@@ -31,7 +31,8 @@ class RunnerArtifactSetPolicy(private val bundle: FrozenWorkflowBundle) {
     private val declarations = policy.array("declarations").map { it.jsonObject }
     private data class Node(val name: String, val producer: Boolean, val code: Boolean, val child: SubWorkflowConfig?)
     private fun nodes(workflowId: String): List<Node> = bundle.definition(workflowId).workflow.flatMap { step ->
-        listOf(Node(step.step, step.code != null || step.agent != null, step.code != null, step.subWorkflow)) + step.stateMachine?.states?.flatMap { (name, state) ->
+        // A loop step is never a producer: its items run concurrently under one step name (RunnerLoopPolicy).
+        listOf(Node(step.step, (step.code != null || step.agent != null) && step.iterateOver == null && step.repeatUntil == null, step.code != null, step.subWorkflow)) + step.stateMachine?.states?.flatMap { (name, state) ->
             state.stepConfig?.let { listOf(Node("${step.step}.$name", it.code != null || it.agent != null, it.code != null, it.subWorkflow)) }.orEmpty()
         }.orEmpty()
     }.also { require(it.map { n -> n.name }.distinct().size == it.size) { "Ambiguous frozen step names" } }

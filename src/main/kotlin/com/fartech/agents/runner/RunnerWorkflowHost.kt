@@ -160,8 +160,8 @@ class RunnerWorkflowHost(
             put("childExecutionPath", childPath(lease.scope.rootExecutionId, lease.scope.executionId)); put("purpose", purpose)
         })
     })
-    private val cliPools = java.util.concurrent.ConcurrentHashMap<String, RunnerSubscriptionPool>()
-    private fun poolKey(provider: String, scope: WorkflowHostScope) = "$provider:${scope.executionId}:${scope.stepName}"
+    private val cliPools = java.util.concurrent.ConcurrentHashMap<Triple<String, String, String?>, RunnerSubscriptionPool>()
+    private fun poolKey(provider: String, scope: WorkflowHostScope) = Triple(provider, scope.executionId, scope.stepName)
     override fun claudeCredentialsFor(scope: WorkflowHostScope) = cliPools[poolKey("claude", scope)]
     override fun codexCredentialsFor(scope: WorkflowHostScope) = cliPools[poolKey("codex", scope)]
     // No id-keyed rotation callback: ExternalAgentTools rotates through the invocation's own hold on the pool.
@@ -404,11 +404,24 @@ class RunnerWorkflowHost(
             payload.array("declarationIds").forEach { id -> agentReadySequences[boundary.producerStartEventId to id.jsonPrimitive.content] = frame.obj("payload").long("eventSeq") }
         }
     }
+    override fun admitLoop(scope: WorkflowHostScope, step: WorkflowStep, items: Int, concurrency: Int) {
+        checkBusinessOpen(); require(scope.rootExecutionId == binding.executionId && scope.stepName == step.step) { "Loop scope mismatch" }
+        RunnerLoopPolicy.admitRuntime(step.step, items, concurrency)
+    }
+    /** The item's own leases, CLI pools and skill config end with it; the loop step's end (prefix release) stays the fallback. */
+    override fun occurrenceEnded(scope: WorkflowHostScope) {
+        require(scope.rootExecutionId == binding.executionId) { "Occurrence escaped root scope" }
+        val item = "${requireNotNull(scope.stepName)}:${requireNotNull(scope.occurrence)}"
+        fun owned(step: String?) = step == item || step?.startsWith("$item:") == true
+        cliPools.keys.removeIf { it.second == scope.executionId && owned(it.third) }
+        nativeSkills.keys.removeIf { it.first == scope.executionId && owned(it.second) }
+        live.release(scope.executionId, item)
+    }
     @Synchronized override fun monitor(update: WorkflowMonitorUpdate) {
         if (update.type in setOf("step_completed", "step_cancelled")) update.stepName?.let { live.release(update.executionId, it) }
         val payload = buildJsonObject {
             put("executionId", update.executionId); put("kind", update.type)
-            update.stepName?.let { put("stepName", it) }; update.success?.let { put("success", it) }
+            update.stepName?.let { put("stepName", it) }; update.occurrence?.let { put("occurrence", it) }; update.success?.let { put("success", it) }
             update.output?.let { put("output", secrets.redact(it)) }; update.error?.let { put("error", secrets.redact(it)) }
             update.event?.let { e -> put("event", buildJsonObject {
                 put("type", e.type); put("category", e.category); put("summary", secrets.redact(e.summary))
@@ -420,7 +433,9 @@ class RunnerWorkflowHost(
         }
         val kind = if (update.event?.let { !it.isDisplayOnlyTokenEvent() && (it.inputTokens != null || it.totalTokens != null) } == true) "usage" else "step"
         val frame = eventJournal.append(kind, payload)
-        update.stepName?.let { step ->
+        // Loop occurrences share their step's name and are never artifact producers (RunnerLoopPolicy): they must
+        // neither open nor close the step's producer occurrence.
+        if (update.occurrence == null) update.stepName?.let { step ->
             val key = update.executionId to step
             val occurrence = ActiveProducer(frame.obj("payload").string("eventId"), frame.obj("payload").long("eventSeq"))
             if (update.type == "step_started") { producerStarts[key] = occurrence.eventId; codeProducerStarts.remove(key); activeProducers[key] = occurrence; activeCodeProducers.remove(key) }
