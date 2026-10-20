@@ -4,6 +4,7 @@ import com.fartech.agents.tools.UserInteractionHandler
 import com.fartech.agents.tools.exec.SubprocessExecutor
 import com.fartech.agents.workflow.*
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.*
 import java.nio.file.Path
 import java.util.UUID
@@ -195,11 +196,46 @@ class RunnerWorkflowHost(
         return if (instructions.isBlank()) prompt else "$instructions\n\nWorkflow request:\n$prompt"
     }
     private val references = java.util.concurrent.ConcurrentHashMap<String, String>()
+    /** Run-directory layout of the frozen bundle (FrozenWorkflowBundle replaces every definition's isolation). */
+    private val isolation: DirectoryIsolationConfig get() = bundle.rootDefinition.directoryIsolation
+    /** One per attempt: the write quota spans every agent of this JVM. */
+    private val fileConfinement: RunnerFileConfinement? by lazy {
+        if ("tool.file_system.v1" !in capabilities || !RunnerFileConfinement.available()) null
+        else RunnerFileConfinement(bundle.executionDirectory,
+            Path.of(isolation.resolvePattern("{base_dir}/{user_id}", binding.executionId, userId = binding.ownerId)),
+            isolation.resolvePattern("{execution_id}", binding.executionId),
+            guard = { checkBusinessOpen(); gate.check() })
+    }
+    private fun stepWorkingDirectory(scope: WorkflowHostScope): String =
+        java.io.File(isolation.getWorkingDir(scope.executionId, scope.stepName ?: "default", userId = binding.ownerId)).absolutePath
+    private fun usesFileTools(parameters: List<com.fartech.ftapp2.commonsKt.ConfigurationParameter>): Boolean {
+        val type = parameters.firstOrNull { it.key == "type" }?.value?.let(RunnerAgentToolPolicy::text)
+        val tools = parameters.firstOrNull { it.key == "tool_set" }?.value as? JsonArray
+        return type !in setOf("claude_code_agent", "codex_agent") && tools?.any { (it as? JsonPrimitive)?.content == "file_system" } == true
+    }
+    override fun fileSystemTools(scope: WorkflowHostScope, parameters: List<com.fartech.ftapp2.commonsKt.ConfigurationParameter>): List<ai.koog.agents.core.tools.reflect.ToolSet> {
+        checkBusinessOpen(); gate.check()
+        require(scope.rootExecutionId == binding.executionId) { "File tool scope mismatch" }
+        val files = requireNotNull(fileConfinement) { "Runner file tools are not available on this host" }
+        val workingDirectory = Path.of(stepWorkingDirectory(scope))
+        return listOf(RunnerFileTools(files, workingDirectory, redact = secrets::redact) { operation, path, bytes, digest, outcome ->
+            monitor(WorkflowMonitorUpdate(scope.executionId, "agent_event", scope.stepName, AgentEvent(
+                type = "file_operation", category = "tool", subCategory = "file_system", summary = "file_system $operation $outcome",
+                detail = buildJsonObject {
+                    put("operation", operation); put("path", path); put("bytes", bytes); put("outcome", outcome)
+                    digest?.let { put("sha256", it) }
+                }.toString()
+            )))
+        })
+    }
+    override fun claudeBuiltinTools(scope: WorkflowHostScope, parameters: List<com.fartech.ftapp2.commonsKt.ConfigurationParameter>): String =
+        RunnerAgentToolPolicy.claudeBuiltinTools(parameters.firstOrNull { it.key == "external_agent_claude_allowed_tools" }?.value?.let(RunnerAgentToolPolicy::text))
     private val network = RunnerHttpClients(gate) { checkBusinessOpen(); live.checkAll() }
     override val llmHttpClientFactory get() = network.factory
     override suspend fun prepareAgentParameters(scope: WorkflowHostScope, parameters: List<com.fartech.ftapp2.commonsKt.ConfigurationParameter>): List<com.fartech.ftapp2.commonsKt.ConfigurationParameter> {
         gate.check()
         verifyAssets()
+        val type = parameters.firstOrNull { it.key == "type" }?.value?.let(RunnerAgentToolPolicy::text)
         parameters.firstOrNull { it.key == "skills_config" }?.value?.takeUnless { it == JsonNull }?.let {
             nativeSkills[scope.executionId to scope.stepName] = runnerJson.decodeFromJsonElement(com.fartech.agents.commons.SkillsConfiguration.serializer(), it)
         } ?: nativeSkills.remove(scope.executionId to scope.stepName)
@@ -234,11 +270,28 @@ class RunnerWorkflowHost(
                 if (env == null) server else JsonObject(server + ("env" to JsonObject(env)))
             })
         }
+        // Host-owned file and CLI policy: replaced here, after every YAML override and template.
+        val forced = mutableListOf(com.fartech.ftapp2.commonsKt.ConfigurationParameter("sandbox_strict", JsonPrimitive("true")))
+        val fileTools = usesFileTools(parameters)
+        if (fileTools) {
+            requireNotNull(fileConfinement) { "Runner file tools are not available on this host" }
+            forced += com.fartech.ftapp2.commonsKt.ConfigurationParameter("working_dir", JsonPrimitive(stepWorkingDirectory(scope)))
+            forced += com.fartech.ftapp2.commonsKt.ConfigurationParameter("output_dir", JsonPrimitive(java.io.File(isolation.getOutputDir(scope.executionId, scope.stepName ?: "default", userId = binding.ownerId)).absolutePath))
+            forced += com.fartech.ftapp2.commonsKt.ConfigurationParameter("persistence_storage_root", JsonPrimitive(java.io.File(isolation.getPersistenceDir(scope.executionId, scope.stepName ?: "default", userId = binding.ownerId)).absolutePath))
+        }
+        // Claude steps: the allowlist is the derived file tools only and the permission bypass is dropped
+        // (claudeBuiltinTools forces the matching `--tools`). Other agent types never read these keys.
+        val allowed = parameters.firstOrNull { it.key == "external_agent_claude_allowed_tools" }?.value?.let(RunnerAgentToolPolicy::text)
+        forced += com.fartech.ftapp2.commonsKt.ConfigurationParameter("external_agent_claude_allowed_tools", JsonPrimitive(RunnerAgentToolPolicy.claudeAllowedEntries(allowed).joinToString(",")))
+        val extraArgs = parameters.firstOrNull { it.key == "external_agent_claude_extra_args" }?.value?.let(RunnerAgentToolPolicy::text)
+        forced += com.fartech.ftapp2.commonsKt.ConfigurationParameter("external_agent_claude_extra_args", JsonPrimitive(
+            if (type == "claude_code_agent") RunnerAgentToolPolicy.claudeExtraArgs(extraArgs).joinToString(",") else ""))
+        val replaced = forced.map { it.key }.toSet() + (if (fileTools) setOf("workspace_dir") else emptySet())
         val result = parameters.filterNot { it.key in setOf("external_agent_codex_auth_json", "external_agent_claude_oauth_token") }.map { p ->
             if (p.key == "mcp_servers") com.fartech.ftapp2.commonsKt.ConfigurationParameter(p.key, mcp(p.value))
             else if (p.key.endsWith("_api_key") || p.key == "llm_provider_keys") com.fartech.ftapp2.commonsKt.ConfigurationParameter(p.key, lease(p.value)) else p
-        }.filterNot { it.key in setOf("user_id", "disable_skills", "disable_browser_tools", "clawhub_cache_dir") }
-        return result + listOf(com.fartech.ftapp2.commonsKt.ConfigurationParameter("user_id", JsonPrimitive(binding.ownerId)),
+        }.filterNot { it.key in setOf("user_id", "disable_skills", "disable_browser_tools", "clawhub_cache_dir") || it.key in replaced }
+        return result + forced + listOf(com.fartech.ftapp2.commonsKt.ConfigurationParameter("user_id", JsonPrimitive(binding.ownerId)),
             com.fartech.ftapp2.commonsKt.ConfigurationParameter("disable_skills", JsonPrimitive("skill.text.v1" !in capabilities)),
             com.fartech.ftapp2.commonsKt.ConfigurationParameter("disable_browser_tools", JsonPrimitive(true)),
             com.fartech.ftapp2.commonsKt.ConfigurationParameter("clawhub_cache_dir", JsonPrimitive(bundle.executionDirectory.resolve("skills").toString())))
@@ -274,7 +327,8 @@ class RunnerWorkflowHost(
             if (frame.obj("payload").string("type") == "artifact") gate.check()
             ipc.sendFrame(frame); Unit
         },
-        failed = { gate.invalidate("RUNNER_EVENT_JOURNAL_FAILED") }, businessFence = businessFence)
+        failed = { gate.invalidate("RUNNER_EVENT_JOURNAL_FAILED") }, businessFence = businessFence,
+        outboundSlot = { append -> ipc.withOutboundSlot(append) })
     // The journal's own durable copy proves an acknowledged event, so S's ACK releases its retained slot.
     init { ipc.retainEventsDurably { seq -> store.readPrivate(RunnerEventJournal.eventPath(seq)) } }
     override val codeEnvironment: Map<String, String> = mapOf(
@@ -453,9 +507,21 @@ class RunnerWorkflowHost(
         ipc.reclaimAcknowledged(eventJournal.acknowledged())
     }
     fun finalEventSeq(): Long = eventJournal.lastSequence()
-    override suspend fun checkpoint(checkpoint: WorkflowHostCheckpoint) {
+    private val checkpointOrder = kotlinx.coroutines.sync.Mutex()
+    override suspend fun checkpoint(checkpoint: WorkflowHostCheckpoint) = checkpointOf { checkpoint }
+    /**
+     * One savepoint at a time, announced in capture order. The state is built under the Host monitor, which every
+     * step event (monitor) holds while it appends, so the announced eventSeq is exactly the last event the
+     * captured state already reflects; a concurrent step cannot slip an event between the two.
+     */
+    override suspend fun checkpointOf(build: () -> WorkflowHostCheckpoint?) = checkpointOrder.withLock {
         checkBusinessOpen()
-        ipc.send("checkpoint", store.save(checkpoint.copy(state = checkpoint.state.copy(hostState = live.state())), finalEventSeq()))
+        val (checkpoint, eventSeq) = synchronized(this) {
+            val built = build() ?: return@withLock
+            built.copy(state = built.state.copy(hostState = live.state())) to finalEventSeq()
+        }
+        ipc.send("checkpoint", store.save(checkpoint, eventSeq))
+        Unit
     }
     private val outputs = RunnerOutputs(ipc, gate, secrets)
     override val outputPublisher: WorkflowOutputPublisher get() = outputs

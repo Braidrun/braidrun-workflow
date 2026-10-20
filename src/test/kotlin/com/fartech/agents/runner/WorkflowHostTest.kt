@@ -4,6 +4,8 @@ import com.fartech.agents.tools.UserInteractionHandler
 import com.fartech.agents.tools.exec.SubprocessExecutor
 import com.fartech.agents.workflow.*
 import com.fartech.ftapp2.commonsKt.HttpAccess
+import io.ktor.client.engine.mock.respond
+import io.ktor.client.engine.mock.toByteArray
 import kotlinx.coroutines.*
 import kotlinx.serialization.json.*
 import org.junit.jupiter.api.Test
@@ -15,11 +17,11 @@ import kotlin.test.*
 class WorkflowHostTest {
     internal class Host(private val directory: Path) : WorkflowHost {
         override val binding = WorkflowHostBinding("owner", "actor", "billing", "root", "runner", "instance", 0, "attempt", "a".repeat(64), "b".repeat(64))
-        val checks = mutableListOf<Pair<WorkflowHostScope, String>>()
-        val checkpoints = mutableListOf<WorkflowHostCheckpoint>()
-        val updates = mutableListOf<WorkflowMonitorUpdate>()
-        val invocations = mutableListOf<Map<String, String>>()
-        val approvals = mutableListOf<ApprovalRequest>()
+        val checks: MutableList<Pair<WorkflowHostScope, String>> = java.util.concurrent.CopyOnWriteArrayList()
+        val checkpoints: MutableList<WorkflowHostCheckpoint> = java.util.concurrent.CopyOnWriteArrayList()
+        val updates: MutableList<WorkflowMonitorUpdate> = java.util.concurrent.CopyOnWriteArrayList()
+        val invocations: MutableList<Map<String, String>> = java.util.concurrent.CopyOnWriteArrayList()
+        val approvals: MutableList<ApprovalRequest> = java.util.concurrent.CopyOnWriteArrayList()
         var child: WorkflowDefinition? = null
         var dynamicAllowed = true
         var block = false
@@ -54,6 +56,106 @@ class WorkflowHostTest {
         fun workflow(name: String, approval: Boolean = false) = WorkflowDefinition(name, agents = emptyMap(), directoryIsolation = isolation(), workflow = listOf(
             WorkflowStep("code", code = CodeStepConfig("bash", "echo done"), manualApproval = if (approval) ManualApprovalConfig(true) else null)
         ))
+    }
+    /**
+     * Concurrent fixture over [Host]: human decisions come from [decide], and a step named in [hold] starts its
+     * body only once that gate opens. [bodies] lists every step body that started (after any approval).
+     */
+    internal class ConcurrentHost(
+        val base: Host, private val decide: suspend (ApprovalRequest) -> ApprovalDecision,
+        private val hold: Map<String, CompletableDeferred<Unit>> = emptyMap(), override val binding: WorkflowHostBinding = base.binding
+    ) : WorkflowHost by base {
+        val requests: MutableList<ApprovalRequest> = java.util.concurrent.CopyOnWriteArrayList()
+        val bodies: MutableList<String> = java.util.concurrent.CopyOnWriteArrayList()
+        override val approvalHandler = object : ApprovalHandler {
+            override suspend fun requestApproval(request: ApprovalRequest): ApprovalDecision { requests.add(request); return decide(request) }
+        }
+        override suspend fun beforeOperation(scope: WorkflowHostScope, operation: String) {
+            base.beforeOperation(scope, operation)
+            if (operation == "step_after_approval") { bodies.add(requireNotNull(scope.stepName)); hold[scope.stepName]?.await() }
+        }
+        /** slow and review run side by side; after needs both. */
+        fun workflow() = WorkflowDefinition("concurrent", agents = emptyMap(), directoryIsolation = base.isolation(), concurrency = ConcurrencyConfig(true, 2), workflow = listOf(
+            WorkflowStep("slow", code = CodeStepConfig("bash", "echo slow")),
+            WorkflowStep("review", code = CodeStepConfig("bash", "echo reviewed"), manualApproval = ManualApprovalConfig(true, timeout = 3600)),
+            WorkflowStep("after", code = CodeStepConfig("bash", "echo after"), dependsOn = listOf("slow", "review"))
+        ))
+    }
+    @Test fun `runner admission bounds workflow concurrency and gates step-level parallel`() {
+        assertTrue("workflow.concurrent.v1" in RunnerHostSession.CAPABILITIES)
+        val admission = RunnerAdmission(InMemoryWorkflowResolver(), RunnerHostSession.CAPABILITIES)
+        fun code(name: String) = WorkflowStep(name, code = CodeStepConfig("bash", "echo $name"))
+        fun concurrent(max: Int, vararg names: String) = WorkflowDefinition("concurrent", agents = emptyMap(), concurrency = ConcurrencyConfig(true, max), workflow = names.map(::code))
+        assertTrue("workflow.concurrent.v1" in admission.inspect(concurrent(4, "a", "b")))
+        assertTrue("workflow.concurrent.v1" in admission.inspect(concurrent(8, "a", "b")))
+        assertFailsWith<IllegalArgumentException>("unlimited") { admission.inspect(concurrent(0, "a", "b")) }
+        assertFailsWith<IllegalArgumentException>("above the Runner bound") { admission.inspect(concurrent(9, "a", "b")) }
+        // A step's credential leases are retired by step name and its derived "<step>:" scopes; siblings cannot share that prefix.
+        assertFailsWith<IllegalArgumentException> { admission.inspect(concurrent(2, "a", "a:b")) }
+        val agent = AgentDefinition(tools = emptyList())
+        fun parallel(tasks: Int, max: Int?) = WorkflowDefinition("fan-out", agents = mapOf("worker" to agent), workflow = listOf(
+            WorkflowStep("fan", agent = "worker", input = "fan out", parallel = ParallelExecution(List(tasks) { "task $it" }, maxParallel = max))))
+        assertTrue("workflow.concurrent.v1" in admission.inspect(parallel(3, null)))
+        assertTrue("workflow.concurrent.v1" in admission.inspect(parallel(20, 8)))
+        assertFailsWith<IllegalArgumentException> { admission.inspect(parallel(9, null)) }
+        val withoutConcurrency = RunnerAdmission(InMemoryWorkflowResolver(), RunnerHostSession.CAPABILITIES - "workflow.concurrent.v1")
+        assertFailsWith<IllegalArgumentException> { withoutConcurrency.inspect(parallel(2, null)) }
+        assertFailsWith<IllegalArgumentException> { withoutConcurrency.inspect(concurrent(2, "a", "b")) }
+    }
+    @Test fun `concurrent savepoints are resumable only when every running step waits for a human`(@TempDir dir: Path) = runBlocking {
+        val slowGate = CompletableDeferred<Unit>(); val decision = CompletableDeferred<ApprovalDecision>()
+        val host = ConcurrentHost(Host(dir), decide = { decision.await() }, hold = mapOf("slow" to slowGate))
+        val running = async(Dispatchers.Default) { WorkflowExecutor(HttpAccess(), emptyList(), host = host).execute(host.workflow()) }
+        try {
+            withTimeout(5000) { while (host.requests.isEmpty() || "slow" !in host.bodies) delay(10) }
+            delay(100)
+            assertTrue(host.base.checkpoints.none { it.safeToResume }, "A sibling still running makes every savepoint unsafe")
+            slowGate.complete(Unit)
+            val parked = withTimeout(5000) { while (host.base.checkpoints.none { it.safeToResume }) delay(10); host.base.checkpoints.first { it.safeToResume } }
+            val request = host.requests.single()
+            assertEquals(setOf("slow"), parked.state.preservedStepResults.keys)
+            assertEquals(mapOf("review" to request.approvalId), parked.state.pendingApprovalIds)
+            assertEquals(mapOf("review" to request.requestedAt), parked.state.pendingApprovalRequestedAt)
+            assertEquals(listOf(request), parked.pendingApprovals)
+            decision.complete(ApprovalDecision.APPROVED_AS_IS)
+            val result = withTimeout(5000) { running.await() }
+            assertTrue(result.success, result.error)
+            assertEquals(listOf("after", "review", "slow"), host.bodies.sorted())
+            val last = host.base.checkpoints.last()
+            assertTrue(last.safeToResume); assertTrue(last.pendingApprovals.isEmpty())
+            assertEquals(setOf("slow", "review", "after"), last.state.preservedStepResults.keys)
+        } finally { running.cancel() }
+    }
+    @Test fun `concurrent approvals park together and a retrying wait is never quiescent`(@TempDir dir: Path) = runBlocking {
+        val decision = CompletableDeferred<ApprovalDecision>()
+        val host = ConcurrentHost(Host(dir), decide = { decision.await() })
+        fun review(name: String, retry: RetryConfig? = null) = WorkflowStep(name, code = CodeStepConfig("bash", "echo $name"), manualApproval = ManualApprovalConfig(true, timeout = 3600), retry = retry, idempotent = retry != null)
+        val both = WorkflowDefinition("approvals", agents = emptyMap(), directoryIsolation = host.base.isolation(), concurrency = ConcurrencyConfig(true, 3),
+            workflow = listOf(review("review_a"), review("review_b")))
+        val running = async(Dispatchers.Default) { WorkflowExecutor(HttpAccess(), emptyList(), host = host).execute(both) }
+        try {
+            val parked = withTimeout(5000) {
+                while (host.base.checkpoints.none { it.safeToResume && it.pendingApprovals.size == 2 }) delay(10)
+                host.base.checkpoints.first { it.safeToResume && it.pendingApprovals.size == 2 }
+            }
+            assertEquals(host.requests.map { it.approvalId }.toSet(), parked.pendingApprovals.map { it.approvalId }.toSet())
+            assertEquals(setOf("review_a", "review_b"), parked.state.pendingApprovalIds.keys)
+            assertTrue(parked.state.preservedStepResults.isEmpty())
+            decision.complete(ApprovalDecision.APPROVED_AS_IS)
+            assertTrue(withTimeout(5000) { running.await() }.success)
+        } finally { running.cancel() }
+
+        // A retrying step may already hold an attempt's result: its wait keeps the run non-quiescent.
+        val retrying = ConcurrentHost(Host(dir.resolve("retrying")), decide = { awaitCancellation() })
+        val mixed = WorkflowDefinition("retrying", agents = emptyMap(), directoryIsolation = retrying.base.isolation(), concurrency = ConcurrencyConfig(true, 2),
+            workflow = listOf(review("plain"), review("again", RetryConfig(maxAttempts = 2))))
+        val second = async(Dispatchers.Default) { WorkflowExecutor(HttpAccess(), emptyList(), host = retrying).execute(mixed) }
+        try {
+            withTimeout(5000) { while (retrying.requests.size < 2) delay(10) }
+            delay(200)
+            assertTrue(retrying.base.checkpoints.none { it.safeToResume })
+            assertTrue(retrying.base.checkpoints.any { it.pendingApprovals.isNotEmpty() })
+        } finally { second.cancelAndJoin() }
     }
     @Test fun `static and dynamic children inherit root identity approvals monitoring and supervision`(@TempDir dir: Path) = runBlocking {
         val host = Host(dir); val child = host.workflow("child", true); host.child = child
@@ -216,6 +318,56 @@ class WorkflowHostTest {
         assertTrue(updates.any { it.type == "step_completed" && it.stepName == "fanout" && it.success == false && it.error.orEmpty().contains("too many items") })
     }
 
+    class HostFileMarker : ai.koog.agents.core.tools.reflect.ToolSet {
+        @ai.koog.agents.core.tools.annotations.Tool
+        @ai.koog.agents.core.tools.annotations.LLMDescription("Host-owned file tool marker")
+        fun hostFileMarker(): String = "marker"
+    }
+    @Test fun `host file system tools replace the library file tools in the agent registry`(@TempDir dir: Path) = runBlocking {
+        val base = Host(dir)
+        val bodies = mutableListOf<String>()
+        val mock = io.ktor.client.HttpClient(io.ktor.client.engine.mock.MockEngine) { engine { addHandler { request ->
+            val body = String(request.body.toByteArray()); synchronized(bodies) { bodies.add(body) }
+            val reply = buildJsonObject {
+                put("id", "test-only-model"); put("object", "chat.completion"); put("created", 1760000000); put("model", "gpt-4o-mini")
+                put("choices", buildJsonArray { add(buildJsonObject { put("index", 0); put("message", buildJsonObject { put("role", "assistant"); put("content", "done") }); put("finish_reason", "stop") }) })
+                put("usage", buildJsonObject { put("prompt_tokens", 1); put("completion_tokens", 1); put("total_tokens", 2) })
+            }
+            respond(reply.toString(), io.ktor.http.HttpStatusCode.OK, io.ktor.http.headersOf(io.ktor.http.HttpHeaders.ContentType, "application/json"))
+        } } }
+        val scopes = mutableListOf<WorkflowHostScope>()
+        val host = object : WorkflowHost by base {
+            override val llmHttpClientFactory = ai.koog.http.client.ktor.KtorKoogHttpClient.Factory(mock)
+            override suspend fun prepareAgentParameters(scope: WorkflowHostScope, parameters: List<com.fartech.ftapp2.commonsKt.ConfigurationParameter>) = parameters + listOf(
+                com.fartech.ftapp2.commonsKt.ConfigurationParameter("openai_api_key", JsonPrimitive("test-only-model-key")),
+                com.fartech.ftapp2.commonsKt.ConfigurationParameter("disable_skills", JsonPrimitive(true)))
+            override fun fileSystemTools(scope: WorkflowHostScope, parameters: List<com.fartech.ftapp2.commonsKt.ConfigurationParameter>): List<ai.koog.agents.core.tools.reflect.ToolSet> {
+                scopes += scope; return listOf(HostFileMarker())
+            }
+        }
+        val workflow = WorkflowParser.parseYaml("""
+            name: hosted-files
+            agents:
+              model:
+                strategy: single_run
+                tools: [file_system]
+                llm:
+                  model: gpt-4o-mini
+                  provider: openai
+            workflow:
+              - step: write
+                agent: model
+                input: Write the notes.
+        """.trimIndent()).copy(directoryIsolation = base.isolation())
+        try {
+            val result = WorkflowExecutor(HttpAccess(), emptyList(), host = host).execute(workflow)
+            assertTrue(result.success, result.error)
+        } finally { mock.close() }
+        val request = synchronized(bodies) { bodies.first() }
+        assertTrue(request.contains("hostFileMarker"), request)
+        for (library in listOf("readFile", "writeFile", "__write_file__", "__read_file__", "copyFile", "deleteFile")) assertFalse(request.contains("\"$library\""), library)
+        assertEquals(listOf(WorkflowHostScope("root", "root", stepName = "write")), scopes)
+    }
     @Test fun `closure admission refuses unknown dormant nested tools before effects`(@TempDir dir: Path) {
         val host = Host(dir)
         val child = WorkflowDefinition("unsafe", agents = mapOf("unknown" to AgentDefinition(tools = listOf("server_business_broker"))), workflow = listOf(WorkflowStep("unused", agent = "unknown", input = "ignored")))

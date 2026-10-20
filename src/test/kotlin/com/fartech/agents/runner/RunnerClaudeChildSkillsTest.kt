@@ -62,6 +62,8 @@ class RunnerClaudeChildSkillsTest {
                   external_agent_claude_auth_mode: subscription
                   external_agent_claude_oauth_token: credential:$account@3
                   external_agent_claude_command: $fake
+                  external_agent_claude_allowed_tools: Read,Write,Bash,WebFetch
+                  external_agent_claude_extra_args: --dangerously-skip-permissions
                   skills_config:
                     enabledSkills: [$selected]
             workflow:
@@ -126,6 +128,10 @@ class RunnerClaudeChildSkillsTest {
                     for (key in listOf("HOME", "CLAUDE_CONFIG_DIR")) assertTrue(Path.of(request.env.getValue(key)).startsWith(dir.resolve(".runner-private")))
                     assertFalse(request.command.joinToString(" ").contains("fixture-claude"))
                     assertFalse(request.command.joinToString(" ").contains("FROZEN_SKILL"))
+                    // The Runner registers only the derived file tools and keeps the permission layer on.
+                    assertEquals("Read,Write", request.command[request.command.indexOf("--tools") + 1])
+                    assertEquals("Read,Write", request.command[request.command.indexOf("--allowedTools") + 1])
+                    assertFalse("--dangerously-skip-permissions" in request.command)
                     val process = ProcessBuilder(request.command).directory(request.workingDir).apply {
                         environment().clear(); environment()["PATH"] = "/usr/bin:/bin"; environment().putAll(request.env)
                     }.start()

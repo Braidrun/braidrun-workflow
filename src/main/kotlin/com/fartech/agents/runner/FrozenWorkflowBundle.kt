@@ -45,7 +45,10 @@ class FrozenWorkflowBundle(private val root: Path, val manifest: JsonObject, pri
                 skillHashes[relative] = file.string("sha256")
             }
             if (file.string("role") in setOf("definition", "script")) {
-                require(file.long("size") <= RunnerIpc.MAX_FRAME_BYTES) { "Executable bundle file exceeds limit" }
+                // Definitions are parsed in-process and never travel in an IPC frame, so they get their own
+                // bound (the platform planner's limit). Scripts keep the frame bound.
+                val limit = if (file.string("role") == "definition") MAX_DEFINITION_BYTES.toLong() else RunnerIpc.MAX_FRAME_BYTES.toLong()
+                require(file.long("size") <= limit) { "Executable bundle file exceeds limit" }
                 val bytes = Files.readAllBytes(path)
                 require(sha256(bytes) == file.string("sha256")) { "Executable file changed during freeze" }
                 frozenFiles[relative] = bytes
@@ -61,7 +64,7 @@ class FrozenWorkflowBundle(private val root: Path, val manifest: JsonObject, pri
             val file = files[path] ?: error("Definition is missing from verified files")
             require(file.string("role") == "definition" && file.string("sha256") == def.string("definitionHash")) { "Definition hash mismatch" }
             val bytes = Files.readAllBytes(confinedPath(root, path))
-            require(bytes.size <= RunnerIpc.MAX_FRAME_BYTES && sha256(bytes) == def.string("definitionHash")) { "Definition changed during verification" }
+            require(bytes.size <= MAX_DEFINITION_BYTES && sha256(bytes) == def.string("definitionHash")) { "Definition changed during verification" }
             Entry(id, path, def.string("definitionHash"), WorkflowParser.parseYaml(bytes.toString(Charsets.UTF_8)).let { definition ->
                 definition.copy(agents = definition.agents.mapValues { RunnerSkillsPolicy.normalize(it.value, root) }, directoryIsolation = DirectoryIsolationConfig(
                     baseDir = root.resolve(".workflow-runs").toString(), sharedSkillsDir = root.resolve("skills").toString(),
@@ -183,6 +186,10 @@ class FrozenWorkflowBundle(private val root: Path, val manifest: JsonObject, pri
     fun identityOf(definition: WorkflowDefinition): String = (entries.singleOrNull { it.definition === definition }
         ?: entries.single { it.definition == definition }).id
     fun contains(definition: WorkflowDefinition): Boolean = entries.any { it.definition == definition }
+    companion object {
+        /** Largest frozen workflow definition (2.5 MiB); matches the platform planner's definition limit. */
+        const val MAX_DEFINITION_BYTES: Int = 2_621_440
+    }
 }
 
 /** No '..', absolute names, backslashes, symlink ancestors or NUL. */

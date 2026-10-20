@@ -26,6 +26,8 @@ object RunnerLoopPolicy {
         val name = step.step
         require(step.repeatUntil == null) { "Runner loop step '$name': repeat_until is not supported on Runners ($CAPABILITY covers iterate_over)" }
         val loop = requireNotNull(step.iterateOver)
+        // Items run, and are released, as "<step>:<occurrence>": no real step may live under that prefix.
+        require(workflow.workflow.none { it.step.startsWith("$name:") }) { "Runner loop step '$name': another step name starts with '$name:'" }
         require(step.idempotent) { "Runner loop step '$name' must be idempotent: a resume reruns every item" }
         if (loop.parallel) require(loop.maxParallel != null && loop.maxParallel in 1..MAX_PARALLEL) {
             "Runner loop step '$name' needs an explicit iterate_over.max_parallel between 1 and $MAX_PARALLEL"

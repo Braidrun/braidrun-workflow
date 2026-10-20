@@ -279,65 +279,6 @@ class SafeFileTools(
         }
     }
 
-    // -----------------------------
-    // Content normalization helpers
-    // -----------------------------
-    private fun stripCodeFences(input: String): String {
-        var s = input.trim()
-        if (s.startsWith("```")) {
-            val firstNl = s.indexOf('\n')
-            if (firstNl >= 0) s = s.substring(firstNl + 1)
-            val endFence = s.lastIndexOf("```")
-            if (endFence >= 0) s = s.substring(0, endFence)
-            s = s.trim()
-        }
-        return s
-    }
-
-    private fun htmlDecode(input: String): String {
-        var s = input
-        // Basic named entities
-        s = s.replace("&quot;", "\"")
-            .replace("&#34;", "\"")
-            .replace("&apos;", "'")
-            .replace("&#39;", "'")
-            .replace("&amp;", "&")
-            .replace("&lt;", "<")
-            .replace("&gt;", ">")
-        // Numeric entities: decimal and hex
-        val dec = Regex("&#(\\d+);")
-        val hex = Regex("&#x([0-9A-Fa-f]+);")
-        s = dec.replace(s) { m ->
-            runCatching { m.groupValues[1].toInt().toChar().toString() }.getOrElse { m.value }
-        }
-        s = hex.replace(s) { m ->
-            runCatching { m.groupValues[1].toInt(16).toChar().toString() }.getOrElse { m.value }
-        }
-        return s
-    }
-
-    private fun unescapeJsonish(input: String): String {
-        var s = input
-        // Common escaped sequences
-        s = s.replace("\\r\\n", "\n")
-        s = s.replace("\\n", "\n")
-        s = s.replace("\\t", "\t")
-        s = s.replace("\\r", "\r")
-        // Unicode escapes \uXXXX
-        val unicode = Regex("\\\\u([0-9a-fA-F]{4})")
-        s = unicode.replace(s) { m ->
-            runCatching { m.groupValues[1].toInt(16).toChar().toString() }.getOrElse { m.value }
-        }
-        return s
-    }
-
-    private fun normalizeContent(raw: String): String {
-        // Apply in order: strip code fences -> HTML decode -> unescape JSON-like sequences
-        val noFences = stripCodeFences(raw)
-        val html = htmlDecode(noFences)
-        return unescapeJsonish(html)
-    }
-
     @Tool
     @LLMDescription(
         "Read a text file. The path is validated for security: blocked extensions and sensitive filenames " +
@@ -535,6 +476,66 @@ class SafeFileTools(
     }
 
     companion object {
+        // -----------------------------
+        // Content normalization helpers
+        // -----------------------------
+        private fun stripCodeFences(input: String): String {
+            var s = input.trim()
+            if (s.startsWith("```")) {
+                val firstNl = s.indexOf('\n')
+                if (firstNl >= 0) s = s.substring(firstNl + 1)
+                val endFence = s.lastIndexOf("```")
+                if (endFence >= 0) s = s.substring(0, endFence)
+                s = s.trim()
+            }
+            return s
+        }
+
+        private fun htmlDecode(input: String): String {
+            var s = input
+            // Basic named entities
+            s = s.replace("&quot;", "\"")
+                .replace("&#34;", "\"")
+                .replace("&apos;", "'")
+                .replace("&#39;", "'")
+                .replace("&amp;", "&")
+                .replace("&lt;", "<")
+                .replace("&gt;", ">")
+            // Numeric entities: decimal and hex
+            val dec = Regex("&#(\\d+);")
+            val hex = Regex("&#x([0-9A-Fa-f]+);")
+            s = dec.replace(s) { m ->
+                runCatching { m.groupValues[1].toInt().toChar().toString() }.getOrElse { m.value }
+            }
+            s = hex.replace(s) { m ->
+                runCatching { m.groupValues[1].toInt(16).toChar().toString() }.getOrElse { m.value }
+            }
+            return s
+        }
+
+        private fun unescapeJsonish(input: String): String {
+            var s = input
+            // Common escaped sequences
+            s = s.replace("\\r\\n", "\n")
+            s = s.replace("\\n", "\n")
+            s = s.replace("\\t", "\t")
+            s = s.replace("\\r", "\r")
+            // Unicode escapes \uXXXX
+            val unicode = Regex("\\\\u([0-9a-fA-F]{4})")
+            s = unicode.replace(s) { m ->
+                runCatching { m.groupValues[1].toInt(16).toChar().toString() }.getOrElse { m.value }
+            }
+            return s
+        }
+
+        /** Also used by the Runner's confined file tools so both write the same bytes. */
+        internal fun normalizeContent(raw: String): String {
+            // Apply in order: strip code fences -> HTML decode -> unescape JSON-like sequences
+            val noFences = stripCodeFences(raw)
+            val html = htmlDecode(noFences)
+            return unescapeJsonish(html)
+        }
+
         private const val MAX_FILE_SIZE: Long = 100 * 1024 * 1024  // 100MB
         private const val MAX_PATH_LENGTH: Int = 4096
 

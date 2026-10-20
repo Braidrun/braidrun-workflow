@@ -33,6 +33,16 @@ interface WorkflowHost {
     val codexCredentials: ClaudeCredentialProvider? get() = null
     val codexAuthRotation: ((String?, String) -> Unit)? get() = null
     fun nativeAgentPrompt(scope: WorkflowHostScope, prompt: String): String = prompt
+    /**
+     * Host-owned replacement for the `file_system` tool group of an engine (non-CLI) agent, built
+     * from the host-prepared [parameters]. Null keeps the library's file tools.
+     */
+    fun fileSystemTools(scope: WorkflowHostScope, parameters: List<com.fartech.ftapp2.commonsKt.ConfigurationParameter>): List<ai.koog.agents.core.tools.reflect.ToolSet>? = null
+    /**
+     * Claude Code built-in tools a host registers for a `claude_code_agent` step (`--tools`); a
+     * non-null value also turns off `--dangerously-skip-permissions`. Null keeps the CLI default.
+     */
+    fun claudeBuiltinTools(scope: WorkflowHostScope, parameters: List<com.fartech.ftapp2.commonsKt.ConfigurationParameter>): String? = null
     val codeControlMode: WorkflowCodeControlMode get() = WorkflowCodeControlMode.LEGACY_STEP_TOKEN
     /** Called after resource admission; supervisor supplies its own peer-provider transport.
      * Returns only nonsecret host metadata, never a grant or whole-step credential. */
@@ -68,6 +78,12 @@ interface WorkflowHost {
      * [WorkflowHostScope.occurrence]; whatever the host keyed under the occurrence's name can be released now
      * instead of at the loop step's end. Runs in a finally block: it must not suspend. */
     fun occurrenceEnded(scope: WorkflowHostScope) {}
+    /**
+     * Persist the savepoint [build] captures. A host with its own event order runs [build] inside it, so the captured
+     * state and the announced event position belong together; savepoints are announced in capture order. A null
+     * build (the run stopped being quiescent) persists nothing.
+     */
+    suspend fun checkpointOf(build: () -> WorkflowHostCheckpoint?) { build()?.let { checkpoint(it) } }
 }
 
 data class WorkflowHostBinding(

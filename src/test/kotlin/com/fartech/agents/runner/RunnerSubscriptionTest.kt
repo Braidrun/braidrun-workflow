@@ -30,6 +30,38 @@ class RunnerSubscriptionTest {
             put("allowedOperations", JsonArray(operations.map(::JsonPrimitive))); put("material", material)
         }))
     }
+    /**
+     * Concurrent steps lease the same model key independently: one platform grant per step scope, and a step's end
+     * retires exactly its own grants (including its derived "<step>:" task scopes), never a sibling's live one.
+     */
+    @Test fun `concurrent steps hold independent leases and each step end releases only its own`() = runBlocking<Unit> {
+        withTimeout(5000) { IpcHarness().use { h ->
+            val gate = RunnerEnvironmentGate(h.binding, setOf("engine-http")); gate.install(RunnerProtocolTest.environment(h.binding, Instant.now()))
+            val secrets = RunnerSecrets(); val credentials = RunnerCredentials(h.ipc, gate, secrets)
+            val releases = java.util.concurrent.CopyOnWriteArrayList<String>()
+            val live = RunnerLiveCredentials(credentials, gate, renewalIntervalMs = 60_000, onReleased = { lease, _ -> releases += lease.leaseId })
+            val root = h.binding.string("executionId")
+            fun scope(step: String) = WorkflowHostScope(root, root, stepName = step)
+            val key = buildJsonObject { put("apiKey", "fake-model-key-material") }
+            try {
+                val left = async { live.acquire("credential:model@3", scope("left"), "llm.request") }
+                val right = async { live.acquire("credential:model@3", scope("right"), "llm.request") }
+                val task = async { live.acquire("credential:model@3", scope("left:parallel:0"), "llm.request") }
+                val asked = List(3) { h.next() }
+                assertEquals(3, asked.map { it.obj("payload").string("requestId") }.distinct().size, "one grant per step scope")
+                asked.forEachIndexed { index, request -> reply(h, request, "grant-$index", key, operations = listOf("llm.request")) }
+                val handles = listOf(left.await(), right.await(), task.await())
+                val leaseOf = handles.associateBy { it.latest.get().scope.stepName }
+                live.release(root, "left")
+                assertEquals(setOf(leaseOf.getValue("left").latest.get().leaseId, leaseOf.getValue("left:parallel:0").latest.get().leaseId), releases.toSet())
+                assertFailsWith<IllegalArgumentException> { live.checked(leaseOf.getValue("left"), scope("left"), "llm.request") }
+                assertEquals("fake-model-key-material", live.checked(leaseOf.getValue("right"), scope("right"), "llm.request").string("apiKey"))
+                live.release(root, "right")
+                assertEquals(3, releases.size)
+                assertFailsWith<IllegalArgumentException> { live.checked(leaseOf.getValue("right"), scope("right"), "llm.request") }
+            } finally { live.close(); credentials.clear() }
+        } }
+    }
     @Test fun `credential permission renews while a CLI holds the same provider token`() = runBlocking<Unit> {
         IpcHarness().use { h ->
             val gate = RunnerEnvironmentGate(h.binding, setOf("engine-http")); gate.install(RunnerProtocolTest.environment(h.binding, Instant.now()))
