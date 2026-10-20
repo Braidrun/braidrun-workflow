@@ -126,4 +126,94 @@ class RunnerArtifactPublicationTest {
             } finally { task.cancel(); pump.cancel(); runtime.close(); h.supervisorInput.close() }
         }
     }
+
+    /**
+     * Two producing steps run side by side. Each publication is keyed by (execution, step) and pinned to its own
+     * step's durable code start, and the dependent gate opens only after both original publications are ACKed.
+     */
+    @Test fun `two concurrent producing steps publish their own declared files under their own producer starts`(@TempDir dir: Path) = runBlocking<Unit> {
+        Files.createDirectories(dir.resolve("run"))
+        val source = """
+            name: artifact-concurrent
+            agents: {}
+            concurrency:
+              enabled: true
+              max_concurrency: 2
+            workflow:
+              - step: produce_a
+                code:
+                  language: bash
+                  script: "sleep 0.3; printf 'a-file' > '${dir.resolve("run/a.txt")}'"
+              - step: produce_b
+                code:
+                  language: bash
+                  script: "sleep 0.3; printf 'b-file' > '${dir.resolve("run/b.txt")}'"
+              - step: gate
+                depends_on: [produce_a, produce_b]
+                manual_approval:
+                  enabled: true
+                  timeout: 30
+                code:
+                  language: bash
+                  script: 'printf after-both-publications'
+        """.trimIndent()
+        Files.writeString(dir.resolve("root.yaml"), source)
+        val hash = sha256(source.toByteArray()); val binding = JsonObject(RunnerProtocolTest.binding() + ("definitionHash" to JsonPrimitive(hash)))
+        val metadata = buildJsonObject {
+            put("rootWorkflowId", "root")
+            put("files", buildJsonArray { add(buildJsonObject { put("path", "root.yaml"); put("role", "definition"); put("size", source.toByteArray().size); put("sha256", hash) }) })
+            put("definitions", buildJsonArray { add(buildJsonObject { put("workflowId", "root"); put("path", "root.yaml"); put("definitionHash", hash) }) })
+        }
+        val bundle = FrozenWorkflowBundle(dir, JsonObject(metadata + ("bundleHash" to JsonPrimitive(sha256(canonical(metadata).toByteArray())))), binding)
+        IpcHarness(binding).use { h ->
+            val env = RunnerProtocolTest.environment(binding, Instant.now()); val gate = RunnerEnvironmentGate(binding, setOf("subprocess"))
+            gate.install(JsonObject(env + ("egress" to JsonArray(env.array("egress").map { JsonObject(it.jsonObject + ("pathId" to JsonPrimitive("subprocess"))) }))))
+            val identity = WorkflowHostBinding(binding.string("ownerId"), binding.string("actorUserId"), "billing", binding.string("executionId"), binding.string("runnerId"), binding.string("runnerInstanceId"), binding.long("resumeEpoch"), binding.string("attemptId"), hash, binding.string("runtimeHash"))
+            val secrets = RunnerSecrets(); val stored = RunnerCheckpointStore(dir, binding, secrets)
+            val running = java.util.concurrent.atomic.AtomicInteger(); val overlap = java.util.concurrent.atomic.AtomicInteger()
+            val executor = object : SubprocessExecutor {
+                override suspend fun execute(request: SubprocessExecutor.ExecRequest): SubprocessExecutor.ExecResult {
+                    val now = running.incrementAndGet(); overlap.accumulateAndGet(now, ::maxOf)
+                    try { return NativeSubprocessExecutor().execute(request) } finally { running.decrementAndGet() }
+                }
+            }
+            val runtime = RunnerWorkflowHost(h.ipc, identity, gate, bundle, RunnerHostSession.CAPABILITIES, executor, stored, secrets,
+                artifactPolicy = RunnerArtifactPolicy { _, scope, _ ->
+                    when (scope.stepName) { "produce_a" -> listOf(RunnerDeclaredArtifact("run/a.txt", 1024)); "produce_b" -> listOf(RunnerDeclaredArtifact("run/b.txt", 1024)); else -> emptyList() }
+                }, artifactFingerprinter = RunnerArtifactFingerprinter { intent ->
+                    val bytes = Files.readAllBytes(dir.resolve(intent.declaration.logicalPath)); RunnerArtifactFingerprint(bytes.size.toLong(), sha256(bytes))
+                })
+            var accepted = 0; var approved = false
+            val host = object : WorkflowHost by runtime {
+                override val approvalHandler = object : ApprovalHandler {
+                    override suspend fun requestApproval(request: ApprovalRequest): ApprovalDecision {
+                        assertEquals(2, accepted, "The gate cannot precede both publication ACKs"); approved = true; return ApprovalDecision.APPROVED_AS_IS
+                    }
+                }
+            }
+            val starts = java.util.concurrent.ConcurrentHashMap<String, String>(); val publications = java.util.concurrent.CopyOnWriteArrayList<JsonObject>()
+            val task = async { WorkflowExecutor(HttpAccess(), emptyList(), host = host).execute(bundle.rootDefinition) }
+            val pump = launch {
+                while (isActive) {
+                    val frame = h.next(); if (frame.string("type") != "event") continue
+                    val body = frame.obj("payload"); val payload = body.obj("payload")
+                    if ((payload["event"] as? JsonObject)?.get("type")?.jsonPrimitive?.content == "code_step_started") starts[payload.string("stepName")] = body.string("eventId")
+                    if (body.string("type") == "artifact") {
+                        publications += payload
+                        assertEquals(starts.getValue(payload.string("producerStep")), payload.string("producerStartEventId"))
+                        assertEquals("run/${payload.string("producerStep").removePrefix("produce_")}.txt", payload.string("logicalPath"))
+                        accepted++
+                        h.ipc.accept(h.reply(frame, "ack", buildJsonObject { put("ackSeq", body.long("eventSeq")); put("revision", accepted); put("serverTime", Instant.now().toString()) }))
+                    }
+                }
+            }
+            try {
+                val result = withTimeout(10_000) { task.await() }; assertTrue(result.success, result.error)
+                assertTrue(approved); assertEquals(2, overlap.get(), "both producers ran at the same time")
+                assertEquals(setOf("produce_a", "produce_b"), publications.map { it.string("producerStep") }.toSet())
+                assertEquals(2, publications.map { it.string("publicationId") }.distinct().size)
+                assertEquals(2, publications.map { it.string("producerStartEventId") }.distinct().size)
+            } finally { task.cancel(); pump.cancel(); runtime.close(); h.supervisorInput.close() }
+        }
+    }
 }

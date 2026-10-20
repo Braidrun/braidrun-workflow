@@ -4,6 +4,7 @@ import com.fartech.agents.tools.UserInteractionHandler
 import com.fartech.agents.tools.exec.SubprocessExecutor
 import com.fartech.agents.workflow.*
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.*
 import java.nio.file.Path
 import java.util.UUID
@@ -439,9 +440,21 @@ class RunnerWorkflowHost(
         ipc.reclaimAcknowledged(eventJournal.acknowledged())
     }
     fun finalEventSeq(): Long = eventJournal.lastSequence()
-    override suspend fun checkpoint(checkpoint: WorkflowHostCheckpoint) {
+    private val checkpointOrder = kotlinx.coroutines.sync.Mutex()
+    override suspend fun checkpoint(checkpoint: WorkflowHostCheckpoint) = checkpointOf { checkpoint }
+    /**
+     * One savepoint at a time, announced in capture order. The state is built under the Host monitor, which every
+     * step event (monitor) holds while it appends, so the announced eventSeq is exactly the last event the
+     * captured state already reflects; a concurrent step cannot slip an event between the two.
+     */
+    override suspend fun checkpointOf(build: () -> WorkflowHostCheckpoint?) = checkpointOrder.withLock {
         checkBusinessOpen()
-        ipc.send("checkpoint", store.save(checkpoint.copy(state = checkpoint.state.copy(hostState = live.state())), finalEventSeq()))
+        val (checkpoint, eventSeq) = synchronized(this) {
+            val built = build() ?: return@withLock
+            built.copy(state = built.state.copy(hostState = live.state())) to finalEventSeq()
+        }
+        ipc.send("checkpoint", store.save(checkpoint, eventSeq))
+        Unit
     }
     private val outputs = RunnerOutputs(ipc, gate, secrets)
     override val outputPublisher: WorkflowOutputPublisher get() = outputs

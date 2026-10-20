@@ -15,11 +15,11 @@ import kotlin.test.*
 class WorkflowHostTest {
     internal class Host(private val directory: Path) : WorkflowHost {
         override val binding = WorkflowHostBinding("owner", "actor", "billing", "root", "runner", "instance", 0, "attempt", "a".repeat(64), "b".repeat(64))
-        val checks = mutableListOf<Pair<WorkflowHostScope, String>>()
-        val checkpoints = mutableListOf<WorkflowHostCheckpoint>()
-        val updates = mutableListOf<WorkflowMonitorUpdate>()
-        val invocations = mutableListOf<Map<String, String>>()
-        val approvals = mutableListOf<ApprovalRequest>()
+        val checks: MutableList<Pair<WorkflowHostScope, String>> = java.util.concurrent.CopyOnWriteArrayList()
+        val checkpoints: MutableList<WorkflowHostCheckpoint> = java.util.concurrent.CopyOnWriteArrayList()
+        val updates: MutableList<WorkflowMonitorUpdate> = java.util.concurrent.CopyOnWriteArrayList()
+        val invocations: MutableList<Map<String, String>> = java.util.concurrent.CopyOnWriteArrayList()
+        val approvals: MutableList<ApprovalRequest> = java.util.concurrent.CopyOnWriteArrayList()
         var child: WorkflowDefinition? = null
         var dynamicAllowed = true
         var block = false
@@ -54,6 +54,106 @@ class WorkflowHostTest {
         fun workflow(name: String, approval: Boolean = false) = WorkflowDefinition(name, agents = emptyMap(), directoryIsolation = isolation(), workflow = listOf(
             WorkflowStep("code", code = CodeStepConfig("bash", "echo done"), manualApproval = if (approval) ManualApprovalConfig(true) else null)
         ))
+    }
+    /**
+     * Concurrent fixture over [Host]: human decisions come from [decide], and a step named in [hold] starts its
+     * body only once that gate opens. [bodies] lists every step body that started (after any approval).
+     */
+    internal class ConcurrentHost(
+        val base: Host, private val decide: suspend (ApprovalRequest) -> ApprovalDecision,
+        private val hold: Map<String, CompletableDeferred<Unit>> = emptyMap(), override val binding: WorkflowHostBinding = base.binding
+    ) : WorkflowHost by base {
+        val requests: MutableList<ApprovalRequest> = java.util.concurrent.CopyOnWriteArrayList()
+        val bodies: MutableList<String> = java.util.concurrent.CopyOnWriteArrayList()
+        override val approvalHandler = object : ApprovalHandler {
+            override suspend fun requestApproval(request: ApprovalRequest): ApprovalDecision { requests.add(request); return decide(request) }
+        }
+        override suspend fun beforeOperation(scope: WorkflowHostScope, operation: String) {
+            base.beforeOperation(scope, operation)
+            if (operation == "step_after_approval") { bodies.add(requireNotNull(scope.stepName)); hold[scope.stepName]?.await() }
+        }
+        /** slow and review run side by side; after needs both. */
+        fun workflow() = WorkflowDefinition("concurrent", agents = emptyMap(), directoryIsolation = base.isolation(), concurrency = ConcurrencyConfig(true, 2), workflow = listOf(
+            WorkflowStep("slow", code = CodeStepConfig("bash", "echo slow")),
+            WorkflowStep("review", code = CodeStepConfig("bash", "echo reviewed"), manualApproval = ManualApprovalConfig(true, timeout = 3600)),
+            WorkflowStep("after", code = CodeStepConfig("bash", "echo after"), dependsOn = listOf("slow", "review"))
+        ))
+    }
+    @Test fun `runner admission bounds workflow concurrency and gates step-level parallel`() {
+        assertTrue("workflow.concurrent.v1" in RunnerHostSession.CAPABILITIES)
+        val admission = RunnerAdmission(InMemoryWorkflowResolver(), RunnerHostSession.CAPABILITIES)
+        fun code(name: String) = WorkflowStep(name, code = CodeStepConfig("bash", "echo $name"))
+        fun concurrent(max: Int, vararg names: String) = WorkflowDefinition("concurrent", agents = emptyMap(), concurrency = ConcurrencyConfig(true, max), workflow = names.map(::code))
+        assertTrue("workflow.concurrent.v1" in admission.inspect(concurrent(4, "a", "b")))
+        assertTrue("workflow.concurrent.v1" in admission.inspect(concurrent(8, "a", "b")))
+        assertFailsWith<IllegalArgumentException>("unlimited") { admission.inspect(concurrent(0, "a", "b")) }
+        assertFailsWith<IllegalArgumentException>("above the Runner bound") { admission.inspect(concurrent(9, "a", "b")) }
+        // A step's credential leases are retired by step name and its derived "<step>:" scopes; siblings cannot share that prefix.
+        assertFailsWith<IllegalArgumentException> { admission.inspect(concurrent(2, "a", "a:b")) }
+        val agent = AgentDefinition(tools = emptyList())
+        fun parallel(tasks: Int, max: Int?) = WorkflowDefinition("fan-out", agents = mapOf("worker" to agent), workflow = listOf(
+            WorkflowStep("fan", agent = "worker", input = "fan out", parallel = ParallelExecution(List(tasks) { "task $it" }, maxParallel = max))))
+        assertTrue("workflow.concurrent.v1" in admission.inspect(parallel(3, null)))
+        assertTrue("workflow.concurrent.v1" in admission.inspect(parallel(20, 8)))
+        assertFailsWith<IllegalArgumentException> { admission.inspect(parallel(9, null)) }
+        val withoutConcurrency = RunnerAdmission(InMemoryWorkflowResolver(), RunnerHostSession.CAPABILITIES - "workflow.concurrent.v1")
+        assertFailsWith<IllegalArgumentException> { withoutConcurrency.inspect(parallel(2, null)) }
+        assertFailsWith<IllegalArgumentException> { withoutConcurrency.inspect(concurrent(2, "a", "b")) }
+    }
+    @Test fun `concurrent savepoints are resumable only when every running step waits for a human`(@TempDir dir: Path) = runBlocking {
+        val slowGate = CompletableDeferred<Unit>(); val decision = CompletableDeferred<ApprovalDecision>()
+        val host = ConcurrentHost(Host(dir), decide = { decision.await() }, hold = mapOf("slow" to slowGate))
+        val running = async(Dispatchers.Default) { WorkflowExecutor(HttpAccess(), emptyList(), host = host).execute(host.workflow()) }
+        try {
+            withTimeout(5000) { while (host.requests.isEmpty() || "slow" !in host.bodies) delay(10) }
+            delay(100)
+            assertTrue(host.base.checkpoints.none { it.safeToResume }, "A sibling still running makes every savepoint unsafe")
+            slowGate.complete(Unit)
+            val parked = withTimeout(5000) { while (host.base.checkpoints.none { it.safeToResume }) delay(10); host.base.checkpoints.first { it.safeToResume } }
+            val request = host.requests.single()
+            assertEquals(setOf("slow"), parked.state.preservedStepResults.keys)
+            assertEquals(mapOf("review" to request.approvalId), parked.state.pendingApprovalIds)
+            assertEquals(mapOf("review" to request.requestedAt), parked.state.pendingApprovalRequestedAt)
+            assertEquals(listOf(request), parked.pendingApprovals)
+            decision.complete(ApprovalDecision.APPROVED_AS_IS)
+            val result = withTimeout(5000) { running.await() }
+            assertTrue(result.success, result.error)
+            assertEquals(listOf("after", "review", "slow"), host.bodies.sorted())
+            val last = host.base.checkpoints.last()
+            assertTrue(last.safeToResume); assertTrue(last.pendingApprovals.isEmpty())
+            assertEquals(setOf("slow", "review", "after"), last.state.preservedStepResults.keys)
+        } finally { running.cancel() }
+    }
+    @Test fun `concurrent approvals park together and a retrying wait is never quiescent`(@TempDir dir: Path) = runBlocking {
+        val decision = CompletableDeferred<ApprovalDecision>()
+        val host = ConcurrentHost(Host(dir), decide = { decision.await() })
+        fun review(name: String, retry: RetryConfig? = null) = WorkflowStep(name, code = CodeStepConfig("bash", "echo $name"), manualApproval = ManualApprovalConfig(true, timeout = 3600), retry = retry, idempotent = retry != null)
+        val both = WorkflowDefinition("approvals", agents = emptyMap(), directoryIsolation = host.base.isolation(), concurrency = ConcurrencyConfig(true, 3),
+            workflow = listOf(review("review_a"), review("review_b")))
+        val running = async(Dispatchers.Default) { WorkflowExecutor(HttpAccess(), emptyList(), host = host).execute(both) }
+        try {
+            val parked = withTimeout(5000) {
+                while (host.base.checkpoints.none { it.safeToResume && it.pendingApprovals.size == 2 }) delay(10)
+                host.base.checkpoints.first { it.safeToResume && it.pendingApprovals.size == 2 }
+            }
+            assertEquals(host.requests.map { it.approvalId }.toSet(), parked.pendingApprovals.map { it.approvalId }.toSet())
+            assertEquals(setOf("review_a", "review_b"), parked.state.pendingApprovalIds.keys)
+            assertTrue(parked.state.preservedStepResults.isEmpty())
+            decision.complete(ApprovalDecision.APPROVED_AS_IS)
+            assertTrue(withTimeout(5000) { running.await() }.success)
+        } finally { running.cancel() }
+
+        // A retrying step may already hold an attempt's result: its wait keeps the run non-quiescent.
+        val retrying = ConcurrentHost(Host(dir.resolve("retrying")), decide = { awaitCancellation() })
+        val mixed = WorkflowDefinition("retrying", agents = emptyMap(), directoryIsolation = retrying.base.isolation(), concurrency = ConcurrencyConfig(true, 2),
+            workflow = listOf(review("plain"), review("again", RetryConfig(maxAttempts = 2))))
+        val second = async(Dispatchers.Default) { WorkflowExecutor(HttpAccess(), emptyList(), host = retrying).execute(mixed) }
+        try {
+            withTimeout(5000) { while (retrying.requests.size < 2) delay(10) }
+            delay(200)
+            assertTrue(retrying.base.checkpoints.none { it.safeToResume })
+            assertTrue(retrying.base.checkpoints.any { it.pendingApprovals.isNotEmpty() })
+        } finally { second.cancelAndJoin() }
     }
     @Test fun `static and dynamic children inherit root identity approvals monitoring and supervision`(@TempDir dir: Path) = runBlocking {
         val host = Host(dir); val child = host.workflow("child", true); host.child = child

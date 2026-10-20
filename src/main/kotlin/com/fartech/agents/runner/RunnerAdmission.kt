@@ -193,7 +193,13 @@ class RunnerAdmission(
         }
         walk = { workflow, depth ->
             require(depth <= maximumDepth) { "Runner definition closure exceeds maximum depth" }
-            if (workflow.concurrency.enabled) requireCapability("workflow.concurrent.v1")
+            if (workflow.concurrency.enabled) {
+                requireCapability(CONCURRENT_CAPABILITY)
+                // Unlimited fan-out would multiply model, process and IPC load past what one Runner JVM admits.
+                require(workflow.concurrency.maxConcurrency in 1..MAX_CONCURRENCY) { "Runner concurrency requires max_concurrency between 1 and $MAX_CONCURRENCY" }
+                // A step's end retires its credential leases by step name and by its derived "<step>:" scopes.
+                require(workflow.workflow.none { ':' in it.step }) { "Concurrent Runner step names cannot contain ':'" }
+            }
             if (workflow.knowledgeBase?.enabled == true) requireCapability("workflow.knowledgeBase.v1")
             workflow.globalAgent?.let { global ->
                 requireCapability("workflow.globalAgent.v1"); inspectAgent(global.agent)
@@ -202,6 +208,10 @@ class RunnerAdmission(
             workflow.workflow.forEach { step ->
                 if (step.retry != null) require(step.idempotent) { "Runner retry requires an explicitly idempotent step" }
                 if (step.code != null) requireCapability("step.script.v1")
+                step.parallel?.let { parallel ->
+                    requireCapability(CONCURRENT_CAPABILITY)
+                    require((parallel.maxParallel ?: parallel.tasks.size) in 1..MAX_CONCURRENCY) { "Runner parallel tasks require max_parallel between 1 and $MAX_CONCURRENCY" }
+                }
                 if (step.classifier?.jev != null || step.repeatUntil?.jev != null) requireCapability("decision.jev.v1")
                 if (step.classifier != null) requireCapability("step.classifier.v1")
                 if (step.groupChat != null) requireCapability("step.groupChat.v1")
@@ -231,6 +241,9 @@ class RunnerAdmission(
         return required
     }
     companion object {
+        const val CONCURRENT_CAPABILITY = "workflow.concurrent.v1"
+        /** Upper bound for workflow max_concurrency and step-level max_parallel on a Runner. */
+        const val MAX_CONCURRENCY = 8
         val CREDENTIAL_REFERENCE = Regex("credential:([A-Za-z0-9_.-]+)@([0-9]+)")
         /** `x-api-key`, `apiKey` and `API_KEY` are the same field: compare without case, `-` or `_`. */
         private fun normalizedKey(key: String) = key.lowercase(java.util.Locale.ROOT).filter { it != '-' && it != '_' }

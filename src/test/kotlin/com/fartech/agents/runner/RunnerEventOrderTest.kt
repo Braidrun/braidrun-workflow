@@ -131,4 +131,68 @@ class RunnerEventOrderTest {
             host.close(); ipc.close(); supervisorOutput.close(); supervisorInput.close()
         }
     }
+
+    /**
+     * Savepoints requested from many concurrent steps while other steps keep emitting: each announcement carries the
+     * event sequence of the moment its state was captured, and announcements arrive in capture order.
+     */
+    @Test fun `concurrent savepoints are announced in capture order with the event sequence of their state`(@TempDir dir: Path) = runBlocking<Unit> {
+        val source = "name: savepoints\nagents: {}\nworkflow:\n  - step: code\n    code:\n      language: bash\n      script: 'true'\n"
+        Files.writeString(dir.resolve("root.yaml"), source)
+        val hash = sha256(source.toByteArray()); val binding = JsonObject(RunnerProtocolTest.binding() + ("definitionHash" to JsonPrimitive(hash)))
+        val meta = buildJsonObject {
+            put("rootWorkflowId", "root")
+            put("files", buildJsonArray { add(buildJsonObject { put("path", "root.yaml"); put("role", "definition"); put("size", source.toByteArray().size); put("sha256", hash) }) })
+            put("definitions", buildJsonArray { add(buildJsonObject { put("workflowId", "root"); put("path", "root.yaml"); put("definitionHash", hash) }) })
+        }
+        val bundle = FrozenWorkflowBundle(dir, JsonObject(meta + ("bundleHash" to JsonPrimitive(sha256(canonical(meta).toByteArray())))), binding)
+        lateinit var host: RunnerWorkflowHost
+        IpcHarness(binding) { frame -> if (frame.string("type") == "ack") host.acknowledge(frame.obj("payload")) }.use { h ->
+            val gate = RunnerEnvironmentGate(binding, setOf("engine-http")); gate.install(RunnerProtocolTest.environment(binding, Instant.now()))
+            val identity = WorkflowHostBinding(binding.string("ownerId"), binding.string("actorUserId"), "billing", binding.string("executionId"), binding.string("runnerId"), binding.string("runnerInstanceId"), binding.long("resumeEpoch"), binding.string("attemptId"), hash, binding.string("runtimeHash"))
+            val secrets = RunnerSecrets()
+            host = RunnerWorkflowHost(h.ipc, identity, gate, bundle, RunnerHostSession.CAPABILITIES, NativeSubprocessExecutor(), RunnerCheckpointStore(dir, binding, secrets), secrets)
+            val root = identity.executionId
+            val savepoints = 24
+            val announced = mutableListOf<JsonObject>()
+            val reader = launch(Dispatchers.IO) {
+                while (announced.size < savepoints) {
+                    val frame = h.next()
+                    if (frame.string("type") == "checkpoint") announced += frame.obj("payload")
+                    else if (frame.string("type") == "event") h.ipc.accept(h.reply(frame, "ack", buildJsonObject {
+                        put("ackSeq", frame.obj("payload").long("eventSeq")); put("revision", 1); put("serverTime", Instant.now().toString()) }))
+                }
+            }
+            try {
+                val saving = java.util.concurrent.atomic.AtomicBoolean(true)
+                coroutineScope {
+                    // Steps keep emitting for as long as savepoints are being taken.
+                    repeat(4) { producer -> launch(Dispatchers.IO) { var index = 0; while (saving.get()) {
+                        host.monitor(com.fartech.agents.workflow.WorkflowMonitorUpdate(root, "agent_event", "step-$producer",
+                            com.fartech.agents.workflow.AgentEvent(type = "progress", category = "agent", summary = "tick ${index++}")))
+                        delay(1)
+                    } } }
+                    coroutineScope {
+                        repeat(savepoints) { index -> launch(Dispatchers.IO) {
+                            delay((index % 6) * 3L)
+                            host.checkpointOf {
+                                val captured = host.finalEventSeq()
+                                Thread.sleep(3) // copying a large context takes time
+                                com.fartech.agents.workflow.WorkflowHostCheckpoint(com.fartech.agents.workflow.WorkflowHostScope(root, root), "savepoints",
+                                    com.fartech.agents.workflow.WorkflowResumeState(variables = mapOf("captured" to captured, "index" to index)), safeToResume = true)
+                            }
+                        } }
+                    }
+                    saving.set(false)
+                }
+                withTimeout(10_000) { reader.join() }
+                val sequences = announced.map { it.long("eventSeq") }
+                assertEquals(sequences.sorted(), sequences, "savepoints are announced in capture order")
+                announced.forEach { announcement ->
+                    val state = runnerJson.parseToJsonElement(Files.readString(dir.resolve(announcement.string("relativePath")))).jsonObject.obj("state")
+                    assertEquals(announcement.long("eventSeq"), state.obj("variables").long("captured"), "the announced sequence is the one the state was captured at")
+                }
+            } finally { reader.cancel(); host.close() }
+        }
+    }
 }
