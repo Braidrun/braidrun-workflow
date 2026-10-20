@@ -12,8 +12,9 @@ import java.time.Instant
 import kotlin.test.*
 
 class RunnerPortableCapabilitiesTest {
-    private fun bundle(root: Path, extras: Map<String, Pair<String, String>>): FrozenWorkflowBundle {
-        val all = mapOf("root.yaml" to ("definition" to "name: assets\nagents: {}\nworkflow:\n  - step: check\n    code:\n      language: bash\n      script: 'true'\n")) + extras
+    private fun bundle(root: Path, extras: Map<String, Pair<String, String>>,
+                       definition: String = "name: assets\nagents: {}\nworkflow:\n  - step: check\n    code:\n      language: bash\n      script: 'true'\n"): FrozenWorkflowBundle {
+        val all = mapOf("root.yaml" to ("definition" to definition)) + extras
         all.forEach { (name, value) -> Files.createDirectories(root.resolve(name).parent); Files.writeString(root.resolve(name), value.second) }
         val hash = sha256(all.getValue("root.yaml").second.toByteArray())
         val metadata = buildJsonObject {
@@ -62,6 +63,30 @@ class RunnerPortableCapabilitiesTest {
         Files.delete(root.resolve("skills/frontend-design/SKILL.md"))
         Files.createSymbolicLink(root.resolve("skills/frontend-design/SKILL.md"), root.resolve("inputs/brief.txt"))
         assertFailsWith<IllegalArgumentException> { frozen.nativeSkillInstructions(SkillsConfiguration()) }
+    }
+    /** A real template is larger than one IPC frame; definitions are parsed in-process and never framed. */
+    private fun largeDefinition(bytes: Int): String {
+        val head = "name: large\nagents: {}\nworkflow:\n  - step: check\n    code:\n      language: bash\n      script: |\n        true\n"
+        val line = "        # " + "\u7f16".repeat(20) + "x".repeat(28) + "\n" // multibyte: code points < bytes
+        val body = StringBuilder(head)
+        val lineBytes = line.toByteArray().size
+        var size = head.toByteArray().size
+        while (size + lineBytes <= bytes) { body.append(line); size += lineBytes }
+        return body.toString()
+    }
+    @Test fun `definitions above one IPC frame and up to the planner limit freeze and parse`(@TempDir root: Path) {
+        val text = largeDefinition(FrozenWorkflowBundle.MAX_DEFINITION_BYTES)
+        assertTrue(text.toByteArray().size > RunnerIpc.MAX_FRAME_BYTES * 2)
+        val frozen = bundle(root, emptyMap(), text)
+        assertEquals("large", frozen.rootDefinition.name)
+        assertTrue(frozen.rootDefinition.workflow.single().code!!.script!!.length > RunnerIpc.MAX_FRAME_BYTES)
+    }
+    @Test fun `definitions above the planner limit and scripts above one frame are refused`(@TempDir root: Path) {
+        val oversized = largeDefinition(FrozenWorkflowBundle.MAX_DEFINITION_BYTES + 4096) + "#" + "x".repeat(4096) + "\n"
+        assertTrue(oversized.toByteArray().size > FrozenWorkflowBundle.MAX_DEFINITION_BYTES)
+        assertFailsWith<IllegalArgumentException> { bundle(root.resolve("a").also { Files.createDirectories(it) }, emptyMap(), oversized) }
+        val script = ".runtime/project/scripts/large.sh" to ("script" to "#" + "x".repeat(RunnerIpc.MAX_FRAME_BYTES))
+        assertFailsWith<IllegalArgumentException> { bundle(root.resolve("b").also { Files.createDirectories(it) }, mapOf(script)) }
     }
     @Test fun `case aliases and private namespace cannot be frozen`(@TempDir root: Path) {
         assertFailsWith<IllegalArgumentException> { bundle(root, mapOf("inputs/A" to ("input" to "a"), "inputs/a" to ("input" to "a"))) }
