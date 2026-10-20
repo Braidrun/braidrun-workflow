@@ -648,6 +648,46 @@
       ],
       "additionalProperties": false
     },
+    "report_publish_arguments": {
+      "type": "object",
+      "properties": {
+        "fileName": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+        },
+        "contentType": {
+          "enum": [
+            "text/markdown",
+            "text/html"
+          ]
+        },
+        "contentBase64": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 2796204
+        },
+        "renderMarkdownAsHtml": {
+          "type": "boolean"
+        },
+        "ttlMinutes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10080
+        },
+        "note": {
+          "type": "string",
+          "maxLength": 512
+        }
+      },
+      "required": [
+        "fileName",
+        "contentType",
+        "contentBase64",
+        "renderMarkdownAsHtml",
+        "ttlMinutes"
+      ],
+      "additionalProperties": false
+    },
     "controlGrant": {
       "type": "object",
       "properties": {
@@ -670,7 +710,8 @@
             "output.read",
             "output.publish",
             "interaction.request",
-            "filegate.close"
+            "filegate.close",
+            "report.publish"
           ]
         },
         "stepName": {
