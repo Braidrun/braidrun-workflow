@@ -62,6 +62,29 @@ class RunnerSubscriptionTest {
             } finally { live.close(); credentials.clear() }
         } }
     }
+    @Test fun `a loop item's end retires only its own leases and the loop step's end retires the rest`() = runBlocking<Unit> {
+        IpcHarness().use { h ->
+            val gate = RunnerEnvironmentGate(h.binding, setOf("engine-http")); gate.install(RunnerProtocolTest.environment(h.binding, Instant.now()))
+            val secrets = RunnerSecrets(); val credentials = RunnerCredentials(h.ipc, gate, secrets)
+            val releases = java.util.concurrent.CopyOnWriteArrayList<String>()
+            val live = RunnerLiveCredentials(credentials, gate, renewalIntervalMs = 60_000, onReleased = { lease, _ -> releases += lease.leaseId })
+            val execution = h.binding.string("executionId")
+            fun scope(step: String) = WorkflowHostScope(execution, execution, stepName = step)
+            try {
+                val steps = listOf("loop:iterate:1", "loop:iterate:10", "loop:iterate:1:evaluate")
+                val handles = steps.map { step ->
+                    val pending = async { live.acquire("credential:model@1", scope(step), "llm.request") }
+                    reply(h, h.next(), "lease-$step", material = buildJsonObject { put("apiKey", "synthetic-key-$step") }, operations = listOf("llm.request"))
+                    pending.await()
+                }
+                live.release(execution, "loop:iterate:1")
+                assertEquals(setOf("lease-loop:iterate:1", "lease-loop:iterate:1:evaluate"), releases.toSet(), "item 1 never retires item 10")
+                assertEquals("synthetic-key-loop:iterate:10", live.checked(handles[1], scope(steps[1]), "llm.request").string("apiKey"))
+                live.release(execution, "loop")
+                assertEquals(3, releases.size, "the loop step's end is the fallback for anything an item left")
+            } finally { live.close(); credentials.clear() }
+        }
+    }
     @Test fun `credential permission renews while a CLI holds the same provider token`() = runBlocking<Unit> {
         IpcHarness().use { h ->
             val gate = RunnerEnvironmentGate(h.binding, setOf("engine-http")); gate.install(RunnerProtocolTest.environment(h.binding, Instant.now()))

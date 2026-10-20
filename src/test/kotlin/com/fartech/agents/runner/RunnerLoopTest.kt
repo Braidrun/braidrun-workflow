@@ -74,7 +74,7 @@ class RunnerLoopTest {
         |      $loop
         |$extra""".trimMargin().trimEnd()
     private fun refused(step: String, agents: String = MODEL_AGENT, capabilities: Set<String> = RunnerHostSession.CAPABILITIES): String =
-        assertFailsWith<IllegalArgumentException> { admit(step, agents, capabilities) }.message.orEmpty()
+        assertFails { admit(step, agents, capabilities) }.message.orEmpty()
 
     @Test fun `the Runner advertises step loop v1 and admits the bounded HTTP-model and code loops the optimizer uses`() {
         assertTrue(RunnerLoopPolicy.CAPABILITY in RunnerHostSession.CAPABILITIES)
@@ -83,6 +83,9 @@ class RunnerLoopTest {
         admit(loopStep(loop = "parallel: false"))
         admit(loopStep(loop = "parallel: true\n      max_parallel: 8\n      max_items: 200"))
         admit(loopStep(item = "code:\n      language: bash\n      script: echo item"))
+        RunnerAdmission(NullWorkflowResolver, RunnerHostSession.CAPABILITIES).inspect(WorkflowParser.parseYaml(
+            "name: loop-concurrent\nconcurrency:\n  enabled: true\n  max_concurrency: 2\nagents:\n$MODEL_AGENT\nworkflow:\n${loopStep()}"))
+        assertTrue(refused(loopStep() + "\n  - step: \"review:iterate:0\"\n    code:\n      language: bash\n      script: echo clash").contains("review:"))
         assertTrue(refused(loopStep(), capabilities = RunnerHostSession.CAPABILITIES - RunnerLoopPolicy.CAPABILITY).contains("step.loop.v1"))
     }
 
@@ -112,6 +115,40 @@ class RunnerLoopTest {
             |      external_agent_codex_auth_mode: subscription
             |      external_agent_codex_auth_json: credential:account@3""".trimMargin()
         assertTrue(refused(loopStep(), agents = cli).contains("CLI agent"))
+    }
+
+    @Test fun `artifact collection policies refuse a loop step as a producer`(@TempDir dir: Path) {
+        val root = """
+            name: loop-producer
+            agents: {}
+            workflow:
+              - step: produce
+                idempotent: true
+                code:
+                  language: bash
+                  script: "true"
+                iterate_over:
+                  source: "a,b"
+                  delimiter: ","
+                  item_variable: item
+        """.trimIndent()
+        val policy = buildJsonObject {
+            put("schemaVersion", 1); put("rootWorkflowId", "root")
+            put("declarations", JsonArray(listOf(buildJsonObject {
+                put("declarationId", "decl-loop"); put("producerWorkflowId", "root"); put("producerStep", "produce"); put("childSteps", JsonArray(emptyList()))
+                put("logicalPath", "run/loop.txt"); put("kind", "MATERIAL"); put("maximumBytes", 1024); put("sourcePolicy", "UNAVAILABLE"); put("codeSourceSha256", JsonNull)
+            })))
+        }
+        val files = sortedMapOf("root.yaml" to ("definition" to root), RunnerCollectionPolicy.PATH to ("runtime" to policy.toString()))
+        files.forEach { (path, value) -> Files.createDirectories(dir.resolve(path).parent); Files.writeString(dir.resolve(path), value.second) }
+        val binding = JsonObject(RunnerProtocolTest.binding() + ("definitionHash" to JsonPrimitive(sha256(root.toByteArray()))))
+        val metadata = buildJsonObject {
+            put("rootWorkflowId", "root")
+            put("files", JsonArray(files.map { (path, v) -> buildJsonObject { put("path", path); put("role", v.first); put("size", v.second.toByteArray().size); put("sha256", sha256(v.second.toByteArray())) } }))
+            put("definitions", JsonArray(listOf(buildJsonObject { put("workflowId", "root"); put("path", "root.yaml"); put("definitionHash", sha256(root.toByteArray())) })))
+        }
+        val bundle = FrozenWorkflowBundle(dir, JsonObject(metadata + ("bundleHash" to JsonPrimitive(sha256(canonical(metadata).toByteArray())))), binding)
+        assertTrue(assertFailsWith<IllegalArgumentException> { RunnerCollectionPolicy(bundle) }.message.orEmpty().contains("producer"))
     }
 
     @Test fun `runtime fan-out is bounded once the items are known`() {

@@ -260,6 +260,17 @@ class WorkflowHostTest {
         assertEquals(1, updates.count { it.type == "step_completed" && it.stepName == "fanout" })
     }
 
+    @Test fun `a loop runs its occurrences alongside other steps under workflow concurrency`(@TempDir dir: Path) = runBlocking {
+        val base = Host(dir); val host = LoopHost(base)
+        val workflow = WorkflowDefinition("loop-concurrent", agents = emptyMap(), directoryIsolation = base.isolation(), concurrency = ConcurrencyConfig(true, 2),
+            workflow = listOf(loopStep(3), WorkflowStep("beside", code = CodeStepConfig("bash", "echo beside"))))
+        val result = withContext(Dispatchers.Default) { WorkflowExecutor(HttpAccess(), emptyList(), host = host).execute(workflow) }
+        assertTrue(result.success, result.error)
+        assertEquals(occurrences(3), host.ended.map { it.occurrence }.toSet())
+        assertTrue(host.ready.filter { it.stepName == "beside" }.all { it.occurrence == null }, "a sibling step never inherits an occurrence")
+        assertEquals(3, host.updates().count { it.type == "occurrence_completed" && it.success == true })
+    }
+
     @Test fun `stopping a loop cancels every running item and starts no further item`(@TempDir dir: Path) = runBlocking {
         val base = Host(dir); val started = java.util.concurrent.atomic.AtomicInteger(); val cancelled = java.util.concurrent.atomic.AtomicInteger()
         val bothRunning = CompletableDeferred<Unit>()
@@ -291,6 +302,7 @@ class WorkflowHostTest {
             }
         }) {
             override suspend fun checkpoint(checkpoint: WorkflowHostCheckpoint) { if (checkpoint.safeToResume) itemsAtSafeCheckpoint.add(checkpoint to items.get()); base.checkpoint(checkpoint) }
+            override suspend fun checkpointOf(build: () -> WorkflowHostCheckpoint?) { build()?.let { checkpoint(it) } }
         }
         val workflow = WorkflowDefinition("loop-resume", agents = emptyMap(), directoryIsolation = base.isolation(), workflow = listOf(
             WorkflowStep("before", code = CodeStepConfig("bash", "echo before")),

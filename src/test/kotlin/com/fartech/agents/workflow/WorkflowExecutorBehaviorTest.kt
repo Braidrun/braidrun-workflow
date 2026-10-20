@@ -539,7 +539,7 @@ class WorkflowExecutorBehaviorTest {
         if (System.getProperty("os.name").lowercase().contains("win")) return@runBlocking
         WorkflowMonitor.clear()
         try {
-            val loop = { name: String, source: String -> WorkflowStep(name, code = CodeStepConfig(language = "bash", script = "echo {{var:item}}"),
+            val loop = { name: String, source: String -> WorkflowStep(name, code = CodeStepConfig(language = "bash", script = "echo \"\$WF_VAR_ITEM\""),
                 iterateOver = IterateOverConfig(source = source, delimiter = ",", itemVariable = "item", parallel = true, resultsVariable = "${name}_all")) }
             val workflow = WorkflowDefinition(name = "iterate-library", agents = emptyMap(), workflow = listOf(
                 loop("fanout", "a,b,c"), loop("empty", "{{var:nothing}}").copy(dependsOn = listOf("fanout"))))
