@@ -109,8 +109,10 @@ class RunnerEnvironmentGate(
 class RunnerAdmission(
     private val resolver: WorkflowResolver,
     private val capabilities: Set<String>,
-    private val approvedTools: Set<String> = setOf("exit", "user_interaction", "workflow", "skill_tools"),
-    private val maximumDepth: Int = WorkflowExecutor.DEFAULT_MAX_SUB_WORKFLOW_DEPTH
+    private val approvedTools: Set<String> = setOf("exit", "user_interaction", "workflow", "skill_tools", "file_system"),
+    private val maximumDepth: Int = WorkflowExecutor.DEFAULT_MAX_SUB_WORKFLOW_DEPTH,
+    /** The only directory-isolation base a frozen bundle produces; null requires a relative base. */
+    private val isolationRoot: java.nio.file.Path? = (resolver as? FrozenWorkflowBundle)?.executionDirectory?.resolve(".workflow-runs")
 ) {
     fun inspect(root: WorkflowDefinition): Set<String> {
         val required = linkedSetOf("workflow.full.v1")
@@ -119,13 +121,15 @@ class RunnerAdmission(
             required.add(capability)
             require(capability in capabilities) { "Unsupported Runner capability: $capability" }
         }
-        fun inspectAgent(agent: AgentDefinition) {
+        /** Returns whether the agent uses the confined `file_system` tools. */
+        fun inspectAgent(agent: AgentDefinition): Boolean {
             requireCapability("step.agent.v1")
             require(agent.agentRef == null) { "Unfrozen agent reference" }
             val preset = agent.preset?.let { AgentPresetRegistry.get(it) ?: error("Unknown agent preset") }
             val effective = agent.resolveParameters()
             val type = effective["type"]?.jsonPrimitive?.content ?: agent.type
-            if (type in setOf("claude_code_agent", "codex_agent")) {
+            val cli = type in setOf("claude_code_agent", "codex_agent")
+            if (cli) {
                 val provider = if (type == "codex_agent") "codex" else "claude"
                 requireCapability("agent.$provider.v1")
                 require(effective["external_agent_${provider}_auth_mode"]?.jsonPrimitive?.content == "subscription") { "Runner CLI requires explicit scoped subscription mode" }
@@ -134,13 +138,22 @@ class RunnerAdmission(
                 for (field in listOf("external_agent_codex_auth_file", "external_agent_codex_home_dir", "external_agent_claude_config_dir")) {
                     require(effective[field]?.jsonPrimitive?.content.isNullOrBlank()) { "Runner CLI cannot use unscoped local account state" }
                 }
+                // The host registers only file tools (`--tools`) for Claude and drops the permission bypass.
+                if (provider == "claude") RunnerAgentToolPolicy.claudeExtraArgs(RunnerAgentToolPolicy.text(effective["external_agent_claude_extra_args"]))
             } else requireCapability("model.http.v1")
             val tools = effective["tool_set"]?.let { v ->
                 require(v is JsonArray) { "Ambiguous tool set" }; v.map { it.jsonPrimitive.content }
             } ?: agent.tools
-            tools.forEach { tool ->
+            // A CLI agent never loads the engine tool groups: its own tools are restricted by the host instead.
+            if (!cli) tools.forEach { tool ->
                 require(tool in approvedTools) { "Unsupported Runner tool: $tool" }
                 requireCapability("tool.$tool.v1")
+            }
+            val fileTools = !cli && "file_system" in tools
+            if (fileTools) {
+                for (key in RunnerAgentToolPolicy.DIRECTORY_PARAMETERS) {
+                    require(RunnerAgentToolPolicy.text(effective[key]).isNullOrBlank()) { "Runner file tools use the host's run directories; '$key' cannot be set" }
+                }
             }
             val json = runnerJson.encodeToJsonElement(AgentDefinition.serializer(), agent)
             fun services(node: JsonElement) {
@@ -180,6 +193,7 @@ class RunnerAdmission(
                 } else if (node is JsonArray) node.forEach(::services)
             }
             services(json); services(JsonObject(effective))
+            return fileTools
         }
         lateinit var walk: (WorkflowDefinition, Int) -> Unit
         fun child(config: SubWorkflowConfig, depth: Int) {
@@ -195,17 +209,18 @@ class RunnerAdmission(
             require(depth <= maximumDepth) { "Runner definition closure exceeds maximum depth" }
             if (workflow.concurrency.enabled) requireCapability("workflow.concurrent.v1")
             if (workflow.knowledgeBase?.enabled == true) requireCapability("workflow.knowledgeBase.v1")
+            var fileTools = false
             workflow.globalAgent?.let { global ->
-                requireCapability("workflow.globalAgent.v1"); inspectAgent(global.agent)
+                requireCapability("workflow.globalAgent.v1"); fileTools = inspectAgent(global.agent) || fileTools
             }
-            workflow.agents.values.forEach(::inspectAgent)
+            workflow.agents.values.forEach { fileTools = inspectAgent(it) || fileTools }
             workflow.workflow.forEach { step ->
                 if (step.retry != null) require(step.idempotent) { "Runner retry requires an explicitly idempotent step" }
                 if (step.code != null) requireCapability("step.script.v1")
                 if (step.classifier?.jev != null || step.repeatUntil?.jev != null) requireCapability("decision.jev.v1")
                 if (step.classifier != null) requireCapability("step.classifier.v1")
                 if (step.groupChat != null) requireCapability("step.groupChat.v1")
-                step.agentBased?.let { requireCapability("step.agentBased.v1"); inspectAgent(it.orchestrator) }
+                step.agentBased?.let { requireCapability("step.agentBased.v1"); fileTools = inspectAgent(it.orchestrator) || fileTools }
                 if (step.manualApproval != null) requireCapability("interaction.approval.v1")
                 if (step.publishOutputs.isNotEmpty()) requireCapability("output.publish.v1")
                 if (step.workflowOutputRead != null) {
@@ -219,12 +234,13 @@ class RunnerAdmission(
                             if (nested.code != null) requireCapability("step.script.v1")
                             if (nested.classifier != null) requireCapability("step.classifier.v1")
                             if (nested.groupChat != null) requireCapability("step.groupChat.v1")
-                            nested.agentBased?.let { requireCapability("step.agentBased.v1"); inspectAgent(it.orchestrator) }
+                            nested.agentBased?.let { requireCapability("step.agentBased.v1"); fileTools = inspectAgent(it.orchestrator) || fileTools }
                             nested.subWorkflow?.let { child(it, depth) }
                         }
                     }
                 }
             }
+            if (fileTools) RunnerAgentToolPolicy.requireConfinedIsolation(workflow.directoryIsolation, isolationRoot)
         }
         WorkflowParser.validateWorkflow(root, resolver)
         requireCapability("workflow.full.v1"); walk(root, 0)

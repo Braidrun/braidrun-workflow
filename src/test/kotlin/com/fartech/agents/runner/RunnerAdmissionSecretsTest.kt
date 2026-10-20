@@ -67,6 +67,47 @@ class RunnerAdmissionSecretsTest {
         // The bundled default server stays admissible.
         inspect("mcp_servers", buildJsonObject { put("playwright", server(args("@playwright/mcp@latest")) .let { JsonObject(it + ("command" to JsonPrimitive("npx"))) }) })
     }
+    private val fileCapabilities = setOf("workflow.full.v1", "step.agent.v1", "model.http.v1", "tool.exit.v1", "tool.file_system.v1")
+    private fun fileWorkflow(agent: AgentDefinition, isolation: DirectoryIsolationConfig = DirectoryIsolationConfig()) =
+        WorkflowDefinition("files", agents = mapOf("agent" to agent), directoryIsolation = isolation, workflow = listOf(WorkflowStep("step", agent = "agent", input = "Synthetic")))
+    @Test fun `file system tools are admitted only with the confined capability and host-chosen directories`() {
+        val agent = AgentDefinition(tools = listOf("exit", "file_system"))
+        assertTrue("tool.file_system.v1" in RunnerAdmission(NullWorkflowResolver, fileCapabilities).inspect(fileWorkflow(agent)))
+        assertFailsWith<IllegalArgumentException> { RunnerAdmission(NullWorkflowResolver, fileCapabilities - "tool.file_system.v1").inspect(fileWorkflow(agent)) }
+        for (key in listOf("working_dir", "workspace_dir", "output_dir", "persistence_storage_root")) {
+            val moved = AgentDefinition(tools = listOf("exit", "file_system"), overrides = mapOf(key to JsonPrimitive("/Users/someone")))
+            assertFailsWith<IllegalArgumentException>(key) { RunnerAdmission(NullWorkflowResolver, fileCapabilities).inspect(fileWorkflow(moved)) }
+        }
+        for (isolation in listOf(DirectoryIsolationConfig(enabled = false), DirectoryIsolationConfig(baseDir = "/var/shared-runs"),
+                DirectoryIsolationConfig(baseDir = "../runs"), DirectoryIsolationConfig(workingDirPattern = "{base_dir}/shared/workspace"),
+                DirectoryIsolationConfig(outputDirPattern = "{base_dir}/{user_id}/output"), DirectoryIsolationConfig(persistenceDirPattern = "{base_dir}/{user_id}/{execution_id}/../x"))) {
+            assertFailsWith<IllegalArgumentException>(isolation.toString()) { RunnerAdmission(NullWorkflowResolver, fileCapabilities).inspect(fileWorkflow(agent, isolation)) }
+        }
+        // Shell and web stay outside the Runner tool inventory.
+        for (tool in listOf("shell", "web")) {
+            assertFailsWith<IllegalArgumentException>(tool) { RunnerAdmission(NullWorkflowResolver, fileCapabilities + "tool.$tool.v1").inspect(fileWorkflow(AgentDefinition(tools = listOf("file_system", tool)))) }
+        }
+    }
+    @Test fun `CLI agents are not checked against engine tool groups but cannot carry extra CLI arguments`() {
+        val capabilities = setOf("workflow.full.v1", "step.agent.v1", "agent.claude.v1")
+        fun claude(vararg extra: Pair<String, String>) = AgentDefinition(type = "claude_code_agent", tools = listOf("exit", "file_system", "web"), overrides = mapOf(
+            "external_agent_claude_auth_mode" to JsonPrimitive("subscription"), "external_agent_claude_oauth_token" to JsonPrimitive("credential:claude@1")) +
+            extra.associate { it.first to JsonPrimitive(it.second) })
+        val required = RunnerAdmission(NullWorkflowResolver, capabilities).inspect(fileWorkflow(claude("external_agent_claude_extra_args" to "--dangerously-skip-permissions")))
+        assertFalse(required.any { it.startsWith("tool.") })
+        for (args in listOf("--tools,Bash", "--allowedTools,Bash", "--permission-mode,bypassPermissions", "--add-dir,/", "--settings,/tmp/s.json")) {
+            assertFailsWith<IllegalArgumentException>(args) { RunnerAdmission(NullWorkflowResolver, capabilities).inspect(fileWorkflow(claude("external_agent_claude_extra_args" to args))) }
+        }
+    }
+    @Test fun `Claude tool policy derives a file-only registry from the allowlist`() {
+        assertEquals("Read,Write,Edit,Glob,Grep", RunnerAgentToolPolicy.claudeBuiltinTools(null))
+        assertEquals("Read,Write,Edit,Glob,Grep", RunnerAgentToolPolicy.claudeBuiltinTools(""))
+        assertEquals("Read,Write", RunnerAgentToolPolicy.claudeBuiltinTools("Read,Write"))
+        assertEquals("Read,Write,Glob", RunnerAgentToolPolicy.claudeBuiltinTools("Read,Write,Glob,WebSearch,WebFetch,Bash"))
+        assertEquals(listOf("Read(src)", "Edit"), RunnerAgentToolPolicy.claudeAllowedEntries("Read(src),Bash(curl:*),Edit"))
+        assertEquals("", RunnerAgentToolPolicy.claudeBuiltinTools("Bash,WebFetch"))
+        assertEquals(emptyList(), RunnerAgentToolPolicy.claudeExtraArgs("--dangerously-skip-permissions"))
+    }
     @Test fun `startup errors are summarised by class name only`() {
         val failure = ExceptionInInitializerError(IllegalArgumentException("https://example.invalid?key=synthetic-key"))
         val rendered = runnerFailureSummary(failure)

@@ -5308,12 +5308,14 @@ class WorkflowExecutor(
             rawToolNames
         }
         hostWorkflowToolsOrNull(orchestratorToolNames, parameters, context.executionId, step.step)?.let { orchestratorCustomToolSets.add(it) }
+        val orchestratorFileTools = hostFileSystemToolsOrNull(orchestratorToolNames, parameters, context.executionId, step.step)
+        orchestratorFileTools?.let { orchestratorCustomToolSets.addAll(it) }
 
         val orchestratorSkillManager = createSkillManager(parameters)
         val orchestratorToolRegistry = com.fartech.agents.commons.parseToolSet(
-            parameters,
+            if (orchestratorFileTools != null) withoutToolGroup(parameters, "file_system") else parameters,
             httpAccess,
-            tools = orchestratorToolNames,
+            tools = if (orchestratorFileTools != null) orchestratorToolNames - "file_system" else orchestratorToolNames,
             customToolSets = orchestratorCustomToolSets,
             skillManager = orchestratorSkillManager,
             onHookEvent = orchestratorHookCallback,
@@ -6881,15 +6883,16 @@ class WorkflowExecutor(
 
         // 如果有共享知识库，将其作为 customToolSet 注入（避免重复创建 RAGTools 实例）；
         // workflow 工具同样由本 executor 构建，让嵌套执行继承宿主的 Jev 凭据策略
+        val hostedFileTools = hostFileSystemToolsOrNull(finalToolNames, parameters, executionId, stepName)
         val customToolSets = listOfNotNull(
             sharedRagTools,
             hostWorkflowToolsOrNull(finalToolNames, parameters, executionId, stepName)
-        )
+        ) + hostedFileTools.orEmpty()
 
         val toolRegistry = parseToolSet(
-            parameters,
+            if (hostedFileTools != null) withoutToolGroup(parameters, "file_system") else parameters,
             httpAccess,
-            tools = finalToolNames,
+            tools = if (hostedFileTools != null) finalToolNames - "file_system" else finalToolNames,
             customToolSets = customToolSets,
             skillManager = skillManager,
             onSkillEvent = skillEventCallback,
@@ -6975,6 +6978,23 @@ class WorkflowExecutor(
      * `WorkflowTools`. Host-only on purpose: [parameters] are user-controlled on the web and
      * must not drive this.
      */
+    /** The host's `file_system` replacement (see [WorkflowHost.fileSystemTools]); null keeps the library tools. */
+    private fun hostFileSystemToolsOrNull(
+        toolNames: Collection<String>,
+        parameters: List<ConfigurationParameter>,
+        executionId: String?,
+        stepName: String?
+    ): List<ai.koog.agents.core.tools.reflect.ToolSet>? = host?.takeIf { "file_system" in toolNames }?.let {
+        it.fileSystemTools(WorkflowHostScope(it.binding.executionId, executionId ?: it.binding.executionId, stepName = stepName), parameters)
+    }
+
+    private fun withoutToolGroup(parameters: List<ConfigurationParameter>, group: String): List<ConfigurationParameter> = parameters.map { parameter ->
+        val value = parameter.value
+        if (parameter.key == "tool_set" && value is kotlinx.serialization.json.JsonArray) {
+            ConfigurationParameter(parameter.key, kotlinx.serialization.json.JsonArray(value.filterNot { (it as? JsonPrimitive)?.content == group }))
+        } else parameter
+    }
+
     private fun hostWorkflowToolsOrNull(
         toolNames: Collection<String>,
         parameters: List<ConfigurationParameter>,
@@ -7535,10 +7555,15 @@ class WorkflowExecutor(
             trustExecutorSandbox = isDockerSubprocessMode()
         )
 
+        // A host restriction registers only these built-in tools (`--tools`, the binding control) and
+        // keeps the permission layer on; null leaves the CLI defaults as before.
+        val hostBuiltinTools = host?.claudeBuiltinTools(hostScope(context, stepName), parameters)
         return claudeAgent.runClaudeCodeSubAgent(
             ExternalAgentContext(
                 prompt = input,
                 name = agentName,
+                claudeBuiltinTools = hostBuiltinTools,
+                claudeSkipPermissions = if (hostBuiltinTools != null) false else null,
                 allowedTools = parseExternalAgentListParameter(parameters, "external_agent_claude_allowed_tools"),
                 disallowedTools = parseExternalAgentListParameter(parameters, "external_agent_claude_disallowed_tools"),
                 workingDir = workingDir?.absolutePath,

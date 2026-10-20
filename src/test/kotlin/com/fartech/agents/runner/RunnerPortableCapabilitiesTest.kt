@@ -162,6 +162,78 @@ class RunnerPortableCapabilitiesTest {
             } finally { host.close() }
         }
     }
+    @Test fun `Runner host forces strict sandbox and run directories and serves only confined audited file tools`(@TempDir root: Path) = runBlocking<Unit> {
+        val frozen = bundle(root, assets)
+        IpcHarness(frozen.taskBinding).use { h ->
+            val gate = RunnerEnvironmentGate(h.binding, setOf("engine-http")); gate.install(RunnerProtocolTest.environment(h.binding, Instant.now()))
+            val identity = com.fartech.agents.workflow.WorkflowHostBinding(h.binding.string("ownerId"), h.binding.string("actorUserId"), "billing",
+                h.binding.string("executionId"), h.binding.string("runnerId"), h.binding.string("runnerInstanceId"), h.binding.long("resumeEpoch"),
+                h.binding.string("attemptId"), h.binding.string("definitionHash"), h.binding.string("runtimeHash"))
+            val executor = object : com.fartech.agents.tools.exec.SubprocessExecutor {
+                override suspend fun execute(request: com.fartech.agents.tools.exec.SubprocessExecutor.ExecRequest): com.fartech.agents.tools.exec.SubprocessExecutor.ExecResult = error("Must not launch")
+            }
+            val secrets = RunnerSecrets()
+            val host = RunnerWorkflowHost(h.ipc, identity, gate, frozen, RunnerHostSession.CAPABILITIES, executor, RunnerCheckpointStore(root, h.binding, secrets), secrets)
+            try {
+                fun p(key: String, value: kotlinx.serialization.json.JsonElement) = com.fartech.ftapp2.commonsKt.ConfigurationParameter(key, value)
+                fun List<com.fartech.ftapp2.commonsKt.ConfigurationParameter>.value(key: String) = single { it.key == key }.value.jsonPrimitive.content
+                val scope = WorkflowHostScope(identity.executionId, identity.executionId, stepName = "write")
+                val isolation = frozen.rootDefinition.directoryIsolation
+                val prepared = host.prepareAgentParameters(scope, listOf(p("type", JsonPrimitive("universal_agent")),
+                    p("tool_set", buildJsonArray { add("exit"); add("file_system") }), p("sandbox_strict", JsonPrimitive("false")),
+                    p("working_dir", JsonPrimitive("/")), p("workspace_dir", JsonPrimitive("/")), p("output_dir", JsonPrimitive("/tmp"))))
+                assertEquals("true", prepared.value("sandbox_strict"))
+                val working = java.io.File(isolation.getWorkingDir(identity.executionId, "write", userId = identity.ownerId)).absolutePath
+                assertEquals(working, prepared.value("working_dir"))
+                assertEquals(java.io.File(isolation.getOutputDir(identity.executionId, "write", userId = identity.ownerId)).absolutePath, prepared.value("output_dir"))
+                assertTrue(prepared.none { it.key == "workspace_dir" })
+                assertEquals(1, prepared.count { it.key == "working_dir" })
+                // A YAML that sets sandbox_strict false on any agent is still strict on the Runner.
+                assertEquals("true", host.prepareAgentParameters(scope, listOf(p("sandbox_strict", JsonPrimitive("false")))).value("sandbox_strict"))
+
+                Files.createDirectories(Path.of(working))
+                val tools = host.fileSystemTools(scope, prepared).single() as RunnerFileTools
+                assertTrue(tools.writeFile(path = "out.json", content = "{\"ok\":true}").startsWith("Successfully"))
+                assertEquals("{\"ok\":true}", Files.readString(Path.of(working, "out.json")))
+                Files.createDirectories(root.resolve(".runner-state")); Files.writeString(root.resolve(".runner-state/checkpoint.json"), "{}")
+                for (escape in listOf(root.resolve(".runner-state/checkpoint.json"), root.resolve("root.yaml"), root.resolve("skills/frontend-design/SKILL.md"),
+                        root.resolve(".runtime/project/contract.md"), root.resolve("inputs/brief.txt"), Path.of(System.getProperty("java.io.tmpdir"), "x.txt"))) {
+                    assertTrue(tools.readFile(escape.toString()).startsWith("Error:"), escape.toString())
+                    assertTrue(tools.writeFile(path = escape.toString(), content = "x").startsWith("Error:"), escape.toString())
+                }
+                // Each operation reaches the durable event journal as a small audit event.
+                val audits = mutableListOf<JsonObject>()
+                withTimeout(5000) {
+                    while (audits.size < 13) {
+                        val frame = h.next()
+                        if (frame.string("type") != "event") continue
+                        val event = frame.obj("payload").obj("payload")["event"]?.jsonObject ?: continue
+                        if (event.string("type") == "file_operation") audits += runnerJson.parseToJsonElement(event.string("detail")).jsonObject
+                    }
+                }
+                val write = audits.first()
+                assertEquals("write", write.string("operation")); assertEquals("ok", write.string("outcome")); assertEquals(11, write.long("bytes"))
+                assertEquals(sha256("{\"ok\":true}".toByteArray()), write.string("sha256"))
+                assertTrue(audits.drop(1).all { it.string("outcome") == "refused" })
+
+                // Claude steps: allowlist narrowed to file tools, permission bypass dropped, hard registry forced.
+                val claude = host.prepareAgentParameters(scope, listOf(p("type", JsonPrimitive("claude_code_agent")),
+                    p("external_agent_claude_allowed_tools", JsonPrimitive("Read,Write,WebFetch,Bash")),
+                    p("external_agent_claude_extra_args", JsonPrimitive("--dangerously-skip-permissions"))))
+                assertEquals("Read,Write", claude.value("external_agent_claude_allowed_tools"))
+                assertEquals("", claude.value("external_agent_claude_extra_args"))
+                assertEquals("Read,Write", host.claudeBuiltinTools(scope, claude))
+                assertEquals("Read,Write,Edit,Glob,Grep", host.claudeBuiltinTools(scope, host.prepareAgentParameters(scope, listOf(p("type", JsonPrimitive("claude_code_agent"))))))
+                assertFailsWith<IllegalArgumentException> { host.prepareAgentParameters(scope, listOf(p("type", JsonPrimitive("claude_code_agent")), p("external_agent_claude_extra_args", JsonPrimitive("--tools,Bash")))) }
+                assertFailsWith<IllegalArgumentException> { host.fileSystemTools(scope.copy(rootExecutionId = "other"), prepared) }
+            } finally { host.close() }
+        }
+    }
+    @Test fun `confined file tools are offered in the ready inventory`() {
+        assertTrue(RunnerFileConfinement.available())
+        assertTrue("tool.file_system.v1" in RunnerHostSession.CAPABILITIES)
+        assertFalse("tool.shell.v1" in RunnerHostSession.CAPABILITIES); assertFalse("tool.web.v1" in RunnerHostSession.CAPABILITIES)
+    }
     @Test fun `CN and unknown country evidence cannot authorize HTTP or CLI`() {
         val binding = RunnerProtocolTest.binding()
         for (country in listOf("CN", "ZZ", "XX")) {
