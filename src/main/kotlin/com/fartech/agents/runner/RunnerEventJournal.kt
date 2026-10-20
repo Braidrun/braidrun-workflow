@@ -4,22 +4,26 @@ import kotlinx.serialization.json.*
 import java.util.UUID
 
 /** One append boundary for EVERY event producer: reserve -> durable links/event -> FIFO enqueue.
- * Waiters register before append and await ACK after this lock has been released. */
+ * Waiters register before append and await ACK after this lock has been released.
+ * [outboundSlot] waits for room in the outbound queue BEFORE the fence and journal locks are taken, so the
+ * enqueue inside them never blocks and a producer under backpressure holds no lock the IPC reader needs.
+ * ACK bookkeeping is lock-free for the same reason. */
 internal class RunnerEventJournal(
     private val binding: JsonObject, private val secrets: RunnerSecrets,
     private val write: (String, ByteArray) -> Unit, private val enqueue: (JsonObject) -> Unit,
     private val failed: () -> Unit,
-    private val businessFence: RunnerBusinessFence = RunnerBusinessFence()
+    private val businessFence: RunnerBusinessFence = RunnerBusinessFence(),
+    private val outboundSlot: (() -> JsonObject) -> JsonObject = { append -> append() }
 ) {
-    private var sequence = 0L
-    private var ack = 0L
+    @Volatile private var sequence = 0L
+    private val ack = java.util.concurrent.atomic.AtomicLong()
     private var broken = false
     private var sealed = false
     private class PersistenceFailure : RuntimeException()
     fun append(kind: String, payload: JsonObject, frameId: String = UUID.randomUUID().toString(),
                              replyTo: String? = null, beforePersist: (JsonObject) -> Unit = {}): JsonObject = try {
         // Lock order is fence -> journal. Closure cannot split an admitted reserve/persist/enqueue.
-        businessFence.admit {
+        outboundSlot { businessFence.admit {
             synchronized(this) {
                 if (broken || sealed) throw RunnerAuthorityLost()
                 require(kind != "approval") { "Approvals use the dedicated request channel" }
@@ -46,7 +50,7 @@ internal class RunnerEventJournal(
                 }
                 frame
             }
-        }
+        } }
     } catch (_: PersistenceFailure) {
         // Invalidation/stop callbacks may acquire host locks: never invoke them inside admission/journal.
         failed(); throw RunnerAuthorityLost()
@@ -56,12 +60,13 @@ internal class RunnerEventJournal(
         if (broken) throw RunnerAuthorityLost() // an actual failed append needs reconciliation, never a complete terminal sequence
         return sequence
     }
-    @Synchronized fun acknowledge(payload: JsonObject) {
+    /** Called on the IPC reader thread: never waits for an append in progress. */
+    fun acknowledge(payload: JsonObject) {
         val value = payload.long("ackSeq"); require(value <= sequence) { "ACK exceeds emitted sequence" }
-        if (value > ack) ack = value
+        ack.accumulateAndGet(value, ::maxOf)
     }
-    @Synchronized fun acknowledged() = ack
-    @Synchronized fun lastSequence() = sequence
+    fun acknowledged() = ack.get()
+    fun lastSequence() = sequence
     companion object {
         /** The durable copy of an event's original frame; the IPC proves acknowledged replays against it. */
         fun eventPath(sequence: Long) = ".runner-state/events/$sequence.json"

@@ -274,7 +274,8 @@ class RunnerWorkflowHost(
             if (frame.obj("payload").string("type") == "artifact") gate.check()
             ipc.sendFrame(frame); Unit
         },
-        failed = { gate.invalidate("RUNNER_EVENT_JOURNAL_FAILED") }, businessFence = businessFence)
+        failed = { gate.invalidate("RUNNER_EVENT_JOURNAL_FAILED") }, businessFence = businessFence,
+        outboundSlot = { append -> ipc.withOutboundSlot(append) })
     // The journal's own durable copy proves an acknowledged event, so S's ACK releases its retained slot.
     init { ipc.retainEventsDurably { seq -> store.readPrivate(RunnerEventJournal.eventPath(seq)) } }
     override val codeEnvironment: Map<String, String> = mapOf(
