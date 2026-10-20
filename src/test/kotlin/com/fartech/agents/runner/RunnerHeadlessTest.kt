@@ -31,6 +31,84 @@ class RunnerHeadlessTest {
     @Test fun `an environment refresh that arrives before ready and start does not stop the engine`(@TempDir directory: Path) = runFixture(directory, false, earlyEnvironment = "newer")
     @Test fun `an early environment refresh for another attempt still stops the engine before any business frame`(@TempDir directory: Path) = runFixture(directory, false, earlyEnvironment = "foreign")
 
+    /**
+     * Three concurrent code steps each hold a supervisor-registered launch when S cancels. The stop must reach every
+     * branch (each reports step_cancelled), no later step may launch, and the result stays CANCELLED with the
+     * unconfirmed receipt S completes from its own registrations: E never starts an unregistered process.
+     */
+    @Test fun `a cancel reaches every concurrent branch holding a registered launch`(@TempDir directory: Path) {
+        fun branch(name: String) = "  - step: $name\n    code:\n      language: bash\n      timeout: 60\n      script: 'sleep 30'\n"
+        val source = "name: concurrent-stop\nagents: {}\nconcurrency:\n  enabled: true\n  max_concurrency: 3\nworkflow:\n" +
+            branch("left") + branch("middle") + branch("right") +
+            "  - step: never\n    depends_on: [left, middle, right]\n    code:\n      language: bash\n      script: 'true'\n"
+        Files.writeString(directory.resolve("root.yaml"), source)
+        val hash = sha256(source.toByteArray()); val binding = JsonObject(RunnerProtocolTest.binding() + ("definitionHash" to JsonPrimitive(hash)))
+        val bindingPath = directory.resolve("binding.json"); Files.writeString(bindingPath, binding.toString())
+        val manifest = buildJsonObject {
+            put("rootWorkflowId", "root")
+            put("files", buildJsonArray { add(buildJsonObject { put("path", "root.yaml"); put("size", source.toByteArray().size); put("sha256", hash); put("role", "definition") }) })
+            put("definitions", buildJsonArray { add(buildJsonObject { put("workflowId", "root"); put("path", "root.yaml"); put("definitionHash", hash) }) })
+        }
+        val bundle = JsonObject(manifest + ("bundleHash" to JsonPrimitive(sha256(canonical(manifest).toByteArray()))))
+        val classpath = requireNotNull(System.getProperty("runner.test.runtimeClasspath"))
+        val process = ProcessBuilder(Path.of(System.getProperty("java.home"), "bin", "java").toString(), "-cp", classpath, "com.fartech.agents.runner.RunnerHostMainKt", "--binding", bindingPath.toString())
+            .directory(directory.toFile()).redirectError(directory.resolve("stderr.log").toFile()).start()
+        val tools = mutableListOf<Process>()
+        val scheduler = java.util.concurrent.Executors.newSingleThreadScheduledExecutor()
+        val killer = scheduler.schedule({ process.destroyForcibly() }, 30, TimeUnit.SECONDS)
+        try {
+            val reader = process.inputStream.bufferedReader(); val writer = process.outputStream.bufferedWriter()
+            fun send(type: String, payload: JsonObject, reply: String? = null) {
+                writer.write(RunnerProtocolTest.frame(binding, type, payload, reply).toString()); writer.newLine(); writer.flush()
+            }
+            assertEquals("ready", RunnerProtocol().parse(reader.readLine()).string("type"), Files.readString(directory.resolve("stderr.log")))
+            val now = Instant.now(); val base = RunnerProtocolTest.environment(binding, now)
+            val environment = JsonObject(base + mapOf("environmentCheckId" to JsonPrimitive("start-check"),
+                "egress" to JsonArray(base.array("egress") + JsonObject(base.array("egress")[0].jsonObject + ("pathId" to JsonPrimitive("subprocess"))))))
+            val authorization = runnerJson.parseToJsonElement(RunnerProtocolTest.resource("fixtures/valid/claim.json")).jsonObject.obj("authorization")
+            send("start", buildJsonObject { put("bundle", bundle); put("executionDirectory", directory.toString()); put("environment", environment)
+                put("authorization", authorization); put("lease", RunnerProtocolTest.lease(now)); put("inputs", JsonObject(emptyMap())) })
+            val registered = linkedMapOf<String, String>() // registration -> step
+            val starts = mutableMapOf<String, String>() // executionId/step from code_step_started, in launch order
+            val cancelledSteps = mutableSetOf<String>(); var cancelSent = false; var result: JsonObject? = null
+            val pendingStarts = ArrayDeque<String>()
+            while (true) {
+                val line = reader.readLine() ?: break
+                val frame = RunnerProtocol().parse(line); val payload = frame.obj("payload")
+                when (frame.string("type")) {
+                    "processLaunch" -> {
+                        assertFalse(cancelSent, "No branch may launch after the stop")
+                        val tool = ProcessBuilder("/bin/sleep", "30").start(); tools += tool
+                        val registration = "registration-${registered.size + 1}"
+                        registered[registration] = pendingStarts.removeFirstOrNull() ?: "?"
+                        send("processStarted", buildJsonObject { put("requestId", payload.string("requestId")); put("registrationId", registration)
+                            put("pid", tool.pid()); put("processGroupId", tool.pid()); put("startIdentity", tool.info().startInstant().get().toString()) }, frame.string("frameId"))
+                        if (registered.size == 3) {
+                            cancelSent = true
+                            send("cancel", buildJsonObject { put("commandId", "stop-fixture"); put("reason", "owner stop") })
+                        }
+                    }
+                    "event" -> {
+                        val body = payload.obj("payload")
+                        if ((body["event"] as? JsonObject)?.get("type")?.jsonPrimitive?.content == "code_step_started") pendingStarts.addLast(body.string("stepName"))
+                        if (body["kind"]?.jsonPrimitive?.content == "step_cancelled") cancelledSteps += body.string("stepName")
+                        send("ack", buildJsonObject { put("ackSeq", payload.long("eventSeq")); put("revision", 1); put("serverTime", Instant.now().toString()) })
+                    }
+                    "checkpoint" -> Unit
+                    "result" -> { result = payload; break }
+                    else -> fail("Unexpected host frame: ${frame.string("type")}")
+                }
+            }
+            assertNotNull(result, Files.readString(directory.resolve("stderr.log")))
+            assertEquals(setOf("left", "middle", "right"), registered.values.toSet(), "all three branches ran at once, each under its own registration")
+            assertEquals(setOf("left", "middle", "right"), cancelledSteps, "the stop reached every running branch")
+            assertEquals("CANCELLED", result.string("status")); assertEquals("CANCELLED", result.string("terminationReason"))
+            val receipt = result.obj("stopReceipt")
+            assertEquals(JsonPrimitive(false), receipt["confirmed"], "S confirms the stop from its own registrations")
+            assertTrue(process.waitFor(10, TimeUnit.SECONDS)); assertEquals(1, process.exitValue())
+        } finally { killer.cancel(true); scheduler.shutdownNow(); process.destroyForcibly(); tools.forEach { it.destroyForcibly() } }
+    }
+
     private fun runFixture(directory: Path, callbackEnabled: Boolean, childScope: Boolean = false, echoSecret: Boolean = callbackEnabled, perCall: Boolean = false, codeTimeout: Int = 30, rejectStart: Boolean = false, missingSupplement: Boolean = false, earlyLeaseId: String? = null, earlyEnvironment: String? = null) {
         val callbackEcho = if (echoSecret) "printf \"%s\\n\" \"${'$'}WF_API_TOKEN\"; printf \"%s\\n\" \"${'$'}WF_API_TOKEN\" >&2; " else ""
         val absence = if (perCall) "test -z \"${'$'}{WF_API_TOKEN+x}\"; test -z \"${'$'}{WF_VAR_WF_API_TOKEN+x}\"; " else ""

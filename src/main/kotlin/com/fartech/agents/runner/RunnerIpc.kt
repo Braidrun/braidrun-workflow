@@ -8,7 +8,6 @@ import java.io.OutputStream
 import java.nio.ByteBuffer
 import java.nio.charset.CodingErrorAction
 import java.util.UUID
-import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
@@ -34,7 +33,15 @@ class RunnerIpc(
     private var terminalResult: Pair<String, String>? = null
     private data class Pending(val type: String, val correlation: String?, val response: CompletableDeferred<JsonObject>)
     private val pending = ConcurrentHashMap<String, Pending>()
-    private val outbound = ArrayBlockingQueue<ByteArray>(128)
+    /**
+     * Bounded by [slots], not by the queue: a sender waits for a slot (up to [OUTBOUND_WAIT_MS]) BEFORE it takes the
+     * fence or retained-evidence locks, so the enqueue under them never blocks and the reader thread (ACKs, lease
+     * renewals, cancellation) never waits behind a producer's backpressure. The writer frees a slot per dequeued frame.
+     */
+    private val outbound = java.util.concurrent.LinkedBlockingQueue<ByteArray>()
+    private val slots = java.util.concurrent.Semaphore(OUTBOUND_CAPACITY, true)
+    /** A slot this thread reserved through [withOutboundSlot] for the next [sendFrame]. */
+    private val reservedSlot = ThreadLocal<Boolean>()
     private val closed = AtomicBoolean()
     @Volatile private var artifactCollectionEnabled = false
     fun enableArtifactCollection() { require(RunnerCollectionProtocol.available()); artifactCollectionEnabled = true }
@@ -73,17 +80,36 @@ class RunnerIpc(
         }
         return sendFrame(frame)
     }
+    private fun acquireSlot() {
+        if (closed.get()) throw RunnerProtocolException()
+        val acquired = try { slots.tryAcquire(OUTBOUND_WAIT_MS, TimeUnit.MILLISECONDS) } catch (_: InterruptedException) { Thread.currentThread().interrupt(); false }
+        if (!acquired) { fail(); throw RunnerProtocolException() }
+        if (closed.get()) { slots.release(); throw RunnerProtocolException() }
+    }
+    /** Waits for outbound room outside any caller lock; the first [sendFrame] inside [action] uses it without waiting. */
+    fun <T> withOutboundSlot(action: () -> T): T {
+        if (reservedSlot.get() == true || closed.get()) return action() // a closed IPC refuses through the fence as before
+        acquireSlot(); reservedSlot.set(true)
+        try { return action() } finally {
+            if (reservedSlot.get() == true) { reservedSlot.remove(); slots.release() }
+        }
+    }
     fun sendFrame(frame: JsonObject): String {
         if (closed.get() || frame.obj("binding") != binding) throw RunnerProtocolException()
         validateFrame(frame, true)
         val bytes = (canonical(frame) + "\n").toByteArray(Charsets.UTF_8)
         val type = frame.string("type"); val id = frame.string("frameId"); val digest = sha256(bytes)
+        if (bytes.size > MAX_FRAME_BYTES) { fail(); throw RunnerProtocolException() }
+        if (reservedSlot.get() == true) reservedSlot.remove() else acquireSlot()
+        var queued = false
         fun enqueue() {
-            if (bytes.size > MAX_FRAME_BYTES || !outbound.offer(bytes, 1, TimeUnit.SECONDS)) {
-                fail(); throw RunnerProtocolException()
-            }
+            if (closed.get()) throw RunnerProtocolException()
+            outbound.add(bytes); queued = true
             sent.incrementAndGet()
         }
+        try { return sendOwned(frame, type, id, digest, ::enqueue) } finally { if (!queued) slots.release() }
+    }
+    private fun sendOwned(frame: JsonObject, type: String, id: String, digest: String, enqueue: () -> Unit): String {
         if (businessFence.isClosed()) {
             synchronized(retainedOutbound) {
                 if (type !in TERMINAL_CONTROL_TYPES && !(type in RETAINED_EVIDENCE_TYPES && retainedOutbound[id] == digest) && !isReclaimedOriginal(frame, type, id)) throw RunnerAuthorityLost()
@@ -236,6 +262,7 @@ class RunnerIpc(
         try {
             while (!closed.get()) {
                 val bytes = outbound.poll(100, TimeUnit.MILLISECONDS) ?: continue
+                slots.release()
                 output.write(bytes); output.flush(); written.incrementAndGet()
             }
         } catch (_: Exception) { fail() }
@@ -243,6 +270,7 @@ class RunnerIpc(
     private fun fail() {
         if (closed.compareAndSet(false, true)) {
             businessFence.close()
+            slots.release(OUTBOUND_CAPACITY) // wake waiting senders; they observe the closure and refuse
             pending.values.forEach { it.response.completeExceptionally(RunnerProtocolException()) }; pending.clear()
             onFailure()
         }
@@ -265,6 +293,9 @@ class RunnerIpc(
         }
         private val RETAINED_EVIDENCE_TYPES = setOf("event", "checkpoint", "artifactCollectComplete", "artifactSetCollectComplete")
         const val MAX_FRAME_BYTES = 1024 * 1024
+        const val OUTBOUND_CAPACITY = 128
+        /** A burst waits for S to read; only a reader stalled this long closes authority. */
+        const val OUTBOUND_WAIT_MS = 30_000L
         const val MAX_INBOUND_IDENTITIES = 65536
         /** No unbounded BufferedReader.readLine; EOF without newline is a protocol failure. */
         fun readLine(input: InputStream): ByteArray? {

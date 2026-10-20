@@ -71,6 +71,12 @@ interface WorkflowHost {
     fun monitor(update: WorkflowMonitorUpdate)
     /** Persist a consistent savepoint. Called outside running steps; not an arbitrary replay permit. */
     suspend fun checkpoint(checkpoint: WorkflowHostCheckpoint)
+    /**
+     * Persist the savepoint [build] captures. A host with its own event order runs [build] inside it, so the captured
+     * state and the announced event position belong together; savepoints are announced in capture order. A null
+     * build (the run stopped being quiescent) persists nothing.
+     */
+    suspend fun checkpointOf(build: () -> WorkflowHostCheckpoint?) { build()?.let { checkpoint(it) } }
 }
 
 data class WorkflowHostBinding(

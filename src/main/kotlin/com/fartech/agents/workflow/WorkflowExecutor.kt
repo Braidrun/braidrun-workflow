@@ -979,6 +979,8 @@ class WorkflowExecutor(
     }
 
     private val activeApprovals = ConcurrentHashMap<String, PendingApproval>()
+    /** Launched/waiting steps of each concurrent workflow body this executor is running, by execution id. */
+    private val concurrentRuns = ConcurrentHashMap<String, ConcurrentQuiescence>()
     private val notifierScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     /**
@@ -1495,12 +1497,12 @@ class WorkflowExecutor(
 
             pendingSteps.remove(nextStep.step)
             val shouldStop = executeStepWithErrorHandling(nextStep, workflow, context, continueOnError, executionId)
-            host?.checkpoint(hostSavepoint(workflow, context, safe = parentHostScope == null && context.parentExecutionId == null))
+            host?.checkpointOf { hostSavepoint(workflow, context, safe = parentHostScope == null && context.parentExecutionId == null) }
             if (shouldStop) {
                 return
             }
         }
-        host?.checkpoint(hostSavepoint(workflow, context, safe = parentHostScope == null && context.parentExecutionId == null))
+        host?.checkpointOf { hostSavepoint(workflow, context, safe = parentHostScope == null && context.parentExecutionId == null) }
     }
 
     private suspend fun executeWorkflowConcurrently(
@@ -1515,6 +1517,14 @@ class WorkflowExecutor(
         val maxConcurrency = workflow.concurrency.maxConcurrency.takeIf { it > 0 }
         val completionChannel = Channel<ConcurrentStepCompletion>(Channel.UNLIMITED)
         val runningSteps = linkedMapOf<String, Job>()
+        val quiescence = ConcurrentQuiescence()
+        concurrentRuns[executionId] = quiescence
+        val resumable = parentHostScope == null && context.parentExecutionId == null
+
+        /** Like the sequential runner's savepoint after each step, but only while no launched step is mid-flight. */
+        suspend fun checkpointIfQuiescent() {
+            host?.checkpointOf { quiescence.ifQuiescent { pending -> hostSavepoint(workflow, context, safe = resumable).copy(pendingApprovals = pending) } }
+        }
 
         logger.info {
             val maxConc = maxConcurrency?.toString() ?: "unlimited"
@@ -1542,6 +1552,7 @@ class WorkflowExecutor(
             // Each concurrent branch gets its own copy of the sub-workflow call stack
             // so that sibling concurrent steps don't interfere with each other's cycle detection.
             val parentStack = coroutineContext[SubWorkflowStackElement]?.stack?.toMutableList() ?: mutableListOf()
+            quiescence.launched(step.step)
             val job = launch(SubWorkflowStackElement(parentStack.toMutableList())) {
                 try {
                     val shouldStop = executeStepWithErrorHandling(step, workflow, context, continueOnError, executionId)
@@ -1569,6 +1580,7 @@ class WorkflowExecutor(
         suspend fun handleCompletion(): Boolean {
             val completion = completionChannel.receive()
             runningSteps.remove(completion.stepName)
+            quiescence.finished(completion.stepName)
             completion.error?.let { error ->
                 if (runningSteps.isNotEmpty()) {
                     markRunningStepsCancelled("Cancelled because concurrent step '${completion.stepName}' failed")
@@ -1582,6 +1594,7 @@ class WorkflowExecutor(
                 runningSteps.values.joinAll()
                 return true
             }
+            checkpointIfQuiescent()
             return false
         }
 
@@ -1637,7 +1650,9 @@ class WorkflowExecutor(
                     return@coroutineScope
                 }
             }
+            checkpointIfQuiescent()
         } finally {
+            concurrentRuns.remove(executionId, quiescence)
             completionChannel.close()
             markRunningStepsCancelled("Cancelled because concurrent workflow branch is closing")
             runningSteps.values.forEach { job ->
@@ -1912,7 +1927,7 @@ class WorkflowExecutor(
         workflow: WorkflowDefinition,
         context: WorkflowExecutionContext
     ): StepExecutionResult {
-        host?.checkpoint(hostSavepoint(workflow, context, safe = false))
+        host?.checkpointOf { hostSavepoint(workflow, context, safe = false) }
         host?.beforeOperation(hostScope(context, step.step), "step")
         // 如果有 aggregate 配置，先执行聚合
         if (step.aggregate != null) {
@@ -9276,10 +9291,21 @@ class WorkflowExecutor(
             occurrenceId = if (host != null) approvalId.substringAfterLast(':') else null
         )
 
-        host?.checkpoint(hostSavepoint(
-            workflow, context, safe = !workflow.concurrency.enabled && context.parentExecutionId == null &&
-                parentHostScope == null && step.repeatUntil == null && step.iterateOver == null && step.retry == null
-        ).copy(pendingApprovals = listOf(request)))
+        val wholeStepWait = context.parentExecutionId == null && parentHostScope == null &&
+            step.repeatUntil == null && step.iterateOver == null && step.retry == null
+        // In a concurrent body this step counts as waiting (it changes nothing until it leaves the wait), so a
+        // savepoint taken while every launched step waits is consistent and carries all their pending approvals.
+        val concurrentWait = concurrentRuns[context.executionId]?.takeIf { host != null && wholeStepWait && it.waiting(step.step, request) }
+        var waitOpen = concurrentWait != null
+        fun leaveWait() { if (waitOpen) { waitOpen = false; concurrentWait?.resumed(step.step) } }
+        try {
+            if (concurrentWait != null) host?.checkpointOf {
+                concurrentWait.ifQuiescent { pending -> hostSavepoint(workflow, context, safe = true).copy(pendingApprovals = pending) }
+                    ?: hostSavepoint(workflow, context, safe = false).copy(pendingApprovals = listOf(request))
+            } else host?.checkpointOf {
+                hostSavepoint(workflow, context, safe = !workflow.concurrency.enabled && wholeStepWait).copy(pendingApprovals = listOf(request))
+            }
+        } catch (failure: Throwable) { leaveWait(); throw failure }
         val pendingApproval = PendingApproval(request)
         activeApprovals[approvalId] = pendingApproval
 
@@ -9287,9 +9313,11 @@ class WorkflowExecutor(
         try {
             val approvalDeadline = Math.addExact(request.requestedAt, Math.multiplyExact(approvalConfig.timeout, 1000L))
             val remainingApproval = (approvalDeadline - System.currentTimeMillis()).coerceAtLeast(0L)
-            val decision = withTimeoutOrNull(remainingApproval.milliseconds) {
-                approvalHandler?.requestApproval(request) ?: pendingApproval.decision.await()
-            } ?: throw WorkflowExecutionException(
+            val decision = try {
+                withTimeoutOrNull(remainingApproval.milliseconds) {
+                    approvalHandler?.requestApproval(request) ?: pendingApproval.decision.await()
+                }
+            } finally { leaveWait() } ?: throw WorkflowExecutionException(
                 "Manual approval timed out for step '${step.step}' after ${approvalConfig.timeout}s"
             )
 
@@ -9323,6 +9351,7 @@ class WorkflowExecutor(
             // 审批可能发生在 sub-workflow 里:当前 executionId 是派生的子 id,而
             // deadline 挂在祖先上,所以把已知的整条链(自身/父/根)都记上,否则
             // 父 workflow 的 timeout.total 会被人工审批的等待时间误耗尽。
+            leaveWait()
             val waited = (System.currentTimeMillis() - approvalStart).coerceAtLeast(0L)
             setOfNotNull(context.executionId, context.parentExecutionId, context.rootExecutionId)
                 .forEach { id -> executionDeadlines[id]?.approvalWaitMs?.addAndGet(waited) }
