@@ -90,10 +90,13 @@ class NativeSubprocessExecutor : SubprocessExecutor {
             // Cap each stream at SubprocessExecutor.MAX_STREAM_BYTES so a runaway
             // child can't OOM the JVM by spamming output; appends a marker on
             // truncation so callers can distinguish from legitimate empty output.
-            val stdoutFuture = CompletableFuture.supplyAsync {
+            // Each on its own daemon thread, never the JVM common pool (CompletableFuture.supplyAsync): on a
+            // 4-core host its 3 workers can all be blocked elsewhere, the reads never start, and the 5 s get()
+            // below fails an already finished command as "Error executing command: null" (2026-10-22).
+            val stdoutFuture = readOnOwnThread("native-exec-stdout") {
                 readBoundedStream(proc.inputStream, request.stdoutLineCallback)
             }
-            val stderrFuture = CompletableFuture.supplyAsync {
+            val stderrFuture = readOnOwnThread("native-exec-stderr") {
                 readBoundedStream(proc.errorStream)
             }
 
@@ -188,6 +191,14 @@ class NativeSubprocessExecutor : SubprocessExecutor {
      * pipe buffer (which would deadlock waitFor); any bytes past the cap
      * are discarded.
      */
+    private fun <T> readOnOwnThread(name: String, read: () -> T): CompletableFuture<T> {
+        val result = CompletableFuture<T>()
+        Thread({
+            try { result.complete(read()) } catch (t: Throwable) { result.completeExceptionally(t) }
+        }, name).apply { isDaemon = true; start() }
+        return result
+    }
+
     private fun readBoundedStream(
         input: java.io.InputStream,
         lineCallback: ((String) -> Unit)? = null
