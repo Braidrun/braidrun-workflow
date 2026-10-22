@@ -99,15 +99,7 @@ class RunnerLoopTest {
         assertTrue(refused(loopStep(extra = "    manual_approval:\n      enabled: true")).contains("approval"))
         assertTrue(refused(loopStep(extra = "    retry:\n      max_attempts: 2")).contains("retry"))
         assertTrue(refused(loopStep(extra = "    publish_outputs:\n      - name: reviews\n        source: x")).contains("outputs"))
-        val repeat = """
-            |  - step: refine
-            |    idempotent: true
-            |    agent: reviewer
-            |    input: refine
-            |    repeat_until:
-            |      condition: "done == true"
-            |      max_iterations: 2""".trimMargin()
-        assertTrue(refused(repeat).contains("repeat_until"))
+        // repeat_until has its own capability now (see the repeat_until tests below); it is not an iterate_over shape.
         val cli = """
             |  reviewer:
             |    type: codex_agent
@@ -115,6 +107,55 @@ class RunnerLoopTest {
             |      external_agent_codex_auth_mode: subscription
             |      external_agent_codex_auth_json: credential:account@3""".trimMargin()
         assertTrue(refused(loopStep(), agents = cli).contains("CLI agent"))
+    }
+
+    private fun repeatStep(extra: String = "", iterations: Int = 3, name: String = "refine") = """
+        |  - step: $name
+        |    agent: reviewer
+        |    input: refine
+        |    repeat_until:
+        |      condition: "quality_score >= 3"
+        |      max_iterations: $iterations
+        |      evaluate_agent: reviewer
+        |      extract_pattern: "quality_score=(\\d+)"
+        |      extract_variable: quality_score
+        |$extra""".trimMargin().trimEnd()
+
+    @Test fun `repeat_until is admitted under step repeatUntil v1 without idempotent and refused for oversized, approval, publish and prefix-clashing shapes`() {
+        assertTrue(RunnerLoopPolicy.REPEAT_CAPABILITY in RunnerHostSession.CAPABILITIES)
+        val required = admit(repeatStep())
+        assertTrue(RunnerLoopPolicy.REPEAT_CAPABILITY in required)
+        assertFalse(RunnerLoopPolicy.CAPABILITY in required, "a repeat_until loop does not need the iterate_over capability")
+        assertFalse(RunnerLoopPolicy.REPEAT_CAPABILITY in admit(loopStep()), "an iterate_over loop does not need the repeat_until capability")
+        admit(repeatStep(iterations = RunnerLoopPolicy.MAX_REPEAT_ITERATIONS))
+        // 78 of 82 shipped repeat_until loops sit in concurrent workflows.
+        RunnerAdmission(NullWorkflowResolver, RunnerHostSession.CAPABILITIES).inspect(WorkflowParser.parseYaml(
+            "name: repeat-concurrent\nconcurrency:\n  enabled: true\n  max_concurrency: 4\nagents:\n$MODEL_AGENT\nworkflow:\n${repeatStep()}"))
+        assertTrue(refused(repeatStep(), capabilities = RunnerHostSession.CAPABILITIES - RunnerLoopPolicy.REPEAT_CAPABILITY).contains(RunnerLoopPolicy.REPEAT_CAPABILITY))
+        assertTrue(refused(repeatStep(iterations = RunnerLoopPolicy.MAX_REPEAT_ITERATIONS + 1)).contains("max_iterations"))
+        assertTrue(refused(repeatStep(extra = "    manual_approval:\n      enabled: true")).contains("approval"))
+        assertTrue(refused(repeatStep(extra = "    publish_outputs:\n      - name: out\n        source: x")).contains("outputs"))
+        assertTrue(refused(repeatStep() + "\n  - step: \"refine:evaluate\"\n    code:\n      language: bash\n      script: echo clash").contains("refine:"))
+        admit(repeatStep() + "\n  - step: refine2\n    code:\n      language: bash\n      script: echo sibling")
+    }
+
+    @Test fun `repeat_until with Jev still needs decision jev v1`() {
+        val jev = """
+            |  - step: refine
+            |    agent: reviewer
+            |    input: refine
+            |    repeat_until:
+            |      condition: "quality >= 0.75"
+            |      max_iterations: 3
+            |      jev:
+            |        model: jev-latest
+            |        state: "{{steps.refine.output}}"
+            |        questions:
+            |          - {id: on_brand, type: noul, instructions: "Is the draft plain-language?"}
+            |        composites:
+            |          - {name: quality, weights: {on_brand: 1.0}}""".trimMargin()
+        assertTrue(refused(jev).contains("decision.jev.v1"))
+        assertTrue("decision.jev.v1" in admit(jev, capabilities = RunnerHostSession.CAPABILITIES + "decision.jev.v1"))
     }
 
     @Test fun `artifact collection policies refuse a loop step as a producer`(@TempDir dir: Path) {

@@ -222,15 +222,16 @@ class RunnerAdmission(
             workflow.agents.values.forEach { fileTools = inspectAgent(it) || fileTools }
             workflow.workflow.forEach { step ->
                 if (step.retry != null) require(step.idempotent) { "Runner retry requires an explicitly idempotent step" }
-                if (step.iterateOver != null || step.repeatUntil != null) { requireCapability(RunnerLoopPolicy.CAPABILITY); RunnerLoopPolicy.admit(workflow, step) }
+                if (step.iterateOver != null) { requireCapability(RunnerLoopPolicy.CAPABILITY); RunnerLoopPolicy.admit(workflow, step) }
+                if (step.repeatUntil != null) { requireCapability(RunnerLoopPolicy.REPEAT_CAPABILITY); RunnerLoopPolicy.admitRepeatUntil(workflow, step) }
                 if (step.code != null) requireCapability("step.script.v1")
                 step.parallel?.let { parallel ->
                     requireCapability(CONCURRENT_CAPABILITY)
                     require((parallel.maxParallel ?: parallel.tasks.size) in 1..MAX_CONCURRENCY) { "Runner parallel tasks require max_parallel between 1 and $MAX_CONCURRENCY" }
                 }
                 if (step.classifier?.jev != null || step.repeatUntil?.jev != null) requireCapability("decision.jev.v1")
-                if (step.classifier != null) requireCapability("step.classifier.v1")
-                if (step.groupChat != null) requireCapability("step.groupChat.v1")
+                if (step.classifier != null) { requireCapability("step.classifier.v1"); requireDerivedScopeFree(workflow, step.step, "classifier") }
+                if (step.groupChat != null) { requireCapability("step.groupChat.v1"); requireDerivedScopeFree(workflow, step.step, "group chat") }
                 step.agentBased?.let { requireCapability("step.agentBased.v1"); fileTools = inspectAgent(it.orchestrator) || fileTools }
                 if (step.manualApproval != null) requireCapability("interaction.approval.v1")
                 if (step.publishOutputs.isNotEmpty()) requireCapability("output.publish.v1")
@@ -240,11 +241,13 @@ class RunnerAdmission(
                 step.subWorkflow?.let { child(it, depth) }
                 step.stateMachine?.let { stateMachine ->
                     requireCapability("step.stateMachine.v1")
-                    stateMachine.states.values.forEach { state ->
+                    stateMachine.states.forEach { (stateName, state) ->
                         state.stepConfig?.let { nested ->
                             if (nested.code != null) requireCapability("step.script.v1")
-                            if (nested.classifier != null) requireCapability("step.classifier.v1")
-                            if (nested.groupChat != null) requireCapability("step.groupChat.v1")
+                            // Same Jev rule as a root classifier: a nested one must not pass on step.classifier.v1 alone.
+                            if (nested.classifier?.jev != null) requireCapability("decision.jev.v1")
+                            if (nested.classifier != null) { requireCapability("step.classifier.v1"); requireDerivedScopeFree(workflow, "${step.step}.$stateName", "classifier") }
+                            if (nested.groupChat != null) { requireCapability("step.groupChat.v1"); requireDerivedScopeFree(workflow, "${step.step}.$stateName", "group chat") }
                             nested.agentBased?.let { requireCapability("step.agentBased.v1"); fileTools = inspectAgent(it.orchestrator) || fileTools }
                             nested.subWorkflow?.let { child(it, depth) }
                         }
@@ -258,6 +261,14 @@ class RunnerAdmission(
         return required
     }
     companion object {
+        /**
+         * A classifier or group chat runs its agent calls, and the host leases and releases their credentials, under
+         * derived names `<step>:...`; a real step under that prefix would share their scope. Same guard as loops
+         * (RunnerLoopPolicy). [name] is the running name: the root step, or `<outer>.<state>` inside a state machine.
+         */
+        internal fun requireDerivedScopeFree(workflow: WorkflowDefinition, name: String, kind: String) {
+            require(workflow.workflow.none { it.step.startsWith("$name:") }) { "Runner $kind step '$name': another step name starts with '$name:'" }
+        }
         const val CONCURRENT_CAPABILITY = "workflow.concurrent.v1"
         /** Upper bound for workflow max_concurrency and step-level max_parallel on a Runner. */
         const val MAX_CONCURRENCY = 8

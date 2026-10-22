@@ -835,6 +835,15 @@ class WorkflowExecutor(
         context.executionId, context.parentExecutionId, step, context.hostOccurrence
     )
 
+    /** Tells the host that the derived agent call [derivedName] (`<step>:...`) of a classifier or group chat ended.
+     * Wraps the call's whole try/catch, so a release problem can never turn into a fabricated classification or
+     * chat turn, and never replaces a failure already propagating. */
+    private inline fun <T> endingDerivedScope(context: WorkflowExecutionContext, derivedName: String, call: () -> T): T =
+        try { call() } finally {
+            host?.let { h -> runCatching { h.derivedScopeEnded(hostScope(context, derivedName)) }
+                .onFailure { logger.warn(it) { "Host could not release derived scope $derivedName" } } }
+        }
+
     private fun hostSavepoint(workflow: WorkflowDefinition, context: WorkflowExecutionContext, safe: Boolean) =
         WorkflowHostCheckpoint(
             hostScope(context), workflow.name,
@@ -2166,6 +2175,10 @@ class WorkflowExecutor(
         } catch (e: Exception) {
             logger.error(e) { "[Workflow:${workflow.name}] Evaluate agent '$evalAgentName' failed for step '${step.step}': ${e.message}" }
             null
+        } finally {
+            // The round's evaluator lease, CLI pool and skill state end with the round (host keys "<step>:evaluate:<n>").
+            host?.let { h -> runCatching { h.occurrenceEnded(hostScope(context, step.step).copy(occurrence = "evaluate:$iteration")) }
+                .onFailure { logger.warn(it) { "Host could not end evaluator round $iteration of ${step.step}" } } }
         }
     }
 
@@ -3787,21 +3800,24 @@ class WorkflowExecutor(
         )
 
         // 创建 agent 并执行
-        val rawResult = try {
-            runStepAgent(
-                agentName = classifierAgent,
-                agentDef = agentDef,
-                context = context,
-                stepName = "${step.step}:classifier",
-                input = classificationPrompt,
-                directoryIsolation = directoryIsolation
-            )
-        } catch (e: CancellationException) {
-            // Never convert a user cancel into a fabricated default-category result.
-            throw e
-        } catch (e: Exception) {
-            logger.error(e) { "[Workflow:${workflow.name}] Classifier step '${step.step}' failed" }
-            null
+        val classifierScope = "${step.step}:classifier"
+        val rawResult = endingDerivedScope(context, classifierScope) {
+            try {
+                runStepAgent(
+                    agentName = classifierAgent,
+                    agentDef = agentDef,
+                    context = context,
+                    stepName = classifierScope,
+                    input = classificationPrompt,
+                    directoryIsolation = directoryIsolation
+                )
+            } catch (e: CancellationException) {
+                // Never convert a user cancel into a fabricated default-category result.
+                throw e
+            } catch (e: Exception) {
+                logger.error(e) { "[Workflow:${workflow.name}] Classifier step '${step.step}' failed" }
+                null
+            }
         }
 
         // 解析分类结果
@@ -4928,22 +4944,25 @@ class WorkflowExecutor(
                     context = context
                 )
 
-                val response = try {
-                    runStepAgent(
-                        agentName = speakerName,
-                        agentDef = agentDef,
-                        context = context,
-                        stepName = "${step.step}:group_chat:round${round}:${speakerName}",
-                        input = prompt,
-                        directoryIsolation = directoryIsolation
-                    )
-                } catch (e: CancellationException) {
-                    // Don't record a fabricated "[Error: ...]" turn and keep looping
-                    // through remaining speakers/rounds on user cancel.
-                    throw e
-                } catch (e: Exception) {
-                    logger.error(e) { "[Workflow:${workflow.name}] Group chat: $speakerName failed in round $round" }
-                    "[Error: ${e.message}]"
+                val turnScope = "${step.step}:group_chat:round${round}:${speakerName}"
+                val response = endingDerivedScope(context, turnScope) {
+                    try {
+                        runStepAgent(
+                            agentName = speakerName,
+                            agentDef = agentDef,
+                            context = context,
+                            stepName = turnScope,
+                            input = prompt,
+                            directoryIsolation = directoryIsolation
+                        )
+                    } catch (e: CancellationException) {
+                        // Don't record a fabricated "[Error: ...]" turn and keep looping
+                        // through remaining speakers/rounds on user cancel.
+                        throw e
+                    } catch (e: Exception) {
+                        logger.error(e) { "[Workflow:${workflow.name}] Group chat: $speakerName failed in round $round" }
+                        "[Error: ${e.message}]"
+                    }
                 }
 
                 // 记录消息
@@ -5160,24 +5179,30 @@ class WorkflowExecutor(
             )
         }
 
-        return try {
-            runStepAgent(
-                agentName = summaryAgentName,
-                agentDef = summaryAgentDef,
-                context = context,
-                stepName = "${step.step}:group_chat:summary",
-                input = summaryPrompt,
-                directoryIsolation = directoryIsolation
-            )
-        } catch (e: Exception) {
-            logger.warn(e) { "[Workflow:${workflow.name}] Failed to generate group chat summary, falling back to raw transcript" }
-            // 回退：直接输出对话记录
-            buildString {
-                appendLine("=== Group Chat Transcript (${chatHistory.size} messages) ===")
-                chatHistory.forEach { msg ->
-                    appendLine("[${msg.speaker}] (Round ${msg.round}):")
-                    appendLine(msg.content)
-                    appendLine()
+        val summaryScope = "${step.step}:group_chat:summary"
+        return endingDerivedScope(context, summaryScope) {
+            try {
+                runStepAgent(
+                    agentName = summaryAgentName,
+                    agentDef = summaryAgentDef,
+                    context = context,
+                    stepName = summaryScope,
+                    input = summaryPrompt,
+                    directoryIsolation = directoryIsolation
+                )
+            } catch (e: CancellationException) {
+                // A user cancel or lost Runner authority must stop the step, never pass off the transcript as its result.
+                throw e
+            } catch (e: Exception) {
+                logger.warn(e) { "[Workflow:${workflow.name}] Failed to generate group chat summary, falling back to raw transcript" }
+                // 回退：直接输出对话记录
+                buildString {
+                    appendLine("=== Group Chat Transcript (${chatHistory.size} messages) ===")
+                    chatHistory.forEach { msg ->
+                        appendLine("[${msg.speaker}] (Round ${msg.round}):")
+                        appendLine(msg.content)
+                        appendLine()
+                    }
                 }
             }
         }

@@ -462,14 +462,26 @@ class RunnerWorkflowHost(
         checkBusinessOpen(); require(scope.rootExecutionId == binding.executionId && scope.stepName == step.step) { "Loop scope mismatch" }
         RunnerLoopPolicy.admitRuntime(step.step, items, concurrency)
     }
-    /** The item's own leases, CLI pools and skill config end with it; the loop step's end (prefix release) stays the fallback. */
+    /** The item's (or evaluator round's) own leases, CLI pools and skill config end with it; the loop step's end
+     * (prefix release) stays the fallback. */
     override fun occurrenceEnded(scope: WorkflowHostScope) {
         require(scope.rootExecutionId == binding.executionId) { "Occurrence escaped root scope" }
-        val item = "${requireNotNull(scope.stepName)}:${requireNotNull(scope.occurrence)}"
-        fun owned(step: String?) = step == item || step?.startsWith("$item:") == true
-        cliPools.keys.removeIf { it.second == scope.executionId && owned(it.third) }
-        nativeSkills.keys.removeIf { it.first == scope.executionId && owned(it.second) }
-        live.release(scope.executionId, item)
+        releaseOwned(scope.executionId, "${requireNotNull(scope.stepName)}:${requireNotNull(scope.occurrence)}")
+    }
+    /** A classifier call or group-chat turn ended: its own lease, CLI pool and skill config end with it, so a long
+     * chat holds one lease at a time instead of one per turn until the step ends. Never throws: a release that
+     * cannot be recorded (journal or business fence closed) invalidates this attempt instead, and the step's end
+     * still releases by prefix. */
+    override fun derivedScopeEnded(scope: WorkflowHostScope) {
+        if (scope.rootExecutionId != binding.executionId) { gate.invalidate("RUNNER_SCOPE_ESCAPED"); return }
+        val name = scope.stepName ?: return
+        runCatching { releaseOwned(scope.executionId, name) }.onFailure { gate.invalidate("RUNNER_RELEASE_FAILED") }
+    }
+    private fun releaseOwned(executionId: String, name: String) {
+        fun owned(step: String?) = step == name || step?.startsWith("$name:") == true
+        cliPools.keys.removeIf { it.second == executionId && owned(it.third) }
+        nativeSkills.keys.removeIf { it.first == executionId && owned(it.second) }
+        live.release(executionId, name)
     }
     @Synchronized override fun monitor(update: WorkflowMonitorUpdate) {
         if (update.type in setOf("step_completed", "step_cancelled")) update.stepName?.let { live.release(update.executionId, it) }
