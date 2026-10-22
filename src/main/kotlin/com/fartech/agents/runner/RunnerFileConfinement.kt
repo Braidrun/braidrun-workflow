@@ -17,6 +17,9 @@ import java.util.concurrent.atomic.AtomicLong
  * `.workflow-runs/<owner>` (the frozen directory isolation). Never reachable: anything else in the
  * execution directory (`.runner-state`, `.runner-private`, bundle definitions, `skills/`, `.runtime/`,
  * inputs), the persistence `.snapshots` directory, the JVM temp directory and the rest of the host.
+ * Exception: the bound input files this run names ([readOnlyInputs], execution-relative, e.g.
+ * `inputs/uploads/<variable>/<name>`) can be read, exactly those files, never written, listed or created
+ * beside; a read checks the frozen size (and the whole-file read the frozen sha256).
  *
  * Code steps run concurrently as the same uid and may plant links, so every operation:
  * - walks each path component below the execution directory with NOFOLLOW_LINKS and refuses any
@@ -37,7 +40,9 @@ class RunnerFileConfinement(
     rootExecutionSegment: String,
     private val guard: () -> Unit = {},
     val readLimitBytes: Int = READ_LIMIT_BYTES,
-    private val writeQuotaBytes: Long = WRITE_QUOTA_BYTES
+    private val writeQuotaBytes: Long = WRITE_QUOTA_BYTES,
+    /** Execution-relative path -> (size, sha256) of the bound inputs agents may read (FrozenWorkflowBundle.boundInputFiles). */
+    private val readOnlyInputs: Map<String, Pair<Long, String>> = emptyMap()
 ) {
     private val executionRoot: Path = executionDirectory.toAbsolutePath().normalize()
     private val realExecutionRoot: Path = executionDirectory.toRealPath()
@@ -52,8 +57,12 @@ class RunnerFileConfinement(
         require(rootSegment.isNotBlank() && '/' !in rootSegment && rootSegment != "." && rootSegment != "..") { "Invalid root execution segment" }
     }
 
-    /** A located path: [path] is under the real execution directory, [relative] is relative to the family base. */
-    class Target internal constructor(val path: Path, val relative: String)
+    /** A located path: [path] is under the real execution directory, [relative] is relative to the family base
+     * (for a bound input: to the execution directory). A [readOnly] target is a bound input of [expected] size/sha. */
+    class Target internal constructor(val path: Path, val relative: String, internal val readOnly: Boolean = false,
+                                      internal val expected: Pair<Long, String>? = null)
+
+    private fun refuseReadOnly(target: Target) { if (target.readOnly) throw SecurityException("Bound input files are read-only") }
 
     fun bytesWritten(): Long = written.get()
 
@@ -67,6 +76,10 @@ class RunnerFileConfinement(
         val requested = Path.of(text)
         if (requested.any { it.toString() == ".." }) throw SecurityException("Parent directory references are not allowed")
         val absolute = rebase(if (requested.isAbsolute) requested.normalize() else rebase(workingDirectory.toAbsolutePath().normalize()).resolve(requested).normalize())
+        if (readOnlyInputs.isNotEmpty() && absolute.startsWith(realExecutionRoot) && absolute != realExecutionRoot) {
+            val executionRelative = realExecutionRoot.relativize(absolute).toString()
+            readOnlyInputs[executionRelative]?.let { return Target(absolute, executionRelative, readOnly = true, expected = it) }
+        }
         if (!absolute.startsWith(realFamilyBase) || absolute == realFamilyBase) throw SecurityException(outside())
         val relative = realFamilyBase.relativize(absolute)
         val first = relative.getName(0).toString()
@@ -131,6 +144,7 @@ class RunnerFileConfinement(
             val after = requireSingleLinkRegular(target.path)
             if (after.fileKey() != before.fileKey()) throw SecurityException("File changed during the operation")
             recheck(target.path.parent, keys)
+            target.expected?.let { if (after.size() != it.first) throw SecurityException("Bound input file changed") }
             body(channel, after)
         }
     }
@@ -138,7 +152,9 @@ class RunnerFileConfinement(
     /** Whole-file read, refused above [readLimitBytes]. */
     fun read(target: Target): ByteArray = openChecked(target) { channel, attributes ->
         if (attributes.size() > readLimitBytes) throw SecurityException("File is ${attributes.size()} bytes; the read limit is $readLimitBytes bytes per call. Use readFileRange for part of it.")
-        readBounded(channel, readLimitBytes) ?: throw SecurityException("File grew past the read limit of $readLimitBytes bytes")
+        val bytes = readBounded(channel, readLimitBytes) ?: throw SecurityException("File grew past the read limit of $readLimitBytes bytes")
+        target.expected?.let { if (sha256(bytes) != it.second) throw SecurityException("Bound input file changed") }
+        bytes
     }
 
     private fun readBounded(channel: SeekableByteChannel, limit: Int): ByteArray? {
@@ -172,6 +188,7 @@ class RunnerFileConfinement(
     /** Writes through an exclusive sibling file renamed over the target. Returns bytes written. */
     fun write(target: Target, data: ByteArray, append: Boolean): Long {
         guard()
+        refuseReadOnly(target)
         val name = target.path.fileName.toString()
         if (name.startsWith(".") || BLOCKED_WRITE_NAMES.any { it.matches(name.lowercase(java.util.Locale.ROOT)) }) {
             throw SecurityException("Writing '$name' is not allowed: hidden and key or certificate file names are reserved")
@@ -212,6 +229,7 @@ class RunnerFileConfinement(
 
     fun createDirectory(target: Target) {
         guard()
+        refuseReadOnly(target)
         if (target.path.fileName.toString().startsWith(".")) throw SecurityException("Hidden directory names are reserved")
         walk(target.path, create = true)
     }
@@ -220,6 +238,7 @@ class RunnerFileConfinement(
 
     fun list(target: Target, limit: Int = 1000): Pair<List<Entry>, Boolean> {
         guard()
+        if (target.readOnly) throw SecurityException("A bound input is a file, not a directory")
         val keys = walk(target.path, create = false)
         val entries = ArrayList<Entry>(); var more = false
         Files.newDirectoryStream(target.path).use { stream ->
@@ -243,6 +262,8 @@ class RunnerFileConfinement(
     }
 
     companion object {
+        /** The file tools can read this run's bound attachments and saved documents (read-only, exact files). */
+        const val INPUTS_CAPABILITY = "tool.file_system.inputs.v1"
         const val READ_LIMIT_BYTES: Int = 2 * 1024 * 1024
         const val WRITE_QUOTA_BYTES: Long = 256L * 1024 * 1024
         private val BLOCKED_WRITE_NAMES = listOf(Regex("""^id_[a-z0-9_]+$"""), Regex(""".*\.(?:pem|key|p12|pfx|jks|keystore)$"""),

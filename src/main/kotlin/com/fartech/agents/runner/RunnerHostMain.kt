@@ -223,7 +223,7 @@ class RunnerHostSession(
             }
             // gateSets requires the real guarded P/S provider; source.attestation awaits approval/terminal lifecycle.
             // Confined to this run's directories (RunnerFileConfinement); needs POSIX link counts.
-            if (RunnerFileConfinement.available()) add("tool.file_system.v1")
+            if (RunnerFileConfinement.available()) { add("tool.file_system.v1"); add(RunnerFileConfinement.INPUTS_CAPABILITY) }
         }
     }
 }

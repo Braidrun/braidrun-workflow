@@ -13,6 +13,11 @@ class FrozenWorkflowBundle(private val root: Path, val manifest: JsonObject, pri
     private val assetHashes = linkedMapOf<String, Pair<Long, String>>()
     private val skillHashes = java.util.concurrent.ConcurrentHashMap<String, String>()
     private val frozenFiles = java.util.concurrent.ConcurrentHashMap<String, ByteArray>()
+    private val boundInputs = linkedMapOf<String, Pair<Long, String>>()
+    /** The launch attachments and saved documents this run binds (role `input` under `inputs/uploads/` or
+     * `inputs/documents/`), execution-relative path -> (size, sha256). Agents' file tools may read exactly these,
+     * read-only; other `inputs/` files (App Factory's licensed assets) stay out of reach. */
+    val boundInputFiles: Map<String, Pair<Long, String>> get() = boundInputs
     val executionDirectory: Path get() = root
     val taskBinding: JsonObject get() = binding
     val rootWorkflowId: String = manifest.string("rootWorkflowId")
@@ -40,6 +45,7 @@ class FrozenWorkflowBundle(private val root: Path, val manifest: JsonObject, pri
             Files.newInputStream(path).use { stream -> val buffer = ByteArray(8192); while (true) { val n = stream.read(buffer); if (n < 0) break; digest.update(buffer, 0, n) } }
             require(digest.digest().joinToString("") { "%02x".format(it) } == file.string("sha256")) { "Bundle file hash mismatch" }
             assetHashes[relative] = file.long("size") to file.string("sha256")
+            if (file.string("role") == "input" && BOUND_INPUT_ROOTS.any { relative.startsWith(it) }) boundInputs[relative] = file.long("size") to file.string("sha256")
             if (file.string("role") == "skill") {
                 require(relative.startsWith("skills/")) { "Skill asset is not under the scoped skill root" }
                 skillHashes[relative] = file.string("sha256")
@@ -189,6 +195,8 @@ class FrozenWorkflowBundle(private val root: Path, val manifest: JsonObject, pri
     companion object {
         /** Largest frozen workflow definition (2.5 MiB); matches the platform planner's definition limit. */
         const val MAX_DEFINITION_BYTES: Int = 2_621_440
+        /** Where the platform places a generic workflow's bound attachments and saved documents. */
+        val BOUND_INPUT_ROOTS = listOf("inputs/uploads/", "inputs/documents/")
     }
 }
 

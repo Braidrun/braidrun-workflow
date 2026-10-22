@@ -204,7 +204,10 @@ class RunnerWorkflowHost(
         else RunnerFileConfinement(bundle.executionDirectory,
             Path.of(isolation.resolvePattern("{base_dir}/{user_id}", binding.executionId, userId = binding.ownerId)),
             isolation.resolvePattern("{execution_id}", binding.executionId),
-            guard = { checkBusinessOpen(); gate.check() })
+            guard = { checkBusinessOpen(); gate.check() },
+            // Bound attachments / saved documents are readable only when the platform admitted the plan against
+            // tool.file_system.inputs.v1; an older runtime never sees this capability and reads nothing under inputs/.
+            readOnlyInputs = if (RunnerFileConfinement.INPUTS_CAPABILITY in capabilities) bundle.boundInputFiles else emptyMap())
     }
     private fun stepWorkingDirectory(scope: WorkflowHostScope): String =
         java.io.File(isolation.getWorkingDir(scope.executionId, scope.stepName ?: "default", userId = binding.ownerId)).absolutePath
