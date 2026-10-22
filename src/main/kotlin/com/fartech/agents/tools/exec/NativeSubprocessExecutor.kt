@@ -184,13 +184,7 @@ class NativeSubprocessExecutor : SubprocessExecutor {
         requestEnv.forEach { (k, v) -> env[k] = v }
     }
 
-    /**
-     * Read a process stream into a [String], capping at
-     * [SubprocessExecutor.MAX_STREAM_BYTES]. Drains the rest of the stream
-     * after the cap is hit so the child process is not blocked on a full
-     * pipe buffer (which would deadlock waitFor); any bytes past the cap
-     * are discarded.
-     */
+    /** Runs [read] on its own daemon thread, never the JVM common pool; the future completes with its result. */
     private fun <T> readOnOwnThread(name: String, read: () -> T): CompletableFuture<T> {
         val result = CompletableFuture<T>()
         Thread({
@@ -199,6 +193,13 @@ class NativeSubprocessExecutor : SubprocessExecutor {
         return result
     }
 
+    /**
+     * Read a process stream into a [String], capping at
+     * [SubprocessExecutor.MAX_STREAM_BYTES]. Drains the rest of the stream
+     * after the cap is hit so the child process is not blocked on a full
+     * pipe buffer (which would deadlock waitFor); any bytes past the cap
+     * are discarded.
+     */
     private fun readBoundedStream(
         input: java.io.InputStream,
         lineCallback: ((String) -> Unit)? = null
