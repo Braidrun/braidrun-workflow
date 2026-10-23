@@ -711,7 +711,14 @@
             "output.publish",
             "interaction.request",
             "filegate.close",
-            "report.publish"
+            "report.publish",
+            "listing.read",
+            "listing.publish",
+            "listing.claim",
+            "listing.failed",
+            "listing.delivery",
+            "directory.publish",
+            "slack.deliver"
           ]
         },
         "stepName": {
@@ -955,6 +962,191 @@
       },
       "required": [
         "readRefId"
+      ],
+      "additionalProperties": false
+    },
+    "listing_read_arguments": {
+      "type": "object",
+      "properties": {
+        "offset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 20000000
+        },
+        "revision": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "knownRevision": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        }
+      },
+      "required": [
+        "offset",
+        "revision",
+        "knownRevision"
+      ],
+      "additionalProperties": false
+    },
+    "listing_publish_arguments": {
+      "type": "object",
+      "properties": {
+        "parent": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "manifestJson": {
+          "type": "string",
+          "maxLength": 300000
+        },
+        "pageUrl": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "reviewSha256": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "feedbackId": {
+          "type": "string",
+          "maxLength": 128
+        }
+      },
+      "required": [
+        "parent",
+        "manifestJson",
+        "pageUrl",
+        "reviewSha256",
+        "feedbackId"
+      ],
+      "additionalProperties": false
+    },
+    "listing_claim_arguments": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    },
+    "listing_failed_arguments": {
+      "type": "object",
+      "properties": {
+        "feedbackId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "message": {
+          "type": "string",
+          "maxLength": 2000
+        }
+      },
+      "required": [
+        "feedbackId",
+        "message"
+      ],
+      "additionalProperties": false
+    },
+    "listing_delivery_arguments": {
+      "type": "object",
+      "properties": {
+        "manifest": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "pageUrl": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "archiveSha256": {
+          "type": "string",
+          "maxLength": 64
+        }
+      },
+      "required": [
+        "manifest",
+        "pageUrl",
+        "archiveSha256"
+      ],
+      "additionalProperties": false
+    },
+    "directory_publish_arguments": {
+      "type": "object",
+      "properties": {
+        "fromStep": {
+          "enum": [
+            "prepare-listing-web",
+            "listing-owner-review.web",
+            "listing-owner-review.acceptance"
+          ]
+        },
+        "ttlMinutes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10080
+        },
+        "displayName": {
+          "type": "string",
+          "maxLength": 256
+        },
+        "note": {
+          "type": "string",
+          "maxLength": 512
+        }
+      },
+      "required": [
+        "fromStep",
+        "ttlMinutes",
+        "displayName",
+        "note"
+      ],
+      "additionalProperties": false
+    },
+    "slack_deliver_arguments": {
+      "type": "object",
+      "properties": {
+        "payload": {
+          "type": "object",
+          "properties": {
+            "text": {
+              "type": "string",
+              "maxLength": 40000
+            },
+            "blocks": {
+              "type": "array",
+              "maxItems": 50,
+              "items": {
+                "type": "object"
+              }
+            },
+            "attachments": {
+              "type": "array",
+              "maxItems": 100,
+              "items": {
+                "type": "object"
+              }
+            },
+            "thread_ts": {
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          "required": [],
+          "additionalProperties": false
+        },
+        "dedupeKey": {
+          "type": "string",
+          "maxLength": 128
+        }
+      },
+      "required": [
+        "payload",
+        "dedupeKey"
       ],
       "additionalProperties": false
     }
