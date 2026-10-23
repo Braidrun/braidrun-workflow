@@ -5,6 +5,29 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.6-rc.20261023.1] - 2026-10-23
+
+### Added
+
+- **Runners run classifier, group chat and repeat_until steps.** `RunnerHostSession.CAPABILITIES` declares
+  `step.classifier.v1`, `step.groupChat.v1` and the new `step.repeatUntil.v1` (`iterate_over` keeps
+  `step.loop.v1`). Each classifier call, group-chat turn and summary releases its own model lease when it ends
+  (`WorkflowHost.derivedScopeEnded`), and each repeat_until evaluator round ends as host occurrence
+  `evaluate:<n>`, so a long chat or loop holds one lease at a time. repeat_until on a Runner: at most 50 rounds,
+  no approval, published/read outputs or sub_workflow/state machine/agent_based/code body, no `<step>:` clash;
+  it is one atomic step (a resume reruns it from round 1) and needs no `idempotent` mark.
+- **Agents can read a run's bound attachments and saved documents, read-only.** `FrozenWorkflowBundle.boundInputFiles`
+  (role `input` under `inputs/uploads/` and `inputs/documents/`) is readable through the confined file tools when
+  the plan was admitted with the new `tool.file_system.inputs.v1`; size and sha256 are re-checked on read.
+- **Late-control schema with brokered connector purposes** (`gmail.read`, `gmail.send`, `outlook-mail.read`,
+  `outlook-mail.send`, `google-marketing.read`, `google-marketing.mutate`), sha256 `5221f6f4…f5b2`.
+
+### Fixed
+
+- A Jev classifier inside a state machine now needs `decision.jev.v1` like a root one.
+- Classifier and group-chat steps refuse a real step living under their derived `<step>:` prefix.
+- A cancelled or authority-lost group-chat summary fails the step instead of returning the transcript as its result.
+
 ## [1.4.6-rc.20261016.1] - 2026-10-16
 
 ### Fixed
