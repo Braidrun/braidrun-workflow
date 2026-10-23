@@ -1,0 +1,27 @@
+{
+  "protocolVersion": 1,
+  "frameId": "output-frame",
+  "type": "processOutput",
+  "binding": {
+    "protocolVersion": 1,
+    "ownerId": "workflow-owner",
+    "actorUserId": "team-member",
+    "executionId": "execution-fixture",
+    "runnerId": "runner-fixture",
+    "runnerInstanceId": "instance-fixture",
+    "resumeEpoch": 0,
+    "attemptId": "attempt-fixture",
+    "definitionHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "runtimeHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "payload": {
+    "requestId": "interactive-1",
+    "registrationId": "registered-1",
+    "outputSeq": 1,
+    "channel": "stdout",
+    "encoding": "base64",
+    "dataBase64": "aGVsbG8=",
+    "decodedBytes": 5,
+    "dataHash": "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+  }
+}

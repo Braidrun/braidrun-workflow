@@ -1,0 +1,376 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:braidrun:artifact-collection:v1",
+  "$defs": {
+    "binding": {
+      "type": "object",
+      "properties": {
+        "protocolVersion": {
+          "const": 1
+        },
+        "ownerId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "actorUserId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "executionId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "runnerId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "runnerInstanceId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "resumeEpoch": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "attemptId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "definitionHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "runtimeHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "ownerId",
+        "actorUserId",
+        "executionId",
+        "runnerId",
+        "runnerInstanceId",
+        "resumeEpoch",
+        "attemptId",
+        "definitionHash",
+        "runtimeHash"
+      ],
+      "additionalProperties": false
+    },
+    "policy": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "rootWorkflowId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "declarations": {
+          "type": "array",
+          "maxItems": 1024,
+          "items": {
+            "type": "object",
+            "properties": {
+              "declarationId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "producerWorkflowId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "producerStep": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "childSteps": {
+                "type": "array",
+                "maxItems": 32,
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256
+                }
+              },
+              "logicalPath": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1024,
+                "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.?(?:/|$))(?!.*[\\\\\\u0000]).+$"
+              },
+              "kind": {
+                "enum": [
+                  "MATERIAL",
+                  "SNAPSHOT",
+                  "SOURCE_ARCHIVE",
+                  "ACCEPTANCE"
+                ]
+              },
+              "maximumBytes": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 268435456
+              },
+              "sourcePolicy": {
+                "enum": [
+                  "UNAVAILABLE",
+                  "VERIFIED_CURRENT"
+                ]
+              },
+              "codeSourceSha256": {
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "declarationId",
+              "producerWorkflowId",
+              "producerStep",
+              "childSteps",
+              "logicalPath",
+              "kind",
+              "maximumBytes",
+              "sourcePolicy",
+              "codeSourceSha256"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "rootWorkflowId",
+        "declarations"
+      ],
+      "additionalProperties": false
+    },
+    "collectionRequest": {
+      "type": "object",
+      "properties": {
+        "protocolVersion": {
+          "const": 1
+        },
+        "frameId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "type": {
+          "const": "artifactCollectRequest"
+        },
+        "binding": {
+          "$ref": "#/$defs/binding"
+        },
+        "payload": {
+          "type": "object",
+          "properties": {
+            "requestId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "policySha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "declarationId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "publicationId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "artifactId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "logicalPath": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1024,
+              "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.?(?:/|$))(?!.*[\\\\\\u0000]).+$"
+            },
+            "size": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 268435456
+            },
+            "sha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "childExecutionPath": {
+              "type": "array",
+              "maxItems": 64,
+              "items": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_.-]{1,256}$"
+              }
+            },
+            "producerWorkflowId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "producerStep": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "producerStartEventId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "codeSourceSha256": {
+              "oneOf": [
+                {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "requestId",
+            "policySha256",
+            "declarationId",
+            "publicationId",
+            "artifactId",
+            "logicalPath",
+            "size",
+            "sha256",
+            "childExecutionPath",
+            "producerWorkflowId",
+            "producerStep",
+            "producerStartEventId",
+            "codeSourceSha256"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "frameId",
+        "type",
+        "binding",
+        "payload"
+      ],
+      "additionalProperties": false
+    },
+    "collectionComplete": {
+      "type": "object",
+      "properties": {
+        "protocolVersion": {
+          "const": 1
+        },
+        "frameId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "type": {
+          "const": "artifactCollectComplete"
+        },
+        "binding": {
+          "$ref": "#/$defs/binding"
+        },
+        "payload": {
+          "type": "object",
+          "properties": {
+            "requestId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "publicationId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "artifactId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "eventId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "eventSeq": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "sha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "size": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 268435456
+            }
+          },
+          "required": [
+            "requestId",
+            "publicationId",
+            "artifactId",
+            "eventId",
+            "eventSeq",
+            "sha256",
+            "size"
+          ],
+          "additionalProperties": false
+        },
+        "replyTo": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "frameId",
+        "type",
+        "binding",
+        "payload",
+        "replyTo"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/policy"
+    },
+    {
+      "$ref": "#/$defs/collectionRequest"
+    },
+    {
+      "$ref": "#/$defs/collectionComplete"
+    }
+  ]
+}

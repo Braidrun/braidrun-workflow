@@ -1,0 +1,58 @@
+{
+  "binding": {
+    "protocolVersion": 1,
+    "ownerId": "workflow-owner",
+    "actorUserId": "team-member",
+    "executionId": "execution-fixture",
+    "runnerId": "runner-fixture",
+    "runnerInstanceId": "instance-fixture",
+    "resumeEpoch": 0,
+    "attemptId": "attempt-fixture",
+    "definitionHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "runtimeHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "authorization": {
+    "billingOwnerId": "billing-team",
+    "hostScope": "TEAM",
+    "hostScopeId": "team-fixture",
+    "runnerEnrollmentOwnerId": "enroller",
+    "profileId": "profile-fixture",
+    "profileRevision": 1,
+    "revision": 1,
+    "requiredCapabilities": [
+      "workflow.full.v1",
+      "step.script.v1"
+    ]
+  },
+  "lease": {
+    "leaseId": "lease-fixture",
+    "leaseExpiresAt": "2026-10-08T01:01:00Z",
+    "serverTime": "2026-10-08T01:00:00Z",
+    "renewAfterSeconds": 15,
+    "leaseDurationSeconds": 60
+  },
+  "bundle": {
+    "bundleHash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "files": [
+      {
+        "path": "definitions/root.yaml",
+        "size": 12,
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "role": "definition"
+      }
+    ],
+    "definitions": [
+      {
+        "workflowId": "root",
+        "definitionHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "path": "definitions/root.yaml"
+      }
+    ],
+    "rootWorkflowId": "root"
+  },
+  "phase": "PREFLIGHT",
+  "inputs": {
+    "fixture": "no-account"
+  },
+  "claimAuthority": "PREFLIGHT"
+}

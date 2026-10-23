@@ -1,0 +1,20 @@
+{
+  "reportAuthorizationId": "report-fixture",
+  "binding": {
+    "protocolVersion": 1,
+    "ownerId": "workflow-owner",
+    "actorUserId": "team-member",
+    "executionId": "execution-fixture",
+    "runnerId": "runner-fixture",
+    "runnerInstanceId": "instance-fixture",
+    "resumeEpoch": 0,
+    "attemptId": "attempt-fixture",
+    "definitionHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "runtimeHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "reportId": "report-1",
+  "kind": "renew",
+  "recordedAt": "2026-10-08T01:02:00Z",
+  "contentHash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+  "payload": {}
+}

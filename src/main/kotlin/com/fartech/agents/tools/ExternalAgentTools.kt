@@ -14,10 +14,12 @@ import com.fartech.ftapp2.commonsKt.ConfigurationParameter
 import com.fartech.ftapp2.commonsKt.parameter
 import com.fartech.ftapp2.commonsKt.printlnColor
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.Transient
 import kotlinx.serialization.encodeToString
@@ -349,22 +351,62 @@ class ExternalAgentTools(
     ): ExternalAgentRunDetailedResult =
         runExternalDetailed(engine, ctx, onTextDelta)
 
+    /** One credential attempt's result: done, or fail over to another credential of the same pool. */
+    private sealed interface ExternalAttemptOutcome {
+        class Completed(val result: ExternalAgentRunDetailedResult) : ExternalAttemptOutcome
+        class Failover(val ctx: ExternalAgentContext, val attemptedCredentialIds: Set<String>) : ExternalAttemptOutcome
+    }
+
+    /**
+     * Failover runs only after the abandoned attempt has fully finished: its sub-agent usage
+     * is reported, its rotated auth.json is published under the credential that produced it,
+     * and its credential hold is released. A replacement attempt therefore never runs nested
+     * inside the abandoned one, and the replacement's result can never be overwritten by the
+     * abandoned attempt's cleanup.
+     */
     private suspend fun runExternalDetailed(
         engine: Engine,
         ctx: ExternalAgentContext,
-        onTextDelta: ((String) -> Unit)? = null,
+        onTextDelta: ((String) -> Unit)? = null
+    ): ExternalAgentRunDetailedResult {
+        var attemptContext = ctx
+        var attemptedCredentialIds = emptySet<String>()
+        while (true) {
+            when (val outcome = runExternalAttempt(engine, attemptContext, onTextDelta, attemptedCredentialIds)) {
+                is ExternalAttemptOutcome.Completed -> return outcome.result
+                is ExternalAttemptOutcome.Failover -> {
+                    // Each failover adds the abandoned credential, and every pool rejects an
+                    // already-attempted id, so the attempt bounds below always terminate.
+                    check(outcome.attemptedCredentialIds.size > attemptedCredentialIds.size) {
+                        "Subscription failover did not exclude the abandoned credential"
+                    }
+                    attemptContext = outcome.ctx
+                    attemptedCredentialIds = outcome.attemptedCredentialIds
+                }
+            }
+        }
+    }
+
+    private suspend fun runExternalAttempt(
+        engine: Engine,
+        ctx: ExternalAgentContext,
+        onTextDelta: ((String) -> Unit)?,
         /**
          * Credentials this invocation already burned through, within one
          * engine's pool. Failover walks a single vendor's candidates; the set is
          * never carried across engines because a run only ever uses one.
          */
-        attemptedCredentialIds: Set<String> = emptySet()
-    ): ExternalAgentRunDetailedResult {
+        attemptedCredentialIds: Set<String>
+    ): ExternalAttemptOutcome {
         val resolvedName = ctx.name.takeIf { it.isNotBlank() } ?: UUID.randomUUID().toString()
         val invocationUuid = UUID.randomUUID().toString()
         val invocationId = invocationUuid.take(8)
         val invocationLabel = invocationLabel(resolvedName, invocationId)
         val workDir = resolveWorkingDir(ctx.workingDir)
+        com.fartech.agents.workflow.WorkflowHostContext.current?.privateDirectory?.let {
+            require(ctx.mcpServers.isEmpty()) { "Runner CLI MCP requires a supervised adapter" }
+            require(ctx.resumeSessionId.isBlank()) { "Runner CLI session resume needs a bound restore adapter" }
+        }
         val tempFiles = mutableListOf<File>()
 
         // Resolve authentication BEFORE building any subprocess so misconfiguration fails
@@ -380,6 +422,9 @@ class ExternalAgentTools(
             throw e
         }
 
+        // Assigned inside the try below: a refused observation must still delete the
+        // materialised auth.json and release this attempt's credential hold.
+        var credentialFileObservation: AutoCloseable? = null
         // Codex usage recovery: always observe the stream (even with no emitter) so a
         // killed run still knows its thread id and whether usage was already reported.
         val codexObserver = if (engine == Engine.CODEX) CodexRunObserver() else null
@@ -393,6 +438,13 @@ class ExternalAgentTools(
         // materialise on the host) is always removed once the subprocess finishes —
         // on success, failure, or timeout. Avoids leaving customer tokens on disk.
         try {
+        credentialFileObservation = auth.codexHomeHostDir?.let { directory ->
+            com.fartech.agents.workflow.WorkflowHostContext.current?.let { host ->
+                val scope = com.fartech.agents.workflow.WorkflowHostContext.scope
+                    ?: com.fartech.agents.workflow.WorkflowHostScope(host.binding.executionId, context.executionId ?: host.binding.executionId, stepName = context.stepName)
+                host.observeCredentialFile(scope, File(directory, "auth.json").toPath())
+            }
+        }
 
         // Build the command. Operators can override the binary name (e.g. "npx -y @anthropic-ai/claude-code")
         // by setting external_agent_<engine>_command / _extra_args parameters; default is "claude" / "codex"
@@ -474,11 +526,19 @@ class ExternalAgentTools(
             // DockerSubprocessExecutor uses StdinOnce and closes the attach after
             // writing, so the child reliably receives EOF without putting the
             // payload in execve argv.
-            stdin = ctx.prompt,
+            stdin = com.fartech.agents.workflow.WorkflowHostContext.current?.let { host ->
+                val scope = com.fartech.agents.workflow.WorkflowHostContext.scope
+                    ?: com.fartech.agents.workflow.WorkflowHostScope(host.binding.executionId, context.executionId ?: host.binding.executionId, stepName = context.stepName)
+                host.nativeAgentPrompt(scope, ctx.prompt)
+            } ?: ctx.prompt,
             timeoutSeconds = timeoutSeconds.toLong(),
             env = buildEnvironment(engine, auth, ctx),
             mounts = buildMounts(auth),
             imageHint = "node",
+            // Opt into the host's agent working-set estimate, independently of the
+            // default 512 MiB container hard limit. Old hosts conservatively keep
+            // reserving the hard limit for this otherwise ordinary subprocess.
+            admissionKind = "AGENT_SUBPROCESS",
             userId = userId,
             stdoutLineCallback = if (streamEmitter == null && codexObserver == null) {
                 null
@@ -590,7 +650,7 @@ class ExternalAgentTools(
                         "Claude subscription failover exhausted $MAX_SUBSCRIPTION_CREDENTIAL_ATTEMPTS credential attempts"
                     )
                 }
-                return runExternalDetailed(engine, ctx, onTextDelta, attempted)
+                return ExternalAttemptOutcome.Failover(ctx, attempted)
             }
             val claudeRateLimit = if (
                 engine == Engine.CLAUDE &&
@@ -640,7 +700,7 @@ class ExternalAgentTools(
                     } else {
                         ctx.withClaudePartialRateLimitReplayInstruction()
                     }
-                    return runExternalDetailed(engine, replayContext, onTextDelta, attempted)
+                    return ExternalAttemptOutcome.Failover(replayContext, attempted)
                 }
             }
             // ChatGPT subscription quota. Checked before the auth branch: a 429
@@ -688,7 +748,7 @@ class ExternalAgentTools(
                     // Only ever another codex_subscription credential — the pool
                     // is this engine's own, so a spent ChatGPT quota can never
                     // land the run on a Claude subscription.
-                    return runExternalDetailed(engine, ctx, onTextDelta, attempted)
+                    return ExternalAttemptOutcome.Failover(ctx, attempted)
                 }
                 throw ExternalAgentExecutionException(
                     "Codex sub-agent '$resolvedName' stopped on a ChatGPT subscription usage limit " +
@@ -730,7 +790,7 @@ class ExternalAgentTools(
                         "stderr_tail=$tail"
                 )
                 if (shouldReplay) {
-                    return runExternalDetailed(engine, ctx, onTextDelta, attempted)
+                    return ExternalAttemptOutcome.Failover(ctx, attempted)
                 }
                 throw ExternalAgentExecutionException(
                     "Codex sub-agent '$resolvedName' failed authentication — the ChatGPT subscription " +
@@ -802,13 +862,13 @@ class ExternalAgentTools(
         codexRunCompleted = true
         // Main thread only: sub-agent threads are metered through their own
         // usage events (see [reportCodexSubAgentUsage]).
-        return ExternalAgentRunDetailedResult(
+        return ExternalAttemptOutcome.Completed(ExternalAgentRunDetailedResult(
             text = parsed.text,
             sessionId = parsed.sessionId,
             inputTokens = parsed.usage?.inputTokens ?: recoveredUsage?.inputTokens,
             outputTokens = parsed.usage?.outputTokens ?: recoveredUsage?.outputTokens,
             costUsd = parsed.costUsd
-        )
+        ))
         } finally {
             // Every exit path, before the per-run home and its rollouts are deleted.
             reportCodexSubAgentUsage(
@@ -819,12 +879,28 @@ class ExternalAgentTools(
                 resolvedName = resolvedName,
                 invocationId = invocationId
             )
-            maybePublishRotatedCodexAuthJson(auth)
-            tempFiles.forEach { file -> runCatching { file.delete() } }
-            auth.codexHomeHostDir
-                ?.takeIf { auth.deleteCodexHomeOnExit }
-                ?.let { dir -> runCatching { dir.deleteRecursively() } }
+            // Publish this attempt's rotation while its own credential hold is still live, then
+            // release exactly that hold. Both happen before any failover attempt starts.
+            try { maybePublishRotatedCodexAuthJson(engine, auth) } finally {
+                try { releaseSubscriptionCredential(engine, auth.subscriptionCredential) } finally {
+                    credentialFileObservation?.close()
+                    tempFiles.forEach { file -> runCatching { file.delete() } }
+                    auth.codexHomeHostDir
+                        ?.takeIf { auth.deleteCodexHomeOnExit }
+                        ?.let { dir -> runCatching { dir.deleteRecursively() } }
+                }
+            }
         }
+    }
+
+    /** Ends an invocation-held credential even while the caller is being cancelled. */
+    private suspend fun releaseSubscriptionCredential(
+        engine: Engine,
+        credential: ClaudeCredentialProvider.Credential?
+    ) {
+        val provider = subscriptionCredentialProvider(engine) as? InvocationCredentialProvider ?: return
+        if (credential == null) return
+        withContext(NonCancellable) { provider.release(credential) }
     }
 
     /**
@@ -978,9 +1054,14 @@ class ExternalAgentTools(
         }
     }
 
-    private fun maybePublishRotatedCodexAuthJson(auth: ResolvedExternalAuth) {
+    private fun maybePublishRotatedCodexAuthJson(engine: Engine, auth: ResolvedExternalAuth) {
         val callback = onCodexAuthJsonRotated
-        if (callback == null && auth.codexAuthFileSource == null) return
+        // An invocation-held credential is rotated through its own hold, never by id: a
+        // concurrent invocation on the same account holds a different instance.
+        val holder = (subscriptionCredentialProvider(engine) as? InvocationCredentialProvider)
+            ?.takeIf { engine == Engine.CODEX }
+            ?.let { provider -> auth.subscriptionCredential?.let { credential -> provider to credential } }
+        if (callback == null && holder == null && auth.codexAuthFileSource == null) return
         if (auth.mode != ExternalAuthMode.SUBSCRIPTION) return
         val dir = auth.codexHomeHostDir ?: return
         val original = auth.originalCodexAuthJson?.trim() ?: return
@@ -1002,8 +1083,15 @@ class ExternalAgentTools(
                 // Pass the credential this run actually used: with a pool the
                 // rotated auth.json belongs to whichever candidate failover
                 // landed on, not to the first one the caller resolved.
-                runCatching { callback?.invoke(auth.subscriptionCredentialId, normalized) }
-                    .onFailure { e -> logger.warn(e) { "[ExternalAgent] Failed to publish rotated Codex auth.json" } }
+                if (holder != null) {
+                    // Runner leases: a failed publication must fail this attempt, never be logged away.
+                    holder.first.rotated(holder.second, normalized)
+                } else if (com.fartech.agents.workflow.WorkflowHostContext.current != null) {
+                    callback?.invoke(auth.subscriptionCredentialId, normalized)
+                } else {
+                    runCatching { callback?.invoke(auth.subscriptionCredentialId, normalized) }
+                        .onFailure { e -> logger.warn(e) { "[ExternalAgent] Failed to publish rotated Codex auth.json" } }
+                }
             }
             .onFailure { e -> logger.warn(e) { "[ExternalAgent] Ignoring invalid rotated Codex auth.json" } }
     }
@@ -1894,6 +1982,17 @@ class ExternalAgentTools(
     private fun buildEnvironment(engine: Engine, auth: ResolvedExternalAuth, ctx: ExternalAgentContext): Map<String, String> = buildMap {
         putAll(auth.env)
         putAll(ctx.extraEnv)
+        com.fartech.agents.workflow.WorkflowHostContext.current?.privateDirectory?.let { privateRoot ->
+            val reserved = setOf("HOME", "CODEX_HOME", "CLAUDE_CONFIG_DIR", "CLAUDE_CODE_OAUTH_TOKEN", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY")
+            require(ctx.extraEnv.keys.none { it.uppercase() in reserved }) { "External Agent environment cannot override host account/network scope" }
+            val home = File(privateRoot, "home/${safePathSegment(context.executionId ?: "root")}/${safePathSegment(context.stepName ?: "agent")}")
+            createDirectories(home, "Runner scoped HOME")
+            java.nio.file.Files.setPosixFilePermissions(home.toPath(), java.nio.file.attribute.PosixFilePermissions.fromString("rwx------"))
+            put("HOME", home.absolutePath)
+            putAll(requireNotNull(com.fartech.agents.workflow.WorkflowHostContext.current).codeEnvironment)
+            context.executionId?.let { put("WF_EXECUTION_ID", it) }
+            context.stepName?.let { put("WF_STEP_NAME", it) }
+        }
         // Codex writes session / cache / state into CODEX_HOME (default ~/.codex) and
         // touches HOME on startup. In the read-only-rootfs container both default to
         // the non-writable /home/runner, so codex aborts with "Permission denied
@@ -2165,6 +2264,25 @@ class ExternalAgentTools(
         attemptedCredentialIds: Set<String>
     ): ResolvedExternalAuth {
         val candidate = claudeCredentialProvider?.acquire(attemptedCredentialIds)
+        return releasingOnFailure(Engine.CLAUDE, candidate) { claudeSubscriptionAuth(candidate, attemptedCredentialIds) }
+    }
+
+    /** An attempt that cannot even start still ends the credential hold it acquired. */
+    private suspend fun releasingOnFailure(
+        engine: Engine,
+        candidate: ClaudeCredentialProvider.Credential?,
+        resolve: suspend () -> ResolvedExternalAuth
+    ): ResolvedExternalAuth = try {
+        resolve()
+    } catch (failure: Throwable) {
+        releaseSubscriptionCredential(engine, candidate)
+        throw failure
+    }
+
+    private fun claudeSubscriptionAuth(
+        candidate: ClaudeCredentialProvider.Credential?,
+        attemptedCredentialIds: Set<String>
+    ): ResolvedExternalAuth {
         if (claudeCredentialProvider != null && candidate == null) {
             throw ExternalAgentExecutionException("All accessible Claude subscription credentials are unavailable")
         }
@@ -2210,6 +2328,18 @@ class ExternalAgentTools(
     ): ResolvedExternalAuth {
         val authFile = loadCodexAuthFile()
         val candidate = if (authFile == null) codexCredentialProvider?.acquire(attemptedCredentialIds) else null
+        return releasingOnFailure(Engine.CODEX, candidate) {
+            codexSubscriptionAuth(ctx, invocationId, attemptedCredentialIds, authFile, candidate)
+        }
+    }
+
+    private fun codexSubscriptionAuth(
+        ctx: ExternalAgentContext,
+        invocationId: String,
+        attemptedCredentialIds: Set<String>,
+        authFile: Pair<CodexAuthFileSource, String>?,
+        candidate: ClaudeCredentialProvider.Credential?
+    ): ResolvedExternalAuth {
         if (authFile == null && codexCredentialProvider != null && candidate == null) {
             throw ExternalAgentExecutionException("All accessible Codex subscription credentials are unavailable")
         }
@@ -2406,7 +2536,7 @@ class ExternalAgentTools(
     private fun defaultCodexHomeDir(invocationId: String, ephemeral: Boolean): File {
         val runId = context.executionId ?: context.sessionId ?: UUID.randomUUID().toString()
         val userDir = File(
-            File(System.getProperty("java.io.tmpdir"), "braidrun-codex"),
+            File(com.fartech.agents.workflow.WorkflowHostContext.current?.privateDirectory ?: File(System.getProperty("java.io.tmpdir")), "braidrun-codex"),
             safePathSegment(userId)
         )
         val invocationBase = File(
@@ -2501,7 +2631,7 @@ class ExternalAgentTools(
             )
         }
 
-        val hostBase = File(System.getProperty("java.io.tmpdir"), "braidrun-claude")
+        val hostBase = File(com.fartech.agents.workflow.WorkflowHostContext.current?.privateDirectory ?: File(System.getProperty("java.io.tmpdir")), "braidrun-claude")
         val containerBase = if (isDocker) "/tmp/braidrun-claude" else hostBase.absolutePath
         val runId = context.executionId ?: context.sessionId ?: UUID.randomUUID().toString()
         val relative = File(safePathSegment(userId), safePathSegment(runId)).path

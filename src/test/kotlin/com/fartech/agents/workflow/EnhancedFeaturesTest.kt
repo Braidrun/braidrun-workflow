@@ -265,6 +265,17 @@ class EnhancedFeaturesTest {
     }
 
     @Test
+    fun `loop occurrence survives context snapshots and step copies`() {
+        val context = WorkflowExecutionContext("wf", "exec")
+        assertNull(context.hostOccurrence); assertNull(WorkflowHostScope("root", "exec").occurrence)
+        val item = context.snapshot(mapOf("item" to "a"), hostOccurrence = "iterate:2")
+        assertEquals("iterate:2", item.hostOccurrence)
+        assertEquals("iterate:2", item.snapshot().hostOccurrence, "nested snapshots inside an item keep its occurrence")
+        assertEquals("iterate:2", item.copy(variables = java.util.concurrent.ConcurrentHashMap()).hostOccurrence)
+        assertNull(context.snapshot().hostOccurrence)
+    }
+
+    @Test
     fun `IterateOverConfig rejects blank source`() {
         assertThrows<IllegalArgumentException> {
             IterateOverConfig(source = "")

@@ -1,0 +1,5 @@
+decision-environment-commit=39a264aacca2f46ff8fb3e53232b2e76eee627ac
+frozen-child-scope-commit=316ca337d550d7bb6e0300452392bb14f7205951
+source=braidrun-web/docs/contracts/runner-workflow-v1/README.md
+schema-source-commit=81d611a65b7c93e3341c69db51c7736a1c411175
+schema-sha256=09a3c3f6d6bd430a126303f25ad9795c5818d72eec62bc2896cfe84af40a504a

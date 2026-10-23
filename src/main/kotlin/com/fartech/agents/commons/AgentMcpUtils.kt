@@ -353,7 +353,13 @@ suspend fun registerMcpTools(
         // exit holding its pipes.
         var spawnedProcess: Process? = null
         try {
-            val transport = if (mcpServer.url.isNullOrBlank()) {
+            val host = com.fartech.agents.workflow.WorkflowHostContext.current
+            val transport = if (host != null) {
+                val scope = com.fartech.agents.workflow.WorkflowHostContext.scope
+                    ?: com.fartech.agents.workflow.WorkflowHostScope(host.binding.executionId, host.binding.executionId)
+                host.beforeOperation(scope, "mcp_connect")
+                host.mcpTransport(scope, serverName, mcpServer.copy(cwd = mcpServer.cwd ?: parameters.parameter("working_dir", ".")))
+            } else if (mcpServer.url.isNullOrBlank()) {
                 val launch = resolveMcpLaunch(serverName, mcpServer, agentEnv)
 
                 val process = ProcessBuilder().apply {
@@ -399,6 +405,7 @@ suspend fun registerMcpTools(
             mcpRegistries.add(registry.withMcpToolResultMedia(mediaPolicy))
 
         } catch (e: Exception) {
+            if (com.fartech.agents.workflow.WorkflowHostContext.current != null) throw e
             // 记录错误但不中断整个注册过程;先把已启动的 stdio 子进程杀掉,避免泄漏。
             spawnedProcess?.let { proc ->
                 runCatching { proc.destroyForcibly() }
