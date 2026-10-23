@@ -5,6 +5,20 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.6-rc.20261023.2] - 2026-10-23
+
+### Added
+
+- **Runners run agent_based steps.** `RunnerHostSession.CAPABILITIES` declares `step.agentBased.v1`. Each orchestrator
+  delegation releases its own lease when it ends; the orchestrator runs under the step's host scope; a cancel or lost
+  Runner authority is rethrown instead of becoming a step failure. Admission: `max_steps` 1..50, no real step under the
+  `<step>:` prefix.
+
+### Fixed
+
+- agent_based orchestrators' skills are scoped to the bundle like workflow agents' (no standard-path scan, no hook
+  scripts), at the root and inside state machines.
+
 ## [1.4.6-rc.20261023.1] - 2026-10-23
 
 ### Added
