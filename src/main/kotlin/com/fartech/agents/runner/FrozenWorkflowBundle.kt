@@ -72,7 +72,10 @@ class FrozenWorkflowBundle(private val root: Path, val manifest: JsonObject, pri
             val bytes = Files.readAllBytes(confinedPath(root, path))
             require(bytes.size <= MAX_DEFINITION_BYTES && sha256(bytes) == def.string("definitionHash")) { "Definition changed during verification" }
             Entry(id, path, def.string("definitionHash"), WorkflowParser.parseYaml(bytes.toString(Charsets.UTF_8)).let { definition ->
-                definition.copy(agents = definition.agents.mapValues { RunnerSkillsPolicy.normalize(it.value, root) }, directoryIsolation = DirectoryIsolationConfig(
+                definition.copy(agents = definition.agents.mapValues { RunnerSkillsPolicy.normalize(it.value, root) },
+                    // An agent_based orchestrator is an agent too: its skills are scoped to the bundle like the workflow's.
+                    workflow = definition.workflow.map { step -> scopeOrchestratorSkills(step, root) },
+                    directoryIsolation = DirectoryIsolationConfig(
                     baseDir = root.resolve(".workflow-runs").toString(), sharedSkillsDir = root.resolve("skills").toString(),
                     sharedCacheDir = root.resolve(".prompt-cache").toString(), sharedHistoryDir = root.resolve(".agent-history").toString()
                 ))
@@ -195,6 +198,16 @@ class FrozenWorkflowBundle(private val root: Path, val manifest: JsonObject, pri
     companion object {
         /** Largest frozen workflow definition (2.5 MiB); matches the platform planner's definition limit. */
         const val MAX_DEFINITION_BYTES: Int = 2_621_440
+        /** [step] with its agent_based orchestrators (root and state-machine states) skill-scoped by RunnerSkillsPolicy. */
+        internal fun scopeOrchestratorSkills(step: WorkflowStep, root: Path): WorkflowStep {
+            val rootScoped = step.agentBased?.let { step.copy(agentBased = it.copy(orchestrator = RunnerSkillsPolicy.normalize(it.orchestrator, root))) } ?: step
+            val machine = rootScoped.stateMachine ?: return rootScoped
+            if (machine.states.values.none { it.stepConfig?.agentBased != null }) return rootScoped
+            return rootScoped.copy(stateMachine = machine.copy(states = machine.states.mapValues { (_, state) ->
+                val nested = state.stepConfig?.agentBased ?: return@mapValues state
+                state.copy(stepConfig = state.stepConfig.copy(agentBased = nested.copy(orchestrator = RunnerSkillsPolicy.normalize(nested.orchestrator, root))))
+            }))
+        }
         /** Where the platform places a generic workflow's bound attachments and saved documents. */
         val BOUND_INPUT_ROOTS = listOf("inputs/uploads/", "inputs/documents/")
     }
