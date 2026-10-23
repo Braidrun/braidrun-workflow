@@ -212,7 +212,8 @@ class RunnerHostSession(
             // names, each call's lease released when it ends (WorkflowHost.derivedScopeEnded); the agent_based
             // orchestrator runs under the step's host scope. A Jev decision still needs decision.jev.v1, which this host
             // does not offer.
-            "step.classifier.v1", "step.groupChat.v1", "step.agentBased.v1", RunnerLoopPolicy.REPEAT_CAPABILITY).apply {
+            "step.classifier.v1", "step.groupChat.v1", "step.agentBased.v1", RunnerLoopPolicy.REPEAT_CAPABILITY,
+            RunnerLoopPolicy.RERUN_CAPABILITY).apply {
             if (RunnerCodeControlNegotiation.supplementAvailable()) {
                 add(RunnerCodeControlNegotiation.PER_CALL)
                 add(RunnerCodeControlNegotiation.SOURCE_READ_POLICY) // P/S separately verify the frozen historical-source carrier.

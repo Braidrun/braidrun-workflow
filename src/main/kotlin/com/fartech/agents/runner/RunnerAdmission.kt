@@ -222,7 +222,11 @@ class RunnerAdmission(
             workflow.agents.values.forEach { fileTools = inspectAgent(it) || fileTools }
             workflow.workflow.forEach { step ->
                 if (step.retry != null) require(step.idempotent) { "Runner retry requires an explicitly idempotent step" }
-                if (step.iterateOver != null) { requireCapability(RunnerLoopPolicy.CAPABILITY); RunnerLoopPolicy.admit(workflow, step) }
+                if (step.iterateOver != null) {
+                    requireCapability(RunnerLoopPolicy.CAPABILITY)
+                    if (!step.idempotent) requireCapability(RunnerLoopPolicy.RERUN_CAPABILITY)
+                    RunnerLoopPolicy.admit(workflow, step)
+                }
                 if (step.repeatUntil != null) { requireCapability(RunnerLoopPolicy.REPEAT_CAPABILITY); RunnerLoopPolicy.admitRepeatUntil(workflow, step) }
                 if (step.code != null) requireCapability("step.script.v1")
                 step.parallel?.let { parallel ->
