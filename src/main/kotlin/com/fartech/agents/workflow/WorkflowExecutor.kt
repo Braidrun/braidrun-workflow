@@ -5283,14 +5283,18 @@ class WorkflowExecutor(
                     context = context,
                     label = "$agentName:$stepLabel"
                 )
-                runStepAgent(
-                    agentName = agentName,
-                    agentDef = agentDef,
-                    context = context,
-                    stepName = "${step.step}:$stepLabel",
-                    input = task,
-                    directoryIsolation = directoryIsolation
-                )
+                // Each delegation's lease, CLI pool and skill state end with it, not at the step's end.
+                val workerScope = "${step.step}:$stepLabel"
+                endingDerivedScope(context, workerScope) {
+                    runStepAgent(
+                        agentName = agentName,
+                        agentDef = agentDef,
+                        context = context,
+                        stepName = workerScope,
+                        input = task,
+                        directoryIsolation = directoryIsolation
+                    )
+                }
             }
 
         // 创建 OrchestratorTools
@@ -5425,7 +5429,9 @@ class WorkflowExecutor(
             }
 
         // 创建 Orchestrator Agent
-        return try {
+        // The orchestrator runs under the step's host scope like any step agent (runStepAgent sets it for workers), so
+        // its hooks, MCP processes and credential leases resolve against this execution and step on a Runner.
+        return try { WorkflowHostContext.withScope(hostScope(context, step.step)) {
             val orchestratorAgent = ManagedAgent(
                 agent = com.fartech.agents.commons.buildAgent(
                     httpAccess = httpAccess,
@@ -5467,7 +5473,7 @@ class WorkflowExecutor(
             }
 
             StepResult(success = true, output = finalOutput)
-        } catch (e: OrchestratorBudgetExceededException) {
+        } } catch (e: OrchestratorBudgetExceededException) {
             logger.warn { "[Workflow:${workflow.name}] Orchestrator budget exceeded for step '${step.step}': ${e.message}" }
             // 预算耗尽时，尝试使用已有的 completion summary 或 delegation log
             val fallbackOutput = orchestratorTools.completionSummary ?: buildString {
@@ -5477,6 +5483,9 @@ class WorkflowExecutor(
                 }
             }
             StepResult(success = true, output = fallbackOutput)
+        } catch (e: CancellationException) {
+            // A user cancel or lost Runner authority stops the step; it must not turn into a failure on_failure handles.
+            throw e
         } catch (e: Exception) {
             logger.error(e) { "[Workflow:${workflow.name}] Agent-based step '${step.step}' failed: ${e.message}" }
             throw WorkflowExecutionException("Agent-based step '${step.step}' failed: ${e.message}", e)

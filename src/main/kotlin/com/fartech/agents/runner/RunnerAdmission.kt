@@ -232,7 +232,10 @@ class RunnerAdmission(
                 if (step.classifier?.jev != null || step.repeatUntil?.jev != null) requireCapability("decision.jev.v1")
                 if (step.classifier != null) { requireCapability("step.classifier.v1"); requireDerivedScopeFree(workflow, step.step, "classifier") }
                 if (step.groupChat != null) { requireCapability("step.groupChat.v1"); requireDerivedScopeFree(workflow, step.step, "group chat") }
-                step.agentBased?.let { requireCapability("step.agentBased.v1"); fileTools = inspectAgent(it.orchestrator) || fileTools }
+                step.agentBased?.let {
+                    requireCapability("step.agentBased.v1"); requireAgentBasedBounds(workflow, step.step, it)
+                    fileTools = inspectAgent(it.orchestrator) || fileTools
+                }
                 if (step.manualApproval != null) requireCapability("interaction.approval.v1")
                 if (step.publishOutputs.isNotEmpty()) requireCapability("output.publish.v1")
                 if (step.workflowOutputRead != null) {
@@ -248,7 +251,10 @@ class RunnerAdmission(
                             if (nested.classifier?.jev != null) requireCapability("decision.jev.v1")
                             if (nested.classifier != null) { requireCapability("step.classifier.v1"); requireDerivedScopeFree(workflow, "${step.step}.$stateName", "classifier") }
                             if (nested.groupChat != null) { requireCapability("step.groupChat.v1"); requireDerivedScopeFree(workflow, "${step.step}.$stateName", "group chat") }
-                            nested.agentBased?.let { requireCapability("step.agentBased.v1"); fileTools = inspectAgent(it.orchestrator) || fileTools }
+                            nested.agentBased?.let {
+                                requireCapability("step.agentBased.v1"); requireAgentBasedBounds(workflow, "${step.step}.$stateName", it)
+                                fileTools = inspectAgent(it.orchestrator) || fileTools
+                            }
                             nested.subWorkflow?.let { child(it, depth) }
                         }
                     }
@@ -268,6 +274,13 @@ class RunnerAdmission(
          */
         internal fun requireDerivedScopeFree(workflow: WorkflowDefinition, name: String, kind: String) {
             require(workflow.workflow.none { it.step.startsWith("$name:") }) { "Runner $kind step '$name': another step name starts with '$name:'" }
+        }
+        /** Delegations one Runner agent_based step may make (the engine default is 20; each holds its own lease while it runs). */
+        const val MAX_AGENT_BASED_STEPS = 50
+        /** agent_based on a Runner: the orchestrator's delegations run, and are released, as "<step>:..."; their number is bounded. */
+        internal fun requireAgentBasedBounds(workflow: WorkflowDefinition, name: String, config: AgentBasedConfig) {
+            requireDerivedScopeFree(workflow, name, "agent_based")
+            require(config.maxSteps in 1..MAX_AGENT_BASED_STEPS) { "Runner agent_based step '$name': max_steps ${config.maxSteps} outside 1..$MAX_AGENT_BASED_STEPS" }
         }
         const val CONCURRENT_CAPABILITY = "workflow.concurrent.v1"
         /** Upper bound for workflow max_concurrency and step-level max_parallel on a Runner. */
