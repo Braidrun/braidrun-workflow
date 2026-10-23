@@ -434,7 +434,7 @@ val runnerHostJar = tasks.register<Jar>("runnerHostJar") {
             "Runner-Artifact-Publication-Commit" to file("src/main/resources/runner-workflow-v1/artifact-publication-origin.txt").readLines().first(),
             "Runner-Artifact-Publication-Schema-Sha256" to "d3cbb764d096ca9a68ba5a74adafe543a668f79e6273a65287acad3aaff9af09",
             "Runner-Late-Control-Commit" to file("src/main/resources/runner-workflow-v1/late-control-origin.txt").readLines().first(),
-            "Runner-Late-Control-Schema-Sha256" to "67797af382d7f2e90851be2bfa3891bd53e975ace554e50ed9dedddc1493f539",
+            "Runner-Late-Control-Schema-Sha256" to "e65c475deadf310d641c9aac93f94672150d13072a1a37bba504fb716f2d0324",
             "Runner-Contract-Commit" to file("src/main/resources/runner-workflow-v1/contract-origin.txt").readLines().first(),
             "Class-Path" to configurations.runtimeClasspath.get().files.sortedBy { it.name }.joinToString(" ") { "lib/${it.name}" }
         )

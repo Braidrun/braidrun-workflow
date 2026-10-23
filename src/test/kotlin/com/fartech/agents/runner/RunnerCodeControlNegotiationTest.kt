@@ -31,6 +31,18 @@ class RunnerCodeControlNegotiationTest {
         assertFalse(RunnerCodeControlNegotiation.supplementAvailable("{}".toByteArray()))
         assertFailsWith<IllegalArgumentException> { RunnerCodeControlNegotiation.select(setOf(RunnerCodeControlNegotiation.PER_CALL), emptySet()) }
     }
+    @Test fun `listing reads support scoped reference chunks without granting upload or human authority`() {
+        val schema = javaClass.getResourceAsStream("/runner-workflow-v1/late-control.schema.json")!!.bufferedReader().use { it.readText() }
+        val definitions = Json.parseToJsonElement(schema).jsonObject.getValue("\$defs").jsonObject
+        val read = definitions.getValue("listing_read_arguments").jsonObject
+        val properties = read.getValue("properties").jsonObject
+        assertEquals(JsonPrimitive("^[A-Za-z0-9_-]{1,128}$"), properties.getValue("referenceId").jsonObject["pattern"])
+        assertEquals(JsonPrimitive("^[A-Za-z0-9_-]{1,128}$"), properties.getValue("feedbackId").jsonObject["pattern"])
+        assertEquals(2, read.getValue("oneOf").jsonArray.size)
+        assertEquals(setOf("offset"), read.getValue("required").jsonArray.map { it.jsonPrimitive.content }.toSet())
+        assertFalse("listing_reference_upload_arguments" in definitions)
+        assertFalse("listing_reference_delete_arguments" in definitions)
+    }
     @Test fun `missing selector never implicitly enables per-call mode and mutually exclusive selectors refuse`() {
         assertEquals(WorkflowCodeControlMode.LEGACY_STEP_TOKEN, RunnerCodeControlNegotiation.select(setOf("step.script.v1"), RunnerHostSession.CAPABILITIES))
         assertEquals(WorkflowCodeControlMode.LEGACY_STEP_TOKEN, RunnerCodeControlNegotiation.select(setOf(RunnerCodeControlNegotiation.LEGACY), RunnerHostSession.CAPABILITIES))

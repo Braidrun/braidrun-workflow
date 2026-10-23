@@ -986,14 +986,67 @@
             "null"
           ],
           "minimum": 0
+        },
+        "referenceId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{1,128}$"
+        },
+        "feedbackId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{1,128}$"
         }
       },
       "required": [
-        "offset",
-        "revision",
-        "knownRevision"
+        "offset"
       ],
-      "additionalProperties": false
+      "additionalProperties": false,
+      "oneOf": [
+        {
+          "required": [
+            "revision",
+            "knownRevision"
+          ],
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "referenceId"
+                ]
+              },
+              {
+                "required": [
+                  "feedbackId"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "required": [
+            "referenceId",
+            "feedbackId"
+          ],
+          "properties": {
+            "offset": {
+              "maximum": 10485760
+            }
+          },
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "revision"
+                ]
+              },
+              {
+                "required": [
+                  "knownRevision"
+                ]
+              }
+            ]
+          }
+        }
+      ]
     },
     "listing_publish_arguments": {
       "type": "object",
