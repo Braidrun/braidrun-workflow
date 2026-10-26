@@ -6,30 +6,56 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 
 /**
- * `step.loop.v1`: which loop steps a Runner runs, and the bounds it holds them to.
+ * Which loop steps a Runner runs, and the bounds it holds them to.
  *
- * Supported: `iterate_over` whose items are plain HTTP-model Agent runs or code runs. CLI agent items
- * additionally require `step.loop.cli.v1`; each item owns a separate subscription pool and process scope.
- * The loop is one atomic,
- * idempotent step: no savepoint is taken while items run, so a resume reruns every item. Each running Agent item
- * holds its own agent instance (prompt history, tool registry, model client, in-flight response) and its own model
- * credential lease, so concurrency is bounded ([MAX_PARALLEL]) and so is the fan-out ([MAX_ITEMS]).
+ * `step.loop.v1` ([CAPABILITY]): `iterate_over` whose items are HTTP-model Agent runs or code runs. CLI items additionally
+ * require `step.loop.cli.v1`, explicit history_enabled: false and isolated sessions. The loop is
+ * one atomic, idempotent step: no savepoint is taken while items run, so a resume reruns every item. Each running
+ * Agent item holds its own agent instance (prompt history, tool registry, model client, in-flight response) and its
+ * own model credential lease, so concurrency is bounded ([MAX_PARALLEL]) and so is the fan-out ([MAX_ITEMS]).
  *
- * Refused until they have their own design: `repeat_until`; approvals, published outputs and artifact declarations
- * inside a loop (the artifact policies refuse loop producers); every other stage kind as loop items,
- * and step options the iteration interpreter ignores (retry, structured output, parallel tasks).
+ * `step.repeatUntil.v1` ([REPEAT_CAPABILITY]): a `repeat_until` loop, rounds run one after another, is likewise one
+ * atomic step: no savepoint is taken between rounds (every round rewrites the step's result, so a mid-loop savepoint
+ * would read the loop as done), and a resume reruns it from round 1. It is a plain step for resume purposes, so it
+ * needs no `idempotent` mark: an owner resume reruns it like any interrupted Agent step and automatic resume skips it
+ * unless it is replay-safe. Each evaluator round's lease ends with the round ([WorkflowHost.occurrenceEnded],
+ * occurrence `evaluate:<n>`). The body's own kind (group chat, classifier, parallel tasks, a CLI agent) is gated by its
+ * own capability; Jev decisions by `decision.jev.v1`.
+ *
+ * Refused until they have their own design: approvals, published outputs and artifact declarations inside a loop
+ * (the artifact policies refuse loop producers); other stage kinds as `iterate_over` items, and
+ * step options the iteration interpreter ignores (retry, structured output, parallel tasks).
  */
 object RunnerLoopPolicy {
     const val CAPABILITY = "step.loop.v1"
     const val CLI_CAPABILITY = "step.loop.cli.v1"
+    const val REPEAT_CAPABILITY = "step.repeatUntil.v1"
     const val MAX_PARALLEL = 8
     const val MAX_ITEMS = 200
+    /** Rounds one Runner `repeat_until` may run (the engine itself allows 1000); shipped templates use 2 to 4. */
+    const val MAX_REPEAT_ITERATIONS = 50
 
-    /** Static closure admission; [step] has `iterate_over` or `repeat_until`. */
+    /** Static closure admission of a `repeat_until` step under [REPEAT_CAPABILITY]. */
+    fun admitRepeatUntil(workflow: WorkflowDefinition, step: WorkflowStep) {
+        val name = step.step
+        val repeat = requireNotNull(step.repeatUntil)
+        require(repeat.maxIterations <= MAX_REPEAT_ITERATIONS) {
+            "Runner loop step '$name': repeat_until.max_iterations ${repeat.maxIterations} above $MAX_REPEAT_ITERATIONS"
+        }
+        // The evaluator runs, and is released, as "<step>:evaluate:<n>": no real step may live under that prefix.
+        require(workflow.workflow.none { it.step.startsWith("$name:") }) { "Runner loop step '$name': another step name starts with '$name:'" }
+        require(step.manualApproval == null) { "Runner loop step '$name' cannot ask for approval" }
+        require(step.publishOutputs.isEmpty() && step.workflowOutputRead == null) { "Runner loop step '$name' cannot publish or read workflow outputs" }
+        require(step.subWorkflow == null && step.stateMachine == null && step.agentBased == null && step.code == null) {
+            "Runner loop step '$name': repeat_until runs an Agent, classifier or group chat body"
+        }
+    }
+
+    /** Static closure admission of an `iterate_over` step under [CAPABILITY]. */
     fun admit(workflow: WorkflowDefinition, step: WorkflowStep) {
         val name = step.step
-        require(step.repeatUntil == null) { "Runner loop step '$name': repeat_until is not supported on Runners ($CAPABILITY covers iterate_over)" }
-        val loop = requireNotNull(step.iterateOver)
+        val loop = requireNotNull(step.iterateOver) { "Runner loop step '$name': iterate_over missing" }
+        require(step.repeatUntil == null) { "Runner loop step '$name': iterate_over cannot be combined with repeat_until" }
         // Items run, and are released, as "<step>:<occurrence>": no real step may live under that prefix.
         require(workflow.workflow.none { it.step.startsWith("$name:") }) { "Runner loop step '$name': another step name starts with '$name:'" }
         require(step.idempotent) { "Runner loop step '$name' must be idempotent: a resume reruns every item" }

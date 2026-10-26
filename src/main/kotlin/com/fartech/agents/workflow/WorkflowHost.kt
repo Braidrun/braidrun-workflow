@@ -74,10 +74,16 @@ interface WorkflowHost {
     /** An `iterate_over` loop's items are known and none has started. [concurrency] is how many items may run at
      * once (1 for a sequential loop). A host bounds fan-out here; throwing fails the loop step before any item runs. */
     fun admitLoop(scope: WorkflowHostScope, step: WorkflowStep, items: Int, concurrency: Int) {}
-    /** One loop occurrence ended, whatever its outcome, cancellation included. [scope] names the loop step and the
+    /** One loop occurrence ended, whatever its outcome, cancellation included: an `iterate_over` item
+     * (`iterate:<n>`) or a `repeat_until` evaluator round (`evaluate:<n>`). [scope] names the loop step and the
      * [WorkflowHostScope.occurrence]; whatever the host keyed under the occurrence's name can be released now
      * instead of at the loop step's end. Runs in a finally block: it must not suspend. */
     fun occurrenceEnded(scope: WorkflowHostScope) {}
+    /** One derived agent call of a classifier or group chat ended, whatever its outcome ([scope].stepName is the
+     * derived name `<step>:...` the call ran under); the host may release what it keyed under that name now instead
+     * of at the step's end. Runs in a finally block: it must not suspend and must not throw (a failure to release is
+     * the host's own to handle; the step's end still releases by prefix). */
+    fun derivedScopeEnded(scope: WorkflowHostScope) {}
     /**
      * Persist the savepoint [build] captures. A host with its own event order runs [build] inside it, so the captured
      * state and the announced event position belong together; savepoints are announced in capture order. A null
@@ -104,7 +110,8 @@ data class WorkflowHostScope(
     val executionId: String,
     val parentExecutionId: String? = null,
     val stepName: String? = null,
-    /** One run of a loop step, e.g. `iterate:3` for the fourth `iterate_over` item; null outside loops. Items of
+    /** One run of a loop step, e.g. `iterate:3` for the fourth `iterate_over` item, or `evaluate:2` for the second
+     * `repeat_until` evaluator round; null outside loops. Items of
      * one loop share [stepName] (Agent items already run as `<step>:<occurrence>`, the occurrence's own name),
      * so a host that keys per-run state by step must include it, or parallel items collide. */
     val occurrence: String? = null

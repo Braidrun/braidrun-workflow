@@ -207,7 +207,11 @@ class RunnerHostSession(
     }
     companion object {
         // Engine adapter inventory; platform/supervisor admission and runtime dependency receipts remain separate.
-        val CAPABILITIES = linkedSetOf("bundle.portableAssets.v1", "control.callback.v1", "workflow.full.v1", "step.agent.v1", "model.http.v1", "agent.codex.v1", "agent.claude.v1", "tool.exit.v1", "tool.workflow.v1", "tool.user_interaction.v1", "skill.text.v1", "tool.skill_tools.v1", "service.mcp_servers.v1", "mcp.stdio.v1", "process.interactive.v1", "step.script.v1", "step.subWorkflow.v1", "step.stateMachine.v1", "interaction.approval.v1", "output.read.v1", "output.publish.v1", RunnerAdmission.CONCURRENT_CAPABILITY, RunnerLoopPolicy.CAPABILITY, RunnerLoopPolicy.CLI_CAPABILITY).apply {
+        val CAPABILITIES = linkedSetOf("bundle.portableAssets.v1", "control.callback.v1", "workflow.full.v1", "step.agent.v1", "model.http.v1", "agent.codex.v1", "agent.claude.v1", "tool.exit.v1", "tool.workflow.v1", "tool.user_interaction.v1", "skill.text.v1", "tool.skill_tools.v1", "service.mcp_servers.v1", "mcp.stdio.v1", "process.interactive.v1", "step.script.v1", "step.subWorkflow.v1", "step.stateMachine.v1", "interaction.approval.v1", "output.read.v1", "output.publish.v1", RunnerAdmission.CONCURRENT_CAPABILITY, RunnerLoopPolicy.CAPABILITY, RunnerLoopPolicy.CLI_CAPABILITY,
+            // Classifier and group chat run their agent calls through runStepAgent under derived step names, each call's
+            // lease released when it ends (WorkflowHost.derivedScopeEnded). A Jev classifier still needs decision.jev.v1
+            // and agent_based step.agentBased.v1, neither of which this host offers.
+            "step.classifier.v1", "step.groupChat.v1", RunnerLoopPolicy.REPEAT_CAPABILITY).apply {
             if (RunnerCodeControlNegotiation.supplementAvailable()) {
                 add(RunnerCodeControlNegotiation.PER_CALL)
                 add(RunnerCodeControlNegotiation.SOURCE_READ_POLICY) // P/S separately verify the frozen historical-source carrier.
