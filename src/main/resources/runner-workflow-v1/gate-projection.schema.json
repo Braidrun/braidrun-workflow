@@ -1,0 +1,624 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:braidrun:gate-projection:v1",
+  "$defs": {
+    "binding": {
+      "type": "object",
+      "properties": {
+        "protocolVersion": {
+          "const": 1
+        },
+        "ownerId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "actorUserId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "executionId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "runnerId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "runnerInstanceId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "resumeEpoch": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "attemptId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "definitionHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "runtimeHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "ownerId",
+        "actorUserId",
+        "executionId",
+        "runnerId",
+        "runnerInstanceId",
+        "resumeEpoch",
+        "attemptId",
+        "definitionHash",
+        "runtimeHash"
+      ],
+      "additionalProperties": false
+    },
+    "producer": {
+      "type": "object",
+      "properties": {
+        "workflowId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "stepName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "childExecutionPath": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          }
+        },
+        "producerStartEventId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        }
+      },
+      "required": [
+        "workflowId",
+        "stepName",
+        "childExecutionPath",
+        "producerStartEventId"
+      ],
+      "additionalProperties": false
+    },
+    "setSlot": {
+      "type": "object",
+      "properties": {
+        "slotId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "setId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "snapshotSha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "setIndexHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "declarationId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "selectionKind": {
+          "enum": [
+            "FILE",
+            "TREE",
+            "JSON_FILE"
+          ]
+        },
+        "presence": {
+          "enum": [
+            "PRESENT",
+            "ABSENT"
+          ]
+        }
+      },
+      "required": [
+        "slotId",
+        "setId",
+        "snapshotSha256",
+        "setIndexHash",
+        "declarationId",
+        "selectionKind",
+        "presence"
+      ],
+      "additionalProperties": false
+    },
+    "staticSource": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "STATIC_PUBLICATION"
+        },
+        "declarationId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "publicationId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "artifactId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "logicalPath": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024,
+          "pattern": "^run/(?!.*(?:^|/)\\.\\.?(/|$))[^\\\\:\\x00-\\x1f\\x7f]+$"
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 125829120
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "chunksHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "acceptedRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "eventId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "eventSeq": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "producer": {
+          "$ref": "#/$defs/producer"
+        }
+      },
+      "required": [
+        "kind",
+        "declarationId",
+        "publicationId",
+        "artifactId",
+        "logicalPath",
+        "size",
+        "sha256",
+        "chunksHash",
+        "acceptedRevision",
+        "eventId",
+        "eventSeq",
+        "producer"
+      ],
+      "additionalProperties": false
+    },
+    "setSource": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "ARTIFACT_SET"
+        },
+        "slot": {
+          "$ref": "#/$defs/setSlot"
+        },
+        "projection": {
+          "enum": [
+            "SELECTION",
+            "TREE_MEMBER",
+            "SELECTOR_MANIFEST"
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "slot",
+        "projection"
+      ],
+      "additionalProperties": false
+    },
+    "material": {
+      "type": "object",
+      "properties": {
+        "slotId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "physicalPath": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024,
+          "pattern": "^run/(?!.*(?:^|/)\\.\\.?(/|$))[^\\\\:\\x00-\\x1f\\x7f]+$"
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "source": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/staticSource"
+            },
+            {
+              "$ref": "#/$defs/setSource"
+            }
+          ]
+        }
+      },
+      "required": [
+        "slotId",
+        "physicalPath",
+        "required",
+        "source"
+      ],
+      "additionalProperties": false
+    },
+    "dispatchEntry": {
+      "type": "object",
+      "properties": {
+        "workflowId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "stepName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "childSteps": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          }
+        },
+        "gateId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "mode": {
+          "enum": [
+            "LEGACY_FILE",
+            "PROJECTED_SET"
+          ]
+        }
+      },
+      "required": [
+        "workflowId",
+        "stepName",
+        "childSteps",
+        "gateId",
+        "mode"
+      ],
+      "additionalProperties": false
+    },
+    "dispatchPolicy": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "rootWorkflowId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "entries": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 128,
+          "items": {
+            "$ref": "#/$defs/dispatchEntry"
+          }
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "rootWorkflowId",
+        "entries"
+      ],
+      "additionalProperties": false
+    },
+    "contextRequest": {
+      "type": "object",
+      "properties": {
+        "binding": {
+          "$ref": "#/$defs/binding"
+        },
+        "leaseId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "expectedRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "gateContext": {
+          "type": "object",
+          "properties": {
+            "gateId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "stepName": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "childExecutionPath": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "minItems": 0,
+              "maxItems": 64
+            },
+            "processScope": {
+              "type": "string",
+              "pattern": "^tool:[A-Za-z0-9_.-]{1,128}$"
+            },
+            "codeStartEventId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          "required": [
+            "gateId",
+            "stepName",
+            "childExecutionPath",
+            "processScope",
+            "codeStartEventId"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "binding",
+        "leaseId",
+        "expectedRevision",
+        "gateContext"
+      ],
+      "additionalProperties": false
+    },
+    "contextResponse": {
+      "type": "object",
+      "properties": {
+        "binding": {
+          "$ref": "#/$defs/binding"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "gateId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "codeStartEventId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "occurrenceId": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "helperArguments": {
+          "type": "object",
+          "properties": {
+            "filegate.set.submit": {
+              "type": "object",
+              "properties": {
+                "gateId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "occurrenceId": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "title": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096
+                },
+                "message": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 16384
+                },
+                "timeoutSeconds": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 86400
+                },
+                "ownerRequired": {
+                  "type": "boolean"
+                },
+                "autoContinueAfterSeconds": {
+                  "oneOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 86400
+                    }
+                  ]
+                },
+                "slots": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "slotId": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128
+                      },
+                      "setId": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128
+                      },
+                      "snapshotSha256": {
+                        "type": "string",
+                        "pattern": "^[a-f0-9]{64}$"
+                      },
+                      "setIndexHash": {
+                        "type": "string",
+                        "pattern": "^[a-f0-9]{64}$"
+                      },
+                      "declarationId": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128
+                      },
+                      "selectionKind": {
+                        "enum": [
+                          "FILE",
+                          "TREE",
+                          "JSON_FILE"
+                        ]
+                      },
+                      "presence": {
+                        "enum": [
+                          "PRESENT",
+                          "ABSENT"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "slotId",
+                      "setId",
+                      "snapshotSha256",
+                      "setIndexHash",
+                      "declarationId",
+                      "selectionKind",
+                      "presence"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "minItems": 0,
+                  "maxItems": 16
+                }
+              },
+              "required": [
+                "gateId",
+                "occurrenceId",
+                "title",
+                "message",
+                "timeoutSeconds",
+                "ownerRequired",
+                "autoContinueAfterSeconds",
+                "slots"
+              ],
+              "additionalProperties": false
+            },
+            "filegate.set.read": {
+              "type": "object",
+              "properties": {
+                "gateId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "occurrenceId": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                }
+              },
+              "required": [
+                "gateId",
+                "occurrenceId"
+              ],
+              "additionalProperties": false
+            },
+            "feedback.set.read": {
+              "type": "object",
+              "properties": {
+                "gateId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "occurrenceId": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                }
+              },
+              "required": [
+                "gateId",
+                "occurrenceId"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "filegate.set.submit",
+            "filegate.set.read",
+            "feedback.set.read"
+          ],
+          "additionalProperties": false
+        },
+        "materials": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 16,
+          "items": {
+            "$ref": "#/$defs/material"
+          }
+        }
+      },
+      "required": [
+        "binding",
+        "revision",
+        "gateId",
+        "codeStartEventId",
+        "occurrenceId",
+        "helperArguments",
+        "materials"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "description": "P/S closed per-gate dispatch and ordered original physical material projection. Existing CC, d349 and fcf5 bytes unchanged."
+}

@@ -1,0 +1,513 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:braidrun:gate-set-control:v1",
+  "$defs": {
+    "binding": {
+      "type": "object",
+      "properties": {
+        "protocolVersion": {
+          "const": 1
+        },
+        "ownerId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "actorUserId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "executionId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "runnerId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "runnerInstanceId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "resumeEpoch": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "attemptId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "definitionHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "runtimeHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "ownerId",
+        "actorUserId",
+        "executionId",
+        "runnerId",
+        "runnerInstanceId",
+        "resumeEpoch",
+        "attemptId",
+        "definitionHash",
+        "runtimeHash"
+      ],
+      "additionalProperties": false
+    },
+    "controlGrant": {
+      "type": "object",
+      "properties": {
+        "invocationId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "purpose": {
+          "enum": [
+            "filegate.set.submit",
+            "filegate.set.read",
+            "filegate.set.close",
+            "feedback.set.read"
+          ]
+        },
+        "stepName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "childExecutionPath": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          }
+        },
+        "processScope": {
+          "type": "string",
+          "pattern": "^tool:[A-Za-z0-9_.-]{1,128}$"
+        },
+        "requestHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "requestedTtlSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 60
+        },
+        "operationBudgetSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 30
+        },
+        "codeStartEventId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        }
+      },
+      "required": [
+        "invocationId",
+        "purpose",
+        "stepName",
+        "childExecutionPath",
+        "processScope",
+        "requestHash",
+        "requestedTtlSeconds",
+        "operationBudgetSeconds",
+        "codeStartEventId"
+      ],
+      "additionalProperties": false
+    },
+    "grantOperation": {
+      "type": "object",
+      "properties": {
+        "binding": {
+          "$ref": "#/$defs/binding"
+        },
+        "leaseId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "expectedRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "controlGrant": {
+          "$ref": "#/$defs/controlGrant"
+        }
+      },
+      "required": [
+        "binding",
+        "leaseId",
+        "expectedRevision",
+        "controlGrant"
+      ],
+      "additionalProperties": false
+    },
+    "grantReply": {
+      "type": "object",
+      "properties": {
+        "binding": {
+          "$ref": "#/$defs/binding"
+        },
+        "invocationId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "purpose": {
+          "enum": [
+            "filegate.set.submit",
+            "filegate.set.read",
+            "filegate.set.close",
+            "feedback.set.read"
+          ]
+        },
+        "stepName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "childExecutionPath": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          }
+        },
+        "processScope": {
+          "type": "string",
+          "pattern": "^tool:[A-Za-z0-9_.-]{1,128}$"
+        },
+        "codeStartEventId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "requestHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "grantId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "token": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16384
+        },
+        "expiresAt": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "operationDeadline": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "binding",
+        "invocationId",
+        "purpose",
+        "stepName",
+        "childExecutionPath",
+        "processScope",
+        "codeStartEventId",
+        "requestHash",
+        "grantId",
+        "token",
+        "expiresAt",
+        "operationDeadline",
+        "revision"
+      ],
+      "additionalProperties": false
+    },
+    "receipt": {
+      "type": "object",
+      "properties": {
+        "invocationId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "receiptId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "value": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "invocationId",
+        "receiptId",
+        "revision",
+        "value"
+      ],
+      "additionalProperties": false
+    },
+    "filegate.set.submit_redemption": {
+      "type": "object",
+      "properties": {
+        "invocationId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "arguments": {
+          "type": "object",
+          "properties": {
+            "gateId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "occurrenceId": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "title": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            },
+            "message": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 16384
+            },
+            "timeoutSeconds": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 86400
+            },
+            "ownerRequired": {
+              "type": "boolean"
+            },
+            "autoContinueAfterSeconds": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 86400
+                }
+              ]
+            },
+            "slots": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "slotId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  },
+                  "setId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  },
+                  "snapshotSha256": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  },
+                  "setIndexHash": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  },
+                  "declarationId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  },
+                  "selectionKind": {
+                    "enum": [
+                      "FILE",
+                      "TREE",
+                      "JSON_FILE"
+                    ]
+                  },
+                  "presence": {
+                    "enum": [
+                      "PRESENT",
+                      "ABSENT"
+                    ]
+                  }
+                },
+                "required": [
+                  "slotId",
+                  "setId",
+                  "snapshotSha256",
+                  "setIndexHash",
+                  "declarationId",
+                  "selectionKind",
+                  "presence"
+                ],
+                "additionalProperties": false
+              },
+              "minItems": 0,
+              "maxItems": 16
+            }
+          },
+          "required": [
+            "gateId",
+            "occurrenceId",
+            "title",
+            "message",
+            "timeoutSeconds",
+            "ownerRequired",
+            "autoContinueAfterSeconds",
+            "slots"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "invocationId",
+        "arguments"
+      ],
+      "additionalProperties": false
+    },
+    "filegate.set.read_redemption": {
+      "type": "object",
+      "properties": {
+        "invocationId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "arguments": {
+          "type": "object",
+          "properties": {
+            "gateId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "occurrenceId": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            }
+          },
+          "required": [
+            "gateId",
+            "occurrenceId"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "invocationId",
+        "arguments"
+      ],
+      "additionalProperties": false
+    },
+    "filegate.set.close_redemption": {
+      "type": "object",
+      "properties": {
+        "invocationId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "arguments": {
+          "type": "object",
+          "properties": {
+            "gateId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "occurrenceId": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "reason": {
+              "enum": [
+                "timeout",
+                "auto_continued",
+                "superseded",
+                "consumed",
+                "cancelled"
+              ]
+            }
+          },
+          "required": [
+            "gateId",
+            "occurrenceId",
+            "reason"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "invocationId",
+        "arguments"
+      ],
+      "additionalProperties": false
+    },
+    "feedback.set.read_redemption": {
+      "type": "object",
+      "properties": {
+        "invocationId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "arguments": {
+          "type": "object",
+          "properties": {
+            "gateId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "occurrenceId": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            }
+          },
+          "required": [
+            "gateId",
+            "occurrenceId"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "invocationId",
+        "arguments"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "description": "Named definition schema library for negotiated set gate control only."
+}

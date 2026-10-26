@@ -314,7 +314,7 @@ dependencies {
 }
 
 group = "com.fartech.braidrun"
-version = "1.4.6-rc.20261026.2"
+version = "1.4.6-rc.20261026.3"
 description = "braidrun-workflow"
 
 tasks.named<Jar>("jar") {
@@ -424,6 +424,12 @@ val runnerHostJar = tasks.register<Jar>("runnerHostJar") {
         attributes(
             "Main-Class" to "com.fartech.agents.runner.RunnerHostMainKt",
             "Runner-Protocol-Version" to "1",
+            "Runner-Gate-Feedback-Context-Commit" to file("src/main/resources/runner-workflow-v1/gate-feedback-context-origin.txt").readLines().first(),
+            "Runner-Gate-Feedback-Context-Schema-Sha256" to "cb19be846c714a915e765564ce5fd2e97afa548e34331cf97994cd953351dfdc",
+            "Runner-Gate-Projection-Commit" to file("src/main/resources/runner-workflow-v1/gate-projection-origin.txt").readLines().first(),
+            "Runner-Gate-Projection-Schema-Sha256" to "fec8d0e3b9744aa5d370dc82f76b7223b45e3b675c152b2a9e65936bd41836e7",
+            "Runner-Gate-Set-Control-Commit" to file("src/main/resources/runner-workflow-v1/gate-set-control-origin.txt").readLines().first(),
+            "Runner-Gate-Set-Control-Schema-Sha256" to "330250cb23010e87a59e9f8892049aafd89ea18728c72259ed6b7e6302acad34",
             "Runner-Artifact-Set-Commit" to file("src/main/resources/runner-workflow-v1/artifact-set-origin.txt").readLines().first(),
             "Runner-Artifact-Set-Semantics-Commit" to file("src/main/resources/runner-workflow-v1/artifact-set-semantics-origin.txt").readLines().first(),
             "Runner-Artifact-Set-Schema-Sha256" to "4b254106f3ed68bedb1bb058cddf0deba74c7a643ed9f4bb59f57b7dcf1323ff",
@@ -434,7 +440,7 @@ val runnerHostJar = tasks.register<Jar>("runnerHostJar") {
             "Runner-Artifact-Publication-Commit" to file("src/main/resources/runner-workflow-v1/artifact-publication-origin.txt").readLines().first(),
             "Runner-Artifact-Publication-Schema-Sha256" to "d3cbb764d096ca9a68ba5a74adafe543a668f79e6273a65287acad3aaff9af09",
             "Runner-Late-Control-Commit" to file("src/main/resources/runner-workflow-v1/late-control-origin.txt").readLines().first(),
-            "Runner-Late-Control-Schema-Sha256" to "7951e39556624737701dad352209c332954fed84066b5653beddf2f9c34c9c2f",
+            "Runner-Late-Control-Schema-Sha256" to "5ba7d76c4f048f6f7ca5b71e427492b639cad4b80ccbe28d621e197d768b72f4",
             "Runner-Contract-Commit" to file("src/main/resources/runner-workflow-v1/contract-origin.txt").readLines().first(),
             "Class-Path" to configurations.runtimeClasspath.get().files.sortedBy { it.name }.joinToString(" ") { "lib/${it.name}" }
         )
@@ -445,6 +451,7 @@ distributions.main {
         from(runnerHostJar) { rename { "runner-host.jar" } }
         from("src/main/resources/runner-workflow-v1") {
             include("artifact-boundary.schema.json", "artifact-boundary-origin.txt", "artifact-set.schema.json", "artifact-set-origin.txt", "artifact-set-semantics-origin.txt")
+            include("gate-set-control.schema.json", "gate-set-control-origin.txt", "gate-projection.schema.json", "gate-projection-origin.txt", "gate-feedback-context.schema.json", "gate-feedback-context-origin.txt")
             into("protocol")
         }
     }

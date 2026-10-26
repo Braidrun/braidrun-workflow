@@ -221,7 +221,9 @@ class RunnerHostSession(
                 add(RunnerCollectionProtocol.CAPABILITY)
                 if (RunnerArtifactSetProtocol.available()) add(RunnerArtifactSetProtocol.CAPABILITY)
             }
-            // gateSets requires the real guarded P/S provider; source.attestation awaits approval/terminal lifecycle.
+            addAll(RunnerGateProtocolInventory.capabilities(this)) // P/S separately verify their pinned guarded providers.
+            add("credential.scopedBusiness.v1") // S verifies step-scoped business references.
+            // source.attestation awaits approval/terminal lifecycle.
             // Confined to this run's directories (RunnerFileConfinement); needs POSIX link counts.
             if (RunnerFileConfinement.available()) add("tool.file_system.v1")
         }

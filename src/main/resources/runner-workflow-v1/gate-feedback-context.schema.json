@@ -1,0 +1,479 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:braidrun:gate-feedback-context:v1",
+  "$defs": {
+    "binding": {
+      "type": "object",
+      "properties": {
+        "protocolVersion": {
+          "const": 1
+        },
+        "ownerId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "actorUserId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "executionId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "runnerId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "runnerInstanceId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "resumeEpoch": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "attemptId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "definitionHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "runtimeHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "ownerId",
+        "actorUserId",
+        "executionId",
+        "runnerId",
+        "runnerInstanceId",
+        "resumeEpoch",
+        "attemptId",
+        "definitionHash",
+        "runtimeHash"
+      ],
+      "additionalProperties": false
+    },
+    "request": {
+      "type": "object",
+      "properties": {
+        "binding": {
+          "$ref": "#/$defs/binding"
+        },
+        "leaseId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "expectedRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "feedbackContext": {
+          "type": "object",
+          "properties": {
+            "gateId": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_-]{0,60}$"
+            },
+            "stepName": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "childExecutionPath": {
+              "type": "array",
+              "maxItems": 64,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              }
+            },
+            "processScope": {
+              "type": "string",
+              "pattern": "^tool:[A-Za-z0-9_.-]{1,128}$"
+            },
+            "codeStartEventId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          "required": [
+            "gateId",
+            "stepName",
+            "childExecutionPath",
+            "processScope",
+            "codeStartEventId"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "binding",
+        "leaseId",
+        "expectedRevision",
+        "feedbackContext"
+      ],
+      "additionalProperties": false
+    },
+    "response": {
+      "type": "object",
+      "properties": {
+        "binding": {
+          "$ref": "#/$defs/binding"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "context": {
+          "type": "object",
+          "properties": {
+            "contextId": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "gateId": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_-]{0,60}$"
+            },
+            "occurrenceId": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "childExecutionPath": {
+              "type": "array",
+              "maxItems": 64,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              }
+            },
+            "consumerStepName": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "consumerStartEventId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "processScope": {
+              "type": "string",
+              "pattern": "^tool:[A-Za-z0-9_.-]{1,128}$"
+            },
+            "producerStepName": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "producerStartEventId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          "required": [
+            "contextId",
+            "gateId",
+            "occurrenceId",
+            "childExecutionPath",
+            "consumerStepName",
+            "consumerStartEventId",
+            "processScope",
+            "producerStepName",
+            "producerStartEventId"
+          ],
+          "additionalProperties": false
+        },
+        "helperArguments": {
+          "type": "object",
+          "properties": {
+            "feedback.set.read": {
+              "type": "object",
+              "properties": {
+                "gateId": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9_-]{0,60}$"
+                },
+                "occurrenceId": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                }
+              },
+              "required": [
+                "gateId",
+                "occurrenceId"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "feedback.set.read"
+          ],
+          "additionalProperties": false
+        },
+        "materials": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "$ref": "#/$defs/material"
+          }
+        },
+        "slots": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "$ref": "#/$defs/setSlot"
+          }
+        }
+      },
+      "required": [
+        "binding",
+        "revision",
+        "context",
+        "helperArguments",
+        "materials",
+        "slots"
+      ],
+      "additionalProperties": false
+    },
+    "producer": {
+      "type": "object",
+      "properties": {
+        "workflowId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "stepName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "childExecutionPath": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          }
+        },
+        "producerStartEventId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        }
+      },
+      "required": [
+        "workflowId",
+        "stepName",
+        "childExecutionPath",
+        "producerStartEventId"
+      ],
+      "additionalProperties": false
+    },
+    "setSlot": {
+      "type": "object",
+      "properties": {
+        "slotId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "setId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "snapshotSha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "setIndexHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "declarationId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "selectionKind": {
+          "enum": [
+            "FILE",
+            "TREE",
+            "JSON_FILE"
+          ]
+        },
+        "presence": {
+          "enum": [
+            "PRESENT",
+            "ABSENT"
+          ]
+        }
+      },
+      "required": [
+        "slotId",
+        "setId",
+        "snapshotSha256",
+        "setIndexHash",
+        "declarationId",
+        "selectionKind",
+        "presence"
+      ],
+      "additionalProperties": false
+    },
+    "staticSource": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "STATIC_PUBLICATION"
+        },
+        "declarationId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "publicationId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "artifactId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "logicalPath": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024,
+          "pattern": "^run/(?!.*(?:^|/)\\.\\.?(/|$))[^\\\\:\\x00-\\x1f\\x7f]+$"
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 125829120
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "chunksHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "acceptedRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "eventId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "eventSeq": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "producer": {
+          "$ref": "#/$defs/producer"
+        }
+      },
+      "required": [
+        "kind",
+        "declarationId",
+        "publicationId",
+        "artifactId",
+        "logicalPath",
+        "size",
+        "sha256",
+        "chunksHash",
+        "acceptedRevision",
+        "eventId",
+        "eventSeq",
+        "producer"
+      ],
+      "additionalProperties": false
+    },
+    "setSource": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "ARTIFACT_SET"
+        },
+        "slot": {
+          "$ref": "#/$defs/setSlot"
+        },
+        "projection": {
+          "enum": [
+            "SELECTION",
+            "TREE_MEMBER",
+            "SELECTOR_MANIFEST"
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "slot",
+        "projection"
+      ],
+      "additionalProperties": false
+    },
+    "material": {
+      "type": "object",
+      "properties": {
+        "slotId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "physicalPath": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024,
+          "pattern": "^run/(?!.*(?:^|/)\\.\\.?(/|$))[^\\\\:\\x00-\\x1f\\x7f]+$"
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "source": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/staticSource"
+            },
+            {
+              "$ref": "#/$defs/setSource"
+            }
+          ]
+        }
+      },
+      "required": [
+        "slotId",
+        "physicalPath",
+        "required",
+        "source"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/request"
+    },
+    {
+      "$ref": "#/$defs/response"
+    }
+  ]
+}

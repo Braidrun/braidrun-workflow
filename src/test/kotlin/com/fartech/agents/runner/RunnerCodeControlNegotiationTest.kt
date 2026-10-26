@@ -110,13 +110,13 @@ class RunnerCodeControlNegotiationTest {
             RunnerCodeControlNegotiation.select(required, fixtureAvailable - missing)
         }.reason)
     }
-    @Test fun `gate projection remains withheld and does not permit callback conflict unknown capability or implicit mode`() {
+    @Test fun `gate projection inventory does not permit callback conflict unknown capability or implicit mode`() {
         val projection = RunnerCodeControlNegotiation.GATE_PROJECTION
-        assertFalse(projection in RunnerHostSession.CAPABILITIES)
+        assertTrue(projection in RunnerHostSession.CAPABILITIES)
         val required = setOf(projection, RunnerArtifactSetProtocol.GATES, RunnerArtifactSetProtocol.CAPABILITY,
             RunnerCollectionProtocol.CAPABILITY, RunnerCodeControlNegotiation.PER_CALL)
         assertEquals(RunnerNegotiationReason.RUNNER_REQUIRED_CAPABILITY_UNAVAILABLE, assertFailsWith<RunnerNegotiationException> {
-            RunnerCodeControlNegotiation.select(required, RunnerHostSession.CAPABILITIES)
+            RunnerCodeControlNegotiation.select(required, RunnerHostSession.CAPABILITIES - projection)
         }.reason)
         assertEquals(RunnerNegotiationReason.RUNNER_CONTROL_MODE_CONFLICT, assertFailsWith<RunnerNegotiationException> {
             RunnerCodeControlNegotiation.select(required + RunnerCodeControlNegotiation.LEGACY, RunnerHostSession.CAPABILITIES + required)

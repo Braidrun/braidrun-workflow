@@ -23,7 +23,7 @@ class RunnerTerminalLifecycleTest {
         }
         for (required in listOf(setOf(source, set, collection), setOf(gates, set, collection, RunnerCodeControlNegotiation.PER_CALL))) {
             assertEquals(RunnerNegotiationReason.RUNNER_REQUIRED_CAPABILITY_UNAVAILABLE, assertFailsWith<RunnerNegotiationException> {
-                RunnerCodeControlNegotiation.select(required, RunnerHostSession.CAPABILITIES)
+                RunnerCodeControlNegotiation.select(required, RunnerHostSession.CAPABILITIES - gates)
             }.reason)
         }
     }
@@ -143,7 +143,7 @@ class RunnerTerminalLifecycleTest {
             }) }
             interactive.close()
             assertFalse(RunnerArtifactSetProtocol.SOURCE in RunnerHostSession.CAPABILITIES)
-            assertFalse(RunnerArtifactSetProtocol.GATES in RunnerHostSession.CAPABILITIES)
+            assertTrue(RunnerArtifactSetProtocol.GATES in RunnerHostSession.CAPABILITIES)
             assertEquals(before, host.finalEventSeq()); gate.check() // Finalization did not fabricate new authority or invalidate normal result publishing.
             host.close()
         }

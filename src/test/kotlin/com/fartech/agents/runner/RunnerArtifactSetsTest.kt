@@ -37,7 +37,7 @@ class RunnerArtifactSetsTest {
                 RunnerCodeControlNegotiation.select(required, RunnerHostSession.CAPABILITIES)
             }.reason)
         }
-        assertFalse(RunnerArtifactSetProtocol.GATES in RunnerHostSession.CAPABILITIES)
+        assertTrue(RunnerArtifactSetProtocol.GATES in RunnerHostSession.CAPABILITIES)
         assertFalse(RunnerArtifactSetProtocol.SOURCE in RunnerHostSession.CAPABILITIES)
         assertFailsWith<RunnerNegotiationException> { RunnerCodeControlNegotiation.select(setOf(set, collection), RunnerHostSession.CAPABILITIES - set) }
         assertTrue(RunnerArtifactSetProtocol.available())
