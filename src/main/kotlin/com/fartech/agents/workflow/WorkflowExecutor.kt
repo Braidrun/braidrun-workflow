@@ -6731,6 +6731,10 @@ class WorkflowExecutor(
         agentName: String,
         stepName: String
     ): String {
+        // A Runner loop may run the same CLI agent concurrently. Even a per_execution/fixed
+        // template session must not share an invocation's state with a different item.
+        if (host != null && context.hostOccurrence?.startsWith("iterate:") == true)
+            return "${context.executionId}:${agentName}:${stepName}"
         // 优先从 resolvedParameters 获取策略和 session_id（支持 preset overrides）
         val resolvedParams = agentDef.resolveParameters()
         val strategy = (resolvedParams["session_id_strategy"] as? JsonPrimitive)?.content

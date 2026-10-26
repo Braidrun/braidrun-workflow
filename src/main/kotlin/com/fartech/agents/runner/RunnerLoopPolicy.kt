@@ -3,21 +3,25 @@ package com.fartech.agents.runner
 import com.fartech.agents.workflow.WorkflowDefinition
 import com.fartech.agents.workflow.WorkflowStep
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
 
 /**
  * `step.loop.v1`: which loop steps a Runner runs, and the bounds it holds them to.
  *
- * Supported: `iterate_over` whose items are plain HTTP-model Agent runs or code runs. The loop is one atomic,
+ * Supported: `iterate_over` whose items are plain HTTP-model Agent runs or code runs. CLI agent items
+ * additionally require `step.loop.cli.v1`; each item owns a separate subscription pool and process scope.
+ * The loop is one atomic,
  * idempotent step: no savepoint is taken while items run, so a resume reruns every item. Each running Agent item
  * holds its own agent instance (prompt history, tool registry, model client, in-flight response) and its own model
  * credential lease, so concurrency is bounded ([MAX_PARALLEL]) and so is the fan-out ([MAX_ITEMS]).
  *
  * Refused until they have their own design: `repeat_until`; approvals, published outputs and artifact declarations
- * inside a loop (the artifact policies refuse loop producers); CLI agents and every other stage kind as loop items,
+ * inside a loop (the artifact policies refuse loop producers); every other stage kind as loop items,
  * and step options the iteration interpreter ignores (retry, structured output, parallel tasks).
  */
 object RunnerLoopPolicy {
     const val CAPABILITY = "step.loop.v1"
+    const val CLI_CAPABILITY = "step.loop.cli.v1"
     const val MAX_PARALLEL = 8
     const val MAX_ITEMS = 200
 
@@ -46,8 +50,14 @@ object RunnerLoopPolicy {
         if (step.code != null) return
         val agent = requireNotNull(workflow.agents[requireNotNull(step.agent) { "Runner loop step '$name' needs an Agent or code item" }]) { "Runner loop step '$name' names an unknown Agent" }
         requireNotNull(step.input) { "Runner loop step '$name' needs an item input" }
-        val type = agent.resolveParameters()["type"]?.jsonPrimitive?.content ?: agent.type
-        require(type !in setOf("claude_code_agent", "codex_agent")) { "Runner loop step '$name': CLI agent items are not supported" }
+        // Shared CLI history would mix unrelated items and make replay depend on earlier invocations.
+        if (isCli(workflow, step)) require(agent.resolveParameters()["history_enabled"]?.jsonPrimitive?.booleanOrNull == false) { "Runner loop step '$name': CLI items require history_enabled: false" }
+    }
+
+    fun isCli(workflow: WorkflowDefinition, step: WorkflowStep): Boolean {
+        if (step.iterateOver == null || step.code != null) return false
+        val agent = workflow.agents[step.agent] ?: return false
+        return (agent.resolveParameters()["type"]?.jsonPrimitive?.content ?: agent.type) in setOf("claude_code_agent", "codex_agent")
     }
 
     /** Runtime bound once the items are known; a refusal fails the loop step before any item runs. */

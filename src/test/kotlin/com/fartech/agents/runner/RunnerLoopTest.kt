@@ -114,7 +114,14 @@ class RunnerLoopTest {
             |    overrides:
             |      external_agent_codex_auth_mode: subscription
             |      external_agent_codex_auth_json: credential:account@3""".trimMargin()
-        assertTrue(refused(loopStep(), agents = cli).contains("CLI agent"))
+        assertTrue(refused(loopStep(), agents = cli).contains("history_enabled: false"))
+        for (type in listOf("codex_agent", "claude_code_agent")) {
+            val agent = cli.replace("codex_agent", type).replace("external_agent_codex_", if (type == "claude_code_agent") "external_agent_claude_" else "external_agent_codex_")
+                .replace("external_agent_claude_auth_json", "external_agent_claude_oauth_token")
+                .replace("    type:", "    history_enabled: false\n    type:")
+            assertContains(admit(loopStep(), agents = agent), RunnerLoopPolicy.CLI_CAPABILITY)
+            assertTrue(refused(loopStep(), agents = agent, capabilities = RunnerHostSession.CAPABILITIES - RunnerLoopPolicy.CLI_CAPABILITY).contains(RunnerLoopPolicy.CLI_CAPABILITY))
+        }
     }
 
     @Test fun `artifact collection policies refuse a loop step as a producer`(@TempDir dir: Path) {
