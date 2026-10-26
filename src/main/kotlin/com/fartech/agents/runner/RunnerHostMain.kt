@@ -222,6 +222,7 @@ class RunnerHostSession(
                 if (RunnerArtifactSetProtocol.available()) add(RunnerArtifactSetProtocol.CAPABILITY)
             }
             addAll(RunnerGateProtocolInventory.capabilities(this)) // P/S separately verify their pinned guarded providers.
+            addAll(RunnerTestContractProtocol.capabilities(this))
             add("credential.scopedBusiness.v1") // S verifies step-scoped business references.
             // source.attestation awaits approval/terminal lifecycle.
             // Confined to this run's directories (RunnerFileConfinement); needs POSIX link counts.

@@ -1,0 +1,274 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://braidrun.com/contracts/runner-workflow-v1/test-contract-control.schema.json",
+  "$defs": {
+    "binding": {
+      "type": "object",
+      "properties": {
+        "protocolVersion": {
+          "const": 1
+        },
+        "ownerId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "actorUserId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "executionId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "runnerId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "runnerInstanceId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "resumeEpoch": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "attemptId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "definitionHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "runtimeHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "ownerId",
+        "actorUserId",
+        "executionId",
+        "runnerId",
+        "runnerInstanceId",
+        "resumeEpoch",
+        "attemptId",
+        "definitionHash",
+        "runtimeHash"
+      ],
+      "additionalProperties": false
+    },
+    "identity": {
+      "type": "object",
+      "properties": {
+        "appTitle": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "category": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "direction": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "paletteReason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "typography": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "styleTags": {
+          "type": "object",
+          "maxProperties": 16,
+          "additionalProperties": false,
+          "properties": {
+            "palette_family": {
+              "type": "string",
+              "maxLength": 1024
+            },
+            "illustration_style": {
+              "type": "string",
+              "maxLength": 1024
+            },
+            "rendering": {
+              "type": "string",
+              "maxLength": 1024
+            },
+            "layout_archetype": {
+              "type": "string",
+              "maxLength": 1024
+            },
+            "icon_formula": {
+              "type": "string",
+              "maxLength": 1024
+            },
+            "type_voice": {
+              "type": "string",
+              "maxLength": 1024
+            },
+            "empty_state": {
+              "type": "string",
+              "maxLength": 1024
+            }
+          }
+        },
+        "visualSignature": {
+          "type": "string",
+          "maxLength": 1024
+        },
+        "illustrationRole": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "navigation": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "appIcon": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "productSummary": {
+          "type": "string",
+          "maxLength": 4096
+        }
+      },
+      "required": [
+        "appTitle"
+      ],
+      "additionalProperties": false
+    },
+    "controlGrant": {
+      "type": "object",
+      "properties": {
+        "invocationId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "purpose": {
+          "enum": [
+            "test-contract.read",
+            "test-contract.write",
+            "native-history.read",
+            "owner-decisions.read"
+          ]
+        },
+        "stepName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "childExecutionPath": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          }
+        },
+        "processScope": {
+          "type": "string",
+          "pattern": "^tool:[A-Za-z0-9_.-]{1,128}$"
+        },
+        "requestHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "requestedTtlSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 60
+        },
+        "operationBudgetSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 30
+        },
+        "codeStartEventId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        }
+      },
+      "required": [
+        "invocationId",
+        "purpose",
+        "stepName",
+        "childExecutionPath",
+        "processScope",
+        "requestHash",
+        "requestedTtlSeconds",
+        "operationBudgetSeconds",
+        "codeStartEventId"
+      ],
+      "additionalProperties": false
+    },
+    "grantOperation": {
+      "type": "object",
+      "properties": {
+        "binding": {
+          "$ref": "#/$defs/binding"
+        },
+        "leaseId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "expectedRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "controlGrant": {
+          "$ref": "#/$defs/controlGrant"
+        }
+      },
+      "required": [
+        "binding",
+        "leaseId",
+        "expectedRevision",
+        "controlGrant"
+      ],
+      "additionalProperties": false
+    },
+    "test-contract_read_arguments": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "test-contract_write_arguments": {
+      "type": "object",
+      "properties": {
+        "record": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "record"
+      ],
+      "additionalProperties": false
+    },
+    "native-history_read_arguments": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "owner-decisions_read_arguments": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    }
+  },
+  "$ref": "#/$defs/grantOperation"
+}
