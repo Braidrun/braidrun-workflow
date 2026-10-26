@@ -1,0 +1,21 @@
+{
+  "protocolVersion": 2,
+  "frameId": "bad",
+  "type": "cancel",
+  "binding": {
+    "protocolVersion": 1,
+    "ownerId": "workflow-owner",
+    "actorUserId": "team-member",
+    "executionId": "execution-fixture",
+    "runnerId": "runner-fixture",
+    "runnerInstanceId": "instance-fixture",
+    "resumeEpoch": 0,
+    "attemptId": "attempt-fixture",
+    "definitionHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "runtimeHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "payload": {
+    "commandId": "cancel-fixture",
+    "reason": "user"
+  }
+}

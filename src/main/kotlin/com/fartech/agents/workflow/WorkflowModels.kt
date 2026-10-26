@@ -2409,7 +2409,17 @@ data class WorkflowResumeState(
     val preservedStepResults: Map<String, StepExecutionResult> = emptyMap(),
     val skippedSteps: Set<String> = emptySet(),
     val activatedTransitionSteps: Set<String> = emptySet(),
-    val transitionActivationSources: Map<String, Set<String>> = emptyMap()
+    val transitionActivationSources: Map<String, Set<String>> = emptyMap(),
+    /** Exact typed variable/output snapshots supplied by a trusted host savepoint. */
+    val variables: Map<String, Any> = emptyMap(),
+    val stepOutputs: Map<String, String> = emptyMap(),
+    val recoveredFailures: Set<String> = emptySet(),
+    val approvalOccurrences: Map<String, Long> = emptyMap(),
+    val pendingApprovalIds: Map<String, String> = emptyMap(),
+    val pendingApprovalRequestedAt: Map<String, Long> = emptyMap(),
+    val childInvocationCounts: Map<String, Long> = emptyMap(),
+    /** Host-owned nonsecret cursors, e.g. acknowledged credential rotations. */
+    val hostState: Map<String, Any> = emptyMap()
 )
 
 /**
@@ -2456,6 +2466,12 @@ data class WorkflowExecutionContext(
      */
     val parentExecutionId: String? = null,
     val rootExecutionId: String? = null,
+    val approvalOccurrences: MutableMap<String, Long> = ConcurrentHashMap(),
+    val pendingApprovalIds: MutableMap<String, String> = ConcurrentHashMap(),
+    val pendingApprovalRequestedAt: MutableMap<String, Long> = ConcurrentHashMap(),
+    val childInvocationCounts: MutableMap<String, Long> = ConcurrentHashMap(),
+    /** The loop occurrence this context runs (see [WorkflowHostScope.occurrence]); inherited by snapshots and copies. */
+    val hostOccurrence: String? = null,
 ) {
     /** 工作流级共享知识库实例（由 WorkflowExecutor 初始化） */
     @Transient
@@ -2488,7 +2504,7 @@ data class WorkflowExecutionContext(
         return variables.entries.associate { (key, value) -> key to value.toString() }
     }
 
-    fun snapshot(extraVariables: Map<String, Any> = emptyMap()): WorkflowExecutionContext {
+    fun snapshot(extraVariables: Map<String, Any> = emptyMap(), hostOccurrence: String? = this.hostOccurrence): WorkflowExecutionContext {
         val snapshot = WorkflowExecutionContext(
             workflowName = workflowName,
             executionId = executionId,
@@ -2501,11 +2517,16 @@ data class WorkflowExecutionContext(
             recoveredFailures = Collections.newSetFromMap(ConcurrentHashMap<String, Boolean>()),
             parentExecutionId = parentExecutionId,
             rootExecutionId = rootExecutionId,
+            hostOccurrence = hostOccurrence,
         )
         snapshot.variables.putAll(extraVariables)
         snapshot.skippedSteps.addAll(skippedSteps)
         snapshot.activatedTransitionSteps.addAll(activatedTransitionSteps)
         snapshot.recoveredFailures.addAll(recoveredFailures)
+        snapshot.approvalOccurrences.putAll(approvalOccurrences)
+        snapshot.pendingApprovalIds.putAll(pendingApprovalIds)
+        snapshot.pendingApprovalRequestedAt.putAll(pendingApprovalRequestedAt)
+        snapshot.childInvocationCounts.putAll(childInvocationCounts)
         transitionActivationSources.forEach { (stepName, sources) ->
             snapshot.transitionActivationSources[stepName] =
                 Collections.newSetFromMap(ConcurrentHashMap<String, Boolean>()).apply {

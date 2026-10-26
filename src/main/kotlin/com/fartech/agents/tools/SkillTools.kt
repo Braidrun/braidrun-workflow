@@ -578,7 +578,7 @@ class SkillTools(
             if (!path.exists() || !path.isDirectory()) {
                 return "Error: Skill path does not exist or is not a directory: $skillPath"
             }
-            if (WorkflowHostPolicy.restrictsSkillSideEffects && !isLoadedSkillDirectory(path.toFile())) {
+            if ((WorkflowHostPolicy.restrictsSkillSideEffects || com.fartech.agents.workflow.WorkflowHostContext.current != null) && !isLoadedSkillDirectory(path.toFile())) {
                 emit("skill_inspect_failed", "❌ 检查技能失败: $skillPath", "outside configured skills")
                 return "Error: path is outside the configured skills directories: $skillPath"
             }
@@ -640,7 +640,7 @@ class SkillTools(
             file.isDirectory && (File(file, "SKILL.md").exists() || File(file, "skill.md").exists())
         }?.sortedBy { it.name }
             // A restricted host's shared cache holds other accounts' skills; list only this agent's.
-            ?.filter { !WorkflowHostPolicy.restrictsSkillSideEffects || isLoadedSkillDirectory(it) }
+            ?.filter { (!WorkflowHostPolicy.restrictsSkillSideEffects && com.fartech.agents.workflow.WorkflowHostContext.current == null) || isLoadedSkillDirectory(it) }
             ?: emptyList()
 
         if (cachedSkills.isEmpty()) {

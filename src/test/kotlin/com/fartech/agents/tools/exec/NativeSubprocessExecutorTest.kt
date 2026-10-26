@@ -27,6 +27,31 @@ class NativeSubprocessExecutorTest {
     }
 
     @Test
+    fun `output is collected even when every common pool worker is blocked`(): Unit = runBlocking {
+        // 2026-10-22, 4-core hosts: with the common pool's workers blocked elsewhere, the stream reads never started
+        // and a finished command came back as exit -1 "Error executing command: null".
+        val release = java.util.concurrent.CountDownLatch(1)
+        val pool = java.util.concurrent.ForkJoinPool.commonPool()
+        val blockers = (0 until pool.parallelism + 2).map { java.util.concurrent.CompletableFuture.runAsync { release.await() } }
+        try {
+            val result = executor.execute(
+                ExecRequest(
+                    command = listOf("/bin/sh", "-c", "echo hello; echo err >&2"),
+                    workingDir = File("."),
+                    timeoutSeconds = 10,
+                    userId = "test-user"
+                )
+            )
+            assertEquals(0, result.exitCode, result.stderr)
+            assertEquals("hello", result.stdout.trim())
+            assertEquals("err", result.stderr.trim())
+        } finally {
+            release.countDown()
+            blockers.forEach { it.get(5, java.util.concurrent.TimeUnit.SECONDS) }
+        }
+    }
+
+    @Test
     fun `stderr is captured separately`() = runBlocking {
         val result = executor.execute(
             ExecRequest(
