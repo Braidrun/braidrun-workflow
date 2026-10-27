@@ -1141,6 +1141,12 @@ class WorkflowExecutor(
             }
 
             suspend fun runWorkflowBody() {
+                // Rebind the verified restored state to this attempt before any
+                // step starts. If the first resumed operation is interrupted,
+                // there may be no later safe boundary from which to resume again.
+                if (resumeState != null && parentHostScope == null && context.parentExecutionId == null) {
+                    host?.checkpointOf { hostSavepoint(workflow, context, safe = true) }
+                }
                 if (concurrencyEnabled) {
                     executeWorkflowConcurrently(
                         workflow = workflow,

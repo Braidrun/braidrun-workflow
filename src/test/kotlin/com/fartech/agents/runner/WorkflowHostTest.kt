@@ -210,6 +210,23 @@ class WorkflowHostTest {
         val resumed = WorkflowExecutor(HttpAccess(), emptyList(), host = host).execute(workflow, resumeState = checkpoint.state)
         assertTrue(resumed.success); assertEquals(1, host.invocations.size); assertEquals(7, resumed.variables["count"])
     }
+    @Test fun `repeated interruption of first resumed operation retains a safe entry checkpoint`(@TempDir dir: Path) = runBlocking {
+        var restored = WorkflowResumeState(variables = mapOf("count" to 7))
+        repeat(2) {
+            val host = Host(dir); host.block = true
+            val running = async { WorkflowExecutor(HttpAccess(), emptyList(), host = host)
+                .execute(host.workflow("repeat-resume"), resumeState = restored) }
+            host.entered.await()
+            val entry = host.checkpoints.first()
+            assertTrue(entry.safeToResume)
+            assertEquals(7, entry.state.variables["count"])
+            assertTrue(entry.state.preservedStepResults.isEmpty(), "An interrupted operation must not become completed")
+            running.cancelAndJoin()
+            assertFalse(host.checkpoints.last().safeToResume, "The live operation remains unsafe")
+            assertEquals(1, host.invocations.size)
+            restored = entry.state
+        }
+    }
     @Test fun `cancellation propagates to supervised operation and never starts next step`(@TempDir dir: Path) = runBlocking {
         val host = Host(dir); host.block = true
         val workflow = host.workflow("cancel").let { it.copy(workflow = it.workflow + WorkflowStep("later", code = CodeStepConfig("bash", "echo later"))) }
