@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://braidrun.com/contracts/runner-workflow-v1/file-gate-resume.schema.json",
+  "title": "Negotiated original file gate recovery",
+  "description": "control.fileGateResume.v1: unchanged P control-context and control frames. S pins the original local request after registration, authenticates the previous stopped attempt journal, and preserves original local identity and wait. P reuses only a selected checkpoint handoff with identical current material bytes and review metadata. Set/projected gates are excluded. Missing or changed request, material, provenance or owner binding refuses recovery.",
+  "type": "object",
+  "properties": {
+    "relativePath": {
+      "type": "string",
+      "minLength": 1
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "originalCodeStartEventId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "occurrenceId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "gateId": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "required": [
+    "relativePath",
+    "sha256",
+    "originalCodeStartEventId",
+    "occurrenceId",
+    "gateId"
+  ],
+  "additionalProperties": false
+}
