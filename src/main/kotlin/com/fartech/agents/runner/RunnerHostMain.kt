@@ -227,11 +227,14 @@ class RunnerHostSession(
             }
             addAll(RunnerGateProtocolInventory.capabilities(this)) // P/S separately verify their pinned guarded providers.
             addAll(RunnerTestContractProtocol.capabilities(this))
+            addAll(RunnerBusinessBackendProtocol.capabilities(this))
             if (RunnerCodeControlNegotiation.PER_CALL in this && RunnerLongCodeProtocol.available()) add(RunnerLongCodeProtocol.CAPABILITY)
             if (RunnerCodeControlNegotiation.PER_CALL in this && RunnerCollectionProtocol.CAPABILITY in this && RunnerFileGateResumeProtocol.available()) {
                 add(RunnerFileGateResumeProtocol.CAPABILITY)
                 add(RunnerFileGateResumeProtocol.CHECKPOINT_MATERIALS)
+                if (RunnerCodeControlNegotiation.GATE_PROJECTION in this) add(RunnerFileGateResumeProtocol.COMPOSITE)
             }
+            if (RunnerCodeControlNegotiation.PER_CALL in this && "control.feedbackContext.v1" in this) add("control.ownerAttachments.v1")
             add("credential.scopedBusiness.v1") // S verifies step-scoped business references.
             // source.attestation awaits approval/terminal lifecycle.
             // Confined to this run's directories (RunnerFileConfinement); needs POSIX link counts.

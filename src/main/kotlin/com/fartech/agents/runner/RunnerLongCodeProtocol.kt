@@ -5,9 +5,9 @@ import kotlinx.serialization.json.*
 /** Negotiated companion: only CODE_STEP may exceed the frozen v1 limit. */
 internal object RunnerLongCodeProtocol {
     const val CAPABILITY = "process.longCode.v1"
-    const val HASH = "5ee286c8254c2f7495b1a4872bd9453c5979bd9c758f893735cce907b10bb82d"
+    const val HASH = "5cc528f669bbd7f6d7a5ea9c981f9464c522364defa73b1966e254456979eb62"
     const val ORIGIN = "4d4d448f0e5933d671f5ec01d8b2dba17a6fdddb"
-    const val MAX_SECONDS = 172800L
+    const val MAX_SECONDS = 190000L
     private fun resource(name: String) = javaClass.getResourceAsStream("/runner-workflow-v1/$name")?.use { it.readBytes() }
     fun available() = resource("long-code-process.schema.json")?.let { sha256(it) == HASH } == true &&
         resource("long-code-process-origin.txt")?.toString(Charsets.UTF_8)?.trim() == ORIGIN

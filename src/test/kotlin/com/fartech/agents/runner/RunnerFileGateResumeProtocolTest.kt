@@ -5,6 +5,15 @@ import org.junit.jupiter.api.Test
 import kotlin.test.*
 
 class RunnerFileGateResumeProtocolTest {
+    @Test fun `composite recovery requires original gate checkpoint and projection providers`() {
+        val required=setOf(RunnerFileGateResumeProtocol.COMPOSITE,RunnerFileGateResumeProtocol.CHECKPOINT_MATERIALS,
+            RunnerFileGateResumeProtocol.CAPABILITY,RunnerCodeControlNegotiation.PER_CALL,RunnerCollectionProtocol.CAPABILITY,
+            RunnerCodeControlNegotiation.GATE_PROJECTION,RunnerArtifactSetProtocol.GATES,RunnerArtifactSetProtocol.CAPABILITY)
+        assertEquals(WorkflowCodeControlMode.SUPERVISOR_PER_CALL,RunnerCodeControlNegotiation.select(required,RunnerHostSession.CAPABILITIES))
+        for(missing in required) assertFailsWith<RunnerNegotiationException> { RunnerCodeControlNegotiation.select(required,RunnerHostSession.CAPABILITIES-missing) }
+        for(missing in required-RunnerFileGateResumeProtocol.COMPOSITE) assertFailsWith<RunnerNegotiationException> { RunnerCodeControlNegotiation.select(required-missing,RunnerHostSession.CAPABILITIES) }
+    }
+
     @Test fun `checkpoint material handoff requires explicit capability and original recovery`() {
         val required=setOf(RunnerFileGateResumeProtocol.CHECKPOINT_MATERIALS,RunnerFileGateResumeProtocol.CAPABILITY,RunnerCodeControlNegotiation.PER_CALL,RunnerCollectionProtocol.CAPABILITY)
         assertEquals(WorkflowCodeControlMode.SUPERVISOR_PER_CALL,RunnerCodeControlNegotiation.select(required,RunnerHostSession.CAPABILITIES))

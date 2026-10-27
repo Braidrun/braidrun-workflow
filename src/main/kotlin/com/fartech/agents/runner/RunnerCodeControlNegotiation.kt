@@ -27,11 +27,16 @@ internal object RunnerCodeControlNegotiation {
         bytes != null && sha256(bytes) == SCHEMA_SHA256
 
     fun select(required: Set<String>, available: Set<String>): WorkflowCodeControlMode {
+        if (RunnerFileGateResumeProtocol.COMPOSITE in required && !required.containsAll(setOf(
+                RunnerFileGateResumeProtocol.CAPABILITY,RunnerFileGateResumeProtocol.CHECKPOINT_MATERIALS,GATE_PROJECTION)))
+            throw RunnerNegotiationException(RunnerNegotiationReason.RUNNER_REQUIRED_CAPABILITY_UNAVAILABLE)
         if (RunnerFileGateResumeProtocol.CHECKPOINT_MATERIALS in required && RunnerFileGateResumeProtocol.CAPABILITY !in required)
             throw RunnerNegotiationException(RunnerNegotiationReason.RUNNER_REQUIRED_CAPABILITY_UNAVAILABLE)
         if (RunnerFileGateResumeProtocol.CAPABILITY in required && !required.containsAll(setOf(PER_CALL, RunnerCollectionProtocol.CAPABILITY)))
             throw RunnerNegotiationException(RunnerNegotiationReason.RUNNER_REQUIRED_CAPABILITY_UNAVAILABLE)
-        if ((RunnerTestContractProtocol.CAPABILITY in required || RunnerLongCodeProtocol.CAPABILITY in required) && PER_CALL !in required)
+        if ("control.ownerAttachments.v1" in required && !required.containsAll(setOf(PER_CALL,"control.feedbackContext.v1")))
+            throw RunnerNegotiationException(RunnerNegotiationReason.RUNNER_REQUIRED_CAPABILITY_UNAVAILABLE)
+        if ((RunnerBusinessBackendProtocol.CAPABILITY in required || RunnerTestContractProtocol.CAPABILITY in required || RunnerLongCodeProtocol.CAPABILITY in required) && PER_CALL !in required)
             throw RunnerNegotiationException(RunnerNegotiationReason.RUNNER_REQUIRED_CAPABILITY_UNAVAILABLE)
         if (GATE_FEEDBACK in required && !required.containsAll(setOf(GATE_PROJECTION, FEEDBACK_CONTEXT)))
             throw RunnerNegotiationException(RunnerNegotiationReason.RUNNER_GATE_FEEDBACK_DEPENDENCY_REQUIRED)

@@ -117,7 +117,7 @@
                 "timeoutSeconds": {
                   "type": "integer",
                   "minimum": 86401,
-                  "maximum": 172800
+                  "maximum": 190000
                 },
                 "captureLimitBytes": {
                   "type": "integer",
@@ -197,7 +197,7 @@
                 "timeoutSeconds": {
                   "type": "integer",
                   "minimum": 86401,
-                  "maximum": 172800
+                  "maximum": 190000
                 },
                 "maxOutputBytes": {
                   "type": "integer",

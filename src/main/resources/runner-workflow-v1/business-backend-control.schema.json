@@ -1,0 +1,395 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://braidrun.com/contracts/runner-workflow-v1/business-backend-control.schema.json",
+  "$defs": {
+    "binding": {
+      "type": "object",
+      "properties": {
+        "protocolVersion": {
+          "const": 1
+        },
+        "ownerId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "actorUserId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "executionId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "runnerId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "runnerInstanceId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "resumeEpoch": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "attemptId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "definitionHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "runtimeHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "ownerId",
+        "actorUserId",
+        "executionId",
+        "runnerId",
+        "runnerInstanceId",
+        "resumeEpoch",
+        "attemptId",
+        "definitionHash",
+        "runtimeHash"
+      ],
+      "additionalProperties": false
+    },
+    "identity": {
+      "type": "object",
+      "properties": {
+        "appTitle": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "category": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "direction": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "paletteReason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "typography": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "styleTags": {
+          "type": "object",
+          "maxProperties": 16,
+          "additionalProperties": false,
+          "properties": {
+            "palette_family": {
+              "type": "string",
+              "maxLength": 1024
+            },
+            "illustration_style": {
+              "type": "string",
+              "maxLength": 1024
+            },
+            "rendering": {
+              "type": "string",
+              "maxLength": 1024
+            },
+            "layout_archetype": {
+              "type": "string",
+              "maxLength": 1024
+            },
+            "icon_formula": {
+              "type": "string",
+              "maxLength": 1024
+            },
+            "type_voice": {
+              "type": "string",
+              "maxLength": 1024
+            },
+            "empty_state": {
+              "type": "string",
+              "maxLength": 1024
+            }
+          }
+        },
+        "visualSignature": {
+          "type": "string",
+          "maxLength": 1024
+        },
+        "illustrationRole": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "navigation": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "appIcon": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "productSummary": {
+          "type": "string",
+          "maxLength": 4096
+        }
+      },
+      "required": [
+        "appTitle"
+      ],
+      "additionalProperties": false
+    },
+    "controlGrant": {
+      "type": "object",
+      "properties": {
+        "invocationId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "purpose": {
+          "enum": [
+            "backend.read",
+            "backend.initialize",
+            "backend.skip",
+            "backend.reserve",
+            "backend.commit",
+            "backend.receipt"
+          ]
+        },
+        "stepName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "childExecutionPath": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          }
+        },
+        "processScope": {
+          "type": "string",
+          "pattern": "^tool:[A-Za-z0-9_.-]{1,128}$"
+        },
+        "requestHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "requestedTtlSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 60
+        },
+        "operationBudgetSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 30
+        },
+        "codeStartEventId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        }
+      },
+      "required": [
+        "invocationId",
+        "purpose",
+        "stepName",
+        "childExecutionPath",
+        "processScope",
+        "requestHash",
+        "requestedTtlSeconds",
+        "operationBudgetSeconds",
+        "codeStartEventId"
+      ],
+      "additionalProperties": false
+    },
+    "grantOperation": {
+      "type": "object",
+      "properties": {
+        "binding": {
+          "$ref": "#/$defs/binding"
+        },
+        "leaseId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "expectedRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "controlGrant": {
+          "$ref": "#/$defs/controlGrant"
+        }
+      },
+      "required": [
+        "binding",
+        "leaseId",
+        "expectedRevision",
+        "controlGrant"
+      ],
+      "additionalProperties": false
+    },
+    "backend_read_arguments": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    },
+    "backend_initialize_arguments": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    },
+    "backend_skip_arguments": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    },
+    "backend_reserve_arguments": {
+      "type": "object",
+      "properties": {
+        "revision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sourceSha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "resumeEpoch": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "revision",
+        "sourceSha256",
+        "resumeEpoch"
+      ],
+      "additionalProperties": false
+    },
+    "backend_commit_arguments": {
+      "type": "object",
+      "properties": {
+        "attemptId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{1,128}$"
+        },
+        "sourceSha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "resumeEpoch": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "buildProof": {
+          "type": "object",
+          "properties": {
+            "imageId": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "testReportSha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "testsPassed": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 5000
+            },
+            "testRecordSha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "buildRecipeSha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "passedTestIdentifiers": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 5000,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "maxLength": 512,
+                "pattern": "^[A-Za-z0-9_.$]+#[A-Za-z0-9_]+$"
+              }
+            }
+          },
+          "required": [
+            "imageId",
+            "testReportSha256",
+            "testsPassed",
+            "testRecordSha256",
+            "buildRecipeSha256",
+            "passedTestIdentifiers"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "attemptId",
+        "sourceSha256",
+        "resumeEpoch",
+        "buildProof"
+      ],
+      "additionalProperties": false
+    },
+    "backend_receipt_arguments": {
+      "type": "object",
+      "properties": {
+        "attemptId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{1,128}$"
+        },
+        "sourceSha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "resumeEpoch": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "state": {
+          "enum": [
+            "verified",
+            "build_failed",
+            "deployment_failed",
+            "uncertain"
+          ]
+        },
+        "remoteCleaned": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "attemptId",
+        "sourceSha256",
+        "resumeEpoch",
+        "state"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$ref": "#/$defs/grantOperation"
+}

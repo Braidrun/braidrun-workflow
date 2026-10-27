@@ -16,12 +16,12 @@ class RunnerLongCodeProtocolTest {
         assertTrue(RunnerLongCodeProtocol.available())
         assertTrue(RunnerLongCodeProtocol.CAPABILITY in RunnerHostSession.CAPABILITIES)
         for (kind in listOf("processLaunch", "processOpen")) {
-            for (seconds in listOf(86401L,87000L,150000L,172800L)) {
+            for (seconds in listOf(86401L,87000L,150000L,172800L,190000L)) {
                 val f = frame(kind,seconds)
                 assertFailsWith<RunnerProtocolException> { RunnerProtocol().validate(f,"ipcFrame") }
                 RunnerLongCodeProtocol.validate(f)
             }
-            for (seconds in listOf(86400L,172801L)) assertFailsWith<RunnerProtocolException> { RunnerLongCodeProtocol.validate(frame(kind,seconds)) }
+            for (seconds in listOf(86400L,190001L)) assertFailsWith<RunnerProtocolException> { RunnerLongCodeProtocol.validate(frame(kind,seconds)) }
             for (purpose in listOf("MCP_STDIO","AGENT_CLI","NATIVE_STAGE")) assertFailsWith<RunnerProtocolException> { RunnerLongCodeProtocol.validate(frame(kind,87000,purpose)) }
         }
     }
@@ -35,7 +35,7 @@ class RunnerLongCodeProtocolTest {
             ipc.requireProcessTimeout(172800,"CODE_STEP")
             ipc.sendFrame(frame("processLaunch",87000))
             assertFailsWith<IllegalArgumentException> { ipc.requireProcessTimeout(87000,"MCP_STDIO") }
-            assertFailsWith<IllegalArgumentException> { ipc.requireProcessTimeout(172801,"CODE_STEP") }
+            assertFailsWith<IllegalArgumentException> { ipc.requireProcessTimeout(190001,"CODE_STEP") }
         } finally { ipc.close() }
     }
     @Test fun `long processes cannot select legacy transport`() {
