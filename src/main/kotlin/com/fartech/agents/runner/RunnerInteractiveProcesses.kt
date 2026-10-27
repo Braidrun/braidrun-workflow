@@ -31,7 +31,8 @@ class RunnerInteractiveProcesses(
     @Synchronized private fun find(id: String): Session? = sessions[id] ?: retired[id]
     suspend fun open(scope: WorkflowHostScope, request: SubprocessExecutor.ExecRequest): WorkflowInteractiveProcess {
         ipc.businessFence.check(); gate.check(); require(scope.rootExecutionId == ipc.binding.string("executionId")) { "Interactive scope mismatch" }
-        require(request.timeoutSeconds in 1..86400 && sessions.size < 16) { "Interactive capacity/timeout unsupported" }
+        ipc.requireProcessTimeout(request.timeoutSeconds, request.admissionKind)
+        require(sessions.size < 16) { "Interactive capacity unsupported" }
         val cwd = request.workingDir.toPath().toAbsolutePath().normalize()
         require(cwd.startsWith(directory.toAbsolutePath().normalize())) { "Interactive cwd outside attempt" }
         val relative = directory.toAbsolutePath().normalize().relativize(cwd).toString().ifBlank { "." }

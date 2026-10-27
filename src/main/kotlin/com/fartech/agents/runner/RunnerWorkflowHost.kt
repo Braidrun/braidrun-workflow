@@ -541,7 +541,7 @@ class RunnerWorkflowHost(
     private val tokens = RunnerCallbackTokens(ipc, gate, secrets)
     override fun prepareCodeStepEnvironment(scope: WorkflowHostScope, timeoutSeconds: Long): Map<String, String> {
         require(codeControlMode == WorkflowCodeControlMode.SUPERVISOR_PER_CALL && scope.rootExecutionId == binding.executionId && !scope.stepName.isNullOrBlank()) { "Per-call code scope unavailable" }
-        require(timeoutSeconds in 1..86400) { "Unsupported original code timeout" }
+        ipc.requireProcessTimeout(timeoutSeconds, "CODE_STEP")
         childPath(binding.executionId, scope.executionId)
         gate.check(); verifyAssets()
         return emptyMap() // S owns peer-provider injection after registered process authorization.

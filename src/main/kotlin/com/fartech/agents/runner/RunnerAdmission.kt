@@ -228,7 +228,11 @@ class RunnerAdmission(
                     if (RunnerLoopPolicy.isCli(workflow, step)) requireCapability(RunnerLoopPolicy.CLI_CAPABILITY)
                 }
                 if (step.repeatUntil != null) { requireCapability(RunnerLoopPolicy.REPEAT_CAPABILITY); RunnerLoopPolicy.admitRepeatUntil(workflow, step) }
-                if (step.code != null) requireCapability("step.script.v1")
+                step.code?.let { code ->
+                                requireCapability("step.script.v1")
+                                require(code.timeout in 1..RunnerLongCodeProtocol.MAX_SECONDS) { "Unsupported code timeout" }
+                                if (code.timeout > 86400) { requireCapability(RunnerLongCodeProtocol.CAPABILITY); requireCapability(RunnerCodeControlNegotiation.PER_CALL) }
+                            }
                 step.parallel?.let { parallel ->
                     requireCapability(CONCURRENT_CAPABILITY)
                     require((parallel.maxParallel ?: parallel.tasks.size) in 1..MAX_CONCURRENCY) { "Runner parallel tasks require max_parallel between 1 and $MAX_CONCURRENCY" }
@@ -247,7 +251,11 @@ class RunnerAdmission(
                     requireCapability("step.stateMachine.v1")
                     stateMachine.states.forEach { (stateName, state) ->
                         state.stepConfig?.let { nested ->
-                            if (nested.code != null) requireCapability("step.script.v1")
+                            nested.code?.let { code ->
+                                requireCapability("step.script.v1")
+                                require(code.timeout in 1..RunnerLongCodeProtocol.MAX_SECONDS) { "Unsupported code timeout" }
+                                if (code.timeout > 86400) { requireCapability(RunnerLongCodeProtocol.CAPABILITY); requireCapability(RunnerCodeControlNegotiation.PER_CALL) }
+                            }
                             // Same Jev rule as a root classifier: a nested one must not pass on step.classifier.v1 alone.
                             if (nested.classifier?.jev != null) requireCapability("decision.jev.v1")
                             if (nested.classifier != null) { requireCapability("step.classifier.v1"); requireDerivedScopeFree(workflow, "${step.step}.$stateName", "classifier") }

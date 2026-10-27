@@ -43,11 +43,22 @@ class RunnerIpc(
     /** A slot this thread reserved through [withOutboundSlot] for the next [sendFrame]. */
     private val reservedSlot = ThreadLocal<Boolean>()
     private val closed = AtomicBoolean()
+    @Volatile private var longCodeEnabled = false
+    fun enableLongCode() { require(RunnerLongCodeProtocol.available()); longCodeEnabled = true }
+    fun requireProcessTimeout(seconds: Long, purpose: String) {
+        val maximum = if (longCodeEnabled && purpose == "CODE_STEP") RunnerLongCodeProtocol.MAX_SECONDS else 86400L
+        require(seconds in 1..maximum) { "Unsupported process timeout for negotiated purpose" }
+    }
     @Volatile private var artifactCollectionEnabled = false
     fun enableArtifactCollection() { require(RunnerCollectionProtocol.available()); artifactCollectionEnabled = true }
     @Volatile private var artifactSetsEnabled = false
     fun enableArtifactSets() { require(artifactCollectionEnabled && RunnerArtifactSetProtocol.available()); artifactSetsEnabled = true }
     private fun validateFrame(frame: JsonObject, outbound: Boolean) {
+        if (RunnerLongCodeProtocol.isLong(frame)) {
+            if (!longCodeEnabled || !outbound) throw RunnerProtocolException()
+            RunnerLongCodeProtocol.validate(frame)
+            return
+        }
         when (frame["type"]?.jsonPrimitive?.content) {
             "artifactSetCollectRequest", "artifactSetIndexAck" -> {
                 if (!artifactSetsEnabled || outbound) throw RunnerProtocolException()

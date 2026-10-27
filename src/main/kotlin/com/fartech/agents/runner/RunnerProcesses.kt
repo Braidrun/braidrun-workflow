@@ -31,7 +31,7 @@ class RunnerProcesses(
     }
     override suspend fun execute(request: SubprocessExecutor.ExecRequest): SubprocessExecutor.ExecResult {
         ipc.businessFence.check(); gate.check()
-        require(request.timeoutSeconds in 1..86400) { "Unsupported process timeout" }
+        ipc.requireProcessTimeout(request.timeoutSeconds, request.admissionKind)
         if (interactive != null && (request.stdoutLineCallback != null || request.stdin?.toByteArray()?.size?.let { it > RunnerIpc.MAX_FRAME_BYTES / 2 } == true)) {
             return executeStreaming(request)
         }

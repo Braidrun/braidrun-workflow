@@ -1,0 +1,242 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://braidrun.com/contracts/runner-workflow-v1/long-code-process.schema.json",
+  "title": "Explicit process.longCode.v1 supplement; CODE_STEP only; original v1 unchanged",
+  "$defs": {
+    "binding": {
+      "type": "object",
+      "properties": {
+        "protocolVersion": {
+          "const": 1
+        },
+        "ownerId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "actorUserId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "executionId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "runnerId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "runnerInstanceId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "resumeEpoch": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "attemptId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "definitionHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "runtimeHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "ownerId",
+        "actorUserId",
+        "executionId",
+        "runnerId",
+        "runnerInstanceId",
+        "resumeEpoch",
+        "attemptId",
+        "definitionHash",
+        "runtimeHash"
+      ],
+      "additionalProperties": false
+    },
+    "longProcessFrame": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "protocolVersion": {
+              "const": 1
+            },
+            "frameId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "type": {
+              "const": "processLaunch"
+            },
+            "binding": {
+              "$ref": "#/$defs/binding"
+            },
+            "replyTo": {
+              "type": "string"
+            },
+            "payload": {
+              "type": "object",
+              "properties": {
+                "requestId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "argv": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "relativeCwd": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "environment": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                },
+                "purpose": {
+                  "const": "CODE_STEP"
+                },
+                "stdin": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "timeoutSeconds": {
+                  "type": "integer",
+                  "minimum": 86401,
+                  "maximum": 172800
+                },
+                "captureLimitBytes": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 16777216
+                }
+              },
+              "required": [
+                "requestId",
+                "argv",
+                "relativeCwd",
+                "environment",
+                "purpose",
+                "stdin",
+                "timeoutSeconds",
+                "captureLimitBytes"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "protocolVersion",
+            "frameId",
+            "type",
+            "binding",
+            "payload"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "protocolVersion": {
+              "const": 1
+            },
+            "frameId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "type": {
+              "const": "processOpen"
+            },
+            "binding": {
+              "$ref": "#/$defs/binding"
+            },
+            "replyTo": {
+              "type": "string",
+              "minLength": 1
+            },
+            "payload": {
+              "type": "object",
+              "properties": {
+                "requestId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "argv": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "relativeCwd": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "environment": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                },
+                "purpose": {
+                  "const": "CODE_STEP"
+                },
+                "timeoutSeconds": {
+                  "type": "integer",
+                  "minimum": 86401,
+                  "maximum": 172800
+                },
+                "maxOutputBytes": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 16777216
+                },
+                "maxPendingBytes": {
+                  "type": "integer",
+                  "minimum": 32768,
+                  "maximum": 2097152
+                },
+                "channelEncoding": {
+                  "const": "base64"
+                }
+              },
+              "required": [
+                "requestId",
+                "argv",
+                "relativeCwd",
+                "environment",
+                "purpose",
+                "timeoutSeconds",
+                "maxOutputBytes",
+                "maxPendingBytes",
+                "channelEncoding"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "protocolVersion",
+            "frameId",
+            "type",
+            "binding",
+            "payload"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    }
+  }
+}

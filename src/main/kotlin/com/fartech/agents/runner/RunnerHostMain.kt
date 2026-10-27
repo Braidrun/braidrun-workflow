@@ -113,6 +113,10 @@ class RunnerHostSession(
             val authorization = payload.obj("authorization")
             val requiredCapabilities = authorization.array("requiredCapabilities").map { it.jsonPrimitive.content }.toSet()
             val codeControlMode = RunnerCodeControlNegotiation.select(requiredCapabilities, CAPABILITIES)
+            if (RunnerLongCodeProtocol.CAPABILITY in requiredCapabilities) {
+                require(RunnerCodeControlNegotiation.PER_CALL in requiredCapabilities && RunnerLongCodeProtocol.CAPABILITY in CAPABILITIES)
+                ipc.enableLongCode()
+            }
             val environment = RunnerEnvironmentGate(binding, payload.obj("environment").array("egress").map { it.jsonObject.string("pathId") }.toSet())
             gate = environment
             environment.onInvalidated { stop() }
@@ -223,6 +227,7 @@ class RunnerHostSession(
             }
             addAll(RunnerGateProtocolInventory.capabilities(this)) // P/S separately verify their pinned guarded providers.
             addAll(RunnerTestContractProtocol.capabilities(this))
+            if (RunnerCodeControlNegotiation.PER_CALL in this && RunnerLongCodeProtocol.available()) add(RunnerLongCodeProtocol.CAPABILITY)
             add("credential.scopedBusiness.v1") // S verifies step-scoped business references.
             // source.attestation awaits approval/terminal lifecycle.
             // Confined to this run's directories (RunnerFileConfinement); needs POSIX link counts.
