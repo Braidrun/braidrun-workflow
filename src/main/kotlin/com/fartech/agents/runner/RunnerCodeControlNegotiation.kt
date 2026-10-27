@@ -27,6 +27,8 @@ internal object RunnerCodeControlNegotiation {
         bytes != null && sha256(bytes) == SCHEMA_SHA256
 
     fun select(required: Set<String>, available: Set<String>): WorkflowCodeControlMode {
+        if (RunnerFileGateResumeProtocol.CHECKPOINT_MATERIALS in required && RunnerFileGateResumeProtocol.CAPABILITY !in required)
+            throw RunnerNegotiationException(RunnerNegotiationReason.RUNNER_REQUIRED_CAPABILITY_UNAVAILABLE)
         if (RunnerFileGateResumeProtocol.CAPABILITY in required && !required.containsAll(setOf(PER_CALL, RunnerCollectionProtocol.CAPABILITY)))
             throw RunnerNegotiationException(RunnerNegotiationReason.RUNNER_REQUIRED_CAPABILITY_UNAVAILABLE)
         if ((RunnerTestContractProtocol.CAPABILITY in required || RunnerLongCodeProtocol.CAPABILITY in required) && PER_CALL !in required)
