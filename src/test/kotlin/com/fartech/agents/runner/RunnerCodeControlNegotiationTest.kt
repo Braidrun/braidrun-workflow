@@ -1,6 +1,7 @@
 package com.fartech.agents.runner
 
 import com.fartech.agents.workflow.WorkflowCodeControlMode
+import kotlinx.serialization.json.*
 import org.junit.jupiter.api.Test
 import kotlin.test.*
 
@@ -13,10 +14,34 @@ class RunnerCodeControlNegotiationTest {
         assertEquals(WorkflowCodeControlMode.SUPERVISOR_PER_CALL,
             RunnerCodeControlNegotiation.select(setOf(RunnerCodeControlNegotiation.PER_CALL), RunnerHostSession.CAPABILITIES))
     }
+    @Test fun `listing supplement exposes worker operations and excludes human decisions`() {
+        val bytes = javaClass.getResourceAsStream("/runner-workflow-v1/late-control.schema.json")!!.use { it.readBytes() }
+        assertTrue(RunnerCodeControlNegotiation.supplementAvailable(bytes))
+        val definitions = Json.parseToJsonElement(bytes.toString(Charsets.UTF_8)).jsonObject.getValue("\$defs").jsonObject
+        for (name in listOf("listing_read", "listing_publish", "listing_claim", "listing_failed", "listing_delivery", "directory_publish", "slack_deliver")) {
+            val arguments = definitions.getValue(name + "_arguments").jsonObject
+            assertEquals(JsonPrimitive(false), arguments["additionalProperties"])
+        }
+        for (name in listOf("listing_feedback_arguments", "listing_retry_arguments", "listing_accept_arguments")) {
+            assertFalse(name in definitions, "Human decisions cannot be granted to workflow code")
+        }
+    }
     @Test fun `missing altered supplement and absent engine capability are not accepted`() {
         assertFalse(RunnerCodeControlNegotiation.supplementAvailable(null))
         assertFalse(RunnerCodeControlNegotiation.supplementAvailable("{}".toByteArray()))
         assertFailsWith<IllegalArgumentException> { RunnerCodeControlNegotiation.select(setOf(RunnerCodeControlNegotiation.PER_CALL), emptySet()) }
+    }
+    @Test fun `listing reads support scoped reference chunks without granting upload or human authority`() {
+        val schema = javaClass.getResourceAsStream("/runner-workflow-v1/late-control.schema.json")!!.bufferedReader().use { it.readText() }
+        val definitions = Json.parseToJsonElement(schema).jsonObject.getValue("\$defs").jsonObject
+        val read = definitions.getValue("listing_read_arguments").jsonObject
+        val properties = read.getValue("properties").jsonObject
+        assertEquals(JsonPrimitive("^[A-Za-z0-9_-]{1,128}$"), properties.getValue("referenceId").jsonObject["pattern"])
+        assertEquals(JsonPrimitive("^[A-Za-z0-9_-]{1,128}$"), properties.getValue("feedbackId").jsonObject["pattern"])
+        assertEquals(2, read.getValue("oneOf").jsonArray.size)
+        assertEquals(setOf("offset"), read.getValue("required").jsonArray.map { it.jsonPrimitive.content }.toSet())
+        assertFalse("listing_reference_upload_arguments" in definitions)
+        assertFalse("listing_reference_delete_arguments" in definitions)
     }
     @Test fun `missing selector never implicitly enables per-call mode and mutually exclusive selectors refuse`() {
         assertEquals(WorkflowCodeControlMode.LEGACY_STEP_TOKEN, RunnerCodeControlNegotiation.select(setOf("step.script.v1"), RunnerHostSession.CAPABILITIES))
