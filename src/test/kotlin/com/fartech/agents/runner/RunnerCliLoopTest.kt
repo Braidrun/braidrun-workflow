@@ -113,14 +113,14 @@ class RunnerCliLoopTest {
                     return normal.prepareAgentParameters(scope, parameters)
                 }
             }
-            val held = ConcurrentHashMap.newKeySet<String>(); val granted = AtomicInteger()
+            val held = ConcurrentHashMap.newKeySet<String>(); val granted = AtomicInteger(); val grantFor = ConcurrentHashMap<String, String>()
             val events = CopyOnWriteArrayList<JsonObject>(); val ended = AtomicInteger(-1)
             val pump = launch(Dispatchers.Default) {
                 while (isActive) {
                     val frame = h.next(); val body = frame.obj("payload")
                     when (frame.string("type")) {
                         "credentialRequest" -> {
-                            val id = "lease-${granted.incrementAndGet()}"; held += id
+                            val id = "lease-${granted.incrementAndGet()}"; held += id; grantFor[body.string("requestId")] = id
                             assertEquals("subscription.claude", body.string("purpose"))
                             h.ipc.accept(h.reply(frame, "credentialGrant", buildJsonObject {
                                 put("requestId", body.string("requestId")); put("credentialRef", body.string("credentialRef")); put("credentialLeaseId", id)
@@ -132,6 +132,8 @@ class RunnerCliLoopTest {
                         "event" -> {
                             val detail = body.obj("payload"); events += detail
                             if (detail["outcome"]?.jsonPrimitive?.content == "RELEASED") held -= detail.string("credentialLeaseId")
+                            // A sibling cancelled while its request was in flight never holds the grant; E retires it by request identity.
+                            if (detail["outcome"]?.jsonPrimitive?.content == "REQUEST_CANCELLED") grantFor[detail.string("requestId")]?.let { held -= it }
                             if (detail["stepName"]?.jsonPrimitive?.content == "review" && detail["kind"]?.jsonPrimitive?.content in setOf("step_completed", "step_cancelled")) ended.set(held.size)
                         }
                     }
