@@ -314,7 +314,7 @@ dependencies {
 }
 
 group = "com.fartech.braidrun"
-version = "1.4.6-rc.20261027.5"
+version = "1.4.6-rc.20261029.1"
 description = "braidrun-workflow"
 
 tasks.named<Jar>("jar") {
@@ -440,7 +440,7 @@ val runnerHostJar = tasks.register<Jar>("runnerHostJar") {
             "Runner-Artifact-Publication-Commit" to file("src/main/resources/runner-workflow-v1/artifact-publication-origin.txt").readLines().first(),
             "Runner-Artifact-Publication-Schema-Sha256" to "d3cbb764d096ca9a68ba5a74adafe543a668f79e6273a65287acad3aaff9af09",
             "Runner-Late-Control-Commit" to file("src/main/resources/runner-workflow-v1/late-control-origin.txt").readLines().first(),
-            "Runner-Late-Control-Schema-Sha256" to "5ba7d76c4f048f6f7ca5b71e427492b639cad4b80ccbe28d621e197d768b72f4",
+            "Runner-Late-Control-Schema-Sha256" to "e65c475deadf310d641c9aac93f94672150d13072a1a37bba504fb716f2d0324",
             "Runner-Contract-Commit" to file("src/main/resources/runner-workflow-v1/contract-origin.txt").readLines().first(),
             "Class-Path" to configurations.runtimeClasspath.get().files.sortedBy { it.name }.joinToString(" ") { "lib/${it.name}" }
         )

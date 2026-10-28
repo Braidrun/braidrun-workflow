@@ -264,11 +264,15 @@ class RunnerHeadlessTest {
                         val cwd = directory.resolve(payload.string("relativeCwd")).normalize()
                         assertTrue(cwd.startsWith(directory)); assertEquals("CODE_STEP", payload.string("purpose"))
                         val argv = payload.array("argv").map { it.jsonPrimitive.content }
-                        val tool = ProcessBuilder(listOf("/bin/bash") + argv.drop(1)).directory(cwd.toFile()).apply {
+                        // Held at a stdin gate until S has read its identity: the short script otherwise can exit and be reaped first,
+                        // leaving ProcessHandle.info() empty. exec keeps the pid and start time S registers.
+                        val tool = ProcessBuilder(listOf("/bin/bash", "-c", "read -r _; exec \"\$@\"", "registered-launch", "/bin/bash") + argv.drop(1)).directory(cwd.toFile()).apply {
                             environment().putAll(payload.obj("environment").mapValues { it.value.jsonPrimitive.content })
                         }.start()
+                        val startIdentity = tool.info().startInstant().get().toString()
+                        tool.outputStream.close()
                         send("processStarted", buildJsonObject { put("requestId", payload.string("requestId")); put("registrationId", "offline-registration")
-                            put("pid", tool.pid()); put("processGroupId", tool.pid()); put("startIdentity", tool.info().startInstant().get().toString()) }, frame.string("frameId"))
+                            put("pid", tool.pid()); put("processGroupId", tool.pid()); put("startIdentity", startIdentity) }, frame.string("frameId"))
                         val stdout = tool.inputStream.readBytes().toString(Charsets.UTF_8); val stderr = tool.errorStream.readBytes().toString(Charsets.UTF_8)
                         assertEquals(0, tool.waitFor()); assertTrue(stdout.contains(directory.toString()))
                         if (echoSecret) { assertTrue(stdout.contains("fake-code-callback-token")); assertTrue(stderr.contains("fake-code-callback-token")) }

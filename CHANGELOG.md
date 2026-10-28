@@ -5,6 +5,37 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.6-rc.20261029.1] - 2026-10-29
+
+### Changed
+
+- **Release line reunited.** Combines main at `1.4.6-rc.20261027.5` (`786ec88`: recovery owner inputs, backend,
+  long-code, test-contract and gate controls) with the managed listing Runner supplement of `1.4.6-rc.20261026.1`
+  (`e887b0e`), which main did not carry. The late-control schema is the 1.4.6-rc.20261026.1 file unchanged
+  (sha256 `e65c475d…`, web contract `06a461311e96721e84ecfbbce604df26b3140907`); main never modified it, so the
+  negotiation pin and the runner-host JAR manifest take that value and runtimes pinned to it keep listing delegation.
+
+### Fixed
+
+- **Flaky Runner tests (tests only, no engine code).** `RunnerApprovalLifecycleTest`, `RunnerHeadlessTest`,
+  `RunnerCliLoopTest` and `WorkflowHostTest` now wait on the request, process identity, `REQUEST_CANCELLED`
+  usage event or dispatched approval they assert on instead of fixed wall-clock windows.
+
+## [1.4.6-rc.20261026.1] - 2026-10-26
+
+### Added
+
+- **Managed listing Runner supplement.** The late-control supplement embeds the formal listing worker,
+  directory publication and Slack delivery operations (`listing_read`, `listing_publish`, `listing_claim`,
+  `listing_failed`, `listing_delivery`, `directory_publish`, `slack_deliver`), and `listing_read` accepts
+  scoped private reference-image chunks (`referenceId`, `feedbackId`, `offset`) bound to the active claim node
+  and feedback. Human decisions (feedback, retry, acceptance) and reference upload/delete are not grantable to
+  workflow code. The negotiation pin and the runner-host JAR manifest move to web contract
+  `06a461311e96721e84ecfbbce604df26b3140907` (schema sha256 `e65c475d…`); an installed runtime pinned to the
+  previous supplement is refused before listing credential delegation, so the platform, the Python Supervisor
+  and the Runner runtime ship together with this engine. Existing per-call transport and selector behavior is
+  unchanged.
+
 ## [1.4.6-rc.20261016.1] - 2026-10-16
 
 ### Fixed
