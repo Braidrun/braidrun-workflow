@@ -135,7 +135,8 @@ class WorkflowHostTest {
         val running = async(Dispatchers.Default) { WorkflowExecutor(HttpAccess(), emptyList(), host = host).execute(both) }
         try {
             val parked = withTimeout(5000) {
-                while (host.base.checkpoints.none { it.safeToResume && it.pendingApprovals.size == 2 }) delay(10)
+                // The savepoint is durable before its approvals are dispatched, so the last waiter's request may still be in flight.
+                while (host.requests.size < 2 || host.base.checkpoints.none { it.safeToResume && it.pendingApprovals.size == 2 }) delay(10)
                 host.base.checkpoints.first { it.safeToResume && it.pendingApprovals.size == 2 }
             }
             assertEquals(host.requests.map { it.approvalId }.toSet(), parked.pendingApprovals.map { it.approvalId }.toSet())
