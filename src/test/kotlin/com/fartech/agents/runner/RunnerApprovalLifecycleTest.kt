@@ -5,6 +5,7 @@ import com.fartech.agents.tools.exec.NativeSubprocessExecutor
 import com.fartech.ftapp2.commonsKt.HttpAccess
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.selects.select
 import kotlinx.serialization.json.*
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
@@ -14,6 +15,12 @@ import java.time.Instant
 import kotlin.test.*
 
 class RunnerApprovalLifecycleTest {
+    private companion object {
+        // Workflow active budget of the interpreter fixture. Its pre-approval work (cold executor start, two bash steps,
+        // savepoints and events) must fit inside it on a contended CI runner; 1s did not, so the run timed out before
+        // its approval request. The approval observation below outlasts it on its own, so the wait is still proven excluded.
+        const val ACTIVE_BUDGET_MS = 5000L
+    }
     private fun decision(h: IpcHarness, original: JsonObject, approved: Boolean = true) = h.reply(original, "approvalDecision", buildJsonObject {
         val body = original.obj("payload")
         put("approvalId", "original-human-record"); put("idempotencyKey", body.string("idempotencyKey")); put("occurrenceId", body.string("occurrenceId")); put("decisionVersion", 1)
@@ -111,7 +118,7 @@ class RunnerApprovalLifecycleTest {
                   working_dir: $dir
                   script: |
                     printf 'accepted\n' > '$dir/run/delivery-acceptance.txt'
-        """.trimIndent().prependIndent("  ") + "\ntimeout:\n  total: 1s\n"
+        """.trimIndent().prependIndent("  ") + "\ntimeout:\n  total: ${ACTIVE_BUDGET_MS / 1000}s\n"
         Files.writeString(dir.resolve("root.yaml"), source)
         val hash = sha256(source.toByteArray()); val b = JsonObject(RunnerProtocolTest.binding() + ("definitionHash" to JsonPrimitive(hash)))
         val meta = buildJsonObject {
@@ -132,7 +139,8 @@ class RunnerApprovalLifecycleTest {
             host = RunnerWorkflowHost(h.ipc, identity, gate, bundle, RunnerHostSession.CAPABILITIES, NativeSubprocessExecutor(), store, secrets)
             val requests = Channel<JsonObject>(2); val checkpoints = mutableListOf<JsonObject>(); val completedSteps = mutableSetOf<String>()
             val pump = launch { while (isActive) {
-                val raw = withContext(Dispatchers.IO) { RunnerIpc.readLine(h.supervisorInput) } ?: break
+                // Teardown closes the pipe under a pump still reading the final frames; only that closure ends it quietly.
+                val raw = try { withContext(Dispatchers.IO) { RunnerIpc.readLine(h.supervisorInput) } } catch (closed: java.io.IOException) { if (isActive) throw closed else break } ?: break
                 val frame = RunnerProtocol().parse(raw.toString(Charsets.UTF_8))
                 when (frame.string("type")) {
                     "approval" -> requests.send(frame)
@@ -162,7 +170,10 @@ class RunnerApprovalLifecycleTest {
                     assertEquals(requestedAt, pending.array("pendingApprovals").single().jsonObject.long("requestedAt"))
                     assertFalse(Files.exists(dir.resolve("run/produce-source.txt"))); assertFalse(Files.exists(dir.resolve("run/delivery-acceptance.txt")))
                 } else {
-                    val request = withTimeout(5000) { requests.receive() }
+                    val request = withTimeout(5000) { select<JsonObject> {
+                        requests.onReceive { it }
+                        task.onAwait { fail("Run ended before its original approval request: ${it.error}") }
+                    } }
                     assertEquals(originalKey, request.obj("payload").string("idempotencyKey"))
                     assertEquals("1", request.obj("payload").string("occurrenceId"))
                     assertTrue(request.obj("payload").array("childExecutionPath").isEmpty())
@@ -172,7 +183,7 @@ class RunnerApprovalLifecycleTest {
                     val original = pending.array("pendingApprovals").single().jsonObject
                     assertEquals("259200", original.string("timeout")); assertEquals(originalKey, original.string("approvalId"))
                     assertEquals(original.long("requestedAt"), pending.obj("state").obj("pendingApprovalRequestedAt").long("approve-candidate-delivery"))
-                    delay(1200) // Controlled P proof remains unavailable; E receives no private proof frame or decision.
+                    delay(ACTIVE_BUDGET_MS + 200) // The approval wait alone outlasts the active budget. Controlled P proof remains unavailable; E receives no private proof frame or decision.
                     assertFalse(task.isCompleted); assertFalse(Files.exists(dir.resolve("run/delivery-acceptance.txt")))
                     if (mode == "cancel") {
                         task.cancelAndJoin(); h.ipc.accept(decision(h, request)); delay(50)
