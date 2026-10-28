@@ -145,7 +145,9 @@ class RunnerCliLoopTest {
                 withTimeout(2000) { while (ended.get() < 0 || held.isNotEmpty()) delay(10) }
                 assertEquals(0, ended.get(), "item leases must end before the loop's completion")
                 assertTrue(peak.get() in 2..3)
-                assertEquals(calls.size, sessions.distinct().size, "per_execution session setting must not mix loop items")
+                // A sibling cancelled after its parameters were prepared never reaches the CLI, so only the fail case may hold more sessions than calls.
+                assertEquals(sessions.size, sessions.distinct().size, "per_execution session setting must not mix loop items")
+                if (fail) assertTrue(calls.size <= sessions.size) else assertEquals(calls.size, sessions.size)
                 assertEquals(calls.size, calls.map { it.getValue("CLAUDE_CONFIG_DIR") }.distinct().size)
                 if (!fail) {
                     assertEquals(7, calls.size)
