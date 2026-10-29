@@ -1,0 +1,1573 @@
+{
+  "releaseSourceCommit": "db1fd8adbf3c0648df31f355eb3c52273cbaf1e4",
+  "version": "1.4.6-rc.20261029.2",
+  "sourceChecks": [
+    {
+      "path": "src/main/kotlin/com/fartech/agents/cli/BraidrunWorkflowCli.kt",
+      "sha256": "b66bffcd42aa2ed555c1281cdf5e868def383372436f0caeb06c37e1c6810f31",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/cli/FileApprovalHandler.kt",
+      "sha256": "5bf93d48db5b6558529b2665cb9544988ad675b8221910da6de03e68c6d3f48c",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/commons/AgentA2A.kt",
+      "sha256": "2065b4c4bad1cc44e9aeb64d9f04d48eacdb69f01fa26413d3565161e5eafebc",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/commons/AgentBootstrap.kt",
+      "sha256": "700c0bee693455455fbfda9917098d92f7239d29e8eb4b4643d2697d3a379276",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/commons/AgentBootstrapLocalModel.kt",
+      "sha256": "416f571859c95c2317ab87d7e60b3b4c04dc59e947253fbffe14222541ac1420",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/commons/AgentCommon.kt",
+      "sha256": "853cde0d41a9b97920a442b161d6cfa3df8894d2da9bd36640ed478231a1f959",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/commons/AgentDatabase.kt",
+      "sha256": "9af727a54ea2a8e0a78dac7188aa64d97ce004b79a9e0c837598f063f5ef378c",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/commons/AgentHooks.kt",
+      "sha256": "ac36f9fcfbfe183a5f523398b825b53ef1c8dcd7ec52b01b486e5622609ae85b",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/commons/AgentMcpUtils.kt",
+      "sha256": "5104cbe55fdb4490f758551fbdea4329564f4b6e2fb7f19abcb11c25fae07c37",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/commons/AgentModels.kt",
+      "sha256": "bc1a7038914db52e44968321454e6d7cc1af5bc73b28438df374973966f94c43",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/commons/AgentSkills.kt",
+      "sha256": "23e2428288c8eadeede4768916253fb93bb8f19ef768935056c893bf97322f9f",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/commons/AgentState.kt",
+      "sha256": "cfec981627e63ebc5d7d314b74ae8099b5f250eb594c5122b10a521405eb2520",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/commons/AgentStrategies.kt",
+      "sha256": "8283a10f5780f89dfc71420c5d92887da04f90f9319e69f1299d2170e28ba5a5",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/commons/AgentSubGraphUtils.kt",
+      "sha256": "9c60ba186cdef0477ce9457ff90c8bef33b4e435682a7ddebc01d24e3f0c2b8f",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/commons/AnthropicModelIds.kt",
+      "sha256": "e04bb30cbb229c3dc669ea5e6f057af573740d2ee829203c864f0f3a32bcbf16",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/commons/AnthropicStreamUsageRecovery.kt",
+      "sha256": "50b5624a937f86f90ef2b48a3ac939446a20bb74c2d8a6c0f022d251e9c40f60",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/commons/CascadingFallbackPromptExecutor.kt",
+      "sha256": "76e8f0368e4742991e398352189769cf161751f69a7ddf9a6d82a1b058f0a0f9",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/commons/ChatPDFDocumentManager.kt",
+      "sha256": "be2b8800cbcd499b49cda82ba19ec84bdf3b8187772fc457b78423d8e2521071",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/commons/ConcurrentFilePromptCache.kt",
+      "sha256": "9c6c6b7eca2532bde527fb86b66559d8920507392a64c3d4fd3e988ba5021625",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/commons/DeepSeekReasoningNodes.kt",
+      "sha256": "6158297a79be1c3ede8bd490ffda06d2d32ccfe91cc9f9f247ac8d46195a6226",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/commons/DeepSeekReasoningSession.kt",
+      "sha256": "9a2a5ca90cdcf7a17e04257d8147526ffecd193408fd588180b6caf9d61a81a5",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/commons/ExternalAgentCommon.kt",
+      "sha256": "1c75dfedd0ec51e2f4cba34ddf12e155a726cab3aff0b9d53be9cfc820bc8537",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/commons/ForwardingLLMClient.kt",
+      "sha256": "ae0179d75e451d7f79d72446705c202e14e26410e25fa82f7c876058c26c1e13",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/commons/GeminiThinkingUsage.kt",
+      "sha256": "49622d07309f558838dcb240b58cb3c2ae1a1406a27adcf5ae5aa6b018daaf8f",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/commons/Koog1xCompat.kt",
+      "sha256": "bc49ea68d0c358e450ae49f626b5cb9b8a556e104acd3c04b1383d7f2776008f",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/commons/LlmEndpointPolicy.kt",
+      "sha256": "56cff19ff85e7d94a18d4ced9b9e56416339669a61c867605b205af983b28ddb",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/commons/LlmTokenUsage.kt",
+      "sha256": "bdfa727bbcc827945a50627ea1f0b195dbaad22b90100104c11f49281b558132",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/commons/LongTermMemoryInstall.kt",
+      "sha256": "0626e159acf6760680abe6b4bfd153381b5337c7839623a1952a8f30f01bf726",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/commons/MCPServerManager.kt",
+      "sha256": "8f9b32ad947af3b0cf77d03b2804f83ea811cf9e9ba1c4a2403add2f575b036c",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/commons/McpToolResultMedia.kt",
+      "sha256": "f5a624003708af741028c023de10af8454b4e030ac5e90f9ab860aabeaff4fc5",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/commons/MeteringSafeCachedPromptExecutor.kt",
+      "sha256": "9e09a31f3b48e836b988cb260a8f6a5a6c226aabcd9158f8bc5b1779858e0bc8",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/commons/ModelCapabilityDefaults.kt",
+      "sha256": "6098e85f5d6953230180331f4778931567fa2b8462fdb1450523660935c7083f",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/commons/ModelParamsSanitizingLLMClient.kt",
+      "sha256": "c686a17b6e234ee7eac4cf9a5cc197f26dd3e7e3e518a49da1c1d6d868da578c",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/commons/ModelQuirks.kt",
+      "sha256": "af4e18fa2f10f80cc98f9b0142338e8b9aafe6c9d17456d3a31604a67f65ea77",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/commons/ModelRegistry.kt",
+      "sha256": "051aa0a23730ec84d685e5711977365c54ff0cc18577444dc3b194593795c1b0",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/commons/OpenAICompatibleProviders.kt",
+      "sha256": "24dae874435d4025714d58c75ed2ba498c35d1f2930682342e075ebba0d4eb90",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/commons/OpenRouterResponseCompat.kt",
+      "sha256": "c86245f13d911add93efb602e9eb6aa917df86418a3acd2146ee2c5d52dddd6a",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/commons/PromptCacheHints.kt",
+      "sha256": "f9d3f05832954a259077bd088739e73cc3499e0ba20ac982825ae58588a985b7",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/commons/PromptCachingLLMClient.kt",
+      "sha256": "5825c64cd958890e7023a37e67066c57b3f8163d5f494bd29ada4bec053eb18b",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/commons/PromptExecutorFactory.kt",
+      "sha256": "77a035b03bc5f56828c35dddf434a7735a038a6fe833a5b755ddf1df9eaf8624",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/commons/ProviderValidatingPromptExecutor.kt",
+      "sha256": "d2685d60da0b6cc86c1854c51d60329398c04bdc9d6361e805e1fd141bd464b8",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/commons/ResilientMongoOperations.kt",
+      "sha256": "51d93871f8731ad7744bf78ea12a3d0bc112266fcb716facc047c5dd6a0da2f5",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/commons/RunFromCheckpointHelper.kt",
+      "sha256": "877312b4a8fa1417f15dce71cfad64f0d62c7f4fcb3d3bd2d362f004ef1077ac",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/commons/SandboxedFileSystemProvider.kt",
+      "sha256": "d16bf321a498fdfaaa4dac7e092c48555867da3cf3b4e23635263eb2e154d604",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/commons/ScopedResponseCache.kt",
+      "sha256": "e3806beedc5f0705054cab9ab24f422c0a6438d326d427f5009a4509d26e198c",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/commons/SecureTempFile.kt",
+      "sha256": "ad33e25ce5cce7a00af5e2222addaaa4024af09958095a7e6523173bcbb6eae9",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/commons/ServiceEndpointPolicy.kt",
+      "sha256": "c40505e85b98c92025944cb86e49a90c19b97c398ba2f44304071794bd0f0155",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/commons/SkillFrontmatter.kt",
+      "sha256": "7f220362908e681ccf70cfb86ba2d5616fe4627c88a7ebe1976aaecaa72b80bc",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/commons/SkillInstallHygiene.kt",
+      "sha256": "e07c553dea08e03413e568ba26d544c463e9a7d5f9cedd114b8525221628ce34",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/commons/StrategyMermaid.kt",
+      "sha256": "44605da943a18551ccfa97560fad6cbeef15b53a7553391294cae540c4e5fbc1",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/commons/StreamingSingleRunStrategy.kt",
+      "sha256": "34d39c7272e38b706949599a8944a6d6cf1a31871a9430427361007185644a72",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/commons/SubprocessExecutorFactory.kt",
+      "sha256": "9fc873eff7cc9f4abbf7fcb07cd75668422d61beb23f30899f380acbc527dc4b",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/commons/SubprocessSafety.kt",
+      "sha256": "1ca530dd5a0733f14f39d7d4a50028da477ab3b9d18403b3b5a6fb1508fcacbd",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/commons/ToolCallMetadataInstall.kt",
+      "sha256": "1be700e9904c0600e842b33f5458e70a678525ea75d1390e3ce9436fbce14fb0",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/commons/ToolRegistryBuilder.kt",
+      "sha256": "12379e9aefbb197407c9d5d174bc134a407e2ed6537cebdc2f5b6a9d25dca885",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/commons/ToolResultMedia.kt",
+      "sha256": "863c2e04984923716d8acc63d585b59e1e65fafb33148cd4153f08da2a3558cc",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/commons/ToolResultMediaAdaptingLLMClient.kt",
+      "sha256": "189d5345f030130fbfc37d809b14f0136cdc32ab928de82097936cfb501d7cc9",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/commons/WeakModelToolCallFix.kt",
+      "sha256": "f94af70d344195fb5f512939be420d679e8e149066d0ac5f69dcd23582caefa6",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/commons/WorkflowRollbackRegistry.kt",
+      "sha256": "bc95ca1768a85f4b739342f9d3e26be11ebe0b80a06a5805901ee60304e7c367",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/jev/JevApi.kt",
+      "sha256": "d2c85df4edf98a89efa508bbc2edcef349cb453079af012fc9b5da2f2af5e761",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/jev/JevClient.kt",
+      "sha256": "271d7ca5bb89a0bb6d8aad765c88ee59cf12267aa9cd6353476ddaed6b6d8fb1",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/jev/JevCredentials.kt",
+      "sha256": "418abd01114f58a962810b07cf91550830f8ee6f7152c15d2fb9853a99d23c8f",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/mcp/AgentMcpServer.kt",
+      "sha256": "1c73a1e2e9366583b21b77b42e8a46bd231833ca48e7c832097d9674bd64b637",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/runner/FrozenWorkflowBundle.kt",
+      "sha256": "3405e2711be736dc6bb828ba32c1d77b0d913b22e4306fa747bc2de777ecd97c",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/runner/RunnerAdaptedAgentTools.kt",
+      "sha256": "9d777aaa1a43311985e646dc24aa1a2fe12bd393c04bcef042d8c6718f7a935b",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/runner/RunnerAdmission.kt",
+      "sha256": "3771210787cddf4ad94161c83cf2eafcebe3cc7d2cee2ee1a733235b5a744109",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/runner/RunnerAgentToolPolicy.kt",
+      "sha256": "7be9a7b55d99979cd6202a379172a3f45538a0a088e7055fbb4db5e1a2fed145",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/runner/RunnerApprovalJournal.kt",
+      "sha256": "a8d6ced395eff4f19cfe06bb2eaa4032ba62f5ce3b735b4819e330af819dd731",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/runner/RunnerArtifactPublications.kt",
+      "sha256": "62b59dde3c46b969f8327392201142c7bef61c867818fd19c2cf4e5963d1546f",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/runner/RunnerArtifactReader.kt",
+      "sha256": "856d8a697da746e73ce2ac2c8d0e421a14f727e566a934d5813197ff87545721",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/runner/RunnerArtifactReadyBoundary.kt",
+      "sha256": "6705f61d48ac4599deff26e4ece47bbfd1a6ddb417612f6b5f5be73add0f10e2",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/runner/RunnerArtifactSetPolicy.kt",
+      "sha256": "17bff8f6469b3e8ae45d8618038e48f43a4eff6878e57077c1d379108171331a",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/runner/RunnerArtifactSets.kt",
+      "sha256": "28534fc22d6e478cba12b36e15906bf5b729c125383382636c661a85dd5d4d73",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/runner/RunnerBusinessBackendProtocol.kt",
+      "sha256": "708f2cd7b1e7ee982c6a75384a5eab1fd477306e2573dd0393c147bf76f393b3",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/runner/RunnerBusinessFence.kt",
+      "sha256": "e47d98f383182d5fcb91945793c69871c4352c07b1e05850ced82b1ca28412d8",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/runner/RunnerBytePipe.kt",
+      "sha256": "919858ec72e875b5fe08dd798dd2bf6fa667bf6b82e10453d5b6bb0836501a6f",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/runner/RunnerCallbackTokens.kt",
+      "sha256": "60dfa76d4c3bfe3313863641375898457fbf47409fdcd6d20093cd318dfdeb7c",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/runner/RunnerCheckpointStore.kt",
+      "sha256": "c2a994b3c4371f4feb64befe39da88aec6cd6a57c528378ef9feee8226e5beed",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/runner/RunnerCodeControlNegotiation.kt",
+      "sha256": "dba846c04c86120f4791fc778d3ddd97b7658a77bf138387d384179d122ccb91",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/runner/RunnerCollectionBarrier.kt",
+      "sha256": "83595d44acef6c1d2e4f8068eafd291992bc8ec1e9f504f2c0bac36c7a0344a0",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/runner/RunnerCollectionPolicy.kt",
+      "sha256": "6da628dc4190860ab9ee05e08397eff36e51c5aa7b8766ce437663bbba6d3b14",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/runner/RunnerConnector.kt",
+      "sha256": "8355d5808f845a0cac55fc3de079e8e8d83d2f378d94844809a031107c309b1f",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/runner/RunnerCredentials.kt",
+      "sha256": "052c5ba6e240373ad5000683f1af2ca381c50f1fc2ef2cd6c189535ec7f3a6c1",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/runner/RunnerEarlyControls.kt",
+      "sha256": "cf77ad7a6a3f4fc914648c9c75ef8ef0fd65df15a4af5a35e237da3078e682c6",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/runner/RunnerEventJournal.kt",
+      "sha256": "4fc37c599c0f99366fb522cb3788331455b7b45b0171c085a03fe65c7baa1408",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/runner/RunnerFileConfinement.kt",
+      "sha256": "89c570372fccb1d8eeef1827baf2d2477c12c86d83919c5cb5f9a139dcca59b8",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/runner/RunnerFileGateResumeProtocol.kt",
+      "sha256": "48755db2a0ef72c098582e4e9b6a05afcf3b77673703e938de6184168c9bfb26",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/runner/RunnerFileTools.kt",
+      "sha256": "44ebfeaa8da607cf3cae80ca5131c519cd8fee56444a558f40530d32bc84a1e6",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/runner/RunnerGateProtocolInventory.kt",
+      "sha256": "c63a0c127a0ee667a3095b30f41db312adb1881288e41cb91e6384cd8fa02c65",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/runner/RunnerHostMain.kt",
+      "sha256": "823d61b1993c6880cf964f1a568568c1eda7653a0e1626d6301103608d959921",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/runner/RunnerHttpClients.kt",
+      "sha256": "9c0dda667f143cab0d3877ee41a28f83db0c5bc641507fd3f21d76654a5acca6",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/runner/RunnerHttpProbe.kt",
+      "sha256": "f6fe13975fe5e2ecfd37e24d4f661201295dfccb71fc922b06bdd5c04d81d944",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/runner/RunnerInteractions.kt",
+      "sha256": "5214a278136b47c363f65e9bfa4984f5bffb6a853ec875e305e0e90bbbcd0f60",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/runner/RunnerInteractiveProcesses.kt",
+      "sha256": "3199c04e06a258af4b911535fcc35f13e7c230ff0fa462650142922fe0e05799",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/runner/RunnerIpc.kt",
+      "sha256": "bc6e656814b7d59d80980f1e4d17f4f9b79a29081f3da812382d3242f66a202b",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/runner/RunnerIpcLocalModelAuthority.kt",
+      "sha256": "e9877d1eb75604eb54f73d272e99f31b03bb68896c4a2591036e62b1e30e9ef0",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/runner/RunnerLiveCredentials.kt",
+      "sha256": "3be61cbdd9f108f0896f74c890adbdbb17b72257249c87458c21b0baf0b31781",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/runner/RunnerLocalModel.kt",
+      "sha256": "0915a3f71c670e62d76ed96b3c90ece50ac1cdb381bf8f6bf7ce504e293dc14e",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/runner/RunnerLocalModelPolicy.kt",
+      "sha256": "dd4604770fcb64dd43b38cdb51348e3cd0b9ea82dc9cd5df697ad6ed659c98fb",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/runner/RunnerLocalModelPromptExecutor.kt",
+      "sha256": "72bc9e872aced31491f2b3227aef2d31217ca9925e49c501dd80d51632a658c2",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/runner/RunnerLocalModelProtocol.kt",
+      "sha256": "23be16719f745288a5546b54dea5b73050485bdfbf2861467589bd5c4f826267",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/runner/RunnerLongCodeProtocol.kt",
+      "sha256": "bc6e72fc0b4b67bd3d5bf803b7c0a36e71cfd46ef11b13548cec08bf5470a1e0",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/runner/RunnerLoopPolicy.kt",
+      "sha256": "7a87c629303cf8cd8ae7213400fa5c730c1db92df901ba582558d09f505ab252",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/runner/RunnerMcpTransport.kt",
+      "sha256": "065e9f144dd3539e660541578cc5c1834ca8ec5dbbb24fdc854b8708106c8015",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/runner/RunnerMultimediaHostPolicy.kt",
+      "sha256": "14a33f0dca0e16ef39418fb7938eab9a70aabb116463329e6353ce2d21323cd7",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/runner/RunnerOutputs.kt",
+      "sha256": "ff9beafa04bc0c70dd204019cfc64fc782dc3952e95651281dac7bb353c220ba",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/runner/RunnerProcesses.kt",
+      "sha256": "b844a97dc84e2a4afd1959397a8d1cdb6792289e36566eaabeff04020aac061a",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/runner/RunnerProtocol.kt",
+      "sha256": "899e5c40363394ffff2799d19fe4e4bd2a6d27825b80e8eeba36d5b7f68db147",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/runner/RunnerSandboxPolicy.kt",
+      "sha256": "aaeb2bceadd2d0e5d2b0b60f23aa3d623c88645dabb28e025880aa987fd2cfab",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/runner/RunnerSandboxProcesses.kt",
+      "sha256": "c6507e312dedaa8d349465e9d6c177375d069004723d09debae0543785929dce",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/runner/RunnerSandboxProtocol.kt",
+      "sha256": "7c6b97b0e95a65b275cf2caa0486e80e85aca32d45790a26a913fc06fa557bd1",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/runner/RunnerSecrets.kt",
+      "sha256": "73bf1a4ac2325e102285ebb940b3ad35b08f46df014220e90eca08aa0b131829",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/runner/RunnerSkillsPolicy.kt",
+      "sha256": "c40122b7a4203bcb8896e9edaff5f6c128ffbedddb5f9f0ef83e317ed01c6cdf",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/runner/RunnerSubAgentFactory.kt",
+      "sha256": "bb89a20f920d5960ee06bbb650a60ee3adc713f6afbd95c9257df785f78179e8",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/runner/RunnerSubAgentModel.kt",
+      "sha256": "e723bdce7a22966f01dd9b93a9d920f6fe57398ffaa88c852d832fc48c1b5213",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/runner/RunnerSubAgentTools.kt",
+      "sha256": "902670612fd17ac42d6211afd0e96eeef2236759a063108b7793a92d80046f1c",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/runner/RunnerSubAgentTransport.kt",
+      "sha256": "25e07907c15023fc0f700159250fc0543d57cd02e93a4add269877511aa909b1",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/runner/RunnerSubscriptionPool.kt",
+      "sha256": "c44ee3b6777e9d4e15ea0fa690b71ad4dbdb9acb2f5dcd5a7da473282682157c",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/runner/RunnerTestContractProtocol.kt",
+      "sha256": "bbd261b0dad55ef7dd3d4d24325e912a4715540ea61286ed532f99761ddadb3b",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/runner/RunnerToolFileAccess.kt",
+      "sha256": "1bb5a50368490b67311346d1e4b2314466cb7276533783ea16be487f524f9090",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/runner/RunnerWorkflowHost.kt",
+      "sha256": "9827ddc89b8526d1eb3431269b197721a5ac8a99ef14d3f91ab1f9cb08c8664a",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/runner/document/RunnerExcelEnhancedTools.kt",
+      "sha256": "a9d5c0b5d435351cba0129164b4fa56a131df9886c4a1f32d8bc2359c4501352",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/runner/document/RunnerMarkdownToWordConverter.kt",
+      "sha256": "53d5d0655ae384cd1fc6306b2ce9f7baee252724db3abab85c8719e83f63b06b",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/runner/document/RunnerOfficeAdvancedTools.kt",
+      "sha256": "3a535aac37ccec13b25d070df81881f8bb8e3fca22218f2eed92a33ad70fc54e",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/runner/document/RunnerOfficeEnhancedTools.kt",
+      "sha256": "62a3614f7d4f2b9382a5cc6f6fc000f1c2f5bdc3400e2776b85afee89b5f54b4",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/runner/document/RunnerOfficeTools.kt",
+      "sha256": "98bb0141d3908a7aa33e54bd567df9cf988f389805bcb0a85f8880d759c4c203",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/runner/document/RunnerPDFTools.kt",
+      "sha256": "1255309dc921f8eaf6d4fac051e544349119acaf4d45555a8073d70d3a062c0f",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/runner/document/RunnerPowerPointEnhancedTools.kt",
+      "sha256": "0f392c2817d798a2012e4a7cbf8afb2506230db8c9930b0285828f40eb1275ae",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/runner/multimedia/RunnerMultimediaGenerationTools.kt",
+      "sha256": "10b09fc755138e1c53120e4f2f50a44d4b920f9cb58dc2de7e9d564cf7c361e1",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/runner/multimedia/RunnerMultimediaPolicy.kt",
+      "sha256": "7edaed53392bdddab812f7d9eb2c3066444521aaf6d4c9bf31914ba4b346d07a",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/runner/multimedia/RunnerMultimediaTransport.kt",
+      "sha256": "1b526342045ef944411edf2db2e75cba41d9f5ebe80bdb123a15b3e449a93b42",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/tools/AppAnalyticsTools.kt",
+      "sha256": "5eeb0cbf6ec89c59270dcc48a3c301386514d38d20e4fb56bb10f76e7e636e9b",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/tools/AppleAppInfoTools.kt",
+      "sha256": "cec3eaab2d97e491521eadc1c3faa28d63087b4a2b31412a4d0c14591b26c399",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/tools/BrowserScreenshotTool.kt",
+      "sha256": "582515f32b21ce2e281b698a94360680a138e3cb7f09d21a70be2c555f0f3e10",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/tools/BrowserTools.kt",
+      "sha256": "917296344b95a8bd7c6203fbf855e868a9937cf1feb751ccce14d8f334da80e9",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/tools/CalendarTools.kt",
+      "sha256": "2edc0ad23647b28900e9cce101b034d1e5720ec7231210c6df678ca787e84adb",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/tools/ClaudeCredentialProvider.kt",
+      "sha256": "71acb5caa362a14ddf4e5a62b766460d3189182dabe967d6584a1458b9aa4736",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/tools/CodeExecutionTools.kt",
+      "sha256": "cd4fa44cca19739afa8ec3c2b384f2e7c0137779082e7872436de6203acd8a8a",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/tools/ConfinedCsvOperations.kt",
+      "sha256": "6c82a506c1fed4297d6ab3ed440f44fcdc0a423e440ee22c10a60c549e76f9d7",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/tools/DataTransformTools.kt",
+      "sha256": "93463d7daf24f9de3781eec1fd5831f69aba13ca2de9b059b753a363dd0dfbcf",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/tools/DatabaseTools.kt",
+      "sha256": "469164b3fc2c31d47c04866ec6e0ee6aeae0106eb969b5530334bb762eb6bf57",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/tools/DocumentMemoryFonts.kt",
+      "sha256": "bdba3c5f6c5c39061fe461f12c99eb7a5db50ac2e9b26d4d9d5307df0a1034e5",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/tools/DocumentMemoryRuntime.kt",
+      "sha256": "8f699f76e880bc753f02c7aab28405198badf03ce92ced34e91296b062257b7a",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/tools/DocumentToolIO.kt",
+      "sha256": "c0d25b16172da4a72fc752f4e2acfbbce9923e286a72ee30d0d45fdca58d8d83",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/tools/EmailTools.kt",
+      "sha256": "b3ee9e7a066cb153fde94a7b1b969b4bb8462788c4465683054362ba857ca296",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/tools/ExcelEnhancedTools.kt",
+      "sha256": "de45d374de5274bbcefcd219fdbc3203b6bca6c58bfdccc5dfa2a219cafe5479",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/tools/ExternalAgentTools.kt",
+      "sha256": "a1588b4a1ba764686d680ef68d3b58715ca32b6d67b1d5b00b2e9b039073bbfc",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/tools/FileManagementTools.kt",
+      "sha256": "a7d2f2ab55b916c1bfdfccb00f9678b5ab6cf770119e0f40e251ed80026f13e4",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/tools/FileReadGuard.kt",
+      "sha256": "67c67e4c3a2d4d542fb467c1110dd495a0db010340daa9a93460ba0a8e1919cb",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/tools/GitTools.kt",
+      "sha256": "f19d209190f76c75570f21978d423f8e6794c9c2585aacf4db6147a337f24ec6",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/tools/IWorkTools.kt",
+      "sha256": "6847f3fa0cfc1c0b57e24c007a40d0e7dcd9f01841b64be182f7e3c8e94bb3a1",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/tools/ImageProcessingToolSet.kt",
+      "sha256": "0e38bb1455dc1772205de4b97e37feace96b61ef742d4e1a9a549703bcb1eec2",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/tools/ImageProcessingTools.kt",
+      "sha256": "f15abf6f3b0c0ade3c33f3a62dc414b529e6930684bb28325919e76eddd6bb11",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/tools/InstantMessagingTools.kt",
+      "sha256": "1cc59145b5b0ca4195f521a5ac72b4ef0dca8a7b73c85c5496bf838702393c30",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/tools/KnowledgeMemoryTools.kt",
+      "sha256": "102cd553136cf2c2295b727926a8334762e76d146a77817b0e5ddf1495b032ab",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/tools/MultimediaGenerationTools.kt",
+      "sha256": "a0c2467b5bae688b9ef8d2495866a632d369f52b98dfade8334fd1d667b283d4",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/tools/OCRTools.kt",
+      "sha256": "c0d8af2d85456ecfcbdb8939e13c78d13bf8da47a31867f43626e6dfca665635",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/tools/OfficeAdvancedTools.kt",
+      "sha256": "43d31e9118d692988f3d23b28c2c724b38646762218365daf79ea8a69655a692",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/tools/OfficeCsvTools.kt",
+      "sha256": "c2d988fb96c7a666d4dfce281450d77080f8444fe08885ac8cfa0540c69020d8",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/tools/OfficeEnhancedTools.kt",
+      "sha256": "e55b0e68d377f0895f876b7190f97165c6e159f0acb60aedc9a6fd54faf1f911",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/tools/OfficeTools.kt",
+      "sha256": "7ebe78c1f4094cf7b8012c05b9e279a054180348e972a4905be49ea2843c7236",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/tools/PDFAdvancedTools.kt",
+      "sha256": "3d5b21e57d960f2dfb9663b22190a3f5b340b84ab988a2068e01cae73edf75a0",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/tools/PDFTools.kt",
+      "sha256": "131b15b86bba8688370a07dc86bef825b99d8ba34fc7f43cfef18e3ed0752d7a",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/tools/PoiSecurity.kt",
+      "sha256": "3a39e11d8a36bce0de04c9e5add0ba465c89ad8ab537cb4b86d0d767c408db4c",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/tools/PowerPointEnhancedTools.kt",
+      "sha256": "fb730050932244754226738db98a1b265b137ff10bf84d38d71e3f941c0fcb9c",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/tools/RAGTools.kt",
+      "sha256": "672aa7b483973277349efde80d9ab10981ff781e7c8251d011d6415c108d6ce9",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/tools/SafeFileTools.kt",
+      "sha256": "ddeb3d79f3ad878bcc38c3df1e680d47bfe53904d41de8b89cab285c4c27b8ed",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/tools/SandboxAgentTools.kt",
+      "sha256": "c36c1959de0ee55a09a9e704019fcd394365ae74fdb2d9931b70e3eca5b81d81",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/tools/ShellTools.kt",
+      "sha256": "24f269de4b15b6ad5458545650cb51573b33dc8021072f818a997376fe72ae07",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/tools/SkillAdminTools.kt",
+      "sha256": "78950258f0ed6a874655e46557efb1aa0659354e9604b2d858454a35d2411808",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/tools/SkillTools.kt",
+      "sha256": "83d59829e22ccecd1d96f2be462fbba7d0b9fa5b8755caf5d2390d9ff0231e19",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/tools/SpreadsheetSafety.kt",
+      "sha256": "8181f6b242a0405050a612d97d8bc123cde597f64ad6cff77f99b8c064a27906",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/tools/SubAgentTools.kt",
+      "sha256": "1fde4e684d1f90f467adae9ba9f7de0a13f7075a5dc2805f8315f977acb889a3",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/tools/TerminalInteractiveTools.kt",
+      "sha256": "2ea6803c483d5a4a8a244f8af4846d1e678c4e46b9745142400b876eec5c78b6",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/tools/ToolByteBuffers.kt",
+      "sha256": "f22a83431aa9757daa94371bafbb45b0cad4ee9a1343aad40e8ba0bf7a7c7651",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/tools/ToolFileAccess.kt",
+      "sha256": "27913a9252ada0a1071fdd132a31f940350e16d24c18f53fee15ff0ae16a1cd7",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/tools/ToolPathSecurity.kt",
+      "sha256": "77798fa58afea981551df4aa0de22a758c1ef0931e764dc7166b3dd6e78c0785",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/tools/ToolRunScope.kt",
+      "sha256": "47a124ae773e7d9ffd8177555c76b45b7af8f593a928886161eba03c8d442462",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/tools/UrlSafety.kt",
+      "sha256": "87a001b47a33203eea725348b97e14d3a3741f70cd9b021b33e4358e1bb7b610",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/tools/UserInteractionTools.kt",
+      "sha256": "007dddfd948ec5431e5964c5ef3cf0c582465cdc40db55df220cf2e15cf23150",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/tools/WebToolTransport.kt",
+      "sha256": "19c3294e5ec78281475c1835190deb47d2eae8de4264ac995ebdaa6567578c69",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/tools/WebTools.kt",
+      "sha256": "2145b10ef4ce8483d956a55d11a93cffa60121e598a2e46088df1b8f4cbb7e5b",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/tools/exec/DockerSubprocessExecutor.kt",
+      "sha256": "879fad395d494bfcdf42d7abf629b72c2c4435f790cebada5080a395b8fffde3",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/tools/exec/NativeSubprocessExecutor.kt",
+      "sha256": "696b332ce04cc50a6e2aa4accc3cf89d854860c81f3f79c2ddea40a79cd8a891",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/tools/exec/ResourceWaitBudget.kt",
+      "sha256": "e4e155f42b28b2b570b50e86241267ac495d5223819c7a11f29ac9effd60f6f6",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/tools/exec/SubprocessExecutor.kt",
+      "sha256": "e200241c31dd03628f589e8a839d1b672f158aa04493ba14bdf5850910033ede",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/utils/TerminalFix.kt",
+      "sha256": "cc16dfd1a5be874e6489f1b94141f7c16a54c9fdfa3d5151c6592ba12a36ccff",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/workflow/AgentPresetRegistry.kt",
+      "sha256": "21324067e1b430072309178806f40080cae1304909fb6fae7a88e0ed9fc1d4c2",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/workflow/ConcurrentQuiescence.kt",
+      "sha256": "750af0ce29b014f466a7fffef17c45151fb097cdeff0fd9099c5fc10ac7ee84c",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/workflow/ConditionEvaluator.kt",
+      "sha256": "1683820ce25b195210a0d09b28a74131b5bda15eadba2d98fd13994c49a1e93c",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/workflow/ExpiredRunDirectorySweep.kt",
+      "sha256": "4524fb3a2836b278769c6a0f671511492378c926097e2fd7a7aa40aa98e32e12",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/workflow/JevDecisionRuntime.kt",
+      "sha256": "e99e6fd39875fc21769dc6f73ec5bc7fb7366b227790cf80fc2feb700352129c",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/workflow/OrchestratorTools.kt",
+      "sha256": "c919ab29769862bbf520e4704e939eae11b7ea10708f20b409bc40cf7c877824",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/workflow/RuntimeSkillMaterialization.kt",
+      "sha256": "c2474e89fbffc71a0deade804ca8ef04af8370570a29c5b599d94328ca018c96",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/workflow/StateMachineEngine.kt",
+      "sha256": "e3784a497d50e070edbd11d2b98c038acbbd1efb1c9db1d703f4479a587be567",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/workflow/SubWorkflowConfig.kt",
+      "sha256": "f325bebaba432c6022f328fdf4bb1f6bdc0a9750b9d30520b1a63b1ceec41296",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/workflow/WorkflowAnalyzer.kt",
+      "sha256": "e46c91c71fe04bd4a4331a5097f1c413e87c04ec4d078bbaf6640b613cb7ddae",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/workflow/WorkflowArtifacts.kt",
+      "sha256": "b4acb19511908f59664d590e88a219c0a786a47ab73dae6e2d773d869a302c83",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/workflow/WorkflowBatchExecutor.kt",
+      "sha256": "f90d9822f842b6b90452c4b0fa43ccce88752889033692b0c0cc53bd20b8807f",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/workflow/WorkflowCodeControl.kt",
+      "sha256": "3f76fef1d230f2e46eede8f6f6e6e86517a3bc77fccc2ceb2fd1beb8739ad401",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/workflow/WorkflowDebug.kt",
+      "sha256": "cc47d742e4efd3dc56c95420cafab23d34b17c1b887f6efec838bc2294bec40c",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/workflow/WorkflowExecutor.kt",
+      "sha256": "b492a656d8b7ac3543f2e078ca280fbcceb6bec9d09909e64f0845267b535e83",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/workflow/WorkflowHost.kt",
+      "sha256": "36179709d3016c703eb1d7b20f86e9f8c0180d27f0d31b6a61656e3c8b9c87cd",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/workflow/WorkflowHostContext.kt",
+      "sha256": "bb92f1be98a8e6f2ccf636d3a4fd90b3d9529e667ee82515981776b4113e3646",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/workflow/WorkflowHostLocalModel.kt",
+      "sha256": "660f79bc2a80016d69e36db226d089491d2166251e0eb26e6ec94ec5785174c3",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/workflow/WorkflowHostPolicy.kt",
+      "sha256": "7a7007e2b3fb45b431a143f512eb5f1aecf59b7dbc25626b8bc66f164cb78f06",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/workflow/WorkflowInteractiveProcess.kt",
+      "sha256": "34ac190898e636725cf0209d5de71bb223389cb5f480c291a7c699ecc3c65010",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/workflow/WorkflowJevModels.kt",
+      "sha256": "e84cf24cdcecc7d8ff887dc1a0a54b4efc823d02f096528a4bb9f142248d2f72",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/workflow/WorkflowModels.kt",
+      "sha256": "173732cae1c99a47a9f7ec8142dcf92cc61851a1fce8b8ec9fc883cacd185e21",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/workflow/WorkflowModuleContract.kt",
+      "sha256": "6eba90398e2da79991b8703acf25a05567a7ff953cebec7fb23a24909f35d5f7",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/workflow/WorkflowMonitor.kt",
+      "sha256": "d574975810c9e9d63c23afb28c66398fe06b04b5ba817c31813de1abedc8f3f6",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/workflow/WorkflowOutputRuntime.kt",
+      "sha256": "c08aaef0935d90cb1f662813f396533dacdb19960b56868eb0d7e5ef0c970047",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/workflow/WorkflowParser.kt",
+      "sha256": "a429e763946cde463aee0414d075a69a81a69a27df6080421b61cda92a6b497a",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/workflow/WorkflowResolver.kt",
+      "sha256": "c909026d79df9af390681c6f83e50194a08ecec60debf80861b134fe4e71d0bf",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/workflow/WorkflowStructuredOutputs.kt",
+      "sha256": "34cb6fbeb0942a6a79617dd33450334cfd49add75bc798c61c5772f38bedf7e8",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/workflow/WorkflowSubAgentRuntime.kt",
+      "sha256": "14078378bf1a08f91c9d97425ea24dee056a265ece14236c12a8a313847613bb",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/workflow/WorkflowTemplateResolver.kt",
+      "sha256": "fbe5c9eb5b12d1588b679184ab0a8b09c3c494db5b8663771a219637ddb0a362",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/workflow/WorkflowTools.kt",
+      "sha256": "440a1e08d766fa771be12cfd6aec6336f47e6d4a44d293bc226e98e56525329c",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/workflow/WorkflowVersionControl.kt",
+      "sha256": "4b4dfca689d444f3b76c0a32c3be5eb0546e2296fcbb3f57c626ae4b164bfab7",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/agents/workflow/YamlJsonElementSerializer.kt",
+      "sha256": "05165af64a986d983762d20fc25e23996cf186f5db2b9a6ad61e3a8d68d264f5",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/ftapp2/EnvironmentConfig.kt",
+      "sha256": "0d86db50b019edcff73dbe05af0f52bd960d33af2d363877486694670d9479e3",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/ftapp2/commonsKt/Configuration.kt",
+      "sha256": "6e294b4bc4d1ca91bf108ccf6a592855f31d2a35afcf998e2d16471eae8fa2b5",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/ftapp2/commonsKt/ConsoleUtils.kt",
+      "sha256": "02d8b6cf59021f6061d4036f79cb57e33b87c21042dc0bc7a5e15a5eaa328875",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/ftapp2/commonsKt/HttpAccess.kt",
+      "sha256": "8b8fc01ede085d076cd3daae6ff16d37eb282fcb64f7f9f0448ec6e6eec08ad0",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/ftapp2/commonsKt/HttpHostSafety.kt",
+      "sha256": "4bba2e4f3e70800f48c689de99d82307824601f4efaf0dbb27471a53fc43d09a",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/ftapp2/commonsKt/HttpSingleDispatch.kt",
+      "sha256": "341f93abe54a526114c8461305b696f335b07aa0c23dce2f844a7fc967ae733f",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/ftapp2/commonsKt/LogSanitizers.kt",
+      "sha256": "46dd48f2556e49d21212cd494faddf905236aafe392dc68b4e9194b6b46beeff",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/ftapp2/commonsKt/MarkdownToWordConverter.kt",
+      "sha256": "1ea02ebc971eb8948873bd42d615a336fa470d7a90116bb17be979dd5d6f61eb",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/ftapp2/commonsKt/MyUtils.kt",
+      "sha256": "d475a410b29a3d371e07848c734ce17c1dab16d03e0ccd16e7798927b8dfe79d",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/ftapp2/commonsKt/jackson/KotlinxDateTimeModule.kt",
+      "sha256": "7ba8b96fbcf16b4140b6e0479c33abdcc31a163112128746e6ef9737a25db2e1",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/storage/DocumentStore.kt",
+      "sha256": "1dd75468fc7195df500a9407e9c47086b3f6b847f811889b68fafad07ceb3fdc",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/storage/DocumentStoreFactory.kt",
+      "sha256": "703ee3f4a95202a41fc8db919e471d70db5e558b98da3846103af06e5717dc05",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/storage/InMemoryDocumentStore.kt",
+      "sha256": "bf1f057030c66a4c3c1f70a6750114fa6c50157f583f1717922221e84b1ffee6",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/storage/MongoDocumentStore.kt",
+      "sha256": "8fa1b3090c20b3641fd5475479c3a0173edf729a82441d5b5da52b3ed46b4ff7",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/storage/SqliteDocumentStore.kt",
+      "sha256": "bb803aa50ec346999bc7b091c9b104d28dd2bca56113dfa655e425ab67002dc6",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/storage/StorageProfile.kt",
+      "sha256": "c8e7911c141f6f01e60aec7cb2b7d8eb71c5f66a6d5a3c6baec721b0c92e8bce",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/com/fartech/storage/TypedDocumentCollection.kt",
+      "sha256": "0a0c9189bb745d127898d5168487b45cb7e52a820ff4466e1c8febbec77c1481",
+      "matches": true
+    },
+    {
+      "path": "src/main/kotlin/org/openapitools/vertxweb/server/model/AgentPersistenceModels.kt",
+      "sha256": "611df9fa41e3160073c9cebbfa7611dfbdc307b1167183394046484ac3bdd7cf",
+      "matches": true
+    }
+  ],
+  "resourceChecks": [
+    {
+      "path": "src/main/resources/agent-presets/chat.yaml",
+      "sha256": "77d3354c51626029eeb08ef05ab2fd7b5e260d3856f1cc4a8869bcbf1f11932d",
+      "matches": true
+    },
+    {
+      "path": "src/main/resources/agent-presets/coder.yaml",
+      "sha256": "af84cd28e52ac9659a40da0d32c85f44edeae1f16939f2f1e0b32667231e5f05",
+      "matches": true
+    },
+    {
+      "path": "src/main/resources/agent-presets/communication.yaml",
+      "sha256": "ede3fd96a71e56964ff48b75807a6a2b18ee64de2ace181419f6053624666531",
+      "matches": true
+    },
+    {
+      "path": "src/main/resources/agent-presets/computer_operator.yaml",
+      "sha256": "e14c3bdbf0f4bf8ed890c6272a9f65600a73d4468fbdade7b13e904a5c479d41",
+      "matches": true
+    },
+    {
+      "path": "src/main/resources/agent-presets/data_analyst.yaml",
+      "sha256": "f8179f35b998a372f2641e7c283b9d5ef737a4535106ece8de6d66b1016ade5e",
+      "matches": true
+    },
+    {
+      "path": "src/main/resources/agent-presets/devops.yaml",
+      "sha256": "d80568f2109b28a2cd6d31c3af8af7b5f6d0985e49b20a3d8ec20d5f1e8fa3c3",
+      "matches": true
+    },
+    {
+      "path": "src/main/resources/agent-presets/excel_workbook.yaml",
+      "sha256": "f083e67d0ab5bdfb4681af2d1599b2093f19982d00624602a20de9a469564cea",
+      "matches": true
+    },
+    {
+      "path": "src/main/resources/agent-presets/lightweight.yaml",
+      "sha256": "4d4b5f515edff5a020313fea9056506f4cb7a0f21a97cc396ad94d0aa6447c31",
+      "matches": true
+    },
+    {
+      "path": "src/main/resources/agent-presets/marketing.yaml",
+      "sha256": "1f393cbb459180040519e418cebe92c87c00a087e4360438aa3fed26e5589b93",
+      "matches": true
+    },
+    {
+      "path": "src/main/resources/agent-presets/multimedia_creator.yaml",
+      "sha256": "5ca8fc47018ab3e6444e5a971a34e04f75e13a3f1c9a9b5bdbe510c10b952c71",
+      "matches": true
+    },
+    {
+      "path": "src/main/resources/agent-presets/office_document.yaml",
+      "sha256": "362ab4468e0aa280b5fe2fabe54eeb4694be829edd276e7d6bffd5f5ebd38940",
+      "matches": true
+    },
+    {
+      "path": "src/main/resources/agent-presets/pdf_processor.yaml",
+      "sha256": "4fa3b7de7b5d8d551e9abdea755af753076e4b47eeb93ddf7fa67e651e55a81d",
+      "matches": true
+    },
+    {
+      "path": "src/main/resources/agent-presets/powerpoint_presentation.yaml",
+      "sha256": "298d179021d9cf9ddd1abc6bc09683f173afac82909d40b73f984d7b2b04e3ef",
+      "matches": true
+    },
+    {
+      "path": "src/main/resources/agent-presets/researcher.yaml",
+      "sha256": "270446b356864ab7b5c2ea997c155d143430f41afe05e743d7e6474ae1e905f9",
+      "matches": true
+    },
+    {
+      "path": "src/main/resources/agent-presets/universal.yaml",
+      "sha256": "312385015b8b8fe9a39b995c72e51f8e58df74ed05a84ec78f3d9fadc172f20c",
+      "matches": true
+    },
+    {
+      "path": "src/main/resources/agent-presets/universal_reasoning.yaml",
+      "sha256": "9c26594c6c876bc09a3b53d05e5a898c8d8fb8a6d94079f41c54e517da7a7e45",
+      "matches": true
+    },
+    {
+      "path": "src/main/resources/agent-presets/web_scraper.yaml",
+      "sha256": "e3c5f1266c7831ec443d6ce620eba14b25f708e7e937edfb9c7aafa6722ea9f8",
+      "matches": true
+    },
+    {
+      "path": "src/main/resources/agent-presets/word_document.yaml",
+      "sha256": "48ffee1827874f723f866ee736852ac7b0b8a6994cb35a4c828bbcf9ea472344",
+      "matches": true
+    },
+    {
+      "path": "src/main/resources/agent-presets/writer.yaml",
+      "sha256": "dffee2b5087fbbfe675636d80fcaed61d55e94d35d15fd138116278e09fd1d8b",
+      "matches": true
+    },
+    {
+      "path": "src/main/resources/builtin-skills/braidrun-workflow-guide/SKILL.md",
+      "sha256": "b7cc937e3f81d601e1d12fa98ca843e2fbd4a2d0407694b99df811dc23577b63",
+      "matches": true
+    },
+    {
+      "path": "src/main/resources/builtin-skills/braidrun-workflow-guide/config-template.yaml",
+      "sha256": "7e101df0f71efe62902c0d88ab0a3828108b608ea547686767e40542099f7fa1",
+      "matches": true
+    },
+    {
+      "path": "src/main/resources/builtin-skills/braidrun-workflow-guide/resources-index.txt",
+      "sha256": "a677d67fbbc6301f1ccbadb3484eaae364449e350eaa9c110325789489189980",
+      "matches": true
+    },
+    {
+      "path": "src/main/resources/builtin-skills/braidrun-workflow-guide/workflow-capability-reference.md",
+      "sha256": "19c49240c3cf13c6e1c25bfee2307766c44198d6017c4e13ff8c9dd2c8c96809",
+      "matches": true
+    },
+    {
+      "path": "src/main/resources/builtin-skills/braidrun-workflow-guide/workflow-template.yaml",
+      "sha256": "dfa58864f3006fc483ba70d44195082b245ddc1dc60be021110e3077fc44f45c",
+      "matches": true
+    },
+    {
+      "path": "src/main/resources/builtin-skills/builtin-skills-index.txt",
+      "sha256": "c8b237236dfcb4d27a19c595a2b557d999330d4362cad333bf3c44e9c350f6e4",
+      "matches": true
+    },
+    {
+      "path": "src/main/resources/mcp.json",
+      "sha256": "77a711f0ed6c082ede0094fd212fe8a7d440bf72074150021a3b152f2683da04",
+      "matches": true
+    },
+    {
+      "path": "src/main/resources/models/_index.yaml",
+      "sha256": "073b220c8ce868269ebbdacc49fc5706f0377d1da929385b8169bd8cee3c7b79",
+      "matches": true
+    },
+    {
+      "path": "src/main/resources/models/anthropic.yaml",
+      "sha256": "84dc196db1fc8d01d7b8524e7605a9ca3353e2c9afa141f238516d6cb765d401",
+      "matches": true
+    },
+    {
+      "path": "src/main/resources/models/deepseek.yaml",
+      "sha256": "6f724a0c938c051515e3399c1b38f2e116428683e46cd51be9d263541c03de18",
+      "matches": true
+    },
+    {
+      "path": "src/main/resources/models/google.yaml",
+      "sha256": "9c1cc6e3ab4f61982ff6a6ff1b4647d965668a3ec09ff2595343de53e7db6760",
+      "matches": true
+    },
+    {
+      "path": "src/main/resources/models/kimi.yaml",
+      "sha256": "9d1fb9dd865e55c96f903d9ddb01117265fd367d980df1501394af7d253992b0",
+      "matches": true
+    },
+    {
+      "path": "src/main/resources/models/lmstudio.yaml",
+      "sha256": "4ebf082353e45ff606593c5e530f79d8e8f165671fb704dd02ccaca7e553a387",
+      "matches": true
+    },
+    {
+      "path": "src/main/resources/models/meta.yaml",
+      "sha256": "223a5ec4d7633262ec500ccbd7b193a03c885c43b7dd06f5d28fcc65e0b0c4ba",
+      "matches": true
+    },
+    {
+      "path": "src/main/resources/models/minimax.yaml",
+      "sha256": "606d431291236576bf864475875a55d02d52557f2ee8e769141975b85cc8bcce",
+      "matches": true
+    },
+    {
+      "path": "src/main/resources/models/mistral.yaml",
+      "sha256": "de116929e19a4dff03b002a9612de5b036c0254bdadf272d01e99ba20272ccac",
+      "matches": true
+    },
+    {
+      "path": "src/main/resources/models/multimedia.yaml",
+      "sha256": "379007a17b98dbc99e92ec134c8a5adb0ca0f29b44f389ced4ddee515e769465",
+      "matches": true
+    },
+    {
+      "path": "src/main/resources/models/nvidia.yaml",
+      "sha256": "0d8a16ea124eb0282fb118f5a86ddb34e57d530696c6e51097a3ee7662539396",
+      "matches": true
+    },
+    {
+      "path": "src/main/resources/models/ollama.yaml",
+      "sha256": "cfe9afdaf5fe9e8b1b3d7a2388bc255059758a43f252ada7a532c64dedc10992",
+      "matches": true
+    },
+    {
+      "path": "src/main/resources/models/openai.yaml",
+      "sha256": "017710ac1d741e9c3d70606109e91fb49647c91d025b2b0b2f091032183d780a",
+      "matches": true
+    },
+    {
+      "path": "src/main/resources/models/openrouter.yaml",
+      "sha256": "67f27b6203285e13c141f6dafb45f11f3ce7dfe4209779570bda68a69cffa3e0",
+      "matches": true
+    },
+    {
+      "path": "src/main/resources/models/perplexity.yaml",
+      "sha256": "a849920579020dfde89fadb30cbeb4d841a8bd1eb8dda68686b1e2420f04a8df",
+      "matches": true
+    },
+    {
+      "path": "src/main/resources/models/qwen-direct.yaml",
+      "sha256": "5e50be33120516fcb41613921a986f757915cabf3aedf3b5d23c2df59038f58e",
+      "matches": true
+    },
+    {
+      "path": "src/main/resources/models/qwen.yaml",
+      "sha256": "c7b7ecb0970788d2a305ce6afefd19f90b33061bf390b45f5480ea3fb28f0cc1",
+      "matches": true
+    },
+    {
+      "path": "src/main/resources/models/xai.yaml",
+      "sha256": "5ae5712884b088679e7db98ea635bc6ef7ba5fb2bd7450170ee4718f8f835c72",
+      "matches": true
+    },
+    {
+      "path": "src/main/resources/models/zai.yaml",
+      "sha256": "89a3d3344122b6a44c5e31f1de3093e43490e5e3193c89ff23268fa0407470c9",
+      "matches": true
+    },
+    {
+      "path": "src/main/resources/runner-workflow-v1/README.md",
+      "sha256": "84065e73b7337215a3cca86659e0df6952b61029ac50aa2c5b78a91f3ce95af6",
+      "matches": true
+    },
+    {
+      "path": "src/main/resources/runner-workflow-v1/agent-tool-sandbox.schema.json",
+      "sha256": "481dab49db82ab3d9d0a457c1f9f678b2c0fd3586c413cc6aadfe674431f7703",
+      "matches": true
+    },
+    {
+      "path": "src/main/resources/runner-workflow-v1/artifact-boundary-origin.txt",
+      "sha256": "4a7b96f28a959b07606fa093ceac6309f9f2a81a005c4d37809406396205b2d5",
+      "matches": true
+    },
+    {
+      "path": "src/main/resources/runner-workflow-v1/artifact-boundary.schema.json",
+      "sha256": "0b92f10b13388180069457ef36e428ab698b25d9d397ca26528674b38919fd34",
+      "matches": true
+    },
+    {
+      "path": "src/main/resources/runner-workflow-v1/artifact-collection-origin.txt",
+      "sha256": "9c418994bf47dd238f3567f427830e04f483d58af1c42a8057b776eefb539a6e",
+      "matches": true
+    },
+    {
+      "path": "src/main/resources/runner-workflow-v1/artifact-collection.schema.json",
+      "sha256": "26eee80c21e982a56d8d96897ca688c68d628e9935ec0839d34de8d89ddb66fa",
+      "matches": true
+    },
+    {
+      "path": "src/main/resources/runner-workflow-v1/artifact-publication-origin.txt",
+      "sha256": "486b809230f1d3c7e2fceadc1463f027b8d4684572bd0e7bde04cc24ece637d9",
+      "matches": true
+    },
+    {
+      "path": "src/main/resources/runner-workflow-v1/artifact-publication.schema.json",
+      "sha256": "d3cbb764d096ca9a68ba5a74adafe543a668f79e6273a65287acad3aaff9af09",
+      "matches": true
+    },
+    {
+      "path": "src/main/resources/runner-workflow-v1/artifact-set-origin.txt",
+      "sha256": "bbd041ca3b4a2593aa5bdeaa594bf7cad79dfa812cd3e17be1d365b278b63199",
+      "matches": true
+    },
+    {
+      "path": "src/main/resources/runner-workflow-v1/artifact-set-semantics-origin.txt",
+      "sha256": "beb785649a5d35a61eb66ee76b7ac39f3a021734f6feced5980162be5cea55f1",
+      "matches": true
+    },
+    {
+      "path": "src/main/resources/runner-workflow-v1/artifact-set.schema.json",
+      "sha256": "4b254106f3ed68bedb1bb058cddf0deba74c7a643ed9f4bb59f57b7dcf1323ff",
+      "matches": true
+    },
+    {
+      "path": "src/main/resources/runner-workflow-v1/business-backend-control.schema.json",
+      "sha256": "d54faad8cad874b1a314c2cdecdb651a55f2d476f0a7b49f1f28ce52dc5bb1d0",
+      "matches": true
+    },
+    {
+      "path": "src/main/resources/runner-workflow-v1/contract-origin.txt",
+      "sha256": "cb436ab5fcf771e051e42926cc476ccbdf40b8fe1dccee1d8aa1bc33170ad446",
+      "matches": true
+    },
+    {
+      "path": "src/main/resources/runner-workflow-v1/contract-semantics.txt",
+      "sha256": "8e26a34f92eab61bb10fd44b8848f8096fb80b2cb7e7b8434124179f0208f4bd",
+      "matches": true
+    },
+    {
+      "path": "src/main/resources/runner-workflow-v1/file-gate-resume-origin.txt",
+      "sha256": "8985eb3a30e7f96a13e3f3ba66a9ab70f7f78ac687f700039bba93e092fc6485",
+      "matches": true
+    },
+    {
+      "path": "src/main/resources/runner-workflow-v1/file-gate-resume.schema.json",
+      "sha256": "77827d95e8c82d8810ba9ef462b15d5deba7a5088264643fc81f140a74be2b58",
+      "matches": true
+    },
+    {
+      "path": "src/main/resources/runner-workflow-v1/gate-feedback-context-origin.txt",
+      "sha256": "36cf4ff0c0e32ac60c038cb468945fd18126e94e9245f13b54efd8a702fe7b7d",
+      "matches": true
+    },
+    {
+      "path": "src/main/resources/runner-workflow-v1/gate-feedback-context.schema.json",
+      "sha256": "cb19be846c714a915e765564ce5fd2e97afa548e34331cf97994cd953351dfdc",
+      "matches": true
+    },
+    {
+      "path": "src/main/resources/runner-workflow-v1/gate-projection-origin.txt",
+      "sha256": "c4bbc836d972f34d13e75951ccd6121e155481ef3f0c39215001492facd43c5c",
+      "matches": true
+    },
+    {
+      "path": "src/main/resources/runner-workflow-v1/gate-projection.schema.json",
+      "sha256": "fec8d0e3b9744aa5d370dc82f76b7223b45e3b675c152b2a9e65936bd41836e7",
+      "matches": true
+    },
+    {
+      "path": "src/main/resources/runner-workflow-v1/gate-set-control-origin.txt",
+      "sha256": "43b2c949748623ef3dcc7312727dd1552fcbc1e7eb17b017be6faf8991fe4a7f",
+      "matches": true
+    },
+    {
+      "path": "src/main/resources/runner-workflow-v1/gate-set-control.schema.json",
+      "sha256": "330250cb23010e87a59e9f8892049aafd89ea18728c72259ed6b7e6302acad34",
+      "matches": true
+    },
+    {
+      "path": "src/main/resources/runner-workflow-v1/late-control-origin.txt",
+      "sha256": "c195e4e0e8378b958861c7ed0e26efb486fd8c61afb4f193c234d3671e9d9914",
+      "matches": true
+    },
+    {
+      "path": "src/main/resources/runner-workflow-v1/late-control.schema.json",
+      "sha256": "80dcf19cd932be50b7e7b89abfc9770f3c691b35227d5e3f72c761efe55638cc",
+      "matches": true
+    },
+    {
+      "path": "src/main/resources/runner-workflow-v1/local-model.schema.json",
+      "sha256": "349c223a3d654361c51b76d1ded167c7a9b3785d0589c4b1440f37fad6ee3dcb",
+      "matches": true
+    },
+    {
+      "path": "src/main/resources/runner-workflow-v1/long-code-process-origin.txt",
+      "sha256": "9c805df3f365f212d68f0ac5bca98887516c7168b7a6f1b383f4185c05b21b7f",
+      "matches": true
+    },
+    {
+      "path": "src/main/resources/runner-workflow-v1/long-code-process.schema.json",
+      "sha256": "5cc528f669bbd7f6d7a5ea9c981f9464c522364defa73b1966e254456979eb62",
+      "matches": true
+    },
+    {
+      "path": "src/main/resources/runner-workflow-v1/protocol.schema.json",
+      "sha256": "09a3c3f6d6bd430a126303f25ad9795c5818d72eec62bc2896cfe84af40a504a",
+      "matches": true
+    },
+    {
+      "path": "src/main/resources/runner-workflow-v1/test-contract-control-origin.txt",
+      "sha256": "0b69417cec6d4a1b0e331d4b26bbf1ac68b5a2e01909a1985a903aa203629876",
+      "matches": true
+    },
+    {
+      "path": "src/main/resources/runner-workflow-v1/test-contract-control.schema.json",
+      "sha256": "a05eac3eb56c47ef988005664ff2d58416a9730d8ef8b4f297ddb5547c3d08dc",
+      "matches": true
+    }
+  ]
+}

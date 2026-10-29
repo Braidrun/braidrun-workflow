@@ -1,0 +1,93 @@
+{
+  "phase": "jitpack_verified",
+  "releaseSourceCommit": "db1fd8adbf3c0648df31f355eb3c52273cbaf1e4",
+  "sourceParents": [
+    "786ec888817fd45ef49df7f03142946608261989",
+    "ff1b5610143b790c72418e26832bcacbbc25a94f"
+  ],
+  "branch": "codex/runner-asa-release-20261029",
+  "tag": "1.4.6-rc.20261029.2",
+  "annotatedTagObject": "cc6f10299d595f71be4e9feb716b288fa629442c",
+  "mavenCoordinate": "com.github.Braidrun:braidrun-workflow:1.4.6-rc.20261029.2",
+  "jitpackStatus": "ok",
+  "runtimeSourceChangedAfterValidation": false,
+  "postValidationChanges": [
+    "Gradle project version metadata",
+    "CHANGELOG and release evidence"
+  ],
+  "validation": {
+    "classes": 79,
+    "tests": 600,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "fingerprint": "bcccd9e2e8bb1edd5fab9f1be0bd1cc2a77c260e0c2293b25f306df284a29d29"
+  },
+  "authorization": {
+    "featureBranchPublication": true,
+    "newRcTag": true,
+    "runtimeBuild": true,
+    "mainMerge": false,
+    "deployment": false,
+    "productionConfigurationOrWorkflowChange": false
+  },
+  "verifiedAtUtc": "2026-10-29T08:19:49.159939+00:00",
+  "jitpackCommit": "db1fd8adbf3c0648df31f355eb3c52273cbaf1e4",
+  "jitpackBuildTimeEpochMillis": 1793261880377,
+  "jitpackIsTag": true,
+  "jitpackPrivate": false,
+  "pom": {
+    "groupId": "com.github.Braidrun",
+    "artifactId": "braidrun-workflow",
+    "version": "1.4.6-rc.20261029.2"
+  },
+  "manifest": {
+    "Implementation-Title": "braidrun-workflow",
+    "Implementation-Version": "1.4.6-rc.20261029.2"
+  },
+  "artifactChecks": [
+    {
+      "artifact": "pom",
+      "url": "https://jitpack.io/com/github/Braidrun/braidrun-workflow/1.4.6-rc.20261029.2/braidrun-workflow-1.4.6-rc.20261029.2.pom",
+      "bytes": 15026,
+      "sha256": "21282dc3850157ebbaf384e35f9e86464210de85e19b746c8f0c1f12c1bc4d09",
+      "httpStatus": 200
+    },
+    {
+      "artifact": "jar",
+      "url": "https://jitpack.io/com/github/Braidrun/braidrun-workflow/1.4.6-rc.20261029.2/braidrun-workflow-1.4.6-rc.20261029.2.jar",
+      "bytes": 7349431,
+      "sha256": "b0ad1d3136202ffd7f473a3b809ee46db9278801294d03bab380cbb08dbfb839",
+      "httpStatus": 200
+    },
+    {
+      "artifact": "sources",
+      "url": "https://jitpack.io/com/github/Braidrun/braidrun-workflow/1.4.6-rc.20261029.2/braidrun-workflow-1.4.6-rc.20261029.2-sources.jar",
+      "bytes": 1142357,
+      "sha256": "1dad09651f4ce7516b8ceeb74361621673696fe21a103a734dcc1f8278c5d83c",
+      "httpStatus": 200
+    },
+    {
+      "artifact": "buildLog",
+      "url": "https://jitpack.io/com/github/Braidrun/braidrun-workflow/1.4.6-rc.20261029.2/build.log",
+      "bytes": 5462,
+      "sha256": "06974eb6a671252dc07088cdf866e51a633c609eed67fa0c91411728e4258ac9",
+      "httpStatus": 200
+    }
+  ],
+  "verification": {
+    "jarZipIntegrity": true,
+    "sourceJarZipIntegrity": true,
+    "allMainKotlinSourcesMatch": true,
+    "mainKotlinSourceCount": 238,
+    "allMainResourcesMatch": true,
+    "mainResourceCount": 75,
+    "runnerProtocolResourceCount": 30,
+    "publishedClassCount": 2353,
+    "buildLogSuccess": true,
+    "jitpackTestsSkipped": true,
+    "localTestEvidence": "ENGINE_JUNIT_COMPLETION.json",
+    "productionExecutionValidated": false
+  },
+  "jitpackApiUrl": "https://jitpack.io/api/builds/com.github.Braidrun/braidrun-workflow/1.4.6-rc.20261029.2"
+}
