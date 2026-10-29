@@ -139,4 +139,21 @@ class LlmTokenUsageTest {
         assertTrue(hit.isEmpty)
         assertNull(hit.detail())
     }
+    @Test
+    fun `local counts retain zero and never invent missing usage or totals`() {
+        fun local(input: Int?, output: Int?, total: Int?) = ResponseMetaInfo(
+            timestamp = Instant.fromEpochMilliseconds(0), inputTokensCount = input,
+            outputTokensCount = output, totalTokensCount = total,
+            metadata = JsonObject(mapOf("braidrun_model_execution" to JsonPrimitive("local"))),
+        ).tokenUsage()
+        assertEquals(LlmTokenUsage(inputTokens = 0, outputTokens = 0, totalTokens = 0), local(0, 0, 0))
+        assertEquals(LlmTokenUsage(outputTokens = 1), local(null, 1, null))
+        assertEquals(LlmTokenUsage(inputTokens = 5), local(5, null, null))
+        assertTrue(local(null, null, null).isEmpty)
+        assertNull(local(null, null, null).detail())
+        assertEquals(LlmTokenUsage(), local(-1, -1, -1))
+        // Other providers keep the historical normalization convention.
+        assertEquals(LlmTokenUsage(outputTokens = 1, totalTokens = 1), meta(null, 1, null).tokenUsage())
+    }
+
 }

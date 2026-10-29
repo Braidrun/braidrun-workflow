@@ -4,6 +4,7 @@ import ai.koog.http.client.KoogHttpClient
 import ai.koog.http.client.ktor.KtorKoogHttpClient
 import com.fartech.ftapp2.commonsKt.HttpAccess
 import com.fartech.ftapp2.commonsKt.HttpHostSafety
+import com.fartech.ftapp2.commonsKt.HttpSingleDispatch
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.HttpTimeout
@@ -14,12 +15,28 @@ import kotlinx.serialization.json.Json
  * Agent proxies are still refused. The supervisor attests jvm-http through this same path; another
  * client's egress receipt cannot authorize model/connector requests.
  */
-class RunnerHttpClients(private val gate: RunnerEnvironmentGate, private val credentialCheck: () -> Unit = {}) : AutoCloseable {
+class RunnerHttpClients private constructor(private val gate: RunnerEnvironmentGate, private val credentialCheck: () -> Unit, singleDispatch: Boolean) : AutoCloseable {
+    constructor(gate: RunnerEnvironmentGate, credentialCheck: () -> Unit = {}) : this(gate, credentialCheck, false)
+    /** Uses HttpAccess's SSRF redirect loop, then our gate for the initial request and every hop. */
+    val toolHttpAccess = HttpAccess.withOkHttpConfig { builder ->
+        configureDirect(builder) {
+            gate.requirePaths(setOf("jvm-http")); credentialCheck()
+        }
+    }
+    /** Web tools own the bounded redirect loop and need the effective URL for HTML relative links. */
+    val webHttpAccess = HttpAccess.withOkHttpConfig({ it.followRedirects = false }) { builder ->
+        builder.interceptors().remove(HttpAccess.SsrfRedirectInterceptor)
+        HttpSingleDispatch.install(builder)
+        configureDirect(builder) {
+            gate.requirePaths(setOf("jvm-http")); credentialCheck()
+        }
+    }
     val client = HttpClient(OkHttp) {
         followRedirects = false
         expectSuccess = false
         install(HttpTimeout)
         engine { config {
+            if (singleDispatch) HttpSingleDispatch.install(this)
             configureDirect(this) {
                 gate.requirePaths(setOf("jvm-http")); credentialCheck()
             }
@@ -33,8 +50,10 @@ class RunnerHttpClients(private val gate: RunnerEnvironmentGate, private val cre
             return delegate.create(clientName, baseUrl, headers, queryParameters, requestTimeoutMillis, connectTimeoutMillis, socketTimeoutMillis, json)
         }
     }
-    override fun close() { client.close() }
+    override fun close() { toolHttpAccess.close(); webHttpAccess.close(); client.close() }
     companion object {
+        /** Child Agent calls cannot repeat an exchange after an ambiguous provider response. */
+        internal fun singleDispatch(gate: RunnerEnvironmentGate, credentialCheck: () -> Unit) = RunnerHttpClients(gate, credentialCheck, true)
         const val DECLARED_PROXY_PROPERTY = "braidrun.runner.proxy"
         /** The fixed HTTP(S) proxy the supervisor declared for every adapted client of this attempt, if any. */
         fun declaredProxy(properties: java.util.Properties = System.getProperties()): java.net.URI? {
@@ -43,12 +62,23 @@ class RunnerHttpClients(private val gate: RunnerEnvironmentGate, private val cre
             require(uri.scheme in setOf("http", "https") && !uri.host.isNullOrBlank() && uri.port in 1..65535 && uri.userInfo == null && uri.rawQuery == null && uri.rawFragment == null && (uri.rawPath.isNullOrEmpty() || uri.rawPath == "/")) { "Declared proxy must be a plain http(s)://host:port" }
             return uri
         }
+        /** Runner policy never honors the library's private-URL development escape hatch. */
+        internal fun strictDns(delegate: okhttp3.Dns = okhttp3.Dns.SYSTEM): okhttp3.Dns = okhttp3.Dns { hostname ->
+            val addresses = delegate.lookup(hostname)
+            if (addresses.isEmpty()) throw java.net.UnknownHostException("Runner DNS returned no addresses")
+            try {
+                HttpHostSafety.assertResolvedAddressesPublic(hostname, addresses, allowPrivateOverride = false)
+            } catch (error: SecurityException) {
+                throw java.net.UnknownHostException("Runner DNS rejected a non-public destination").apply { initCause(error) }
+            }
+            addresses
+        }
         /** Shared transport configuration for business clients and the bounded public probe. */
         internal fun configureDirect(builder: okhttp3.OkHttpClient.Builder, beforeRequest: (okhttp3.Request) -> Unit): okhttp3.OkHttpClient.Builder = builder.apply {
             val declared = declaredProxy()
             if (declared == null) {
                 proxy(java.net.Proxy.NO_PROXY)
-                dns(HttpAccess.SsrfValidatingDns)
+                dns(strictDns())
             } else {
                 // Names resolve at the declared proxy; the literal-host check below still refuses private targets.
                 proxy(java.net.Proxy(java.net.Proxy.Type.HTTP, java.net.InetSocketAddress.createUnresolved(declared.host, declared.port)))
@@ -57,7 +87,8 @@ class RunnerHttpClients(private val gate: RunnerEnvironmentGate, private val cre
             followRedirects(false); followSslRedirects(false)
             addInterceptor { chain ->
                 beforeRequest(chain.request())
-                HttpHostSafety.assertUrlIsPublic(chain.request().url.toString())
+                require(chain.request().url.username.isEmpty() && chain.request().url.password.isEmpty()) { "Runner URL credentials are not admitted" }
+                HttpHostSafety.assertHostIsPublic(chain.request().url.host, allowPrivateOverride = false)
                 chain.proceed(chain.request())
             }
         }

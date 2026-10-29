@@ -232,7 +232,8 @@ class RunnerPortableCapabilitiesTest {
     @Test fun `confined file tools are offered in the ready inventory`() {
         assertTrue(RunnerFileConfinement.available())
         assertTrue("tool.file_system.v1" in RunnerHostSession.CAPABILITIES)
-        assertFalse("tool.shell.v1" in RunnerHostSession.CAPABILITIES); assertFalse("tool.web.v1" in RunnerHostSession.CAPABILITIES)
+        assertFalse("tool.shell.v1" in RunnerHostSession.CAPABILITIES)
+        for (tool in listOf("web", "knowledge_memory", "image_processing", "csv")) assertTrue("tool.$tool.v1" in RunnerHostSession.CAPABILITIES)
     }
     @Test fun `CN and unknown country evidence cannot authorize HTTP or CLI`() {
         val binding = RunnerProtocolTest.binding()

@@ -21,7 +21,7 @@ internal object RunnerCodeControlNegotiation {
     const val GATE_FEEDBACK = "control.gateFeedbackContext.v1"
     const val GATE_PROJECTION = "control.gateProjection.v1"
     const val CONTRACT_COMMIT = "cc684f0a28b6b3f3106b91e486244843f979aa83"
-    const val SCHEMA_SHA256 = "5ba7d76c4f048f6f7ca5b71e427492b639cad4b80ccbe28d621e197d768b72f4"
+    const val SCHEMA_SHA256 = "80dcf19cd932be50b7e7b89abfc9770f3c691b35227d5e3f72c761efe55638cc"
 
     fun supplementAvailable(bytes: ByteArray? = javaClass.getResourceAsStream("/runner-workflow-v1/late-control.schema.json")?.use { it.readBytes() }): Boolean =
         bytes != null && sha256(bytes) == SCHEMA_SHA256

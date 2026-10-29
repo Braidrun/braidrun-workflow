@@ -33,11 +33,26 @@ interface WorkflowHost {
     val codexCredentials: ClaudeCredentialProvider? get() = null
     val codexAuthRotation: ((String?, String) -> Unit)? get() = null
     fun nativeAgentPrompt(scope: WorkflowHostScope, prompt: String): String = prompt
+    /** Pure lookup of a verified local-model scope, before any cloud/MCP preparation.
+     * A selected but unauthorized/stale scope must throw, never return null to fall back.
+     * Null retains the server's existing model behavior. Workflow parameters cannot set this.
+     * The host must verify frozen definition/agent/step/child identity and live P0 authority.
+     */
+    fun localModel(scope: WorkflowHostScope): WorkflowLocalModelSelection? = null
     /**
      * Host-owned replacement for the `file_system` tool group of an engine (non-CLI) agent, built
      * from the host-prepared [parameters]. Null keeps the library's file tools.
      */
     fun fileSystemTools(scope: WorkflowHostScope, parameters: List<com.fartech.ftapp2.commonsKt.ConfigurationParameter>): List<ai.koog.agents.core.tools.reflect.ToolSet>? = null
+    /**
+     * Trusted replacements keyed by requested tool group. A present key (including an empty list)
+     * suppresses that group's library implementation, so it cannot reintroduce ambient IO.
+     * The executor also supports hosts implementing only [fileSystemTools]. Never derive this map from YAML.
+     */
+    fun agentToolSets(scope: WorkflowHostScope, toolNames: Set<String>, parameters: List<com.fartech.ftapp2.commonsKt.ConfigurationParameter>): Map<String, List<ai.koog.agents.core.tools.reflect.ToolSet>> = emptyMap()
+    /** Two-phase hosted child factory. The runtime supplies the exact parent registry after it
+     * is assembled, with the parent's existing skill manager and monitoring installer. */
+    fun subAgentTools(scope: WorkflowHostScope, parameters: List<com.fartech.ftapp2.commonsKt.ConfigurationParameter>, runtime: WorkflowSubAgentRuntime): ai.koog.agents.core.tools.reflect.ToolSet? = null
     /**
      * Claude Code built-in tools a host registers for a `claude_code_agent` step (`--tools`); a
      * non-null value also turns off `--dangerously-skip-permissions`. Null keeps the CLI default.

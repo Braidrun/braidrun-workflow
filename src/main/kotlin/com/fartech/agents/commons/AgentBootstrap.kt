@@ -148,15 +148,19 @@ suspend inline fun <Input, Output> buildAgent(
     parameters: List<ConfigurationParameter>,
     systemPrompt: String,
     toolRegistry: ToolRegistry,
-    llModelGroupConfig: LLModelGroupConfig = parameters.parameter(
-        key = "llm_config",
-        defaultValue = LLModelGroupConfig(models = listOf())
-    ),
-    llmModel: LLModel = llModelGroupConfig.resolveDefaultLLModel(),
-    skillManager: SkillManager? = createSkillManager(parameters),
+    llModelGroupConfig: LLModelGroupConfig? = null,
+    llmModel: LLModel? = null,
+    skillManager: SkillManager? = createBootstrapSkillManager(parameters),
     noinline installFeatures: GraphAIAgent.FeatureContext.() -> Unit = defaultInstallFeatures,
     noinline strategyBuilder: (List<ConfigurationParameter>, HttpAccess, ToolRegistry) -> AIAgentGraphStrategy<Input, Output>
 ): GraphAIAgent<Input, Output> {
+    // Host selection precedes cloud defaults, clients, fallback tiers, MCP and feature factories.
+    selectedHostLocalModel()?.let { selection ->
+        return buildHostedLocalAgent(inputType, outputType, systemPrompt, selection, toolRegistry, skillManager, installFeatures)
+    }
+    val effectiveModelGroupConfig = llModelGroupConfig ?: parameters.parameter(
+        key = "llm_config", defaultValue = LLModelGroupConfig(models = listOf()))
+    val effectiveModel = llmModel ?: effectiveModelGroupConfig.resolveDefaultLLModel()
     val envInfo = if (parameters.parameter("compact_env", true)) {
         compactEnvSettings(parameters)
     } else {
@@ -180,7 +184,7 @@ suspend inline fun <Input, Output> buildAgent(
         httpAccess = httpAccess,
         parameters = parameters,
         toolRegistry = toolRegistry,
-        mediaPolicy = ToolResultMediaPolicy.forModel(llmModel, parameters),
+        mediaPolicy = ToolResultMediaPolicy.forModel(effectiveModel, parameters),
     )
 
     return GraphAIAgent(
@@ -208,7 +212,7 @@ suspend inline fun <Input, Output> buildAgent(
             prompt = prompt(
                 id = "chat",
                 params = LLMParams(
-                    temperature = resolveModelTemperature(llModelGroupConfig.temperature),
+                    temperature = resolveModelTemperature(effectiveModelGroupConfig.temperature),
                     maxTokens = configuredMaxTokens,
                     numberOfChoices = resolveNumberOfChoices(parameters.parameter("num_choices", 1)),
                     // Tier-2 (2026-04) — portable `tool_choice` forwarding.
@@ -241,7 +245,7 @@ suspend inline fun <Input, Output> buildAgent(
                     systemWithVolatileTail(stable = systemPrompt, volatileTail = "\n\n$envInfo")
                 }
             },
-            model = llmModel,
+            model = effectiveModel,
             maxAgentIterations = parameters.parameter("max_iterations", 8196),
             // Tier-2 (2026-04) — optional weak-model tool-call repair.
             // Opt-in per-workflow via `weak_model_tool_fix_enabled=true`.
@@ -388,12 +392,9 @@ suspend inline fun <reified Input, reified Output> buildAgent(
     parameters: List<ConfigurationParameter>,
     systemPrompt: String,
     toolRegistry: ToolRegistry,
-    llModelGroupConfig: LLModelGroupConfig = parameters.parameter(
-        key = "llm_config",
-        defaultValue = LLModelGroupConfig(models = listOf())
-    ),
-    llmModel: LLModel = llModelGroupConfig.resolveDefaultLLModel(),
-    skillManager: SkillManager? = createSkillManager(parameters),
+    llModelGroupConfig: LLModelGroupConfig? = null,
+    llmModel: LLModel? = null,
+    skillManager: SkillManager? = createBootstrapSkillManager(parameters),
     noinline installFeatures: GraphAIAgent.FeatureContext.() -> Unit = defaultInstallFeatures,
     noinline strategyBuilder: (List<ConfigurationParameter>, HttpAccess, ToolRegistry) -> AIAgentGraphStrategy<Input, Output>
 ): GraphAIAgent<Input, Output> = buildAgent(
@@ -424,7 +425,7 @@ suspend inline fun <reified Input, reified Output> buildAndRunAgent(
     systemPrompt: String,
     input: Input,
     toolRegistry: ToolRegistry,
-    skillManager: SkillManager? = createSkillManager(parameters),
+    skillManager: SkillManager? = createBootstrapSkillManager(parameters),
     noinline installFeatures: GraphAIAgent.FeatureContext.() -> Unit = defaultInstallFeatures,
     noinline strategyBuilder: (List<ConfigurationParameter>, HttpAccess, ToolRegistry) -> AIAgentGraphStrategy<Input, Output>
 ): Pair<AIAgent<Input, Output>, Output?> {
@@ -507,7 +508,7 @@ suspend fun buildAndRunStringAgent(
     parameters: List<ConfigurationParameter>,
     systemPrompt: String,
     toolRegistry: ToolRegistry? = null,
-    skillManager: SkillManager? = createSkillManager(parameters),
+    skillManager: SkillManager? = createBootstrapSkillManager(parameters),
     strategyBuilder: (List<ConfigurationParameter>, HttpAccess, ToolRegistry) -> AIAgentGraphStrategy<String, String> = { parameters, httpAccess, toolReg ->
         determineDefaultStrategy(
             httpAccess,
@@ -546,7 +547,7 @@ suspend inline fun <reified Input, reified Output> buildAndRunStructureAgent(
     examples: List<Output> = emptyList(),
     attachments: List<AttachmentFile> = emptyList(),
     schemaGenerator: JsonSchemaGenerator = BasicJsonSchemaGenerator.Default,
-    skillManager: SkillManager? = createSkillManager(parameters)
+    skillManager: SkillManager? = createBootstrapSkillManager(parameters)
 ): Pair<AIAgent<Input, Output>, Output?> {
     val actualToolRegistry =
         toolRegistry ?: parseToolSet(parameters, httpAccess, emptyList<AgentTools>(), skillManager = skillManager)
@@ -589,7 +590,7 @@ suspend inline fun <reified Output> buildAndRunStructureToolAgent(
     examples: List<Output> = emptyList(),
     attachments: List<AttachmentFile> = emptyList(),
     schemaGenerator: JsonSchemaGenerator = BasicJsonSchemaGenerator.Default,
-    skillManager: SkillManager? = createSkillManager(parameters)
+    skillManager: SkillManager? = createBootstrapSkillManager(parameters)
 ): Pair<AIAgent<String, Output>, Output?> {
     val actualToolRegistry =
         toolRegistry ?: parseToolSet(parameters, httpAccess, emptyList<AgentTools>(), skillManager = skillManager)
@@ -683,7 +684,7 @@ suspend inline fun <reified Output> buildAndRunConfiguredAgentWithStructuredOutp
     systemPrompt: String,
     input: String,
     toolRegistry: ToolRegistry? = null,
-    skillManager: SkillManager? = createSkillManager(parameters),
+    skillManager: SkillManager? = createBootstrapSkillManager(parameters),
 ): Pair<AIAgent<String, String>, Output?> {
     val actualToolRegistry =
         toolRegistry ?: parseToolSet(parameters, httpAccess, emptyList<AgentTools>(), skillManager = skillManager)

@@ -27,7 +27,10 @@ class RunnerHttpProbeTest {
         try {
             assertEquals(java.net.Proxy.NO_PROXY, client.proxy)
             assertFalse(client.followRedirects); assertFalse(client.followSslRedirects); assertFalse(client.retryOnConnectionFailure)
-            assertSame(com.fartech.ftapp2.commonsKt.HttpAccess.SsrfValidatingDns, client.dns)
+            // Verify the policy, rather than the library DNS singleton: Runner rejects the
+            // library's development escape hatch and checks the actual connection addresses.
+            assertEquals(listOf(java.net.InetAddress.getByName("8.8.8.8")), client.dns.lookup("8.8.8.8"))
+            assertFailsWith<java.net.UnknownHostException> { client.dns.lookup("127.0.0.1") }
             assertFailsWith<IllegalArgumentException> { RunnerHttpClients.requireDirect(mapOf("HTTPS_PROXY" to "http://proxy.invalid"), java.util.Properties()) }
         } finally { client.dispatcher.executorService.shutdownNow(); client.connectionPool.evictAll() }
     }

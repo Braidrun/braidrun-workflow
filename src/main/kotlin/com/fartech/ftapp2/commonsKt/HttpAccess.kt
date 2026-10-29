@@ -21,9 +21,13 @@ import okhttp3.Credentials
 
 private val logger = KotlinLogging.logger {}
 
-class HttpAccess(
-    httpClientConfig: (HttpClientConfig<*>) -> Unit = {},
+class HttpAccess private constructor(
+    httpClientConfig: (HttpClientConfig<*>) -> Unit,
+    /** Trusted transport hook, applied after the redirect interceptor so every redirect re-enters it. */
+    okHttpClientConfig: (okhttp3.OkHttpClient.Builder) -> Unit,
 ) {
+    // Preserve existing positional and trailing-lambda client configuration callers.
+    constructor(httpClientConfig: (HttpClientConfig<*>) -> Unit = {}) : this(httpClientConfig, {})
 
     private fun envInt(key: String, default: Int): Int =
         (System.getProperty(key) ?: System.getenv(key))?.toIntOrNull() ?: default
@@ -49,7 +53,7 @@ class HttpAccess(
             .mapNotNull { it.trim().toIntOrNull() }
             .toSet()
 
-    private val clientDelegate = lazy {
+    private val buildClient: (Boolean) -> HttpClient = { automaticRedirects ->
         HttpClient(OkHttp) {
             engine {
                 config {
@@ -68,7 +72,7 @@ class HttpAccess(
                     // (10) and short-circuit redirect loops. The interceptor returns
                     // the final, post-redirect response so Ktor's HttpRedirect plugin
                     // (which sees a non-3xx) is a no-op.
-                    addInterceptor(HttpAccess.SsrfRedirectInterceptor)
+                    if (automaticRedirects) addInterceptor(HttpAccess.SsrfRedirectInterceptor)
                     // Pin DNS resolution to the validated addresses (closes the
                     // resolve-then-reresolve rebinding TOCTOU). See SsrfValidatingDns.
                     dns(HttpAccess.SsrfValidatingDns)
@@ -88,9 +92,20 @@ class HttpAccess(
                                 "injection point rather than a global flag."
                         }
                     }
+                    okHttpClientConfig(this)
+                    if (!automaticRedirects) {
+                        HttpSingleDispatch.install(this)
+                        followRedirects(false); followSslRedirects(false)
+                        retryOnConnectionFailure(false)
+                        interceptors().remove(HttpAccess.SsrfRedirectInterceptor)
+                    }
                 }
             }
             httpClientConfig(this)
+            if (!automaticRedirects) {
+                followRedirects = false
+                expectSuccess = false // Web tools handle status without buffering an unbounded error body.
+            }
             install(ContentNegotiation) {
                 json(Json {
                     ignoreUnknownKeys = true
@@ -114,8 +129,13 @@ class HttpAccess(
             }
         }
     }
+    private val clientDelegate = lazy { buildClient(true) }
+    private val singleRequestClientDelegate = lazy { buildClient(false) }
     val client: HttpClient
         get() = clientDelegate.value
+    /** Same injected configuration and gate, with both redirect/retry engines disabled for bounded web tools. */
+    val singleRequestClient: HttpClient
+        get() = singleRequestClientDelegate.value
 
     fun shouldRetry(status: HttpStatusCode?): Boolean = status?.value in retryStatusSet
 
@@ -274,9 +294,16 @@ class HttpAccess(
         if (clientDelegate.isInitialized()) {
             clientDelegate.value.close()
         }
+        if (singleRequestClientDelegate.isInitialized()) singleRequestClientDelegate.value.close()
     }
 
     companion object {
+        fun withOkHttpConfig(configure: (okhttp3.OkHttpClient.Builder) -> Unit): HttpAccess = HttpAccess({}, configure)
+        /** Trusted callers may disable Ktor redirects as well as configuring the underlying transport. */
+        fun withOkHttpConfig(
+            httpClientConfig: (HttpClientConfig<*>) -> Unit,
+            configure: (okhttp3.OkHttpClient.Builder) -> Unit,
+        ): HttpAccess = HttpAccess(httpClientConfig, configure)
         /** Hop ceiling for the SSRF-validating redirect interceptor. Mirrors OkHttp's historical default. */
         internal const val MAX_REDIRECT_HOPS = 10
 
@@ -392,6 +419,12 @@ class HttpAccess(
                 // the original was a POST. Mirror OkHttp's `RetryAndFollowUpInterceptor`
                 // behaviour so applications behind us see consistent semantics.
                 val newRequestBuilder = currentRequest.newBuilder().url(newUrl)
+                // Redirects must never forward a provider's credentials to another origin.
+                if (currentRequest.url.scheme != newUrl.scheme || currentRequest.url.host != newUrl.host || currentRequest.url.port != newUrl.port) {
+                    newRequestBuilder.removeHeader("Authorization")
+                    newRequestBuilder.removeHeader("Cookie")
+                    newRequestBuilder.removeHeader("Proxy-Authorization")
+                }
                 if (status == 301 || status == 302 || status == 303) {
                     if (currentRequest.method != "GET" && currentRequest.method != "HEAD") {
                         newRequestBuilder.method("GET", null)

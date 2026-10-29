@@ -8,7 +8,13 @@ import java.nio.file.Path
 
 /** Shared by admission (frozen definitions) and the host (resolved parameters at each step). */
 internal object RunnerAgentToolPolicy {
-    /** Agent parameters that would move the `file_system` tools off the host-chosen run directories. */
+    /** Groups requiring run-owned directories; listing here does not grant admission to the group. */
+    val FILE_TOOL_GROUPS = setOf("file_system", "file_management", "web", "knowledge_memory", "pdf", "office", "word",
+        "csv", "excel", "powerpoint", "image_processing", "multimedia", "multi_media", "database", "ocr", "rag_tools", "iwork", "browser", "sub_agent")
+    val SUBPROCESS_TOOL_GROUPS = setOf("shell", "code_execution", "git")
+    val RUN_DIRECTORY_TOOL_GROUPS = FILE_TOOL_GROUPS + SUBPROCESS_TOOL_GROUPS
+    val SUBPROCESS_CAPABILITIES = SUBPROCESS_TOOL_GROUPS.map { "tool.$it.v1" }.toSet()
+    /** Agent parameters that would move adapted tools off the host-chosen run directories. */
     val DIRECTORY_PARAMETERS = listOf("working_dir", "workspace_dir", "output_dir", "persistence_storage_root")
 
     /** Claude Code built-in tools a Runner step may register: file tools only, no Bash, no Web*, no sub-agents. */

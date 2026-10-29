@@ -53,10 +53,52 @@ class RunnerIpc(
     fun enableArtifactCollection() { require(RunnerCollectionProtocol.available()); artifactCollectionEnabled = true }
     @Volatile private var artifactSetsEnabled = false
     fun enableArtifactSets() { require(artifactCollectionEnabled && RunnerArtifactSetProtocol.available()); artifactSetsEnabled = true }
+    @Volatile private var localModelEnabled = false
+    fun enableLocalModel() { require(RunnerLocalModelProtocol.available()); localModelEnabled = true }
+    private var acceptedStart: JsonObject? = null
+    @Volatile internal var multimediaNegotiated = false
+        private set
+    @Synchronized internal fun enableMultimedia(start: JsonObject, advertised: Set<String>, trustedEnabled: Boolean) {
+        businessFence.check()
+        require(trustedEnabled && !closed.get() && acceptedStart == start && start.obj("binding") == binding) {
+            "Multimedia requires trusted runtime enablement and the accepted supervisor start"
+        }
+        val required = start.obj("payload").obj("authorization").array("requiredCapabilities").map { it.jsonPrimitive.content }.toSet()
+        require(setOf(RunnerMultimediaHostPolicy.CAPABILITY, "tool.file_system.v1", "model.http.v1").all { it in required && it in advertised }) {
+            "Multimedia runtime and supervisor capabilities were not negotiated"
+        }
+        multimediaNegotiated = true
+    }
+    @Volatile internal var agentSandboxNegotiated = false
+        private set
+    @Volatile internal var agentSandboxGroups: Set<String> = emptySet()
+        private set
+    @Synchronized internal fun enableAgentSandbox(start: JsonObject, advertised: Set<String>) {
+        businessFence.check()
+        require(!closed.get() && acceptedStart == start && start.obj("binding") == binding) { "Sandbox requires the accepted supervisor start" }
+        val required = start.obj("payload").obj("authorization").array("requiredCapabilities").map { it.jsonPrimitive.content }.toSet()
+        RunnerSandboxProtocol.requireNegotiated(required, advertised)
+        val groups = RunnerSandboxPolicy.GROUPS.filter { "tool.$it.v1" in required }.toSet()
+        require(groups.isNotEmpty() && groups.all { "tool.$it.v1" in advertised }) { "Sandbox tool groups were not negotiated" }
+        agentSandboxGroups = groups
+        agentSandboxNegotiated = true
+    }
     private fun validateFrame(frame: JsonObject, outbound: Boolean) {
         if (RunnerLongCodeProtocol.isLong(frame)) {
             if (!longCodeEnabled || !outbound) throw RunnerProtocolException()
             RunnerLongCodeProtocol.validate(frame)
+            return
+        }
+        val localType = frame["type"]?.jsonPrimitive?.content
+        if (localType in RunnerSandboxProtocol.REQUEST_TYPES || localType in RunnerSandboxProtocol.RESPONSE_TYPES) {
+            if (!agentSandboxNegotiated) throw RunnerProtocolException()
+            RunnerSandboxProtocol.validate(frame, outbound)
+            if (outbound && frame.obj("payload").string("toolGroup") !in agentSandboxGroups) throw RunnerProtocolException()
+            return
+        }
+        if (localType in RunnerLocalModelProtocol.requests || localType in RunnerLocalModelProtocol.responses) {
+            if (!localModelEnabled || (outbound != (localType in RunnerLocalModelProtocol.requests))) throw RunnerProtocolException()
+            RunnerLocalModelProtocol.validate(frame)
             return
         }
         when (frame["type"]?.jsonPrimitive?.content) {
@@ -205,7 +247,8 @@ class RunnerIpc(
         if (frame.obj("binding") != binding || closed.get()) throw RunnerProtocolException()
         val allowed = setOf("start", "resume", "ack", "approvalDecision", "userResponse", "credentialGrant", "cancel", "environmentInvalidated", "error",
             "leaseRenewed", "environmentRefreshed", "processStarted", "processExited", "processOutput", "processInputAck", "processClosed", "outputValue", "outputAck", "callbackTokenGrant", "artifactCollectRequest", "artifactSetCollectRequest", "artifactSetIndexAck")
-        if (frame.string("type") !in allowed) throw RunnerProtocolException()
+        if (frame.string("type") !in allowed && !(localModelEnabled && frame.string("type") in RunnerLocalModelProtocol.responses) &&
+            !(agentSandboxNegotiated && frame.string("type") in RunnerSandboxProtocol.RESPONSE_TYPES)) throw RunnerProtocolException()
         val id = frame.string("frameId")
         val digest = sha256(canonical(frame).toByteArray())
         val replyTo = frame["replyTo"]?.jsonPrimitive?.content
@@ -224,6 +267,13 @@ class RunnerIpc(
             }
             if (frame.string("type") in setOf("artifactCollectRequest", "artifactSetCollectRequest", "artifactSetIndexAck") || (artifactSetsEnabled && frame.string("type") == "ack")) onControl(frame)
             return
+        }
+        if (frame.string("type") in setOf("start", "resume")) {
+            require(acceptedStart == null || acceptedStart == frame) { "Attempt start authority cannot change" }
+            acceptedStart = frame
+        }
+        if (frame.string("type") in RunnerSandboxProtocol.RESPONSE_TYPES && (replyTo == null || !pending.containsKey(replyTo)) && replyTo !in recentReplyContents) {
+            throw RunnerProtocolException() // No unsolicited results may manufacture successful cleanup.
         }
         if (correlatedReply) {
             // A replay under a new frame identity must carry the same reply; a different one conflicts.

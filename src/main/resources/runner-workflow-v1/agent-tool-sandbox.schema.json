@@ -1,0 +1,287 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://braidrun.com/contracts/runner-workflow-v1/agent-tool-sandbox.schema.json",
+  "title": "Offline Agent tool sandbox supplement v1 (opt-in, not advertised without live Linux proof)",
+  "$defs": {
+    "binding": {
+      "type": "object",
+      "properties": {
+        "protocolVersion": {
+          "const": 1
+        },
+        "ownerId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "actorUserId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "executionId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "runnerId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "runnerInstanceId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "resumeEpoch": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "attemptId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "definitionHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "runtimeHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "ownerId",
+        "actorUserId",
+        "executionId",
+        "runnerId",
+        "runnerInstanceId",
+        "resumeEpoch",
+        "attemptId",
+        "definitionHash",
+        "runtimeHash"
+      ],
+      "additionalProperties": false
+    },
+    "snapshot": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^(?!/)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*//)(?!.*[\\\\\\u0000])[^/]+(?:/[^/]+)*$"
+        },
+        "contentBase64": {
+          "type": "string",
+          "maxLength": 174764
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      },
+      "required": [
+        "path",
+        "contentBase64",
+        "sha256"
+      ],
+      "additionalProperties": false
+    },
+    "launchPayload": {
+      "type": "object",
+      "properties": {
+        "requestId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "stepName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "childExecutionPath": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "toolGroup": {
+          "enum": [
+            "shell",
+            "code_execution",
+            "git"
+          ]
+        },
+        "runtime": {
+          "enum": [
+            "shell",
+            "python",
+            "javascript",
+            "git"
+          ]
+        },
+        "source": {
+          "type": "string",
+          "maxLength": 65536
+        },
+        "arguments": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 4096
+          },
+          "maxItems": 64
+        },
+        "inputs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/snapshot"
+          },
+          "maxItems": 32
+        },
+        "outputs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "pattern": "^(?!/)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*//)(?!.*[\\\\\\u0000])[^/]+(?:/[^/]+)*$"
+          },
+          "maxItems": 32
+        },
+        "network": {
+          "const": "NONE"
+        },
+        "interactive": {
+          "const": false
+        },
+        "timeoutSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 300
+        }
+      },
+      "required": [
+        "requestId",
+        "stepName",
+        "childExecutionPath",
+        "toolGroup",
+        "runtime",
+        "source",
+        "arguments",
+        "inputs",
+        "outputs",
+        "network",
+        "interactive",
+        "timeoutSeconds"
+      ],
+      "additionalProperties": false
+    },
+    "resultPayload": {
+      "type": "object",
+      "properties": {
+        "requestId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "exitCode": {
+          "type": "integer",
+          "minimum": -255,
+          "maximum": 255
+        },
+        "stdout": {
+          "type": "string",
+          "maxLength": 65536
+        },
+        "stderr": {
+          "type": "string",
+          "maxLength": 65536
+        },
+        "outputs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/snapshot"
+          },
+          "maxItems": 32
+        },
+        "cleanup": {
+          "const": "STOP_CONFIRMED"
+        }
+      },
+      "required": [
+        "requestId",
+        "exitCode",
+        "stdout",
+        "stderr",
+        "outputs",
+        "cleanup"
+      ],
+      "additionalProperties": false
+    },
+    "sandboxProcessLaunchFrame": {
+      "type": "object",
+      "properties": {
+        "protocolVersion": {
+          "const": 1
+        },
+        "frameId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "binding": {
+          "$ref": "#/$defs/binding"
+        },
+        "type": {
+          "const": "sandboxProcessLaunch"
+        },
+        "payload": {
+          "$ref": "#/$defs/launchPayload"
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "frameId",
+        "binding",
+        "type",
+        "payload"
+      ],
+      "additionalProperties": false
+    },
+    "sandboxProcessResultFrame": {
+      "type": "object",
+      "properties": {
+        "protocolVersion": {
+          "const": 1
+        },
+        "frameId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "binding": {
+          "$ref": "#/$defs/binding"
+        },
+        "type": {
+          "const": "sandboxProcessResult"
+        },
+        "payload": {
+          "$ref": "#/$defs/resultPayload"
+        },
+        "replyTo": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "frameId",
+        "binding",
+        "type",
+        "payload",
+        "replyTo"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

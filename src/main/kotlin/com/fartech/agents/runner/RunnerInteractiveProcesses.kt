@@ -30,6 +30,7 @@ class RunnerInteractiveProcesses(
     }
     @Synchronized private fun find(id: String): Session? = sessions[id] ?: retired[id]
     suspend fun open(scope: WorkflowHostScope, request: SubprocessExecutor.ExecRequest): WorkflowInteractiveProcess {
+        require(request.admissionKind != "AGENT_SANDBOX") { "Sandbox requires dedicated noninteractive typed IPC" }
         ipc.businessFence.check(); gate.check(); require(scope.rootExecutionId == ipc.binding.string("executionId")) { "Interactive scope mismatch" }
         ipc.requireProcessTimeout(request.timeoutSeconds, request.admissionKind)
         require(sessions.size < 16) { "Interactive capacity unsupported" }

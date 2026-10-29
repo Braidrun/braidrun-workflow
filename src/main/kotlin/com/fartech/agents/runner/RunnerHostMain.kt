@@ -2,7 +2,6 @@ package com.fartech.agents.runner
 
 import com.fartech.agents.workflow.*
 import com.fartech.agents.tools.exec.SubprocessExecutor
-import com.fartech.ftapp2.commonsKt.HttpAccess
 import kotlinx.coroutines.*
 import kotlinx.serialization.json.*
 import java.nio.file.Files
@@ -127,6 +126,12 @@ class RunnerHostSession(
             require(directory == Path.of("").toRealPath()) { "Supervisor must launch JVM in execution directory" }
             val bundle = FrozenWorkflowBundle(directory, payload.obj("bundle"), binding)
             bundle.verifyPortableAssets()
+            val localSelected = RunnerLocalModelProtocol.CAPABILITY in requiredCapabilities
+            require(!bundle.hasFile(RunnerLocalModelPolicy.PATH) || localSelected) { "RUNNER_LOCAL_MODEL_CAPABILITY_REQUIRED" }
+            val localPolicy = if (localSelected) {
+                require(RunnerLocalModelProtocol.available() && bundle.hasFile(RunnerLocalModelPolicy.PATH)) { "RUNNER_LOCAL_MODEL_POLICY_REQUIRED" }
+                RunnerLocalModelPolicy(bundle)
+            } else null
             val setsSelected = RunnerArtifactSetProtocol.CAPABILITY in requiredCapabilities
             if (bundle.hasFile(RunnerArtifactSetPolicy.PATH) && !setsSelected) throw RunnerNegotiationException(RunnerNegotiationReason.RUNNER_ARTIFACT_CAPABILITY_REQUIRED)
             val setPolicy = if (setsSelected) RunnerArtifactSetPolicy(bundle) else null
@@ -149,8 +154,15 @@ class RunnerHostSession(
                 }
             }
             processes = processAdapter
+            if (localSelected) ipc.enableLocalModel()
+            if (RunnerSandboxProtocol.CAPABILITY in requiredCapabilities) ipc.enableAgentSandbox(frame, CAPABILITIES)
+            if (RunnerMultimediaHostPolicy.CAPABILITY in requiredCapabilities) {
+                ipc.enableMultimedia(frame, CAPABILITIES, RunnerMultimediaHostPolicy.trustedEnabled())
+            }
+            val localAuthority = localPolicy?.let { RunnerIpcLocalModelAuthority(ipc, environment::check) }
             val runtime = RunnerWorkflowHost(ipc, identity, environment, bundle, CAPABILITIES, processAdapter, store, secrets, interactiveBroker = channels,
-                callbackEnabled = RunnerCodeControlNegotiation.LEGACY in requiredCapabilities, codeControlMode = codeControlMode, collectionPolicy = collectionPolicy, setPolicy = setPolicy)
+                callbackEnabled = RunnerCodeControlNegotiation.LEGACY in requiredCapabilities, codeControlMode = codeControlMode, collectionPolicy = collectionPolicy, setPolicy = setPolicy,
+                localModelPolicy = localPolicy, localModelAuthority = localAuthority)
             host = runtime
             if (collectionSelected) ipc.enableArtifactCollection()
             if (setsSelected) ipc.enableArtifactSets()
@@ -159,10 +171,10 @@ class RunnerHostSession(
                 put("decision", payload.obj("environment").string("decision")); put("warnings", payload.obj("environment").array("warnings"))
                 put("systemLanguage", payload.obj("environment").getValue("systemLanguage")); put("languageSource", payload.obj("environment").getValue("languageSource"))
             })
-            val required = RunnerAdmission(bundle, CAPABILITIES).inspect(bundle.rootDefinition)
+            val required = RunnerAdmission(bundle, CAPABILITIES, localModelPolicy = localPolicy).inspect(bundle.rootDefinition)
             if ("model.http.v1" in required) { RunnerHttpClients.requireDirect(); environment.requirePaths(setOf("jvm-http")) }
             if (required.any { it in setOf("agent.codex.v1", "agent.claude.v1") }) { RunnerHttpClients.requireDirect(); environment.requirePaths(setOf("agent-cli")) }
-            if ("step.script.v1" in required) environment.requirePaths(setOf("subprocess"))
+            if ("step.script.v1" in required || required.any { it in RunnerAgentToolPolicy.SUBPROCESS_CAPABILITIES }) environment.requirePaths(setOf("subprocess"))
             val restored = if (frame.string("type") == "resume") {
                 store.restore(payload.obj("checkpoint"), payload.obj("previousBinding"))
             } else null
@@ -172,7 +184,7 @@ class RunnerHostSession(
             }
             try {
                 val resultJob = async(Dispatchers.Default) {
-                    WorkflowExecutor(HttpAccess(), listOf(com.fartech.ftapp2.commonsKt.ConfigurationParameter("user_id", JsonPrimitive(identity.ownerId))), host = runtime, jevEnvKeyFallback = false).execute(
+                    WorkflowExecutor(runtime.toolHttpAccess, listOf(com.fartech.ftapp2.commonsKt.ConfigurationParameter("user_id", JsonPrimitive(identity.ownerId))), host = runtime, jevEnvKeyFallback = false).execute(
                         bundle.rootDefinition, payload.obj("inputs").mapValues { it.value.jsonPrimitive.content },
                         identity.executionId, restored
                     )
@@ -212,12 +224,19 @@ class RunnerHostSession(
     companion object {
         // Engine adapter inventory; platform/supervisor admission and runtime dependency receipts remain separate.
         val CAPABILITIES = linkedSetOf("bundle.portableAssets.v1", "control.callback.v1", "workflow.full.v1", "step.agent.v1", "model.http.v1", "agent.codex.v1", "agent.claude.v1", "tool.exit.v1", "tool.workflow.v1", "tool.user_interaction.v1", "skill.text.v1", "tool.skill_tools.v1", "service.mcp_servers.v1", "mcp.stdio.v1", "process.interactive.v1", "step.script.v1", "step.subWorkflow.v1", "step.stateMachine.v1", "interaction.approval.v1", "output.read.v1", "output.publish.v1", RunnerAdmission.CONCURRENT_CAPABILITY, RunnerLoopPolicy.CAPABILITY, RunnerLoopPolicy.CLI_CAPABILITY,
-            // Classifier and group chat run their agent calls through runStepAgent under derived step names, each call's
-            // lease released when it ends (WorkflowHost.derivedScopeEnded). A Jev classifier still needs decision.jev.v1
-            // and agent_based step.agentBased.v1, neither of which this host offers.
-            "step.classifier.v1", "step.groupChat.v1", RunnerLoopPolicy.REPEAT_CAPABILITY).apply {
+            // Classifier, group chat and agent_based workers run their agent calls through runStepAgent under derived step
+            // names, each call's lease released when it ends (WorkflowHost.derivedScopeEnded); the agent_based
+            // orchestrator runs under the step's host scope. A Jev decision still needs decision.jev.v1, which this host
+            // does not offer.
+            "step.classifier.v1", "step.groupChat.v1", "step.agentBased.v1", RunnerLoopPolicy.REPEAT_CAPABILITY,
+            "tool.calendar.v1", "tool.data_transform.v1",
+            RunnerLoopPolicy.RERUN_CAPABILITY).apply {
+            // Multimedia wiring is exercised with trusted test capabilities only. A JVM property alone
+            // must not advertise it: platform purpose grants, supervisor/manifest admission and runtime
+            // acceptance remain prerequisites for adding it to this inventory.
             if (RunnerCodeControlNegotiation.supplementAvailable()) {
                 add(RunnerCodeControlNegotiation.PER_CALL)
+                add("connector.google-marketing.operations.v1") // Typed P/S operations use this exact per-call supplement.
                 add(RunnerCodeControlNegotiation.SOURCE_READ_POLICY) // P/S separately verify the frozen historical-source carrier.
                 add(RunnerCodeControlNegotiation.FEEDBACK_CONTEXT) // S must separately admit its guarded HTTP adapter + schema pin.
             }
@@ -238,7 +257,10 @@ class RunnerHostSession(
             add("credential.scopedBusiness.v1") // S verifies step-scoped business references.
             // source.attestation awaits approval/terminal lifecycle.
             // Confined to this run's directories (RunnerFileConfinement); needs POSIX link counts.
-            if (RunnerFileConfinement.available()) add("tool.file_system.v1")
+            if (RunnerFileConfinement.available()) {
+                add("tool.file_system.v1"); add(RunnerFileConfinement.INPUTS_CAPABILITY)
+                add("tool.web.v1"); add("tool.knowledge_memory.v1"); add("tool.image_processing.v1"); add("tool.csv.v1")
+            }
         }
     }
 }

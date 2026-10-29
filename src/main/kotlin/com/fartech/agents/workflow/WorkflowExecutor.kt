@@ -5289,14 +5289,18 @@ class WorkflowExecutor(
                     context = context,
                     label = "$agentName:$stepLabel"
                 )
-                runStepAgent(
-                    agentName = agentName,
-                    agentDef = agentDef,
-                    context = context,
-                    stepName = "${step.step}:$stepLabel",
-                    input = task,
-                    directoryIsolation = directoryIsolation
-                )
+                // Each delegation's lease, CLI pool and skill state end with it, not at the step's end.
+                val workerScope = "${step.step}:$stepLabel"
+                endingDerivedScope(context, workerScope) {
+                    runStepAgent(
+                        agentName = agentName,
+                        agentDef = agentDef,
+                        context = context,
+                        stepName = workerScope,
+                        input = task,
+                        directoryIsolation = directoryIsolation
+                    )
+                }
             }
 
         // 创建 OrchestratorTools
@@ -5389,7 +5393,6 @@ class WorkflowExecutor(
 
         // 构建 Orchestrator 的 customToolSets（OrchestratorTools + 共享知识库）
         val orchestratorCustomToolSets = mutableListOf<ai.koog.agents.core.tools.reflect.ToolSet>(orchestratorTools)
-        context.sharedKnowledgeBase?.let { orchestratorCustomToolSets.add(it) }
 
         // 如果有共享知识库且 Orchestrator 工具集中未包含 rag_tools，自动注入
         val orchestratorToolNames = if (context.sharedKnowledgeBase != null && "rag_tools" !in rawToolNames) {
@@ -5397,27 +5400,6 @@ class WorkflowExecutor(
         } else {
             rawToolNames
         }
-        hostWorkflowToolsOrNull(orchestratorToolNames, parameters, context.executionId, step.step)?.let { orchestratorCustomToolSets.add(it) }
-        val orchestratorFileTools = hostFileSystemToolsOrNull(orchestratorToolNames, parameters, context.executionId, step.step)
-        orchestratorFileTools?.let { orchestratorCustomToolSets.addAll(it) }
-
-        val orchestratorSkillManager = createSkillManager(parameters)
-        val orchestratorToolRegistry = com.fartech.agents.commons.parseToolSet(
-            if (orchestratorFileTools != null) withoutToolGroup(parameters, "file_system") else parameters,
-            httpAccess,
-            tools = if (orchestratorFileTools != null) orchestratorToolNames - "file_system" else orchestratorToolNames,
-            customToolSets = orchestratorCustomToolSets,
-            skillManager = orchestratorSkillManager,
-            onHookEvent = orchestratorHookCallback,
-            // Agent-based orchestrators must use the same runtime executor as
-            // direct agents and code steps. Otherwise external Claude/Codex
-            // tools silently fall back to a native executor in production.
-            externalAgentExecutor = codeStepExecutor,
-            claudeCredentialProvider = host?.claudeCredentialsFor(hostScope(context, step.step)) ?: claudeCredentialProvider,
-            codexCredentialProvider = host?.codexCredentialsFor(hostScope(context, step.step)) ?: codexCredentialProvider,
-            onCodexAuthJsonRotated = host?.codexAuthRotationFor(hostScope(context, step.step)) ?: onCodexAuthJsonRotated
-        )
-
         // 构建监控 Features
         val monitoringInstallFeatures: ai.koog.agents.core.agent.GraphAIAgent.FeatureContext.() -> Unit =
             if (enableMonitoring) {
@@ -5430,8 +5412,40 @@ class WorkflowExecutor(
                 defaultInstallFeatures
             }
 
+        val orchestratorSkillManager = createSkillManager(parameters)
+        lateinit var orchestratorToolRegistry: ToolRegistry
+        val orchestratorHostedTools = hostAgentToolSets(orchestratorToolNames, parameters, context.executionId, step.step).toMutableMap()
+        if ("sub_agent" in orchestratorToolNames && host != null) {
+            host.subAgentTools(hostScope(context, step.step), parameters,
+                WorkflowSubAgentRuntime({ orchestratorToolRegistry }, orchestratorSkillManager, monitoringInstallFeatures))
+                ?.let { orchestratorHostedTools["sub_agent"] = listOf(it) }
+        }
+        if ("rag_tools" !in orchestratorHostedTools) context.sharedKnowledgeBase?.let { orchestratorCustomToolSets.add(it) }
+        if ("workflow" !in orchestratorHostedTools) {
+            hostWorkflowToolsOrNull(orchestratorToolNames, parameters, context.executionId, step.step)?.let { orchestratorCustomToolSets.add(it) }
+        }
+        orchestratorCustomToolSets.addAll(orchestratorHostedTools.values.flatten())
+
+        orchestratorToolRegistry = com.fartech.agents.commons.parseToolSet(
+            withoutToolGroups(parameters, orchestratorHostedTools.keys),
+            httpAccess,
+            tools = orchestratorToolNames - orchestratorHostedTools.keys,
+            customToolSets = orchestratorCustomToolSets,
+            skillManager = orchestratorSkillManager,
+            onHookEvent = orchestratorHookCallback,
+            // Agent-based orchestrators must use the same runtime executor as
+            // direct agents and code steps. Otherwise external Claude/Codex
+            // tools silently fall back to a native executor in production.
+            externalAgentExecutor = codeStepExecutor,
+            claudeCredentialProvider = host?.claudeCredentialsFor(hostScope(context, step.step)) ?: claudeCredentialProvider,
+            codexCredentialProvider = host?.codexCredentialsFor(hostScope(context, step.step)) ?: codexCredentialProvider,
+            onCodexAuthJsonRotated = host?.codexAuthRotationFor(hostScope(context, step.step)) ?: onCodexAuthJsonRotated
+        )
+
         // 创建 Orchestrator Agent
-        return try {
+        // The orchestrator runs under the step's host scope like any step agent (runStepAgent sets it for workers), so
+        // its hooks, MCP processes and credential leases resolve against this execution and step on a Runner.
+        return try { WorkflowHostContext.withScope(hostScope(context, step.step)) {
             val orchestratorAgent = ManagedAgent(
                 agent = com.fartech.agents.commons.buildAgent(
                     httpAccess = httpAccess,
@@ -5473,7 +5487,7 @@ class WorkflowExecutor(
             }
 
             StepResult(success = true, output = finalOutput)
-        } catch (e: OrchestratorBudgetExceededException) {
+        } } catch (e: OrchestratorBudgetExceededException) {
             logger.warn { "[Workflow:${workflow.name}] Orchestrator budget exceeded for step '${step.step}': ${e.message}" }
             // 预算耗尽时，尝试使用已有的 completion summary 或 delegation log
             val fallbackOutput = orchestratorTools.completionSummary ?: buildString {
@@ -5483,6 +5497,9 @@ class WorkflowExecutor(
                 }
             }
             StepResult(success = true, output = fallbackOutput)
+        } catch (e: CancellationException) {
+            // A user cancel or lost Runner authority stops the step; it must not turn into a failure on_failure handles.
+            throw e
         } catch (e: Exception) {
             logger.error(e) { "[Workflow:${workflow.name}] Agent-based step '${step.step}' failed: ${e.message}" }
             throw WorkflowExecutionException("Agent-based step '${step.step}' failed: ${e.message}", e)
@@ -6813,6 +6830,23 @@ class WorkflowExecutor(
         workflowName: String? = null,
         sharedRagTools: RAGTools? = null
     ): PreparedAgentRuntime {
+        // Resolve the host's frozen local scope before credentials, skill materialization or
+        // tool preparation. Bootstrap repeats this pure lookup before constructing a transport.
+        selectedHostLocalModel()?.let {
+            val local = agentDef.resolveParameters()
+            require(local["type"] == JsonPrimitive("universal_agent") && local["strategy"] == JsonPrimitive("single_run") &&
+                (local["tool_set"] == null || local["tool_set"] == JsonArray(emptyList())) && sharedRagTools == null) { "Local host requires a plain single-run text agent" }
+            val rawPrompt = local["system_prompt"] ?: JsonPrimitive("")
+            val systemPrompt = (context?.let { workflowContext ->
+                resolveJsonTemplates(rawPrompt, createStepTemplateContext(workflowContext, stepName ?: "default", agentName, directoryIsolation))
+            } ?: rawPrompt).jsonPrimitive.content
+            val monitoring: GraphAIAgent.FeatureContext.() -> Unit =
+                if (enableMonitoring && executionId != null && stepName != null)
+                    createMonitoringInstallFeatures(executionId, stepName, null, "telegram")
+                else defaultInstallFeatures
+            return PreparedAgentRuntime(sessionId, listOf(ConfigurationParameter("session_id", JsonPrimitive(sessionId))),
+                systemPrompt, ToolRegistry {}, null, monitoring, null)
+        }
         // 解析最终参数（预设 + 覆盖 或 向后兼容字段）
         val resolvedParams = agentDef.resolveParameters().toMutableMap()
         normalizeRuntimeDirectoryAliases(resolvedParams)
@@ -6977,16 +7011,23 @@ class WorkflowExecutor(
 
         // 如果有共享知识库，将其作为 customToolSet 注入（避免重复创建 RAGTools 实例）；
         // workflow 工具同样由本 executor 构建，让嵌套执行继承宿主的 Jev 凭据策略
-        val hostedFileTools = hostFileSystemToolsOrNull(finalToolNames, parameters, executionId, stepName)
+        val hostedTools = hostAgentToolSets(finalToolNames, parameters, executionId, stepName).toMutableMap()
+        lateinit var toolRegistry: ToolRegistry
+        if ("sub_agent" in finalToolNames && host != null) {
+            val scope = context?.let { hostScope(it, stepName) }
+                ?: WorkflowHostScope(host.binding.executionId, executionId ?: host.binding.executionId, stepName = stepName)
+            host.subAgentTools(scope, parameters, WorkflowSubAgentRuntime({ toolRegistry }, skillManager, monitoringInstallFeatures))
+                ?.let { hostedTools["sub_agent"] = listOf(it) }
+        }
         val customToolSets = listOfNotNull(
-            sharedRagTools,
-            hostWorkflowToolsOrNull(finalToolNames, parameters, executionId, stepName)
-        ) + hostedFileTools.orEmpty()
+            sharedRagTools.takeUnless { "rag_tools" in hostedTools },
+            if ("workflow" in hostedTools) null else hostWorkflowToolsOrNull(finalToolNames, parameters, executionId, stepName)
+        ) + hostedTools.values.flatten()
 
-        val toolRegistry = parseToolSet(
-            if (hostedFileTools != null) withoutToolGroup(parameters, "file_system") else parameters,
+        toolRegistry = parseToolSet(
+            withoutToolGroups(parameters, hostedTools.keys),
             httpAccess,
-            tools = if (hostedFileTools != null) finalToolNames - "file_system" else finalToolNames,
+            tools = finalToolNames - hostedTools.keys,
             customToolSets = customToolSets,
             skillManager = skillManager,
             onSkillEvent = skillEventCallback,
@@ -7062,6 +7103,36 @@ class WorkflowExecutor(
         }
     }
 
+    /** Replace every hosted group, never registering the library implementation alongside it. */
+    private fun hostAgentToolSets(
+        toolNames: Collection<String>,
+        parameters: List<ConfigurationParameter>,
+        executionId: String?,
+        stepName: String?
+    ): Map<String, List<ai.koog.agents.core.tools.reflect.ToolSet>> {
+        val runtime = host ?: return emptyMap()
+        val scope = WorkflowHostScope(runtime.binding.executionId, executionId ?: runtime.binding.executionId, stepName = stepName)
+        val replacements = runtime.agentToolSets(scope, toolNames.toSet(), parameters).toMutableMap()
+        require(replacements.keys.all { it in toolNames }) { "Host replaced an unrequested tool group" }
+        // Invoke on the actual host so Kotlin delegation still honours legacy fileSystemTools overrides.
+        if ("file_system" in toolNames && "file_system" !in replacements) {
+            runtime.fileSystemTools(scope, parameters)?.let { replacements["file_system"] = it }
+        }
+        return replacements
+    }
+
+    private fun withoutToolGroups(parameters: List<ConfigurationParameter>, groups: Set<String>): List<ConfigurationParameter> {
+        val filtered = parameters.map { parameter ->
+            val value = parameter.value
+            if (parameter.key == "tool_set" && value is kotlinx.serialization.json.JsonArray) {
+                ConfigurationParameter(parameter.key, kotlinx.serialization.json.JsonArray(value.filterNot { (it as? JsonPrimitive)?.content in groups }))
+            } else parameter
+        }
+        // The registry implicitly adds skill_tools; a host replacement must also suppress that default.
+        return if ("skill_tools" in groups) filtered.filterNot { it.key == "disable_skills" } +
+            ConfigurationParameter("disable_skills", JsonPrimitive(true)) else filtered
+    }
+
     /**
      * The `workflow` tool for an agent whose tool set contains it, else null. `executeWorkflow`
      * runs a nested [WorkflowExecutor] in this JVM, which must inherit THIS executor's runtime
@@ -7072,23 +7143,6 @@ class WorkflowExecutor(
      * `WorkflowTools`. Host-only on purpose: [parameters] are user-controlled on the web and
      * must not drive this.
      */
-    /** The host's `file_system` replacement (see [WorkflowHost.fileSystemTools]); null keeps the library tools. */
-    private fun hostFileSystemToolsOrNull(
-        toolNames: Collection<String>,
-        parameters: List<ConfigurationParameter>,
-        executionId: String?,
-        stepName: String?
-    ): List<ai.koog.agents.core.tools.reflect.ToolSet>? = host?.takeIf { "file_system" in toolNames }?.let {
-        it.fileSystemTools(WorkflowHostScope(it.binding.executionId, executionId ?: it.binding.executionId, stepName = stepName), parameters)
-    }
-
-    private fun withoutToolGroup(parameters: List<ConfigurationParameter>, group: String): List<ConfigurationParameter> = parameters.map { parameter ->
-        val value = parameter.value
-        if (parameter.key == "tool_set" && value is kotlinx.serialization.json.JsonArray) {
-            ConfigurationParameter(parameter.key, kotlinx.serialization.json.JsonArray(value.filterNot { (it as? JsonPrimitive)?.content == group }))
-        } else parameter
-    }
-
     private fun hostWorkflowToolsOrNull(
         toolNames: Collection<String>,
         parameters: List<ConfigurationParameter>,
@@ -9176,7 +9230,9 @@ class WorkflowExecutor(
                         type = "token_usage",
                         category = "llm",
                         subCategory = "token",
-                        summary = "🧮 Token 统计（发送:${inputTokens ?: 0} / 接收:${outputTokens ?: 0}）",
+                        summary = if (response?.metaInfo?.metadata?.get("braidrun_model_execution") == JsonPrimitive("local"))
+                            "🧮 Token 统计（发送:${inputTokens?.toString() ?: "未知"} / 接收:${outputTokens?.toString() ?: "未知"}）"
+                        else "🧮 Token 统计（发送:${inputTokens ?: 0} / 接收:${outputTokens ?: 0}）",
                         detail = tokenDetail,
                         inputTokens = inputTokens,
                         outputTokens = outputTokens,

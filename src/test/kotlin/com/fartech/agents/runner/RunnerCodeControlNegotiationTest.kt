@@ -8,6 +8,7 @@ class RunnerCodeControlNegotiationTest {
     @Test fun `ready per-call capability is backed by exact committed HTTP supplement`() {
         assertTrue(RunnerCodeControlNegotiation.supplementAvailable())
         assertTrue(RunnerCodeControlNegotiation.PER_CALL in RunnerHostSession.CAPABILITIES)
+        assertTrue("connector.google-marketing.operations.v1" in RunnerHostSession.CAPABILITIES)
         val origin = javaClass.getResourceAsStream("/runner-workflow-v1/late-control-origin.txt")!!.bufferedReader().readLines().first()
         assertEquals(RunnerCodeControlNegotiation.CONTRACT_COMMIT, origin)
         assertEquals(WorkflowCodeControlMode.SUPERVISOR_PER_CALL,
