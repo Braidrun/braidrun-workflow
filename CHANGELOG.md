@@ -5,6 +5,21 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.6-rc.20261030.1] - 2026-10-30
+
+### Changed
+
+- **Release lines reunited for the ASA Runner release.** Merges `1.4.6-rc.20261029.2` (`db1fd8a`: Runner readiness
+  runtime - classifier, group chat, repeat_until, agent_based, non-idempotent iterate_over, confined agent tools,
+  sandbox, sub-agents, multimedia and local-model protocol, brokered connector operations) into
+  `1.4.6-rc.20261029.1` (`540b266`: managed listing Runner supplement and the PR #3 test fixes), keeping both.
+- **Late-control schema is the union of both supplements**: the managed listing worker, directory publication and
+  Slack delivery operations of `.1` (`e65c475d…`) and the brokered connector purposes and durable operations of `.2`
+  (`80dcf19c…`). New sha256 `c3f0a56872e099942b61884d6389da5bf1a095fdf0c3366ca53d5fbe394f32cc`, web contract
+  `201baa80e1697efbac2f238a0b73d98d43c524bc` (braidrun main merge of the Runner/ASA candidate). The negotiation pin
+  and the runner-host JAR manifest take that value, so the platform, the Python Supervisor and the Runner runtime
+  ship together with this engine.
+
 ## [1.4.6-rc.20261029.1] - 2026-10-29
 
 ### Changed
@@ -35,6 +50,64 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   previous supplement is refused before listing credential delegation, so the platform, the Python Supervisor
   and the Runner runtime ship together with this engine. Existing per-call transport and selector behavior is
   unchanged.
+
+## [1.4.6-rc.20261029.2] - 2026-10-29
+
+### Added
+
+- Integrate the Runner readiness branch with the existing mainline runtime, preserving both histories.
+- Add confined agent file/document tools, gated web and multimedia transport, host-managed subprocess sandboxing,
+  and scoped sub-agent execution.
+- Add local-model protocol, admission, authority, cancellation and prompt execution support. Runtime availability
+  remains subject to platform admission and host evidence; this release does not enable production capabilities.
+
+### Fixed
+
+- Preserve mainline loop, approval, connector and artifact behavior while integrating the readiness implementations.
+- Remove duplicate repeat-until test declarations introduced during candidate integration.
+
+### Validation
+
+- The selected engine regression completed 79 classes and 600 tests with no failures, errors or skips.
+- Release changes after validation are the Gradle version label and release documentation only. No production
+  configuration, workflow or runtime registration was changed.
+
+## [1.4.6-rc.20261023.2] - 2026-10-23
+
+### Added
+
+- **Runners run agent_based steps.** `RunnerHostSession.CAPABILITIES` declares `step.agentBased.v1`. Each orchestrator
+  delegation releases its own lease when it ends; the orchestrator runs under the step's host scope; a cancel or lost
+  Runner authority is rethrown instead of becoming a step failure. Admission: `max_steps` 1..50, no real step under the
+  `<step>:` prefix.
+
+### Fixed
+
+- agent_based orchestrators' skills are scoped to the bundle like workflow agents' (no standard-path scan, no hook
+  scripts), at the root and inside state machines.
+
+## [1.4.6-rc.20261023.1] - 2026-10-23
+
+### Added
+
+- **Runners run classifier, group chat and repeat_until steps.** `RunnerHostSession.CAPABILITIES` declares
+  `step.classifier.v1`, `step.groupChat.v1` and the new `step.repeatUntil.v1` (`iterate_over` keeps
+  `step.loop.v1`). Each classifier call, group-chat turn and summary releases its own model lease when it ends
+  (`WorkflowHost.derivedScopeEnded`), and each repeat_until evaluator round ends as host occurrence
+  `evaluate:<n>`, so a long chat or loop holds one lease at a time. repeat_until on a Runner: at most 50 rounds,
+  no approval, published/read outputs or sub_workflow/state machine/agent_based/code body, no `<step>:` clash;
+  it is one atomic step (a resume reruns it from round 1) and needs no `idempotent` mark.
+- **Agents can read a run's bound attachments and saved documents, read-only.** `FrozenWorkflowBundle.boundInputFiles`
+  (role `input` under `inputs/uploads/` and `inputs/documents/`) is readable through the confined file tools when
+  the plan was admitted with the new `tool.file_system.inputs.v1`; size and sha256 are re-checked on read.
+- **Late-control schema with brokered connector purposes** (`gmail.read`, `gmail.send`, `outlook-mail.read`,
+  `outlook-mail.send`, `google-marketing.read`, `google-marketing.mutate`), sha256 `5221f6f4…f5b2`.
+
+### Fixed
+
+- A Jev classifier inside a state machine now needs `decision.jev.v1` like a root one.
+- Classifier and group-chat steps refuse a real step living under their derived `<step>:` prefix.
+- A cancelled or authority-lost group-chat summary fails the step instead of returning the transcript as its result.
 
 ## [1.4.6-rc.20261016.1] - 2026-10-16
 

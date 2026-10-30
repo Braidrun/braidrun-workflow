@@ -14,7 +14,9 @@ import java.io.*
 import java.nio.charset.Charset
 
 @LLMDescription("CSV tools implemented with Apache Commons CSV. Robust parsing/writing, filtering, selection, merge, and conversion to/from XLSX.")
-class CSVTools : ToolSet {
+class CSVTools private constructor(private val confined: ConfinedCsvOperations?) : ToolSet {
+    constructor() : this(null)
+    constructor(files: ToolFileAccess, guard: () -> Unit) : this(ConfinedCsvOperations(files, guard))
 
     init { PoiSecurity.ensureHardened() }
 
@@ -72,6 +74,7 @@ class CSVTools : ToolSet {
         @LLMDescription("Maximum data rows to preview (default 50)") maxRows: Int? = 50,
         @LLMDescription("Maximum characters to return (default 5000)") maxChars: Int? = 5000
     ): String {
+        confined?.let { return it.readCsvPreview(csvPath, delimiter, hasHeader, maxRows, maxChars) }
         return try {
             parse(csvPath, delimiter, hasHeader).let { (parser, delim) ->
                 parser.use { p ->
@@ -131,6 +134,7 @@ class CSVTools : ToolSet {
         @LLMDescription("Delimiter character as one-char string (optional)") delimiter: String? = null,
         @LLMDescription("Whether the first row is a header (default true)") hasHeader: Boolean? = true
     ): String {
+        confined?.let { return it.getCsvInfo(csvPath, delimiter, hasHeader) }
         return try {
             parse(csvPath, delimiter, hasHeader).let { (parser, delim) ->
                 parser.use { p ->
@@ -172,6 +176,7 @@ class CSVTools : ToolSet {
         @LLMDescription("Whether the first row is a header (default true)") hasHeader: Boolean? = true,
         @LLMDescription("Include header row in output (default true if hasHeader)") includeHeader: Boolean? = null
     ): String {
+        confined?.let { return it.selectColumns(csvPath, outputPath, columns, delimiter, hasHeader, includeHeader) }
         return try {
             val outFile = ToolPathSecurity.validateOutputPath(outputPath)
             parse(csvPath, delimiter, hasHeader).let { (parser, delim) ->
@@ -216,6 +221,7 @@ class CSVTools : ToolSet {
         @LLMDescription("Include header row in output (default true if hasHeader)") includeHeader: Boolean? = null,
         @LLMDescription("Case sensitive matching (default false)") caseSensitive: Boolean? = false
     ): String {
+        confined?.let { return it.filterRows(csvPath, outputPath, column, op, value, delimiter, hasHeader, includeHeader, caseSensitive) }
         return try {
             val outFile = ToolPathSecurity.validateOutputPath(outputPath)
             parse(csvPath, delimiter, hasHeader).let { (parser, delim) ->
@@ -269,6 +275,7 @@ class CSVTools : ToolSet {
         @LLMDescription("Delimiter character as one-char string to use in output (optional; default auto-detect from first file)") delimiter: String? = null
     ): String {
         if (sourcePaths.isEmpty()) return "No source CSV files provided"
+        confined?.let { return it.mergeCsvFiles(sourcePaths, outputPath, hasHeader, delimiter) }
         return try {
             val firstFile = ToolPathSecurity.validateInputPath(sourcePaths.first())
             val outFile = ToolPathSecurity.validateOutputPath(outputPath)
@@ -325,6 +332,7 @@ class CSVTools : ToolSet {
         @LLMDescription("Delimiter character as one-char string (optional)") delimiter: String? = null,
         @LLMDescription("Whether the first row is a header (default true)") hasHeader: Boolean? = true
     ): String {
+        confined?.let { return it.csvToXlsx(csvPath, outputXlsxPath, sheetName, delimiter, hasHeader) }
         return try {
             val file = ToolPathSecurity.validateInputPath(csvPath)
             val outFile = ToolPathSecurity.validateOutputPath(outputXlsxPath)
@@ -369,6 +377,7 @@ class CSVTools : ToolSet {
         @LLMDescription("Delimiter character as one-char string (optional; default ,)") delimiter: String? = null,
         @LLMDescription("Include an artificial header row (column_1, column_2, ...) if the sheet lacks a header (default false)") includeHeader: Boolean? = false
     ): String {
+        confined?.let { return it.xlsxSheetToCsv(xlsxPath, sheetName, outputCsvPath, delimiter, includeHeader) }
         return try {
             val outFile = ToolPathSecurity.validateOutputPath(outputCsvPath)
             val delim = delimiter?.firstOrNull() ?: ','

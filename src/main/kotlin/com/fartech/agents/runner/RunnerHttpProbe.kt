@@ -37,7 +37,7 @@ object RunnerHttpProbe {
         val isV4 = ip.matches(Regex("[0-9]{1,3}(\\.[0-9]{1,3}){3}")) && ip.split('.').all { it.toInt() <= 255 && (it == "0" || !it.startsWith('0')) }
         val isV6 = ':' in ip && ip.matches(Regex("[0-9A-Fa-f:]+")) && runCatching { java.net.InetAddress.getByName(ip) is java.net.Inet6Address }.getOrDefault(false)
         require(isV4 || isV6) { "Probe did not report an IP literal" }
-        HttpHostSafety.assertUrlIsPublic(if (isV4) "https://$ip/" else "https://[$ip]/")
+        HttpHostSafety.assertResolvedAddressesPublic(ip, listOf(java.net.InetAddress.getByName(ip)), allowPrivateOverride = false)
         val country = data.string("country")
         val decision = when {
             country == "CN" -> "BLOCK_CN"

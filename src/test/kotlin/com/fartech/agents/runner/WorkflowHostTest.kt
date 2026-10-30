@@ -398,6 +398,53 @@ class WorkflowHostTest {
         for (library in listOf("readFile", "writeFile", "__write_file__", "__read_file__", "copyFile", "deleteFile")) assertFalse(request.contains("\"$library\""), library)
         assertEquals(listOf(WorkflowHostScope("root", "root", stepName = "write")), scopes)
     }
+    @Test fun `host can replace multiple tool groups or suppress them with no library fallback`(@TempDir dir: Path) = runBlocking {
+        val base = Host(dir)
+        val bodies = mutableListOf<String>()
+        val mock = io.ktor.client.HttpClient(io.ktor.client.engine.mock.MockEngine) { engine { addHandler { request ->
+            val body = String(request.body.toByteArray()); synchronized(bodies) { bodies.add(body) }
+            val reply = buildJsonObject {
+                put("id", "test-only-model"); put("object", "chat.completion"); put("created", 1760000000); put("model", "gpt-4o-mini")
+                put("choices", buildJsonArray { add(buildJsonObject { put("index", 0); put("message", buildJsonObject { put("role", "assistant"); put("content", "done") }); put("finish_reason", "stop") }) })
+                put("usage", buildJsonObject { put("prompt_tokens", 1); put("completion_tokens", 1); put("total_tokens", 2) })
+            }
+            respond(reply.toString(), io.ktor.http.HttpStatusCode.OK, io.ktor.http.headersOf(io.ktor.http.HttpHeaders.ContentType, "application/json"))
+        } } }
+        val scopes = mutableListOf<WorkflowHostScope>()
+        val host = object : WorkflowHost by base {
+            override val llmHttpClientFactory = ai.koog.http.client.ktor.KtorKoogHttpClient.Factory(mock)
+            override suspend fun prepareAgentParameters(scope: WorkflowHostScope, parameters: List<com.fartech.ftapp2.commonsKt.ConfigurationParameter>) = parameters + listOf(
+                com.fartech.ftapp2.commonsKt.ConfigurationParameter("openai_api_key", JsonPrimitive("test-only-model-key")))
+            override fun agentToolSets(scope: WorkflowHostScope, toolNames: Set<String>, parameters: List<com.fartech.ftapp2.commonsKt.ConfigurationParameter>): Map<String, List<ai.koog.agents.core.tools.reflect.ToolSet>> {
+                assertTrue(toolNames.containsAll(setOf("file_system", "calendar", "data_transform", "workflow", "skill_tools")))
+                scopes += scope
+                return mapOf("calendar" to listOf(HostFileMarker()), "file_system" to emptyList(), "data_transform" to emptyList(), "workflow" to emptyList(), "skill_tools" to emptyList())
+            }
+            override fun fileSystemTools(scope: WorkflowHostScope, parameters: List<com.fartech.ftapp2.commonsKt.ConfigurationParameter>): List<ai.koog.agents.core.tools.reflect.ToolSet> = error("Explicit group replacement must suppress legacy fallback")
+        }
+        val workflow = WorkflowParser.parseYaml("""
+            name: hosted-files
+            agents:
+              model:
+                strategy: single_run
+                tools: [file_system, calendar, data_transform, workflow, skill_tools]
+                llm:
+                  model: gpt-4o-mini
+                  provider: openai
+            workflow:
+              - step: write
+                agent: model
+                input: Write the notes.
+        """.trimIndent()).copy(directoryIsolation = base.isolation())
+        try {
+            val result = WorkflowExecutor(HttpAccess(), emptyList(), host = host).execute(workflow)
+            assertTrue(result.success, result.error)
+        } finally { mock.close() }
+        val request = synchronized(bodies) { bodies.first() }
+        assertTrue(request.contains("hostFileMarker"), request)
+        for (library in listOf("readFile", "writeFile", "__write_file__", "__read_file__", "copyFile", "deleteFile", "getCurrentDateTime", "jsonToYaml", "executeWorkflow", "searchSkills", "getSkillDetails")) assertFalse(request.contains("\"$library\""), library)
+        assertEquals(listOf(WorkflowHostScope("root", "root", stepName = "write")), scopes)
+    }
     @Test fun `closure admission refuses unknown dormant nested tools before effects`(@TempDir dir: Path) {
         val host = Host(dir)
         val child = WorkflowDefinition("unsafe", agents = mapOf("unknown" to AgentDefinition(tools = listOf("server_business_broker"))), workflow = listOf(WorkflowStep("unused", agent = "unknown", input = "ignored")))

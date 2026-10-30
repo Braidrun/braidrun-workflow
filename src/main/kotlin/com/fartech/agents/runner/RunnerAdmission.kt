@@ -109,26 +109,30 @@ class RunnerEnvironmentGate(
 class RunnerAdmission(
     private val resolver: WorkflowResolver,
     private val capabilities: Set<String>,
-    private val approvedTools: Set<String> = setOf("exit", "user_interaction", "workflow", "skill_tools", "file_system"),
+    private val approvedTools: Set<String> = setOf("exit", "user_interaction", "workflow", "skill_tools", "file_system", "calendar", "data_transform", "web", "knowledge_memory", "image_processing", "csv"),
     private val maximumDepth: Int = WorkflowExecutor.DEFAULT_MAX_SUB_WORKFLOW_DEPTH,
     /** The only directory-isolation base a frozen bundle produces; null requires a relative base. */
-    private val isolationRoot: java.nio.file.Path? = (resolver as? FrozenWorkflowBundle)?.executionDirectory?.resolve(".workflow-runs")
+    private val isolationRoot: java.nio.file.Path? = (resolver as? FrozenWorkflowBundle)?.executionDirectory?.resolve(".workflow-runs"),
+    /** Trusted verified carrier only; ordinary workflow parameters cannot replace cloud admission. */
+    private val localModelPolicy: RunnerLocalModelPolicy? = null,
 ) {
     fun inspect(root: WorkflowDefinition): Set<String> {
+        localModelPolicy?.requireResolver(resolver)
         val required = linkedSetOf("workflow.full.v1")
         val visiting = HashSet<String>(); val visited = HashSet<String>()
         fun requireCapability(capability: String) {
             required.add(capability)
             require(capability in capabilities) { "Unsupported Runner capability: $capability" }
         }
-        /** Returns whether the agent uses the confined `file_system` tools. */
-        fun inspectAgent(agent: AgentDefinition): Boolean {
+        /** Returns whether the agent needs host-owned run directories. */
+        fun inspectAgent(agent: AgentDefinition, local: Boolean = false): Boolean {
             requireCapability("step.agent.v1")
             require(agent.agentRef == null) { "Unfrozen agent reference" }
             val preset = agent.preset?.let { AgentPresetRegistry.get(it) ?: error("Unknown agent preset") }
             val effective = agent.resolveParameters()
             val type = effective["type"]?.jsonPrimitive?.content ?: agent.type
             val cli = type in setOf("claude_code_agent", "codex_agent")
+            require(!local || !cli) { "Local model carrier cannot select a CLI agent" }
             if (cli) {
                 val provider = if (type == "codex_agent") "codex" else "claude"
                 requireCapability("agent.$provider.v1")
@@ -140,7 +144,7 @@ class RunnerAdmission(
                 }
                 // The host registers only file tools (`--tools`) for Claude and drops the permission bypass.
                 if (provider == "claude") RunnerAgentToolPolicy.claudeExtraArgs(RunnerAgentToolPolicy.text(effective["external_agent_claude_extra_args"]))
-            } else requireCapability("model.http.v1")
+            } else requireCapability(if (local) RunnerLocalModelProtocol.CAPABILITY else "model.http.v1")
             val tools = effective["tool_set"]?.let { v ->
                 require(v is JsonArray) { "Ambiguous tool set" }; v.map { it.jsonPrimitive.content }
             } ?: agent.tools
@@ -149,7 +153,7 @@ class RunnerAdmission(
                 require(tool in approvedTools) { "Unsupported Runner tool: $tool" }
                 requireCapability("tool.$tool.v1")
             }
-            val fileTools = !cli && "file_system" in tools
+            val fileTools = !cli && tools.any { it in RunnerAgentToolPolicy.RUN_DIRECTORY_TOOL_GROUPS }
             if (fileTools) {
                 for (key in RunnerAgentToolPolicy.DIRECTORY_PARAMETERS) {
                     require(RunnerAgentToolPolicy.text(effective[key]).isNullOrBlank()) { "Runner file tools use the host's run directories; '$key' cannot be set" }
@@ -219,11 +223,14 @@ class RunnerAdmission(
             workflow.globalAgent?.let { global ->
                 requireCapability("workflow.globalAgent.v1"); fileTools = inspectAgent(global.agent) || fileTools
             }
-            workflow.agents.values.forEach { fileTools = inspectAgent(it) || fileTools }
+            workflow.agents.forEach { (name, agent) ->
+                fileTools = inspectAgent(agent, localModelPolicy?.fullyLocal(workflow, name) == true) || fileTools
+            }
             workflow.workflow.forEach { step ->
                 if (step.retry != null) require(step.idempotent) { "Runner retry requires an explicitly idempotent step" }
                 if (step.iterateOver != null) {
                     requireCapability(RunnerLoopPolicy.CAPABILITY)
+                    if (!step.idempotent) requireCapability(RunnerLoopPolicy.RERUN_CAPABILITY)
                     RunnerLoopPolicy.admit(workflow, step)
                     if (RunnerLoopPolicy.isCli(workflow, step)) requireCapability(RunnerLoopPolicy.CLI_CAPABILITY)
                 }
@@ -240,7 +247,10 @@ class RunnerAdmission(
                 if (step.classifier?.jev != null || step.repeatUntil?.jev != null) requireCapability("decision.jev.v1")
                 if (step.classifier != null) { requireCapability("step.classifier.v1"); requireDerivedScopeFree(workflow, step.step, "classifier") }
                 if (step.groupChat != null) { requireCapability("step.groupChat.v1"); requireDerivedScopeFree(workflow, step.step, "group chat") }
-                step.agentBased?.let { requireCapability("step.agentBased.v1"); fileTools = inspectAgent(it.orchestrator) || fileTools }
+                step.agentBased?.let {
+                    requireCapability("step.agentBased.v1"); requireAgentBasedBounds(workflow, step.step, it)
+                    fileTools = inspectAgent(it.orchestrator) || fileTools
+                }
                 if (step.manualApproval != null) requireCapability("interaction.approval.v1")
                 if (step.publishOutputs.isNotEmpty()) requireCapability("output.publish.v1")
                 if (step.workflowOutputRead != null) {
@@ -260,7 +270,10 @@ class RunnerAdmission(
                             if (nested.classifier?.jev != null) requireCapability("decision.jev.v1")
                             if (nested.classifier != null) { requireCapability("step.classifier.v1"); requireDerivedScopeFree(workflow, "${step.step}.$stateName", "classifier") }
                             if (nested.groupChat != null) { requireCapability("step.groupChat.v1"); requireDerivedScopeFree(workflow, "${step.step}.$stateName", "group chat") }
-                            nested.agentBased?.let { requireCapability("step.agentBased.v1"); fileTools = inspectAgent(it.orchestrator) || fileTools }
+                            nested.agentBased?.let {
+                                requireCapability("step.agentBased.v1"); requireAgentBasedBounds(workflow, "${step.step}.$stateName", it)
+                                fileTools = inspectAgent(it.orchestrator) || fileTools
+                            }
                             nested.subWorkflow?.let { child(it, depth) }
                         }
                     }
@@ -280,6 +293,13 @@ class RunnerAdmission(
          */
         internal fun requireDerivedScopeFree(workflow: WorkflowDefinition, name: String, kind: String) {
             require(workflow.workflow.none { it.step.startsWith("$name:") }) { "Runner $kind step '$name': another step name starts with '$name:'" }
+        }
+        /** Delegations one Runner agent_based step may make (the engine default is 20; each holds its own lease while it runs). */
+        const val MAX_AGENT_BASED_STEPS = 50
+        /** agent_based on a Runner: the orchestrator's delegations run, and are released, as "<step>:..."; their number is bounded. */
+        internal fun requireAgentBasedBounds(workflow: WorkflowDefinition, name: String, config: AgentBasedConfig) {
+            requireDerivedScopeFree(workflow, name, "agent_based")
+            require(config.maxSteps in 1..MAX_AGENT_BASED_STEPS) { "Runner agent_based step '$name': max_steps ${config.maxSteps} outside 1..$MAX_AGENT_BASED_STEPS" }
         }
         const val CONCURRENT_CAPABILITY = "workflow.concurrent.v1"
         /** Upper bound for workflow max_concurrency and step-level max_parallel on a Runner. */

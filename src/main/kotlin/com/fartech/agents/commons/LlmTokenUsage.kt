@@ -94,6 +94,15 @@ data class LlmTokenUsage(
  */
 fun ResponseMetaInfo.tokenUsage(): LlmTokenUsage {
     val metadata = metadata
+    // The local transport already validates actual service counts against its frozen budget.
+    // Preserve an observed zero and a missing component; never synthesize a total from partial data.
+    if (metadata?.get("braidrun_model_execution") == JsonPrimitive("local")) {
+        return LlmTokenUsage(
+            inputTokens = inputTokensCount?.takeIf { it >= 0 },
+            outputTokens = outputTokensCount?.takeIf { it >= 0 },
+            totalTokens = totalTokensCount?.takeIf { it >= 0 },
+        )
+    }
     val reportedInput = inputTokensCount.positiveOrNull()
     val output = outputTokensCount.positiveOrNull()
 

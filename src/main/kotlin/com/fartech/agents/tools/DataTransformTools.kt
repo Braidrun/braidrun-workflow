@@ -375,7 +375,7 @@ object DataTransformTools : ToolSet {
     ): String {
         return try {
             val pattern =
-                Regex("<$tagName[^>]*>(.*?)</$tagName>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
+                Regex("<${Regex.escape(tagName)}(?:\\s[^>]*)?>(.*?)</${Regex.escape(tagName)}>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
             val matches = pattern.findAll(xml).toList()
 
             if (matches.isEmpty()) {

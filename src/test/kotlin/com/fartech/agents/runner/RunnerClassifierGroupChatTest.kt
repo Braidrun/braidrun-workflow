@@ -67,26 +67,38 @@ class RunnerClassifierGroupChatTest {
     private fun refused(workflow: String, capabilities: Set<String> = RunnerHostSession.CAPABILITIES): String =
         assertFails { admit(workflow, capabilities) }.message.orEmpty()
 
-    @Test fun `the Runner advertises classifier and group chat but not agent_based or Jev`() {
+    private fun orchestrated(maxSteps: Int = 6, name: String = "orchestrate") = """
+        |  - step: $name
+        |    agent_based:
+        |      goal: "write the release note"
+        |      participants: [alice, bob]
+        |      max_steps: $maxSteps
+        |      orchestrator:
+        |        strategy: single_run
+        |        llm:
+        |          model: gpt-4o-mini
+        |          provider: openai""".trimMargin()
+
+    @Test fun `the Runner advertises classifier, group chat and agent_based but not Jev`() {
         val declared = RunnerHostSession.CAPABILITIES
-        assertTrue("step.classifier.v1" in declared && "step.groupChat.v1" in declared)
-        assertFalse("step.agentBased.v1" in declared, "agent_based needs its own orchestrator admission first")
+        assertTrue("step.classifier.v1" in declared && "step.groupChat.v1" in declared && "step.agentBased.v1" in declared)
         assertFalse("decision.jev.v1" in declared, "Jev needs a leased key and the gated egress path first")
         assertTrue("step.classifier.v1" in admit(CLASSIFY))
         assertTrue("step.groupChat.v1" in admit(DISCUSS))
+        assertTrue("step.agentBased.v1" in admit(orchestrated()))
         assertTrue(refused(CLASSIFY, declared - "step.classifier.v1").contains("step.classifier.v1"))
         assertTrue(refused(DISCUSS, declared - "step.groupChat.v1").contains("step.groupChat.v1"))
-        val orchestrated = """
-            |  - step: orchestrate
-            |    input: go
-            |    agent_based:
-            |      orchestrator:
-            |        strategy: single_run
-            |        llm:
-            |          model: gpt-4o-mini
-            |          provider: openai""".trimMargin()
-        if (runCatching { WorkflowParser.parseYaml("name: ab\nagents:\n$MODEL_AGENTS\nworkflow:\n$orchestrated") }.isSuccess)
-            assertTrue(refused(orchestrated).contains("step.agentBased.v1"))
+        assertTrue(refused(orchestrated(), declared - "step.agentBased.v1").contains("step.agentBased.v1"))
+    }
+
+    @Test fun `an agent_based step is bounded and keeps its delegations' derived scope free`() {
+        admit(orchestrated(maxSteps = RunnerAdmission.MAX_AGENT_BASED_STEPS))
+        assertTrue(refused(orchestrated(maxSteps = RunnerAdmission.MAX_AGENT_BASED_STEPS + 1)).contains("max_steps"))
+        val clash = "\n  - step: \"orchestrate:orchestrated:1\"\n    code:\n      language: bash\n      script: echo clash"
+        assertTrue(refused(orchestrated() + clash).contains("orchestrate:"))
+        // The orchestrator is inspected like any agent: a plaintext key is refused, a leased reference admitted.
+        assertTrue(refused(orchestrated() + "\n        overrides:\n          openai_api_key: sk-plaintextplaintextplaintext").contains("leased"))
+        admit(orchestrated() + "\n        overrides:\n          openai_api_key: credential:model@1")
     }
 
     @Test fun `a Jev classifier needs decision jev v1 at the root and inside a state machine`() {

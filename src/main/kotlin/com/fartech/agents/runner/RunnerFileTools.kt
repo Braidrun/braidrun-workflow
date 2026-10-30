@@ -44,7 +44,7 @@ class RunnerFileTools(
     }
 
     @Tool
-    @LLMDescription("Read a text file of this run (at most 2 MiB per call). Returns the file content.")
+    @LLMDescription("Read a text file of this run (at most 2 MiB per call), including the attached input files whose paths the input gives (read-only). Returns the file content.")
     fun readFile(
         @LLMDescription("File path to read (absolute, or relative to the step workspace)") path: String,
     ): String = operation("read", path) { target ->

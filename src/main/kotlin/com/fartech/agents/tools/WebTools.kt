@@ -5,22 +5,24 @@ import ai.koog.agents.core.tools.annotations.Tool
 import ai.koog.agents.core.tools.reflect.ToolSet
 import com.fartech.ftapp2.commonsKt.ConfigurationParameter
 import com.fartech.ftapp2.commonsKt.HttpAccess
+import com.fartech.ftapp2.commonsKt.redactForLog
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
-import io.github.oshai.kotlinlogging.KotlinLogging
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
-import java.io.File
-import java.net.InetAddress
-import java.net.URL
+import java.net.URI
+import java.net.URLDecoder
 import java.net.URLEncoder
-import java.net.UnknownHostException
-
-private val webToolsLogger = KotlinLogging.logger {}
 
 @Serializable
 @LLMDescription("HTTP method types for web requests")
@@ -82,724 +84,333 @@ data class WebpageInfo(
     val language: String?
 )
 
+/**
+ * Runner must inject its gated HttpAccess, confined ToolFileAccess and execution-local redactor.
+ * The two-argument library/server constructor retains the local file policy and log redactor.
+ * Jsoup is a parser only: every fetch, search and download uses the same bounded transport.
+ */
 @LLMDescription("Toolset for web operations including HTTP requests, web scraping, and file downloads")
 class WebTools(
-    private val httpAccess: HttpAccess,
-    private val parameters: List<ConfigurationParameter>
+    httpAccess: HttpAccess,
+    private val parameters: List<ConfigurationParameter>,
+    private val fileAccess: ToolFileAccess = LocalToolFileAccess,
+    private val redactOutput: (String) -> String = ::redactForLog,
 ) : ToolSet {
-
-    companion object {
-        private const val MAX_RESPONSE_SIZE = 1024 * 1024 // 1MB
-        private const val MAX_DOWNLOAD_SIZE = 100 * 1024 * 1024 // 100MB
-        private const val DEFAULT_TIMEOUT_MS = 30000L // 30 seconds
-        private const val MAX_TEXT_CONTENT_LENGTH = 50000 // Max chars to return
-    }
+    private val transport = WebToolTransport(httpAccess)
 
     @Tool
     @LLMDescription("Make HTTP GET request and return response. Supports custom headers. Response body is truncated if too large.")
     suspend fun httpGet(
-        @LLMDescription("URL to fetch")
-        url: String,
-
-        @LLMDescription("Optional HTTP headers as a JSON object string, e.g. {\"Authorization\": \"Bearer token\"}")
-        headersJson: String? = null,
-
-        @LLMDescription("Maximum response size in bytes (default 1MB)")
-        maxSize: Int? = null
-    ): String = withContext(Dispatchers.IO) {
-        try {
-            val actualMaxSize = maxSize?.coerceAtMost(MAX_RESPONSE_SIZE) ?: MAX_RESPONSE_SIZE
-
-            // Validate URL
-            val validUrl = validateAndNormalizeUrl(url)
-
-            // Make request
-            val response: String = httpAccess.get(validUrl, headersJson.parseHeadersJson())
-
-            // Truncate if needed
-            val truncated = if (response.length > actualMaxSize) {
-                response.take(actualMaxSize) + "\n\n[... Response truncated. Total size: ${response.length} bytes]"
-            } else {
-                response
-            }
-
-            buildString {
-                appendLine("✅ HTTP GET successful")
-                appendLine("URL: $validUrl")
-                appendLine("Response size: ${response.length} bytes")
-                appendLine()
-                appendLine(truncated)
-            }
-        } catch (e: Exception) {
-            webToolsLogger.warn(e) { "HTTP GET failed for URL: $url" }
-            "❌ HTTP GET failed: ${e.message}"
-        }
+        @LLMDescription("URL to fetch") url: String,
+        @LLMDescription("Optional HTTP headers as a JSON object string") headersJson: String? = null,
+        @LLMDescription("Maximum response size in bytes (default 1MB)") maxSize: Int? = null,
+    ): String = toolResult("HTTP GET", url, headersJson) { headers ->
+        formatResponse("GET", transport.request(HttpMethod.GET, url, headers, maxBytes = responseLimit(maxSize), truncate = true))
     }
 
     @Tool
     @LLMDescription("Make HTTP POST request with JSON body and return response. Supports custom headers.")
     suspend fun httpPost(
-        @LLMDescription("URL to post to")
-        url: String,
-
-        @LLMDescription("JSON body as a string, e.g. {\"key\": \"value\"}")
-        bodyJson: String,
-
-        @LLMDescription("Optional HTTP headers as a JSON object string, e.g. {\"Authorization\": \"Bearer token\"}")
-        headersJson: String? = null,
-
-        @LLMDescription("Maximum response size in bytes (default 1MB)")
-        maxSize: Int? = null
-    ): String = withContext(Dispatchers.IO) {
-        try {
-            val actualMaxSize = maxSize?.coerceAtMost(MAX_RESPONSE_SIZE) ?: MAX_RESPONSE_SIZE
-
-            // Validate URL
-            val validUrl = validateAndNormalizeUrl(url)
-
-            // Add Content-Type if not present
-            val headersWithContentType = headersJson.parseHeadersJson().toMutableMap().apply {
-                putIfAbsent("Content-Type", "application/json")
-            }
-
-            // Make request
-            val parsedBody = Json.parseToJsonElement(bodyJson).jsonObject
-            val response: JsonObject = httpAccess.post(validUrl, parsedBody, headersWithContentType)
-            val responseStr = response.toString()
-
-            // Truncate if needed
-            val truncated = if (responseStr.length > actualMaxSize) {
-                responseStr.take(actualMaxSize) + "\n\n[... Response truncated. Total size: ${responseStr.length} bytes]"
-            } else {
-                responseStr
-            }
-
-            buildString {
-                appendLine("✅ HTTP POST successful")
-                appendLine("URL: $validUrl")
-                appendLine("Response size: ${responseStr.length} bytes")
-                appendLine()
-                appendLine(truncated)
-            }
-        } catch (e: Exception) {
-            "❌ HTTP POST failed: ${e.message}"
-        }
+        @LLMDescription("URL to post to") url: String,
+        @LLMDescription("JSON body as a string") bodyJson: String,
+        @LLMDescription("Optional HTTP headers as a JSON object string") headersJson: String? = null,
+        @LLMDescription("Maximum response size in bytes (default 1MB)") maxSize: Int? = null,
+    ): String = toolResult("HTTP POST", url, headersJson, bodyJson) { headers ->
+        formatResponse("POST", transport.request(HttpMethod.POST, url, jsonHeaders(headers), jsonBody(bodyJson), responseLimit(maxSize), truncate = true))
     }
 
     @Tool
     @LLMDescription("Make HTTP request with specified method (GET, POST, PUT, DELETE, PATCH) and optional body")
     suspend fun httpRequest(
-        @LLMDescription("HTTP method to use")
-        method: HttpMethod,
-
-        @LLMDescription("URL to request")
-        url: String,
-
-        @LLMDescription("Optional JSON body as a string (required for POST, PUT, PATCH), e.g. {\"key\": \"value\"}")
-        bodyJson: String? = null,
-
-        @LLMDescription("Optional HTTP headers as a JSON object string, e.g. {\"Authorization\": \"Bearer token\"}")
-        headersJson: String? = null
-    ): String = withContext(Dispatchers.IO) {
-        try {
-            val validUrl = validateAndNormalizeUrl(url)
-            val parsedHeaders = headersJson.parseHeadersJson()
-
-            val response: String = when (method) {
-                HttpMethod.GET -> {
-                    httpAccess.get<String>(validUrl, parsedHeaders)
-                }
-
-                HttpMethod.POST -> {
-                    requireNotNull(bodyJson) { "Body is required for POST requests" }
-                    val parsedBody = Json.parseToJsonElement(bodyJson).jsonObject
-                    httpAccess.post<JsonObject, JsonObject>(validUrl, parsedBody, parsedHeaders).toString()
-                }
-
-                HttpMethod.PUT -> {
-                    requireNotNull(bodyJson) { "Body is required for PUT requests" }
-                    val parsedBody = Json.parseToJsonElement(bodyJson).jsonObject
-                    httpAccess.request<JsonObject, String>(
-                        io.ktor.http.HttpMethod.Put, validUrl, parsedBody, parsedHeaders
-                    )
-                }
-
-                HttpMethod.PATCH -> {
-                    requireNotNull(bodyJson) { "Body is required for PATCH requests" }
-                    val parsedBody = Json.parseToJsonElement(bodyJson).jsonObject
-                    httpAccess.request<JsonObject, String>(
-                        io.ktor.http.HttpMethod.Patch, validUrl, parsedBody, parsedHeaders
-                    )
-                }
-
-                HttpMethod.DELETE -> {
-                    val parsedBody = bodyJson?.let { Json.parseToJsonElement(it).jsonObject }
-                    httpAccess.request<JsonObject, String>(
-                        io.ktor.http.HttpMethod.Delete, validUrl, parsedBody, parsedHeaders
-                    )
-                }
-            }
-
-            buildString {
-                appendLine("✅ HTTP $method successful")
-                appendLine("URL: $validUrl")
-                appendLine("Response size: ${response.length} bytes")
-                appendLine()
-                appendLine(response.take(MAX_RESPONSE_SIZE))
-                if (response.length > MAX_RESPONSE_SIZE) {
-                    appendLine("\n[... Response truncated]")
-                }
-            }
-        } catch (e: Exception) {
-            "❌ HTTP $method failed: ${e.message}"
-        }
+        @LLMDescription("HTTP method to use") method: HttpMethod,
+        @LLMDescription("URL to request") url: String,
+        @LLMDescription("Optional JSON body as a string (required for POST, PUT, PATCH)") bodyJson: String? = null,
+        @LLMDescription("Optional HTTP headers as a JSON object string") headersJson: String? = null,
+    ): String = toolResult("HTTP $method", url, headersJson, bodyJson) { headers ->
+        if (method in setOf(HttpMethod.POST, HttpMethod.PUT, HttpMethod.PATCH)) requireNotNull(bodyJson)
+        val body = if (method == HttpMethod.GET) null else bodyJson?.let(::jsonBody)
+        formatResponse(method.name, transport.request(method, url, if (body != null) jsonHeaders(headers) else headers, body, truncate = true))
     }
 
     @Tool
     @LLMDescription("Fetch and parse HTML webpage, extracting title, content, links, images, and metadata. Returns clean text without HTML tags.")
     suspend fun fetchWebpage(
-        @LLMDescription("URL of the webpage to fetch")
-        url: String,
-
-        @LLMDescription("Whether to include all links found on the page")
-        includeLinks: Boolean = false,
-
-        @LLMDescription("Whether to include all image URLs found on the page")
-        includeImages: Boolean = false,
-
-        @LLMDescription("Maximum text content length (default 50000 chars)")
-        maxContentLength: Int? = null
-    ): String = withContext(Dispatchers.IO) {
-        try {
-            val validUrl = validateAndNormalizeUrl(url)
-            val maxLength = maxContentLength?.coerceAtMost(MAX_TEXT_CONTENT_LENGTH) ?: MAX_TEXT_CONTENT_LENGTH
-
-            // Fetch and parse HTML
-            val doc: Document = safeJsoupGet(
-                url = validUrl,
-                userAgent = "Mozilla/5.0 (compatible; BraidrunAgent/1.0)",
-                timeoutMs = DEFAULT_TIMEOUT_MS.toInt()
-            )
-
-            // Extract information
-            val title = doc.title()
-            val description = doc.select("meta[name=description]").attr("content")
-            val keywords = doc.select("meta[name=keywords]").attr("content")
-            val language = doc.select("html").attr("lang")
-
-            // Extract clean text content
-            val textContent = doc.body().text().take(maxLength)
-
-            // Extract links if requested
-            val links = if (includeLinks) {
-                doc.select("a[href]").map { it.absUrl("href") }.distinct().take(100)
-            } else {
-                emptyList()
+        @LLMDescription("URL of the webpage to fetch") url: String,
+        @LLMDescription("Whether to include all links found on the page") includeLinks: Boolean = false,
+        @LLMDescription("Whether to include all image URLs found on the page") includeImages: Boolean = false,
+        @LLMDescription("Maximum text content length (default 50000 chars)") maxContentLength: Int? = null,
+    ): String = toolResult("Fetch webpage", url) {
+        val maxLength = (maxContentLength ?: MAX_TEXT_CONTENT_LENGTH).also { require(it > 0) }.coerceAtMost(MAX_TEXT_CONTENT_LENGTH)
+        val doc = fetchDocument(url)
+        val text = doc.body().text()
+        buildString {
+            appendLine("✅ Webpage fetched successfully")
+            appendLine("URL: ${doc.location()}")
+            appendLine("Title: ${doc.title()}")
+            for ((label, value) in listOf("Description" to doc.select("meta[name=description]").attr("content"), "Keywords" to doc.select("meta[name=keywords]").attr("content"), "Language" to doc.select("html").attr("lang"))) {
+                if (value.isNotBlank()) appendLine("$label: $value")
             }
-
-            // Extract images if requested
-            val images = if (includeImages) {
-                doc.select("img[src]").map { it.absUrl("src") }.distinct().take(50)
-            } else {
-                emptyList()
-            }
-
-            buildString {
-                appendLine("✅ Webpage fetched successfully")
-                appendLine()
-                appendLine("URL: $validUrl")
-                appendLine("Title: $title")
-                if (description.isNotBlank()) appendLine("Description: $description")
-                if (keywords.isNotBlank()) appendLine("Keywords: $keywords")
-                if (language.isNotBlank()) appendLine("Language: $language")
-                appendLine()
-                appendLine("═══ Content ═══")
-                appendLine(textContent)
-                if (textContent.length >= maxLength) {
-                    appendLine("\n[... Content truncated at $maxLength characters]")
-                }
-
-                if (includeLinks && links.isNotEmpty()) {
-                    appendLine()
-                    appendLine("═══ Links (${links.size}) ═══")
-                    links.take(20).forEach { appendLine("• $it") }
-                    if (links.size > 20) appendLine("... and ${links.size - 20} more")
-                }
-
-                if (includeImages && images.isNotEmpty()) {
-                    appendLine()
-                    appendLine("═══ Images (${images.size}) ═══")
-                    images.take(10).forEach { appendLine("• $it") }
-                    if (images.size > 10) appendLine("... and ${images.size - 10} more")
-                }
-            }
-        } catch (e: Exception) {
-            "❌ Failed to fetch webpage: ${e.message}"
+            appendLine("\n═══ Content ═══")
+            appendLine(text.take(maxLength))
+            if (text.length > maxLength) appendLine("\n[... Content truncated at $maxLength characters]")
+            if (includeLinks) appendUrls("Links", doc.select("a[href]").map { it.absUrl("href") }.distinct().take(100), 20)
+            if (includeImages) appendUrls("Images", doc.select("img[src]").map { it.absUrl("src") }.distinct().take(50), 10)
         }
     }
 
     @Tool
-    @LLMDescription("Download file from URL to local path. Supports size limits and progress tracking. File is saved to the specified path.")
+    @LLMDescription("Download a file through the supplied network and file services. An oversized or failed response is not written.")
     suspend fun downloadFile(
-        @LLMDescription("URL of the file to download")
-        url: String,
-
-        @LLMDescription("Local file path where the file will be saved")
-        outputPath: String,
-
-        @LLMDescription("Maximum file size in bytes (default 100MB)")
-        maxSize: Long? = null,
-
-        @LLMDescription("Optional HTTP headers as a JSON object string, e.g. {\"Authorization\": \"Bearer token\"}")
-        headersJson: String? = null
-    ): String = withContext(Dispatchers.IO) {
-        try {
-            val validUrl = validateAndNormalizeUrl(url)
-            val actualMaxSize = maxSize?.coerceAtMost(MAX_DOWNLOAD_SIZE.toLong()) ?: MAX_DOWNLOAD_SIZE.toLong()
-
-            // Validate output path
-            val outputFile = ToolPathSecurity.validateOutputPath(outputPath)
-
-            // Walk the redirect chain manually so we can re-validate every Location
-            // hop against the SSRF guard. `URL.openConnection()` / `HttpURLConnection`
-            // followed redirects unconditionally before Phase 9 (2026-05) — an
-            // attacker controlling the initial URL host could redirect to
-            // `http://localhost:8080/...` after the per-call validation.
-            val parsedHeaders = headersJson.parseHeadersJson()
-            val maxHops = 10
-            var currentUrl = validUrl
-            var hops = 0
-            // Resolve redirects to a final URL first; only then open the body stream.
-            while (hops <= maxHops) {
-                @Suppress("DEPRECATION")
-                val probe = URL(currentUrl).openConnection() as java.net.HttpURLConnection
-                probe.instanceFollowRedirects = false
-                parsedHeaders.forEach { (key, value) -> probe.setRequestProperty(key, value) }
-                val status = try {
-                    probe.responseCode
-                } catch (e: Exception) {
-                    probe.disconnect()
-                    throw e
-                }
-                if (status !in 300..399) {
-                    // Final hop. Stream the body and return.
-                    try {
-                        val contentLength = probe.contentLengthLong
-                        if (contentLength in 1L..Long.MAX_VALUE && contentLength > actualMaxSize) {
-                            return@withContext "❌ File size ($contentLength bytes) exceeds maximum allowed size ($actualMaxSize bytes)"
-                        }
-                        probe.inputStream.use { input ->
-                            outputFile.outputStream().use { output ->
-                                val buffer = ByteArray(8192)
-                                var bytesRead = 0L
-                                var read: Int
-                                while (input.read(buffer).also { read = it } != -1) {
-                                    output.write(buffer, 0, read)
-                                    bytesRead += read
-                                    if (bytesRead > actualMaxSize) {
-                                        outputFile.delete()
-                                        return@withContext "❌ Download aborted: file size exceeded $actualMaxSize bytes"
-                                    }
-                                }
-                                return@withContext buildString {
-                                    appendLine("✅ File downloaded successfully")
-                                    appendLine("URL: $currentUrl")
-                                    appendLine("Saved to: ${outputFile.absolutePath}")
-                                    appendLine("Size: $bytesRead bytes (${bytesRead / 1024} KB)")
-                                }
-                            }
-                        }
-                    } finally {
-                        probe.disconnect()
-                    }
-                }
-                // Redirect — re-validate Location and continue.
-                val location = probe.getHeaderField("Location")
-                probe.disconnect()
-                if (location.isNullOrBlank()) {
-                    return@withContext "❌ Download aborted: HTTP $status with no Location header"
-                }
-                val resolved = try {
-                    java.net.URI(currentUrl).resolve(location).toString()
-                } catch (e: Exception) {
-                    return@withContext "❌ Download aborted: cannot resolve Location '$location'"
-                }
-                currentUrl = try {
-                    validateAndNormalizeUrl(resolved)
-                } catch (e: Exception) {
-                    return@withContext "❌ Download aborted: redirect to '$resolved' rejected: ${e.message}"
-                }
-                hops++
-            }
-            "❌ Download aborted: too many redirects (>$maxHops)"
-        } catch (e: Exception) {
-            "❌ Download failed: ${e.message}"
+        @LLMDescription("URL of the file to download") url: String,
+        @LLMDescription("Local file path where the file will be saved") outputPath: String,
+        @LLMDescription("Maximum file size in bytes (default 100MB)") maxSize: Long? = null,
+        @LLMDescription("Optional HTTP headers as a JSON object string") headersJson: String? = null,
+    ): String = toolResult("Download", url, headersJson) { headers ->
+        val limit = (maxSize ?: WebToolTransport.MAX_DOWNLOAD_BYTES.toLong()).also { require(it > 0) }
+            .coerceAtMost(WebToolTransport.MAX_DOWNLOAD_BYTES.toLong()).toInt()
+        val response = transport.request(HttpMethod.GET, url, headers, maxBytes = limit, timeoutMillis = WebToolTransport.DOWNLOAD_TIMEOUT_MILLIS)
+        currentCoroutineContext().ensureActive()
+        // The adapter owns validation, atomic publication, revocation and the shared write quota.
+        fileAccess.writeBytes(outputPath, response.bytes)
+        buildString {
+            appendLine("✅ File downloaded successfully")
+            appendLine("URL: ${response.url}")
+            appendLine("Saved to: $outputPath")
+            appendLine("Size: ${response.bytes.size} bytes (${response.bytes.size / 1024} KB)")
         }
     }
 
     @Tool
     @LLMDescription("Extract all links from a webpage that match optional filter criteria")
     suspend fun extractLinks(
-        @LLMDescription("URL of the webpage")
-        url: String,
-
-        @LLMDescription("Optional filter: only include links containing this text")
-        filter: String? = null,
-
-        @LLMDescription("Maximum number of links to return")
-        maxLinks: Int = 100
-    ): String = withContext(Dispatchers.IO) {
-        try {
-            val validUrl = validateAndNormalizeUrl(url)
-
-            val doc: Document = safeJsoupGet(
-                url = validUrl,
-                userAgent = "Mozilla/5.0 (compatible; BraidrunAgent/1.0)",
-                timeoutMs = DEFAULT_TIMEOUT_MS.toInt()
-            )
-
-            val allLinks = doc.select("a[href]").map { it.absUrl("href") }.distinct()
-
-            val filteredLinks = if (filter != null) {
-                allLinks.filter { it.contains(filter, ignoreCase = true) }
-            } else {
-                allLinks
-            }.take(maxLinks)
-
-            buildString {
-                appendLine("✅ Extracted ${filteredLinks.size} links from webpage")
-                appendLine("URL: $validUrl")
-                if (filter != null) appendLine("Filter: $filter")
-                appendLine()
-                filteredLinks.forEach { appendLine("• $it") }
-                if (allLinks.size > maxLinks) {
-                    appendLine("\n[... ${allLinks.size - maxLinks} more links not shown]")
-                }
-            }
-        } catch (e: Exception) {
-            "❌ Failed to extract links: ${e.message}"
+        @LLMDescription("URL of the webpage") url: String,
+        @LLMDescription("Optional filter: only include links containing this text") filter: String? = null,
+        @LLMDescription("Maximum number of links to return") maxLinks: Int = 100,
+    ): String = toolResult("Extract links", url) {
+        require(maxLinks > 0)
+        val doc = fetchDocument(url)
+        val all = doc.select("a[href]").map { it.absUrl("href") }.distinct()
+            .filter { filter == null || it.contains(filter, ignoreCase = true) }
+        val links = all.take(maxLinks.coerceAtMost(100))
+        buildString {
+            appendLine("✅ Extracted ${links.size} links from webpage")
+            appendLine("URL: ${doc.location()}")
+            if (filter != null) appendLine("Filter: $filter")
+            appendLine()
+            links.forEach { appendLine("• $it") }
+            if (all.size > links.size) appendLine("\n[... ${all.size - links.size} more links not shown]")
         }
     }
 
     @Tool
     @LLMDescription("Search the web using DuckDuckGo and return the top results (title + link)")
     suspend fun searchWeb(
-        @LLMDescription("Search keywords, e.g., Kotlin coroutines tutorial")
-        searchTerm: String,
-
-        @LLMDescription("Maximum number of results to return (default 5)")
-        maxResults: Int = 5
-    ): String = withContext(Dispatchers.IO) {
-        fun decodeUddgLink(href: String): String {
-            return try {
-                val uri = java.net.URI(href)
-                val query = uri.rawQuery ?: return href
-                val params = query.split('&').mapNotNull {
-                    val eq = it.indexOf('=')
-                    if (eq <= 0) null else it.substring(0, eq) to it.substring(eq + 1)
-                }.toMap()
-                val uddg = params["uddg"] ?: return href
-                java.net.URLDecoder.decode(uddg, java.nio.charset.StandardCharsets.UTF_8)
-            } catch (e: Throwable) {
-                webToolsLogger.debug(e) { "Browser page close failed" }
-                href
-            }
+        @LLMDescription("Search keywords") searchTerm: String,
+        @LLMDescription("Maximum number of results to return (default 5)") maxResults: Int = 5,
+    ): String = toolResult("Search") {
+        val limit = resultLimit(maxResults)
+        val doc = searchDocument(searchTerm)
+        val results = doc.select("a.result__a").take(limit).mapIndexed { index, element ->
+            "${index + 1}. ${element.text().trim()}\n   ${decodeSearchLink(element.absUrl("href"))}"
         }
-
-        fun stripTags(html: String): String = html
-            .replace(Regex("<[^>]+>"), "")
-            .replace("&amp;", "&")
-            .replace("&lt;", "<")
-            .replace("&gt;", ">")
-            .replace("&quot;", "\"")
-            .replace("&#39;", "'")
-
-        try {
-            val q = URLEncoder.encode(searchTerm, "UTF-8")
-            val url = "https://duckduckgo.com/html/?q=$q&kl=cn-zh&k1=-1"
-            val headers = mapOf(
-                "User-Agent" to "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0 Safari/537.36",
-                "Accept-Language" to "zh-CN,zh;q=0.9,en;q=0.8"
-            )
-            val html = httpAccess.get<String>(url, headers)
-            val regex = Regex(
-                """<a[^>]+class=\"[^\"]*result__a[^"]*"[^>]+href="([^"]+)"[^>]*>(.*?)</a>""",
-                RegexOption.IGNORE_CASE
-            )
-            val results = regex.findAll(html).take(maxResults).mapIndexed { idx, m ->
-                val rawHref = m.groupValues[1]
-                val titleHtml = m.groupValues[2]
-                val link = if (rawHref.contains("duckduckgo.com/l/")) decodeUddgLink(rawHref) else rawHref
-                val title = stripTags(titleHtml).trim()
-                "${idx + 1}. $title\n   $link"
-            }.toList()
-
-            buildString {
-                appendLine("✅ Web search completed")
-                appendLine("Query: \"$searchTerm\"")
-                appendLine("Results found: ${results.size}")
-                appendLine()
-                if (results.isEmpty()) {
-                    appendLine("No structured results found. Try a different search term.")
-                } else {
-                    appendLine(results.joinToString("\n\n"))
-                }
-            }
-        } catch (e: Exception) {
-            "❌ Search failed: ${e.message}"
-        }
+        formatSearch("Web", searchTerm, results)
     }
 
     @Tool
-    @LLMDescription("Search for specific text or patterns within a webpage's content")
+    @LLMDescription("Search for specific text within a webpage's content")
     suspend fun searchInWebpage(
-        @LLMDescription("URL of the webpage")
-        url: String,
-
-        @LLMDescription("Text or pattern to search for")
-        searchText: String,
-
-        @LLMDescription("Whether to use case-sensitive search")
-        caseSensitive: Boolean = false,
-
-        @LLMDescription("Number of context characters to show around each match")
-        contextChars: Int = 100
-    ): String = withContext(Dispatchers.IO) {
-        try {
-            val validUrl = validateAndNormalizeUrl(url)
-
-            val doc: Document = safeJsoupGet(
-                url = validUrl,
-                userAgent = "Mozilla/5.0 (compatible; BraidrunAgent/1.0)",
-                timeoutMs = DEFAULT_TIMEOUT_MS.toInt()
-            )
-
-            val text = doc.body().text()
-
-            val matches = mutableListOf<Pair<Int, String>>()
-            var index = 0
-
-            while (true) {
-                // Search the ORIGINAL string with ignoreCase instead of indexing into a
-                // lowercased copy: lowercase() can change string length for some Unicode
-                // code points (e.g. 'İ'), misaligning the context slices below.
-                index = text.indexOf(searchText, index, ignoreCase = !caseSensitive)
-                if (index == -1) break
-
-                val start = maxOf(0, index - contextChars)
-                val end = minOf(text.length, index + searchText.length + contextChars)
-                val context = text.substring(start, end)
-
-                matches.add(index to context)
-                index += searchText.length
-            }
-
-            buildString {
-                appendLine("✅ Search completed")
-                appendLine("URL: $validUrl")
-                appendLine("Search text: \"$searchText\"")
-                appendLine("Matches found: ${matches.size}")
-                appendLine()
-
-                matches.take(10).forEachIndexed { i, (pos, context) ->
-                    appendLine("Match ${i + 1} at position $pos:")
-                    appendLine("... $context ...")
-                    appendLine()
-                }
-
-                if (matches.size > 10) {
-                    appendLine("[... ${matches.size - 10} more matches not shown]")
-                }
-            }
-        } catch (e: Exception) {
-            "❌ Search failed: ${e.message}"
+        @LLMDescription("URL of the webpage") url: String,
+        @LLMDescription("Text to search for") searchText: String,
+        @LLMDescription("Whether to use case-sensitive search") caseSensitive: Boolean = false,
+        @LLMDescription("Number of context characters to show around each match") contextChars: Int = 100,
+    ): String = toolResult("Search webpage", url) {
+        require(searchText.isNotEmpty() && searchText.length <= MAX_TEXT_CONTENT_LENGTH && contextChars >= 0)
+        val contextLength = contextChars.coerceAtMost(2000)
+        val doc = fetchDocument(url)
+        val text = doc.body().text()
+        val matches = mutableListOf<Pair<Int, String>>()
+        var position = 0
+        var count = 0
+        while (position < text.length) {
+            currentCoroutineContext().ensureActive()
+            position = text.indexOf(searchText, position, ignoreCase = !caseSensitive)
+            if (position < 0) break
+            count++
+            if (matches.size < 10) matches += position to text.substring(maxOf(0, position - contextLength), minOf(text.length, position + searchText.length + contextLength))
+            position += searchText.length
+        }
+        buildString {
+            appendLine("✅ Search completed")
+            appendLine("URL: ${doc.location()}")
+            appendLine("Search text: \"$searchText\"")
+            appendLine("Matches found: $count")
+            matches.forEachIndexed { index, (offset, context) -> appendLine("\nMatch ${index + 1} at position $offset:\n... $context ...") }
+            if (count > matches.size) appendLine("\n[... ${count - matches.size} more matches not shown]")
         }
     }
 
     @Tool
-    @LLMDescription(
-        "Search for news articles using DuckDuckGo news search. " +
-                "Returns recent news results with titles, links, sources, and dates."
-    )
+    @LLMDescription("Search for news articles using DuckDuckGo news search. Returns recent news results with titles, links and snippets.")
     suspend fun searchNews(
-        @LLMDescription("News search keywords")
-        searchTerm: String,
-
-        @LLMDescription("Maximum number of results to return (default 5)")
-        maxResults: Int = 5
-    ): String = withContext(Dispatchers.IO) {
-        try {
-            val q = URLEncoder.encode(searchTerm, "UTF-8")
-            val url = "https://duckduckgo.com/html/?q=$q&iar=news&kl=cn-zh&k1=-1"
-            val headers = mapOf(
-                "User-Agent" to "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0 Safari/537.36",
-                "Accept-Language" to "zh-CN,zh;q=0.9,en;q=0.8"
-            )
-            val html = httpAccess.get<String>(url, headers)
-
-            val doc = Jsoup.parse(html)
-            val resultElements = doc.select(".result")
-
-            val results = resultElements.take(maxResults).mapIndexed { idx, el ->
-                val title = el.select(".result__a").text().trim()
-                val link = el.select(".result__a").attr("href").let { href ->
-                    if (href.contains("duckduckgo.com/l/")) {
-                        try {
-                            val uri = java.net.URI(href)
-                            val params = (uri.rawQuery ?: "").split('&').mapNotNull {
-                                val eq = it.indexOf('=')
-                                if (eq <= 0) null else it.substring(0, eq) to it.substring(eq + 1)
-                            }.toMap()
-                            java.net.URLDecoder.decode(params["uddg"] ?: href, java.nio.charset.StandardCharsets.UTF_8)
-                        } catch (e: Throwable) {
-                            webToolsLogger.debug(e) { "Failed to extract page content" }
-                            href
-                        }
-                    } else href
-                }
-                val snippet = el.select(".result__snippet").text().trim()
-                "${idx + 1}. $title\n   $link\n   $snippet"
-            }
-
-            buildString {
-                appendLine("✅ News search completed")
-                appendLine("Query: \"$searchTerm\"")
-                appendLine("Results found: ${results.size}")
-                appendLine()
-                if (results.isEmpty()) {
-                    appendLine("No news results found. Try a different search term.")
-                } else {
-                    appendLine(results.joinToString("\n\n"))
-                }
-            }
-        } catch (e: Exception) {
-            "❌ News search failed: ${e.message}"
+        @LLMDescription("News search keywords") searchTerm: String,
+        @LLMDescription("Maximum number of results to return (default 5)") maxResults: Int = 5,
+    ): String = toolResult("News search") {
+        val limit = resultLimit(maxResults)
+        val doc = searchDocument(searchTerm, "&iar=news")
+        val results = doc.select(".result").take(limit).mapIndexed { index, element ->
+            val link = element.select(".result__a")
+            "${index + 1}. ${link.text().trim()}\n   ${decodeSearchLink(link.first()?.absUrl("href").orEmpty())}\n   ${element.select(".result__snippet").text().trim()}"
         }
+        formatSearch("News", searchTerm, results)
     }
 
     @Tool
-    @LLMDescription(
-        "Search for images on the web using DuckDuckGo. " +
-                "Returns image URLs along with titles and source page links."
-    )
+    @LLMDescription("Search for images on the web using DuckDuckGo. Returns image URLs and descriptions.")
     suspend fun searchImages(
-        @LLMDescription("Image search keywords")
-        searchTerm: String,
+        @LLMDescription("Image search keywords") searchTerm: String,
+        @LLMDescription("Maximum number of results to return (default 5)") maxResults: Int = 5,
+    ): String = toolResult("Image search") {
+        val limit = resultLimit(maxResults)
+        val doc = searchDocument(searchTerm, "&iax=images&ia=images")
+        val results = doc.select("img[src]").filter { it.absUrl("src").startsWith("http") }
+            .take(limit).mapIndexed { index, element ->
+                "${index + 1}. ${element.attr("alt").ifBlank { "(no description)" }}\n   Image: ${element.absUrl("src")}"
+            }
+        formatSearch("Image", searchTerm, results)
+    }
 
-        @LLMDescription("Maximum number of results to return (default 5)")
-        maxResults: Int = 5
+    private suspend fun fetchDocument(url: String): Document {
+        val response = transport.request(HttpMethod.GET, url, SEARCH_HEADERS)
+        currentCoroutineContext().ensureActive()
+        return Jsoup.parse(response.bytes.inputStream(), response.charsetName, response.url)
+    }
+
+    private suspend fun searchDocument(term: String, suffix: String = ""): Document {
+        require(term.isNotBlank() && term.length <= 2000)
+        return fetchDocument("https://duckduckgo.com/html/?q=${URLEncoder.encode(term, Charsets.UTF_8)}$suffix&kl=cn-zh&k1=-1")
+    }
+
+    private fun decodeSearchLink(href: String): String = try {
+        val uri = URI(href)
+        if (uri.host?.endsWith("duckduckgo.com") != true || uri.path != "/l/") href else {
+            val encoded = uri.rawQuery?.split('&')?.firstOrNull { it.substringBefore('=') == "uddg" }?.substringAfter('=')
+            encoded?.let { URLDecoder.decode(it, Charsets.UTF_8) } ?: href
+        }
+    } catch (_: IllegalArgumentException) { href } catch (_: java.net.URISyntaxException) { href }
+
+    private fun formatSearch(kind: String, term: String, results: List<String>): String = buildString {
+        appendLine("✅ $kind search completed")
+        appendLine("Query: \"$term\"")
+        appendLine("Results found: ${results.size}\n")
+        appendLine(if (results.isEmpty()) "No results found. Try a different search term." else results.joinToString("\n\n"))
+    }
+
+    private fun formatResponse(method: String, response: WebToolResponse): String = buildString {
+        appendLine("✅ HTTP $method successful")
+        appendLine("URL: ${response.url}")
+        appendLine("Response size: ${response.bytes.size} bytes${if (response.truncated) " (bounded prefix)" else ""}\n")
+        appendLine(response.text())
+        if (response.truncated) appendLine("\n[... Response truncated at ${response.bytes.size} bytes]")
+    }
+
+    private fun StringBuilder.appendUrls(label: String, urls: List<String>, displayLimit: Int) {
+        if (urls.isEmpty()) return
+        appendLine("\n═══ $label (${urls.size}) ═══")
+        urls.take(displayLimit).forEach { appendLine("• $it") }
+        if (urls.size > displayLimit) appendLine("... and ${urls.size - displayLimit} more")
+    }
+
+    private fun responseLimit(value: Int?): Int = (value ?: WebToolTransport.MAX_RESPONSE_BYTES)
+        .also { require(it > 0) }.coerceAtMost(WebToolTransport.MAX_RESPONSE_BYTES)
+
+    private fun resultLimit(value: Int): Int = value.also { require(it > 0) }.coerceAtMost(20)
+
+    private fun jsonBody(body: String): String {
+        require(body.length <= WebToolTransport.MAX_RESPONSE_BYTES)
+        return Json.parseToJsonElement(body).jsonObject.toString()
+    }
+
+    private fun jsonHeaders(headers: Map<String, String>): Map<String, String> =
+        if (headers.keys.any { it.equals("Content-Type", ignoreCase = true) }) headers else headers + ("Content-Type" to "application/json")
+
+    private suspend fun toolResult(
+        action: String,
+        url: String? = null,
+        headersJson: String? = null,
+        bodyJson: String? = null,
+        block: suspend (Map<String, String>) -> String,
     ): String = withContext(Dispatchers.IO) {
         try {
-            val q = URLEncoder.encode(searchTerm, "UTF-8")
-            val url = "https://duckduckgo.com/html/?q=$q&iax=images&ia=images&kl=cn-zh&k1=-1"
-            val headers = mapOf(
-                "User-Agent" to "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0 Safari/537.36",
-                "Accept-Language" to "zh-CN,zh;q=0.9,en;q=0.8"
-            )
-            val html = httpAccess.get<String>(url, headers)
-
-            val doc = Jsoup.parse(html)
-            val imgElements = doc.select("img[src]")
-
-            val results = imgElements
-                .filter { it.attr("src").startsWith("http") }
-                .take(maxResults)
-                .mapIndexed { idx, el ->
-                    val imgUrl = el.attr("src")
-                    val alt = el.attr("alt").ifBlank { "(no description)" }
-                    "${idx + 1}. $alt\n   Image: $imgUrl"
-                }
-
-            buildString {
-                appendLine("✅ Image search completed")
-                appendLine("Query: \"$searchTerm\"")
-                appendLine("Results found: ${results.size}")
-                appendLine()
-                if (results.isEmpty()) {
-                    appendLine("No image results found. Try a different search term or use searchWeb to find image URLs.")
-                } else {
-                    appendLine(results.joinToString("\n\n"))
-                }
+            currentCoroutineContext().ensureActive()
+            require(headersJson == null || headersJson.length <= 32_768)
+            val headers = headersJson?.let { Json.decodeFromString<Map<String, String>>(it) }.orEmpty()
+            val output = block(headers)
+            currentCoroutineContext().ensureActive()
+            WebToolRedaction.scrub(redactOutput(output), url, headers, bodyJson)
+        } catch (failure: CancellationException) {
+            throw failure
+        } catch (failure: Exception) {
+            // Engines can wrap a cancellation in an IOException. Do not turn authority loss into
+            // ordinary tool text and allow the agent to issue another external request.
+            currentCoroutineContext().ensureActive()
+            var cause: Throwable? = failure
+            repeat(16) {
+                if (cause is CancellationException) throw cause as CancellationException
+                cause = cause?.cause
             }
-        } catch (e: Exception) {
-            "❌ Image search failed: ${e.message}"
+            val reason = when (failure) {
+                is WebToolSizeFailure -> "response exceeds the allowed byte limit"
+                is WebToolHttpFailure -> "HTTP ${failure.status}"
+                is SecurityException -> "request or file access denied"
+                is IllegalArgumentException -> "invalid request arguments"
+                else -> "request failed or timed out"
+            }
+            // Neither exception messages/stacks nor response headers/bodies are failure diagnostics.
+            "❌ $action failed: $reason"
         }
     }
 
-    /**
-     * Validates and normalizes URL to prevent common issues.
-     *
-     * Enforces:
-     *  1. A public HTTP/HTTPS scheme — rejects `file:`, `jar:`, `gopher:`, and other exotic schemes.
-     *  2. A resolvable host that is NOT loopback / link-local / private / multicast / wildcard —
-     *     this blocks SSRF against localhost services, cloud metadata endpoints (169.254.169.254),
-     *     and internal-network resources. Opt-out via `WEB_TOOLS_ALLOW_PRIVATE_URLS=true` for
-     *     dev/test workflows that must hit internal services.
-     */
-    private fun validateAndNormalizeUrl(url: String): String = UrlSafety.validateAndNormalizeUrl(url)
-
-    /**
-     * SSRF-safe Jsoup `.get()` replacement.
-     *
-     * Pre-Phase-9 (2026-05) every `Jsoup.connect(validUrl).get()` call followed
-     * 3xx redirects automatically without re-validating the redirect target.
-     * An attacker who controlled `attacker.com` (a public IP that passed the
-     * initial `validateAndNormalizeUrl`) could 302-redirect to
-     * `http://localhost:8080/admin` or `http://169.254.169.254/...` and
-     * exfiltrate the internal response.
-     *
-     * This helper disables Jsoup's auto-follow and walks the redirect chain
-     * manually, calling [UrlSafety.validateAndNormalizeUrl] on every Location
-     * target. Hop ceiling matches OkHttp's default (10) and short-circuits
-     * loops. The final response is parsed to a [Document] for the caller.
-     */
-    private fun safeJsoupGet(url: String, userAgent: String, timeoutMs: Int): Document {
-        var current = url
-        var hops = 0
-        val maxHops = 10
-        while (true) {
-            val resp: org.jsoup.Connection.Response = Jsoup.connect(current)
-                .userAgent(userAgent)
-                .timeout(timeoutMs)
-                .followRedirects(false)
-                .ignoreHttpErrors(true)
-                .execute()
-            val status = resp.statusCode()
-            if (status in 300..399) {
-                if (hops >= maxHops) {
-                    throw java.io.IOException("Too many redirects (>$maxHops) starting from $url")
-                }
-                val location = resp.header("Location")
-                    ?: throw java.io.IOException("Got HTTP $status from $current with no Location header")
-                val resolved = try {
-                    java.net.URI(current).resolve(location).toString()
-                } catch (e: Exception) {
-                    throw java.io.IOException(
-                        "Could not resolve redirect Location '$location' against '$current': ${e.message}",
-                        e
-                    )
-                }
-                // Re-validate against the SSRF guard before following.
-                current = validateAndNormalizeUrl(resolved)
-                hops++
-                continue
-            }
-            return resp.parse()
-        }
+    companion object {
+        private const val MAX_TEXT_CONTENT_LENGTH = 50_000
+        private val SEARCH_HEADERS = mapOf("User-Agent" to "Mozilla/5.0 (compatible; BraidrunAgent/1.0)", "Accept-Language" to "zh-CN,zh;q=0.9,en;q=0.8")
     }
+}
 
-    // Previously this class had its own copies of `enforcePublicHost`,
-    // `disallowedAddressReason`, and `allowPrivateHosts`. They have moved to
-    // [UrlSafety] so every tool (WebTools, MultimediaGenerationTools, BrowserTools,
-    // future ones) goes through the same rules — no more "WebTools blocks
-    // 169.254.169.254 but MultimediaGen fetches it" drift.
+/** Complements the host's registered-secret redactor with request echoes and common response fields. */
+internal object WebToolRedaction {
+    private val secretName = Regex("(?i)(?:authorization|proxy-authorization|cookie|set-cookie|(?:access|refresh|id)[_-]?token|token|password|passwd|secret|client[_-]?secret|api[_-]?key|private[_-]?key|signature|sign|sig|key)")
+    private val secretField = Regex("""(?i)(["']?(?:access[_-]?token|refresh[_-]?token|id[_-]?token|token|password|passwd|secret|client[_-]?secret|api[_-]?key|private[_-]?key|authorization|cookie|set-cookie)["']?\s*[:=]\s*)(?:"(?:\\.|[^"\\])*"?|'[^']*'?|[^\s,;}\]]+)""")
+    private val secretHeader = Regex("(?im)^((?:authorization|proxy-authorization|cookie|set-cookie):)[^\\r\\n]*")
 
-    private fun String?.parseHeadersJson(): Map<String, String> {
-        if (this == null) return emptyMap()
-        return try {
-            Json.decodeFromString<Map<String, String>>(this)
-        } catch (e: Exception) {
-            emptyMap()
+    fun scrub(text: String, url: String? = null, headers: Map<String, String> = emptyMap(), body: String? = null): String {
+        val values = mutableSetOf<String>()
+        fun add(value: String) {
+            if (value.length < 4) return
+            values += value
+            values += URLEncoder.encode(value, Charsets.UTF_8)
+            values += JsonPrimitive(value).toString().removeSurrounding("\"")
         }
+        headers.filterKeys { secretName.containsMatchIn(it) }.forEach { (key, value) ->
+            add(value)
+            if (key.contains("authorization", ignoreCase = true)) add(value.substringAfter(' ', value))
+            if (key.contains("cookie", ignoreCase = true)) value.split(';').forEach { add(it.substringAfter('=', "").trim()) }
+        }
+        runCatching { url?.let(::URI)?.rawQuery }.getOrNull()?.split('&')?.forEach { field ->
+            val name = runCatching { URLDecoder.decode(field.substringBefore('='), Charsets.UTF_8) }.getOrDefault("")
+            if (secretName.matches(name)) runCatching { URLDecoder.decode(field.substringAfter('=', ""), Charsets.UTF_8) }.getOrNull()?.let(::add)
+        }
+        fun collect(element: JsonElement) {
+            when (element) {
+                is JsonObject -> element.forEach { (key, value) -> if (secretName.matches(key) && value is JsonPrimitive) add(value.content) else collect(value) }
+                is JsonArray -> element.forEach(::collect)
+                else -> Unit
+            }
+        }
+        if (body != null && body.length <= WebToolTransport.MAX_RESPONSE_BYTES) runCatching { Json.parseToJsonElement(body) }.getOrNull()?.let(::collect)
+        var output = text
+        values.sortedByDescending { it.length }.forEach { output = output.replace(it, "<redacted>") }
+        output = secretHeader.replace(output) { "${it.groupValues[1]} <redacted>" }
+        output = secretField.replace(output) { "${it.groupValues[1]}\"<redacted>\"" }
+        return redactForLog(output)
     }
 }

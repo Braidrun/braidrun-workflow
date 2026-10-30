@@ -314,7 +314,7 @@ dependencies {
 }
 
 group = "com.fartech.braidrun"
-version = "1.4.6-rc.20261029.1"
+version = "1.4.6-rc.20261030.1"
 description = "braidrun-workflow"
 
 tasks.named<Jar>("jar") {
@@ -376,7 +376,12 @@ tasks.test {
         ?.coerceAtLeast(1)
         ?: minOf(2, Runtime.getRuntime().availableProcessors().coerceAtLeast(1))
     systemProperty("braidrun.quietConsole", "true")
-    systemProperty("runner.test.runtimeClasspath", classpath.asPath)
+    // Resolve test dependencies at execution time: eagerly reading classpath while Kotlin
+    // configures compileTestKotlin freezes testImplementation before its defaults are added.
+    doFirst {
+        val testTask = this as Test
+        testTask.systemProperty("runner.test.runtimeClasspath", testTask.classpath.asPath)
+    }
     // Tests parse the public examples/templates and the workflow guide's snippets from disk;
     // declare them so editing only those files does not leave `test` UP-TO-DATE.
     inputs.dir("examples/workflows").withPathSensitivity(PathSensitivity.RELATIVE)
@@ -440,7 +445,7 @@ val runnerHostJar = tasks.register<Jar>("runnerHostJar") {
             "Runner-Artifact-Publication-Commit" to file("src/main/resources/runner-workflow-v1/artifact-publication-origin.txt").readLines().first(),
             "Runner-Artifact-Publication-Schema-Sha256" to "d3cbb764d096ca9a68ba5a74adafe543a668f79e6273a65287acad3aaff9af09",
             "Runner-Late-Control-Commit" to file("src/main/resources/runner-workflow-v1/late-control-origin.txt").readLines().first(),
-            "Runner-Late-Control-Schema-Sha256" to "e65c475deadf310d641c9aac93f94672150d13072a1a37bba504fb716f2d0324",
+            "Runner-Late-Control-Schema-Sha256" to "c3f0a56872e099942b61884d6389da5bf1a095fdf0c3366ca53d5fbe394f32cc",
             "Runner-Contract-Commit" to file("src/main/resources/runner-workflow-v1/contract-origin.txt").readLines().first(),
             "Class-Path" to configurations.runtimeClasspath.get().files.sortedBy { it.name }.joinToString(" ") { "lib/${it.name}" }
         )

@@ -20,8 +20,8 @@ internal object RunnerCodeControlNegotiation {
     // P/S frozen per-gate dispatch/projection; its legacy context provider is not the mutually exclusive callback selector.
     const val GATE_FEEDBACK = "control.gateFeedbackContext.v1"
     const val GATE_PROJECTION = "control.gateProjection.v1"
-    const val CONTRACT_COMMIT = "06a461311e96721e84ecfbbce604df26b3140907"
-    const val SCHEMA_SHA256 = "e65c475deadf310d641c9aac93f94672150d13072a1a37bba504fb716f2d0324"
+    const val CONTRACT_COMMIT = "201baa80e1697efbac2f238a0b73d98d43c524bc"
+    const val SCHEMA_SHA256 = "c3f0a56872e099942b61884d6389da5bf1a095fdf0c3366ca53d5fbe394f32cc"
 
     fun supplementAvailable(bytes: ByteArray? = javaClass.getResourceAsStream("/runner-workflow-v1/late-control.schema.json")?.use { it.readBytes() }): Boolean =
         bytes != null && sha256(bytes) == SCHEMA_SHA256

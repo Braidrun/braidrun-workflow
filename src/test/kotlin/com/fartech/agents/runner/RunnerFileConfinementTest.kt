@@ -21,6 +21,63 @@ class RunnerFileConfinementTest {
         init { Files.writeString(state.resolve("checkpoint.json"), "{\"plaintext\":\"checkpoint\"}") }
     }
 
+    @Test fun `bound input files are readable read-only and nothing else under inputs is`(@TempDir temp: Path) {
+        val execution = temp.toRealPath()
+        val family = execution.resolve(".workflow-runs/owner")
+        val workspace = Files.createDirectories(family.resolve("root/agent/workspace"))
+        val upload = Files.createDirectories(execution.resolve("inputs/uploads/contract")).resolve("合同.txt")
+        Files.writeString(upload, "signed text")
+        val other = Files.createDirectories(execution.resolve("inputs/uploads/other")).resolve("b.txt").also { Files.writeString(it, "not bound") }
+        val licensed = Files.createDirectories(execution.resolve("inputs/app-factory")).resolve("font.ttf").also { Files.writeString(it, "licensed") }
+        val relative = execution.relativize(upload).toString()
+        val bound = mapOf(relative to (Files.size(upload) to sha256(Files.readAllBytes(upload))))
+        val files = RunnerFileConfinement(execution, family, "root", readLimitBytes = 1024, writeQuotaBytes = 1024, readOnlyInputs = bound)
+        val audits = mutableListOf<List<Any?>>()
+        val tools = RunnerFileTools(files, workspace, RunnerSecrets()::redact) { operation, path, bytes, digest, outcome -> audits += listOf(operation, path, bytes, digest, outcome) }
+
+        assertEquals("signed text", tools.readFile(upload.toString()))
+        assertTrue(tools.readFileRange(upload.toString()).contains("signed text"))
+        for (refusedWrite in listOf(tools.writeFile(path = upload.toString(), content = "tampered"), tools.createDirectory(upload.toString())))
+            assertTrue(refusedWrite.startsWith("Error:"), refusedWrite)
+        assertEquals("signed text", Files.readString(upload))
+        for (path in listOf(other.toString(), licensed.toString(), execution.resolve("inputs").toString(), execution.resolve("inputs/uploads/contract").toString()))
+            assertTrue(tools.readFile(path).startsWith("Error:") && tools.listDirectory(path).startsWith("Error:"), path)
+        assertTrue(tools.writeFile(path = execution.resolve("inputs/uploads/contract/new.txt").toString(), content = "x").startsWith("Error:"))
+        // A bound file whose bytes changed after freezing is refused, at the same size and at another size.
+        Files.writeString(upload, "SIGNED TEXT")
+        assertTrue(tools.readFile(upload.toString()).startsWith("Error:"))
+        Files.writeString(upload, "longer signed text")
+        assertTrue(tools.readFileRange(upload.toString()).startsWith("Error:"))
+        // Without the allowlist (older platform / runtime) the same file is outside this run's directories.
+        val plain = RunnerFileTools(RunnerFileConfinement(execution, family, "root"), workspace, RunnerSecrets()::redact) { _, _, _, _, _ -> }
+        Files.writeString(upload, "signed text")
+        assertTrue(plain.readFile(upload.toString()).startsWith("Error:"))
+        assertTrue(RunnerFileConfinement.INPUTS_CAPABILITY in RunnerHostSession.CAPABILITIES == RunnerFileConfinement.available())
+    }
+
+    @Test fun `only role input files under uploads and documents become bound inputs of the bundle`(@TempDir temp: Path) {
+        val dir = temp.toRealPath()
+        val root = "name: inputs\nagents: {}\nworkflow:\n  - step: s\n    code:\n      language: bash\n      script: echo ok\n"
+        val files = sortedMapOf(
+            "root.yaml" to ("definition" to root),
+            "inputs/uploads/contract/a.txt" to ("input" to "attachment"),
+            "inputs/documents/brief/b.md" to ("input" to "saved document"),
+            "inputs/app-factory/frame.png" to ("input" to "licensed frame"),
+            "skills/x/SKILL.md" to ("skill" to "skill text"))
+        files.forEach { (path, value) -> Files.createDirectories(dir.resolve(path).parent); Files.writeString(dir.resolve(path), value.second) }
+        val binding = kotlinx.serialization.json.JsonObject(RunnerProtocolTest.binding() + ("definitionHash" to JsonPrimitive(sha256(root.toByteArray()))))
+        val metadata = kotlinx.serialization.json.buildJsonObject {
+            put("rootWorkflowId", JsonPrimitive("root"))
+            put("files", kotlinx.serialization.json.JsonArray(files.map { (path, v) -> kotlinx.serialization.json.buildJsonObject {
+                put("path", JsonPrimitive(path)); put("role", JsonPrimitive(v.first)); put("size", JsonPrimitive(v.second.toByteArray().size)); put("sha256", JsonPrimitive(sha256(v.second.toByteArray()))) } }))
+            put("definitions", kotlinx.serialization.json.JsonArray(listOf(kotlinx.serialization.json.buildJsonObject {
+                put("workflowId", JsonPrimitive("root")); put("path", JsonPrimitive("root.yaml")); put("definitionHash", JsonPrimitive(sha256(root.toByteArray()))) })))
+        }
+        val bundle = FrozenWorkflowBundle(dir, kotlinx.serialization.json.JsonObject(metadata + ("bundleHash" to JsonPrimitive(sha256(canonical(metadata).toByteArray())))), binding)
+        assertEquals(setOf("inputs/uploads/contract/a.txt", "inputs/documents/brief/b.md"), bundle.boundInputFiles.keys)
+        assertEquals("attachment".toByteArray().size.toLong() to sha256("attachment".toByteArray()), bundle.boundInputFiles["inputs/uploads/contract/a.txt"])
+    }
+
     @Test fun `run directories of this execution and its children are readable and writable`(@TempDir temp: Path) {
         val f = Fixture(temp)
         assertEquals(setOf("readFile", "readFileRange", "writeFile", "listDirectory", "createDirectory", "getFileInfo"),

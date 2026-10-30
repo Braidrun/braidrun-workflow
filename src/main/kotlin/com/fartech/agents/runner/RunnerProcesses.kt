@@ -30,6 +30,7 @@ class RunnerProcesses(
         exits[id]?.complete(payload)
     }
     override suspend fun execute(request: SubprocessExecutor.ExecRequest): SubprocessExecutor.ExecResult {
+        require(request.admissionKind != "AGENT_SANDBOX") { "Sandbox requires dedicated noninteractive typed IPC" }
         ipc.businessFence.check(); gate.check()
         ipc.requireProcessTimeout(request.timeoutSeconds, request.admissionKind)
         if (interactive != null && (request.stdoutLineCallback != null || request.stdin?.toByteArray()?.size?.let { it > RunnerIpc.MAX_FRAME_BYTES / 2 } == true)) {

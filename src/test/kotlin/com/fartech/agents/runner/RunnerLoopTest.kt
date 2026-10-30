@@ -89,8 +89,13 @@ class RunnerLoopTest {
         assertTrue(refused(loopStep(), capabilities = RunnerHostSession.CAPABILITIES - RunnerLoopPolicy.CAPABILITY).contains("step.loop.v1"))
     }
 
-    @Test fun `loop admission refuses unbounded, non-idempotent and unsupported loop shapes before any effect`() {
-        assertTrue(refused(loopStep().replace("    idempotent: true\n", "")).contains("idempotent"))
+    @Test fun `loop admission refuses unbounded and unsupported loop shapes before any effect`() {
+        // A non-idempotent iterate_over is admitted (2026-10-23) under its own step.loop.rerun.v1: a resume reruns every
+        // item, like any interrupted step; a runtime without that capability refuses it before claim (platform side).
+        val rerun = loopStep().replace("    idempotent: true\n", "")
+        assertTrue(admit(rerun).containsAll(setOf(RunnerLoopPolicy.CAPABILITY, RunnerLoopPolicy.RERUN_CAPABILITY)))
+        assertFalse(RunnerLoopPolicy.RERUN_CAPABILITY in admit(loopStep()), "an idempotent loop does not need it")
+        assertTrue(refused(rerun, capabilities = RunnerHostSession.CAPABILITIES - RunnerLoopPolicy.RERUN_CAPABILITY).contains(RunnerLoopPolicy.RERUN_CAPABILITY))
         assertTrue(refused(loopStep(loop = "parallel: true")).contains("max_parallel"))
         assertTrue(refused(loopStep(loop = "parallel: true\n      max_parallel: 9")).contains("max_parallel"))
         assertTrue(refused(loopStep(loop = "parallel: true\n      max_parallel: 0")).contains("max_parallel"))

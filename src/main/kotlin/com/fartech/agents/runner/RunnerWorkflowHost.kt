@@ -26,7 +26,12 @@ class RunnerWorkflowHost(
     private val artifactPolicy: RunnerArtifactPolicy? = null,
     artifactFingerprinter: RunnerArtifactFingerprinter? = null,
     private val collectionPolicy: RunnerCollectionPolicy? = null,
-    private val setPolicy: RunnerArtifactSetPolicy? = null
+    private val setPolicy: RunnerArtifactSetPolicy? = null,
+    private val localModelPolicy: RunnerLocalModelPolicy? = null,
+    private val localModelAuthority: RunnerIpcLocalModelAuthority? = null,
+    private val subAgentToolsEnabled: Boolean = false,
+    /** Trusted transport injection for host-boundary tests; workflow parameters cannot supply this. */
+    private val multimediaHttpFactory: ((() -> Unit) -> com.fartech.ftapp2.commonsKt.HttpAccess)? = null
 ) : WorkflowHost {
     init {
         require(bundle.taskBinding == ipc.binding) { "Bundle host binding differs from IPC authority" }
@@ -34,12 +39,58 @@ class RunnerWorkflowHost(
             "runnerId" to binding.runnerId, "runnerInstanceId" to binding.runnerInstanceId, "attemptId" to binding.attemptId,
             "definitionHash" to binding.definitionHash, "runtimeHash" to binding.runtimeHash)
         require(pairs.all { (key, value) -> ipc.binding.string(key) == value } && ipc.binding.long("resumeEpoch") == binding.resumeEpoch) { "Host identity differs from IPC authority" }
+        require((localModelPolicy == null) == (localModelAuthority == null)) { "Local model policy and authority must be paired" }
     }
     private val staticInvocations = java.util.concurrent.ConcurrentHashMap<String, Boolean>()
     private val admittedProducers = java.util.concurrent.ConcurrentHashMap<String, String>()
+    private val sandboxInvocations = java.util.concurrent.ConcurrentHashMap<String, WorkflowHostScope>()
+    private val multimediaInvocations = java.util.concurrent.ConcurrentHashMap<String, WorkflowHostScope>()
+    private val multimediaPolicy = if (ipc.multimediaNegotiated) {
+        require(setOf(RunnerMultimediaHostPolicy.CAPABILITY, "tool.file_system.v1", "model.http.v1").all { it in capabilities })
+        RunnerMultimediaHostPolicy(bundle)
+    } else null
+    private val sandboxPolicy = if (ipc.agentSandboxNegotiated) {
+        require(RunnerSandboxProtocol.CAPABILITY in capabilities && "tool.file_system.v1" in capabilities)
+        RunnerSandboxPolicy(bundle)
+    } else null
     private val businessFence = ipc.businessFence
     private val resourcesClosed = java.util.concurrent.atomic.AtomicBoolean()
     private fun checkBusinessOpen() = businessFence.check()
+    private val localModelClients = java.util.concurrent.ConcurrentHashMap.newKeySet<RunnerLocalModelClient>()
+    override fun localModel(scope: WorkflowHostScope): WorkflowLocalModelSelection? {
+        val policy = localModelPolicy ?: return null
+        checkBusinessOpen(); gate.check(); policy.verify()
+        require(scope.rootExecutionId == binding.executionId && staticInvocations[scope.executionId] == true) { "Local model invocation is not frozen and static" }
+        val workflow = requireNotNull(admittedProducers[scope.executionId])
+        val path = childPath(binding.executionId, scope.executionId).map { it.jsonPrimitive.content }
+        val step = scope.stepName ?: return null
+        val selected = policy.resolve(workflow, step, path) ?: return null
+        val pin = selected.binding
+        fun checkLive() {
+            checkBusinessOpen(); gate.check(); policy.verify()
+            require(staticInvocations[scope.executionId] == true && admittedProducers[scope.executionId] == workflow && policy.resolve(workflow, step, path) == selected)
+        }
+        return WorkflowLocalModelSelection(binding, scope,
+            ai.koog.prompt.llm.LLModel(provider = ai.koog.prompt.llm.LLMProvider.Ollama, id = pin.model, capabilities = listOf(ai.koog.prompt.llm.LLMCapability.Completion),
+                contextLength = pin.contextTokens.toLong(), maxOutputTokens = pin.maximumOutputTokens.toLong()),
+            ai.koog.prompt.params.LLMParams(temperature = 0.0, maxTokens = selected.outputTokens, numberOfChoices = 1, toolChoice = ai.koog.prompt.params.LLMParams.ToolChoice.None)) {
+            // Admission and registration share the finalization fence: a retained factory cannot
+            // add an unowned transport after close has taken its resource snapshot.
+            businessFence.admit {
+                checkLive()
+                val client = RunnerLocalModelClient(pin, gate, businessFence, requireNotNull(localModelAuthority))
+                localModelClients.add(client)
+                try {
+                    RunnerLocalModelPromptExecutor(pin, step, path, client, ::checkLive, {},
+                        onClose = { localModelClients.remove(client) })
+                } catch (error: Throwable) {
+                    localModelClients.remove(client)
+                    client.close()
+                    throw error
+                }
+            }
+        }
+    }
     private val processDelegate = subprocessExecutor
     override val subprocessExecutor: SubprocessExecutor = object : SubprocessExecutor {
         override val isDocker get() = processDelegate.isDocker
@@ -204,14 +255,23 @@ class RunnerWorkflowHost(
         else RunnerFileConfinement(bundle.executionDirectory,
             Path.of(isolation.resolvePattern("{base_dir}/{user_id}", binding.executionId, userId = binding.ownerId)),
             isolation.resolvePattern("{execution_id}", binding.executionId),
-            guard = { checkBusinessOpen(); gate.check() })
+            guard = { checkBusinessOpen(); gate.check() },
+            // Bound attachments / saved documents are readable only when the platform admitted the plan against
+            // tool.file_system.inputs.v1; an older runtime never sees this capability and reads nothing under inputs/.
+            readOnlyInputs = if (RunnerFileConfinement.INPUTS_CAPABILITY in capabilities) bundle.boundInputFiles else emptyMap())
     }
     private fun stepWorkingDirectory(scope: WorkflowHostScope): String =
         java.io.File(isolation.getWorkingDir(scope.executionId, scope.stepName ?: "default", userId = binding.ownerId)).absolutePath
     private fun usesFileTools(parameters: List<com.fartech.ftapp2.commonsKt.ConfigurationParameter>): Boolean {
         val type = parameters.firstOrNull { it.key == "type" }?.value?.let(RunnerAgentToolPolicy::text)
         val tools = parameters.firstOrNull { it.key == "tool_set" }?.value as? JsonArray
-        return type !in setOf("claude_code_agent", "codex_agent") && tools?.any { (it as? JsonPrimitive)?.content == "file_system" } == true
+        return type !in setOf("claude_code_agent", "codex_agent") && tools?.any { (it as? JsonPrimitive)?.content in RunnerAgentToolPolicy.RUN_DIRECTORY_TOOL_GROUPS } == true
+    }
+    internal fun toolFileAccess(scope: WorkflowHostScope): com.fartech.agents.tools.ToolFileAccess {
+        checkBusinessOpen(); gate.check()
+        require(scope.rootExecutionId == binding.executionId) { "File tool scope mismatch" }
+        return RunnerToolFileAccess(requireNotNull(fileConfinement) { "Runner file tools are not available on this host" },
+            Path.of(stepWorkingDirectory(scope)))
     }
     override fun fileSystemTools(scope: WorkflowHostScope, parameters: List<com.fartech.ftapp2.commonsKt.ConfigurationParameter>): List<ai.koog.agents.core.tools.reflect.ToolSet> {
         checkBusinessOpen(); gate.check()
@@ -228,17 +288,166 @@ class RunnerWorkflowHost(
             )))
         })
     }
+    override fun agentToolSets(scope: WorkflowHostScope, toolNames: Set<String>, parameters: List<com.fartech.ftapp2.commonsKt.ConfigurationParameter>): Map<String, List<ai.koog.agents.core.tools.reflect.ToolSet>> {
+        checkBusinessOpen(); gate.check()
+        require(scope.rootExecutionId == binding.executionId) { "Tool scope mismatch" }
+        require("multi_media" !in toolNames) { "Multimedia requires the canonical frozen tool group" }
+        val multimediaTools = if ("multimedia" in toolNames) mapOf("multimedia" to listOf(multimediaTools(scope, parameters))) else emptyMap()
+        val sandboxGroups = toolNames.intersect(RunnerSandboxPolicy.GROUPS)
+        val sandboxTools: Map<String, List<ai.koog.agents.core.tools.reflect.ToolSet>> = if (sandboxGroups.isEmpty()) emptyMap() else {
+            val policy = requireNotNull(sandboxPolicy) { "Sandbox Agent tools were not negotiated" }
+            val workflow = requireNotNull(admittedProducers[scope.executionId]) { "Sandbox invocation was not admitted" }
+            val invocation = requireNotNull(sandboxInvocations[scope.executionId]) { "Sandbox invocation lineage was not registered" }
+            // The real executor's tool hook omits parentExecutionId. Recover it only from the
+            // previously verified bindArtifactProducer call, never by trusting caller text.
+            require(scope.parentExecutionId == null || scope.parentExecutionId == invocation.parentExecutionId) { "Sandbox tool parent mismatch" }
+            val frozenScope = scope.copy(parentExecutionId = invocation.parentExecutionId)
+            fun checkSandbox() {
+                checkBusinessOpen(); gate.check()
+                require(ipc.agentSandboxNegotiated && staticInvocations[scope.executionId] == true && admittedProducers[scope.executionId] == workflow) {
+                    "Sandbox requires an admitted static invocation"
+                }
+                require(ipc.agentSandboxGroups.containsAll(sandboxGroups) && sandboxGroups.all { "tool.$it.v1" in capabilities }) {
+                    "Sandbox tool group capability was not negotiated"
+                }
+                require(sandboxInvocations[scope.executionId] == invocation)
+                require(policy.groups(workflow, frozenScope).containsAll(sandboxGroups)) { "Sandbox tools were not explicitly frozen" }
+                bundle.verifyPortableAssets()
+            }
+            checkSandbox()
+            val executor = RunnerSandboxProcesses(ipc, gate, toolFileAccess(scope), requireNotNull(scope.stepName),
+                scope.executionId, sandboxGroups, liveGuard = ::checkSandbox)
+            sandboxGroups.associateWith { group -> listOf(when (group) {
+                "shell" -> com.fartech.agents.tools.SandboxShellTools(executor)
+                "code_execution" -> com.fartech.agents.tools.SandboxCodeExecutionTools(executor)
+                "git" -> com.fartech.agents.tools.SandboxGitTools(executor)
+                else -> error("Unsupported sandbox group")
+            }) }
+        }
+        return sandboxTools + multimediaTools + RunnerAdaptedAgentTools.create(toolNames, capabilities, parameters,
+            files = { toolFileAccess(scope) }, webHttp = { network.webHttpAccess },
+            guard = { checkBusinessOpen(); gate.check() }, redact = secrets::redact)
+    }
     override fun claudeBuiltinTools(scope: WorkflowHostScope, parameters: List<com.fartech.ftapp2.commonsKt.ConfigurationParameter>): String =
         RunnerAgentToolPolicy.claudeBuiltinTools(parameters.firstOrNull { it.key == "external_agent_claude_allowed_tools" }?.value?.let(RunnerAgentToolPolicy::text))
     private val network = RunnerHttpClients(gate) { checkBusinessOpen(); live.checkAll() }
+    val toolHttpAccess get() = network.toolHttpAccess
     override val llmHttpClientFactory get() = network.factory
+    private val subAgentBudget = RunnerSubAgentBudget()
+    private val subAgentInvocations = java.util.concurrent.ConcurrentHashMap<String, WorkflowHostScope>()
+    private val subAgentNetwork = lazy { RunnerHttpClients.singleDispatch(gate) { checkBusinessOpen(); live.checkAll() } }
+    private val scopedModelKeys = java.util.concurrent.ConcurrentHashMap<Pair<String, String?>, Map<String, RunnerLiveCredentials.Handle>>()
+    private class PreparedMultimedia(val scope: WorkflowHostScope, val selection: RunnerMultimediaHostPolicy.Selection,
+                                     val handle: RunnerLiveCredentials.Handle, val apiKey: String, val grantedModels: Set<String>)
+    private val scopedMultimedia = java.util.concurrent.ConcurrentHashMap<Pair<String, String?>, PreparedMultimedia>()
+    private val multimediaClients = java.util.concurrent.ConcurrentHashMap.newKeySet<AutoCloseable>()
+    private fun multimediaScope(scope: WorkflowHostScope): WorkflowHostScope {
+        requireNotNull(multimediaPolicy) { "Multimedia support was not negotiated by the trusted runtime" }
+        require(scope.rootExecutionId == binding.executionId && scope.stepName != null && staticInvocations[scope.executionId] == true) {
+            "Multimedia scope must be a frozen static step"
+        }
+        val invocation = requireNotNull(multimediaInvocations[scope.executionId]) { "Multimedia invocation lineage was not registered" }
+        require(scope.parentExecutionId == null || scope.parentExecutionId == invocation.parentExecutionId) { "Multimedia parent mismatch" }
+        return scope.copy(parentExecutionId = invocation.parentExecutionId)
+    }
+    private fun multimediaTools(scope: WorkflowHostScope, parameters: List<com.fartech.ftapp2.commonsKt.ConfigurationParameter>): ai.koog.agents.core.tools.reflect.ToolSet {
+        val policy = requireNotNull(multimediaPolicy) { "Multimedia support was not negotiated by the trusted runtime" }
+        val frozenScope = multimediaScope(scope)
+        require(localModel(frozenScope) == null) { "Local text-only steps cannot use multimedia tools" }
+        val workflow = requireNotNull(admittedProducers[scope.executionId])
+        val selection = policy.selection(workflow, frozenScope)
+        policy.verifyParameters(selection, parameters)
+        val key = scope.executionId to scope.stepName
+        val captured = requireNotNull(scopedMultimedia[key]) { "Multimedia scoped lease is missing" }
+        require(captured.scope == frozenScope && captured.selection == selection)
+        fun checkLease() {
+            try {
+                checkBusinessOpen(); gate.requirePaths(setOf("jvm-http")); verifyAssets()
+                require(ipc.multimediaNegotiated && multimediaScope(scope) == frozenScope && admittedProducers[scope.executionId] == workflow)
+                require(scopedMultimedia[key] === captured) { "Multimedia credential lease generation changed" }
+                require(policy.selection(workflow, frozenScope) == selection) { "Multimedia frozen selection changed" }
+                synchronized(captured.handle) {
+                    val material = live.checked(captured.handle, frozenScope, RunnerMultimediaHostPolicy.PURPOSE)
+                    require(material.string("apiKey") == captured.apiKey && RunnerMultimediaHostPolicy.grantedModels(material, selection) == captured.grantedModels) {
+                        "Multimedia credential lease material changed"
+                    }
+                }
+            } catch (_: IllegalArgumentException) {
+                // Authority failure is terminal to the adapter, never a retryable provider failure.
+                throw SecurityException("Multimedia scoped authority is no longer valid")
+            }
+        }
+        checkLease()
+        val files = toolFileAccess(frozenScope)
+        val lease = com.fartech.agents.runner.multimedia.RunnerMultimediaLease(captured.apiKey, captured.grantedModels) {
+            checkLease()
+            if (WorkflowHostContext.current !== this || WorkflowHostContext.scope != frozenScope) throw SecurityException("Multimedia adapter escaped its parent scope")
+        }
+        return businessFence.admit {
+            checkLease()
+            val transport = multimediaHttpFactory?.invoke(::checkLease)?.also { multimediaClients.add(AutoCloseable { it.close() }) }
+                ?: RunnerHttpClients(gate, ::checkLease).also { multimediaClients.add(it) }.webHttpAccess
+            com.fartech.agents.runner.multimedia.RunnerMultimediaGenerationTools(transport, files, selection.plan(), lease, businessFence = businessFence)
+        }
+    }
+    override fun subAgentTools(scope: WorkflowHostScope, parameters: List<com.fartech.ftapp2.commonsKt.ConfigurationParameter>, runtime: WorkflowSubAgentRuntime): ai.koog.agents.core.tools.reflect.ToolSet {
+        require(subAgentToolsEnabled && "tool.sub_agent.v1" in capabilities) { "Hosted sub-agent support was not enabled by the trusted runtime" }
+        require(scope.rootExecutionId == binding.executionId && scope.stepName != null && staticInvocations[scope.executionId] == true) { "Sub-agent scope must be a frozen static step" }
+        val invocation = requireNotNull(subAgentInvocations[scope.executionId]) { "Sub-agent invocation lineage was not registered" }
+        require(scope.parentExecutionId == null || scope.parentExecutionId == invocation.parentExecutionId) { "Sub-agent parent mismatch" }
+        val frozenScope = scope.copy(parentExecutionId = invocation.parentExecutionId)
+        require(localModel(frozenScope) == null) { "Local text-only steps cannot use sub agents" }
+        val leaseScopeKey = scope.executionId to scope.stepName
+        val capturedLeases = requireNotNull(scopedModelKeys[leaseScopeKey]) { "Sub-agent parent model leases are missing" }
+        fun checkScope() {
+            checkBusinessOpen(); gate.check(); live.checkAll(); verifyAssets()
+            require(WorkflowHostContext.current === this && WorkflowHostContext.scope == frozenScope) { "Sub-agent adapter escaped its parent scope" }
+            require(subAgentInvocations[scope.executionId] == invocation) { "Sub-agent invocation lineage changed" }
+            require(scopedModelKeys[leaseScopeKey] === capturedLeases) { "Sub-agent parent model lease generation changed" }
+            require(staticInvocations[scope.executionId] == true && admittedProducers.containsKey(scope.executionId))
+        }
+        return runnerSubAgentTools(parameters, runtime, subAgentBudget, businessFence, subAgentNetwork.value.factory,
+            requireLeasedKey = { key ->
+                val handle = requireNotNull(capturedLeases[key]) { "Sub-agent key was not leased to this parent scope" }
+                require(scopedModelKeys[leaseScopeKey] === capturedLeases && scopedModelKeys[leaseScopeKey]?.get(key) === handle) { "Sub-agent parent model lease generation changed" }
+                val leasedScope = handle.latest.get().scope
+                require(leasedScope.rootExecutionId == scope.rootExecutionId && leasedScope.executionId == scope.executionId && leasedScope.stepName == scope.stepName)
+                require(live.checked(handle, leasedScope, "llm.request").string("apiKey") == key) { "Sub-agent model lease material changed" }
+            },
+            checkLive = ::checkScope)
+    }
     override suspend fun prepareAgentParameters(scope: WorkflowHostScope, parameters: List<com.fartech.ftapp2.commonsKt.ConfigurationParameter>): List<com.fartech.ftapp2.commonsKt.ConfigurationParameter> {
         gate.check()
         verifyAssets()
+        val multimediaKey = scope.executionId to scope.stepName
+        scopedMultimedia.remove(multimediaKey) // Repreparing a scope always ends the previous factory generation.
+        var preparedMultimedia: PreparedMultimedia? = null
+        val requested = parameters.firstOrNull { it.key == "tool_set" }?.value as? JsonArray
+        require(requested?.none { (it as? JsonPrimitive)?.content == "multi_media" } != false) { "Multimedia requires the canonical frozen tool group" }
+        val multimediaSelected = requested?.any { (it as? JsonPrimitive)?.content == "multimedia" } == true
+        if (multimediaSelected) {
+            val policy = requireNotNull(multimediaPolicy) { "Multimedia support was not negotiated by the trusted runtime" }
+            val frozenScope = multimediaScope(scope)
+            require(localModel(frozenScope) == null) { "Local text-only steps cannot use multimedia tools" }
+            val selected = policy.selection(requireNotNull(admittedProducers[scope.executionId]), frozenScope)
+            policy.verifyParameters(selected, parameters)
+            requireNotNull(fileConfinement) { "Multimedia requires confined Runner file access" }
+            validateDirectNetwork(); gate.requirePaths(setOf("jvm-http"))
+            val handle = live.acquire(selected.credentialReference, frozenScope, RunnerMultimediaHostPolicy.PURPOSE)
+            val material = synchronized(handle) { live.checked(handle, frozenScope, RunnerMultimediaHostPolicy.PURPOSE) }
+            val key = material.string("apiKey")
+            require(key.isNotBlank() && key.length <= 8192 && key.none { it.code < 32 || it.code == 127 }) { "Multimedia credential material is invalid" }
+            preparedMultimedia = PreparedMultimedia(frozenScope, selected, handle, key, RunnerMultimediaHostPolicy.grantedModels(material, selected))
+        } else {
+            require(parameters.none { it.key == RunnerMultimediaHostPolicy.KEY && it.value != JsonNull && it.value != JsonPrimitive("") }) {
+                "Multimedia credentials require an explicitly frozen multimedia tool"
+            }
+        }
         val type = parameters.firstOrNull { it.key == "type" }?.value?.let(RunnerAgentToolPolicy::text)
         parameters.firstOrNull { it.key == "skills_config" }?.value?.takeUnless { it == JsonNull }?.let {
             nativeSkills[scope.executionId to scope.stepName] = runnerJson.decodeFromJsonElement(com.fartech.agents.commons.SkillsConfiguration.serializer(), it)
         } ?: nativeSkills.remove(scope.executionId to scope.stepName)
+        val preparedModelKeys = mutableMapOf<String, RunnerLiveCredentials.Handle>()
         suspend fun lease(value: JsonElement): JsonElement {
             if (value == JsonNull || value == JsonPrimitive("")) return value
             if (value is JsonObject) return JsonObject(value.mapValues { lease(it.value) })
@@ -246,6 +455,7 @@ class RunnerWorkflowHost(
             val handle = live.acquire(value.jsonPrimitive.content, scope, "llm.request")
             val key = live.checked(handle, scope, "llm.request").string("apiKey")
             references[key] = value.jsonPrimitive.content
+            preparedModelKeys[key] = handle
             return JsonPrimitive(key)
         }
         for ((provider, parameter) in mapOf("codex" to "external_agent_codex_auth_json", "claude" to "external_agent_claude_oauth_token")) {
@@ -288,9 +498,15 @@ class RunnerWorkflowHost(
             if (type == "claude_code_agent") RunnerAgentToolPolicy.claudeExtraArgs(extraArgs).joinToString(",") else ""))
         val replaced = forced.map { it.key }.toSet() + (if (fileTools) setOf("workspace_dir") else emptySet())
         val result = parameters.filterNot { it.key in setOf("external_agent_codex_auth_json", "external_agent_claude_oauth_token") }.map { p ->
-            if (p.key == "mcp_servers") com.fartech.ftapp2.commonsKt.ConfigurationParameter(p.key, mcp(p.value))
+            if (p.key == RunnerMultimediaHostPolicy.KEY) p // Keep only the reference in Agent parameters, never material.
+            else if (p.key == "mcp_servers") com.fartech.ftapp2.commonsKt.ConfigurationParameter(p.key, mcp(p.value))
             else if (p.key.endsWith("_api_key") || p.key == "llm_provider_keys") com.fartech.ftapp2.commonsKt.ConfigurationParameter(p.key, lease(p.value)) else p
         }.filterNot { it.key in setOf("user_id", "disable_skills", "disable_browser_tools", "clawhub_cache_dir") || it.key in replaced }
+        scopedModelKeys[scope.executionId to scope.stepName] = preparedModelKeys.toMap()
+        preparedMultimedia?.let { prepared -> businessFence.admit {
+            gate.check(); live.checked(prepared.handle, prepared.scope, RunnerMultimediaHostPolicy.PURPOSE)
+            scopedMultimedia[multimediaKey] = prepared
+        } }
         return result + forced + listOf(com.fartech.ftapp2.commonsKt.ConfigurationParameter("user_id", JsonPrimitive(binding.ownerId)),
             com.fartech.ftapp2.commonsKt.ConfigurationParameter("disable_skills", JsonPrimitive("skill.text.v1" !in capabilities)),
             com.fartech.ftapp2.commonsKt.ConfigurationParameter("disable_browser_tools", JsonPrimitive(true)),
@@ -312,8 +528,13 @@ class RunnerWorkflowHost(
             businessFence.close() // returns only after admitted append/persist/enqueue has released this same boundary
             try { eventJournal.seal() }
             finally {
+                localModelClients.forEach { it.close() }; localModelClients.clear(); localModelAuthority?.close()
                 approvalHandler.close(); artifactSets?.close(); collectionBarrier?.close()
                 interactiveBroker?.close(); live.close(); network.close(); credentials.clear()
+                if (subAgentNetwork.isInitialized()) subAgentNetwork.value.close()
+                scopedModelKeys.clear(); subAgentInvocations.clear()
+                multimediaClients.forEach { it.close() }; multimediaClients.clear()
+                scopedMultimedia.clear(); multimediaInvocations.clear()
                 cliPools.clear(); references.clear(); nativeSkills.clear(); setProducerBudgets.clear()
             }
         }
@@ -340,22 +561,42 @@ class RunnerWorkflowHost(
         checkBusinessOpen()
         require(scope.rootExecutionId == binding.executionId && bundle.contains(workflow)) { "Workflow escaped frozen host context" }
         val definitions = if (scope.executionId == binding.executionId) bundle.allDefinitions else listOf(workflow)
-        definitions.forEach { definition -> checkRoutes(RunnerAdmission(bundle, capabilities).inspect(definition)) }
+        definitions.forEach { definition -> checkRoutes(RunnerAdmission(bundle, capabilities, localModelPolicy = localModelPolicy).inspect(definition)) }
     }
     override fun bindArtifactProducer(workflow: WorkflowDefinition, scope: WorkflowHostScope, staticInvocation: Boolean) {
-        if (artifactPolicy == null && collectionPolicy == null && setPolicy == null) return
+        if (artifactPolicy == null && collectionPolicy == null && setPolicy == null && localModelPolicy == null && sandboxPolicy == null && multimediaPolicy == null && !subAgentToolsEnabled) return
         require(scope.rootExecutionId == binding.executionId && bundle.contains(workflow)) { "Artifact producer outside frozen invocation" }
         childPath(binding.executionId, scope.executionId)
         val lineage = staticInvocation && (scope.parentExecutionId == null || staticInvocations[scope.parentExecutionId] == true)
+        if (sandboxPolicy != null && staticInvocation) {
+            sandboxPolicy.verifyInvocation(workflow, scope)
+            require(lineage) { "Sandbox parent invocation was not admitted as static" }
+        }
+        if (multimediaPolicy != null && staticInvocation) {
+            multimediaPolicy.verifyInvocation(workflow, scope)
+            require(lineage) { "Multimedia parent invocation was not admitted as static" }
+        }
         require(staticInvocations.putIfAbsent(scope.executionId, lineage)?.let { it == lineage } != false) { "Invocation lineage cannot change" }
         val identity = bundle.identityOf(workflow)
         require(admittedProducers.putIfAbsent(scope.executionId, identity)?.let { it == identity } != false) { "Producer definition changed within invocation" }
+        if (subAgentToolsEnabled && lineage) {
+            val invocation = scope.copy(stepName = null, occurrence = null)
+            require(subAgentInvocations.putIfAbsent(scope.executionId, invocation)?.let { it == invocation } != false) { "Sub-agent invocation lineage changed" }
+        }
+        if (multimediaPolicy != null && lineage) {
+            val invocation = scope.copy(stepName = null, occurrence = null)
+            require(multimediaInvocations.putIfAbsent(scope.executionId, invocation)?.let { it == invocation } != false) { "Multimedia invocation lineage changed" }
+        }
+        if (sandboxPolicy != null && lineage) {
+            val invocation = scope.copy(stepName = null, occurrence = null)
+            require(sandboxInvocations.putIfAbsent(scope.executionId, invocation)?.let { it == invocation } != false) { "Sandbox invocation lineage changed" }
+        }
     }
     private fun checkRoutes(required: Set<String>) {
         if ("model.http.v1" in required) { validateDirectNetwork(); gate.requirePaths(setOf("jvm-http")) }
         if (required.any { it in setOf("agent.codex.v1", "agent.claude.v1") }) { validateDirectNetwork(); gate.requirePaths(setOf("agent-cli")) }
         if ("mcp.stdio.v1" in required) gate.requirePaths(setOf("mcp-stdio"))
-        if ("step.script.v1" in required) gate.requirePaths(setOf("subprocess"))
+        if ("step.script.v1" in required || required.any { it in RunnerAgentToolPolicy.SUBPROCESS_CAPABILITIES }) gate.requirePaths(setOf("subprocess"))
     }
     override suspend fun beforeOperation(scope: WorkflowHostScope, operation: String) {
         require(scope.rootExecutionId == binding.executionId) { "Operation escaped root scope" }; gate.check(); verifyAssets()
@@ -481,6 +722,7 @@ class RunnerWorkflowHost(
         fun owned(step: String?) = step == name || step?.startsWith("$name:") == true
         cliPools.keys.removeIf { it.second == executionId && owned(it.third) }
         nativeSkills.keys.removeIf { it.first == executionId && owned(it.second) }
+        scopedMultimedia.keys.removeIf { it.first == executionId && owned(it.second) }
         live.release(executionId, name)
     }
     @Synchronized override fun monitor(update: WorkflowMonitorUpdate) {
@@ -497,7 +739,7 @@ class RunnerWorkflowHost(
                 e.cacheCreationTokens?.let { put("cacheCreationTokens", it) }
             }) }
         }
-        val kind = if (update.event?.let { !it.isDisplayOnlyTokenEvent() && (it.inputTokens != null || it.totalTokens != null) } == true) "usage" else "step"
+        val kind = if (update.event?.let { !it.isDisplayOnlyTokenEvent() && (it.inputTokens != null || it.outputTokens != null || it.totalTokens != null) } == true) "usage" else "step"
         val frame = eventJournal.append(kind, payload)
         // Loop occurrences share their step's name and are never artifact producers (RunnerLoopPolicy): they must
         // neither open nor close the step's producer occurrence.

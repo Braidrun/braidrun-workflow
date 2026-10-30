@@ -10,7 +10,8 @@ import kotlinx.serialization.json.booleanOrNull
  *
  * `step.loop.v1` ([CAPABILITY]): `iterate_over` whose items are HTTP-model Agent runs or code runs. CLI items additionally
  * require `step.loop.cli.v1`, explicit history_enabled: false and isolated sessions. The loop is
- * one atomic, idempotent step: no savepoint is taken while items run, so a resume reruns every item. Each running
+ * one atomic step: no savepoint is taken while items run, so a resume reruns every item (no `idempotent` mark is
+ * required: an owner resume reruns it like any interrupted step, automatic resume skips it unless replay-safe). Each running
  * Agent item holds its own agent instance (prompt history, tool registry, model client, in-flight response) and its
  * own model credential lease, so concurrency is bounded ([MAX_PARALLEL]) and so is the fan-out ([MAX_ITEMS]).
  *
@@ -29,6 +30,8 @@ import kotlinx.serialization.json.booleanOrNull
 object RunnerLoopPolicy {
     const val CAPABILITY = "step.loop.v1"
     const val CLI_CAPABILITY = "step.loop.cli.v1"
+    /** A non-idempotent iterate_over (rerun on resume). Older runtimes advertise step.loop.v1 but refuse it after claim. */
+    const val RERUN_CAPABILITY = "step.loop.rerun.v1"
     const val REPEAT_CAPABILITY = "step.repeatUntil.v1"
     const val MAX_PARALLEL = 8
     const val MAX_ITEMS = 200
@@ -58,7 +61,8 @@ object RunnerLoopPolicy {
         require(step.repeatUntil == null) { "Runner loop step '$name': iterate_over cannot be combined with repeat_until" }
         // Items run, and are released, as "<step>:<occurrence>": no real step may live under that prefix.
         require(workflow.workflow.none { it.step.startsWith("$name:") }) { "Runner loop step '$name': another step name starts with '$name:'" }
-        require(step.idempotent) { "Runner loop step '$name' must be idempotent: a resume reruns every item" }
+        // No idempotent mark is required (owner decision 2026-10-23, as for repeat_until): a resume reruns every item, the
+        // same as an owner resume reruns any interrupted Agent step; automatic resume skips steps that are not replay-safe.
         if (loop.parallel) require(loop.maxParallel != null && loop.maxParallel in 1..MAX_PARALLEL) {
             "Runner loop step '$name' needs an explicit iterate_over.max_parallel between 1 and $MAX_PARALLEL"
         } else require(loop.maxParallel == null || loop.maxParallel in 1..MAX_PARALLEL) {

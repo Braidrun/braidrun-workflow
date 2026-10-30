@@ -67,6 +67,21 @@ class RunnerAdmissionSecretsTest {
         // The bundled default server stays admissible.
         inspect("mcp_servers", buildJsonObject { put("playwright", server(args("@playwright/mcp@latest")) .let { JsonObject(it + ("command" to JsonPrimitive("npx"))) }) })
     }
+    @Test fun `adapted tool groups require their matching capabilities and unsupported groups stay closed`() {
+        val base = setOf("workflow.full.v1", "step.agent.v1", "model.http.v1")
+        for (tool in listOf("calendar", "data_transform", "web", "knowledge_memory", "image_processing", "csv")) {
+            val workflow = fileWorkflow(AgentDefinition(tools = listOf(tool)))
+            assertEquals(tool in setOf("calendar", "data_transform") || RunnerFileConfinement.available(), "tool.$tool.v1" in RunnerHostSession.CAPABILITIES)
+            assertTrue("tool.$tool.v1" in RunnerAdmission(NullWorkflowResolver, base + "tool.$tool.v1").inspect(workflow))
+            assertFailsWith<IllegalArgumentException> { RunnerAdmission(NullWorkflowResolver, base).inspect(workflow) }
+        }
+        for (tool in listOf("pdf", "office", "word", "excel", "powerpoint", "shell", "code_execution", "git", "browser", "rag")) {
+            assertFalse("tool.$tool.v1" in RunnerHostSession.CAPABILITIES, tool)
+            assertFailsWith<IllegalArgumentException>(tool) {
+                RunnerAdmission(NullWorkflowResolver, base + "tool.$tool.v1").inspect(fileWorkflow(AgentDefinition(tools = listOf(tool))))
+            }
+        }
+    }
     private val fileCapabilities = setOf("workflow.full.v1", "step.agent.v1", "model.http.v1", "tool.exit.v1", "tool.file_system.v1")
     private fun fileWorkflow(agent: AgentDefinition, isolation: DirectoryIsolationConfig = DirectoryIsolationConfig()) =
         WorkflowDefinition("files", agents = mapOf("agent" to agent), directoryIsolation = isolation, workflow = listOf(WorkflowStep("step", agent = "agent", input = "Synthetic")))
@@ -83,8 +98,8 @@ class RunnerAdmissionSecretsTest {
                 DirectoryIsolationConfig(outputDirPattern = "{base_dir}/{user_id}/output"), DirectoryIsolationConfig(persistenceDirPattern = "{base_dir}/{user_id}/{execution_id}/../x"))) {
             assertFailsWith<IllegalArgumentException>(isolation.toString()) { RunnerAdmission(NullWorkflowResolver, fileCapabilities).inspect(fileWorkflow(agent, isolation)) }
         }
-        // Shell and web stay outside the Runner tool inventory.
-        for (tool in listOf("shell", "web")) {
+        // Process tools stay closed until the sandbox is independently proven.
+        for (tool in listOf("shell", "code_execution", "git")) {
             assertFailsWith<IllegalArgumentException>(tool) { RunnerAdmission(NullWorkflowResolver, fileCapabilities + "tool.$tool.v1").inspect(fileWorkflow(AgentDefinition(tools = listOf("file_system", tool)))) }
         }
     }

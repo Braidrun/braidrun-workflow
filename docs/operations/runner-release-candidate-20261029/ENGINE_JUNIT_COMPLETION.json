@@ -1,0 +1,80 @@
+{
+  "recordedAtUtc": "2026-10-29T06:10:31.470942+00:00",
+  "scope": "engine selected per-class JUnit; static/test evidence only",
+  "selectedClasses": 79,
+  "completed": {
+    "classes": 79,
+    "tests": 600,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "initialCompleted": {
+    "classes": 36,
+    "tests": 227,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "addedThisResume": {
+    "classes": 43,
+    "tests": 373
+  },
+  "interruption": {
+    "reason": "simctl observed by guard",
+    "pid": 67700,
+    "exitCode": 75,
+    "completedAtInterruption": {
+      "classes": 44,
+      "tests": 274
+    },
+    "resumedOnlyAfterGuardClear": true
+  },
+  "finalExitCode": 0,
+  "inputsUnchanged": true,
+  "fingerprint": "bcccd9e2e8bb1edd5fab9f1be0bd1cc2a77c260e0c2293b25f306df284a29d29",
+  "summarySha256": "6f02f109adca73c3bda2fbd61d844ab93deb80d5a17ec3a20cfb0d240d35e59f",
+  "selectorsSha256": "7ee4d38015ca4b4843013d6ec1dbbc7da7b95f59990dfd6c9950ad8e66dd14a1",
+  "localModelClasses": [
+    {
+      "class": "com.fartech.agents.runner.RunnerLocalModelHostTest",
+      "tests": 9,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "class": "com.fartech.agents.runner.RunnerLocalModelIpcTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "class": "com.fartech.agents.runner.RunnerLocalModelPolicyTest",
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "class": "com.fartech.agents.runner.RunnerLocalModelPromptExecutorTest",
+      "tests": 15,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "class": "com.fartech.agents.runner.RunnerLocalModelTest",
+      "tests": 13,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  ],
+  "jvmExited": true,
+  "compilationPerformedByThisResume": false,
+  "sourceModifiedByThisResume": false,
+  "productionMutated": false,
+  "committedOrPushed": false
+}
