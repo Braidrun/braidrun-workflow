@@ -1,0 +1,339 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:braidrun:native-model:v1",
+  "$defs": {
+    "binding": {
+      "type": "object",
+      "properties": {
+        "protocolVersion": {
+          "const": 1
+        },
+        "ownerId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "actorUserId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "executionId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "runnerId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "runnerInstanceId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "resumeEpoch": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "attemptId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "definitionHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "runtimeHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "ownerId",
+        "actorUserId",
+        "executionId",
+        "runnerId",
+        "runnerInstanceId",
+        "resumeEpoch",
+        "attemptId",
+        "definitionHash",
+        "runtimeHash"
+      ],
+      "additionalProperties": false
+    },
+    "localBinding": {
+      "type": "object",
+      "properties": {
+        "runnerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,255}$"
+        },
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,255}$"
+        },
+        "executionId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,255}$"
+        },
+        "attemptId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,255}$"
+        },
+        "endpointId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,255}$"
+        },
+        "endpoint": {
+          "type": "string",
+          "pattern": "^native://[A-Za-z0-9][A-Za-z0-9_.:-]{0,255}$"
+        },
+        "serviceVersion": {
+          "type": "string",
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?$"
+        },
+        "model": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._/-]*:[A-Za-z0-9][A-Za-z0-9._-]*$"
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "contextTokens": {
+          "type": "integer",
+          "minimum": 512,
+          "maximum": 8192
+        },
+        "maximumOutputTokens": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1024
+        }
+      },
+      "required": [
+        "runnerId",
+        "ownerId",
+        "executionId",
+        "attemptId",
+        "endpointId",
+        "endpoint",
+        "serviceVersion",
+        "model",
+        "digest",
+        "contextTokens",
+        "maximumOutputTokens"
+      ],
+      "additionalProperties": false
+    },
+    "message": {
+      "type": "object",
+      "properties": {
+        "role": {
+          "enum": [
+            "system",
+            "user",
+            "assistant"
+          ]
+        },
+        "content": {
+          "type": "string",
+          "maxLength": 131072
+        }
+      },
+      "required": [
+        "role",
+        "content"
+      ],
+      "additionalProperties": false
+    },
+    "reservePayload": {
+      "type": "object",
+      "properties": {
+        "binding": {
+          "$ref": "#/$defs/localBinding"
+        },
+        "requestId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,255}$"
+        },
+        "stepName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "childExecutionPath": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "maxItems": 32
+        },
+        "messages": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/message"
+          },
+          "minItems": 1,
+          "maxItems": 256
+        },
+        "outputTokens": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1024
+        },
+        "jsonObject": {
+          "const": false
+        }
+      },
+      "required": [
+        "binding",
+        "requestId",
+        "stepName",
+        "childExecutionPath",
+        "messages",
+        "outputTokens",
+        "jsonObject"
+      ],
+      "additionalProperties": false
+    },
+    "nativeResult": {
+      "type": "object",
+      "properties": {
+        "binding": {
+          "$ref": "#/$defs/localBinding"
+        },
+        "requestId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 131072
+        },
+        "promptTokens": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 8192
+        },
+        "outputTokens": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1024
+        },
+        "artifactId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "artifactSha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "elapsedNanos": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "processExited": {
+          "const": true
+        },
+        "scratchRemoved": {
+          "const": true
+        }
+      },
+      "required": [
+        "binding",
+        "requestId",
+        "text",
+        "promptTokens",
+        "outputTokens",
+        "artifactId",
+        "artifactSha256",
+        "elapsedNanos",
+        "processExited",
+        "scratchRemoved"
+      ],
+      "additionalProperties": false
+    },
+    "localNativeGenerateFrame": {
+      "type": "object",
+      "properties": {
+        "protocolVersion": {
+          "const": 1
+        },
+        "frameId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "binding": {
+          "$ref": "#/$defs/binding"
+        },
+        "type": {
+          "const": "localNativeGenerate"
+        },
+        "payload": {
+          "$ref": "#/$defs/reservePayload"
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "frameId",
+        "binding",
+        "type",
+        "payload"
+      ],
+      "additionalProperties": false
+    },
+    "localNativeResultFrame": {
+      "type": "object",
+      "properties": {
+        "protocolVersion": {
+          "const": 1
+        },
+        "frameId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "binding": {
+          "$ref": "#/$defs/binding"
+        },
+        "type": {
+          "const": "localNativeResult"
+        },
+        "payload": {
+          "$ref": "#/$defs/nativeResult"
+        },
+        "replyTo": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "frameId",
+        "binding",
+        "type",
+        "payload",
+        "replyTo"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

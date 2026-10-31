@@ -20,7 +20,8 @@ internal object RunnerLocalModelProtocol {
         validator.validate(frame, type + "Frame")
     }
     fun binding(value: JsonObject): RunnerLocalModelBinding {
-        validator.validate(value, "localBinding")
+        if (value.string("endpoint").startsWith("native://")) RunnerNativeModelProtocol.validateBinding(value)
+        else validator.validate(value, "localBinding")
         return RunnerLocalModelBinding(value.string("runnerId"), value.string("ownerId"), value.string("executionId"), value.string("attemptId"),
             value.string("endpointId"), value.string("endpoint"), value.string("serviceVersion"), value.string("model"), value.string("digest"),
             value.long("contextTokens").toInt(), value.long("maximumOutputTokens").toInt())

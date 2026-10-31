@@ -15,6 +15,7 @@ class RunnerLocalModelPolicy(private val bundle: FrozenWorkflowBundle) {
     private val definitions = bundle.manifest.array("definitions").associate { it.jsonObject.string("workflowId") to it.jsonObject.string("definitionHash") }
     private val graph = policy.array("childInvocationGraph").map { it.jsonObject }
     private val entries = policy.array("entries").map { it.jsonObject }
+    val capability: String get() = entries.map { if (it.obj("binding").string("endpoint").startsWith("native://")) RunnerNativeModelProtocol.CAPABILITY else RunnerLocalModelProtocol.CAPABILITY }.distinct().single()
     data class Selection(val workflowId: String, val agentName: String, val binding: RunnerLocalModelBinding, val outputTokens: Int)
     private fun keys(value: JsonObject, expected: Set<String>) { require(value.keys == expected) { "Local carrier fields invalid" } }
     private fun segment(value: String) = Regex("[A-Za-z0-9_.-]{1,256}").matches(value) && "__" !in value && value !in setOf(".", "..")

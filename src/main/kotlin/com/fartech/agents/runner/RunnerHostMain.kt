@@ -126,11 +126,14 @@ class RunnerHostSession(
             require(directory == Path.of("").toRealPath()) { "Supervisor must launch JVM in execution directory" }
             val bundle = FrozenWorkflowBundle(directory, payload.obj("bundle"), binding)
             bundle.verifyPortableAssets()
-            val localSelected = RunnerLocalModelProtocol.CAPABILITY in requiredCapabilities
+            val nativeSelected = RunnerNativeModelProtocol.CAPABILITY in requiredCapabilities
+            val localSelected = nativeSelected || RunnerLocalModelProtocol.CAPABILITY in requiredCapabilities
+            require(!nativeSelected || RunnerLocalModelProtocol.CAPABILITY !in requiredCapabilities)
+            require(!nativeSelected || RunnerCollectionProtocol.CAPABILITY in requiredCapabilities) { "Native model requires declared artifact publication" }
             require(!bundle.hasFile(RunnerLocalModelPolicy.PATH) || localSelected) { "RUNNER_LOCAL_MODEL_CAPABILITY_REQUIRED" }
             val localPolicy = if (localSelected) {
                 require(RunnerLocalModelProtocol.available() && bundle.hasFile(RunnerLocalModelPolicy.PATH)) { "RUNNER_LOCAL_MODEL_POLICY_REQUIRED" }
-                RunnerLocalModelPolicy(bundle)
+                RunnerLocalModelPolicy(bundle).also { require(it.capability in requiredCapabilities && (!nativeSelected || RunnerNativeModelProtocol.available())) }
             } else null
             val setsSelected = RunnerArtifactSetProtocol.CAPABILITY in requiredCapabilities
             if (bundle.hasFile(RunnerArtifactSetPolicy.PATH) && !setsSelected) throw RunnerNegotiationException(RunnerNegotiationReason.RUNNER_ARTIFACT_CAPABILITY_REQUIRED)
@@ -154,12 +157,12 @@ class RunnerHostSession(
                 }
             }
             processes = processAdapter
-            if (localSelected) ipc.enableLocalModel()
+            if (nativeSelected) ipc.enableNativeModel() else if (localSelected) ipc.enableLocalModel()
             if (RunnerSandboxProtocol.CAPABILITY in requiredCapabilities) ipc.enableAgentSandbox(frame, CAPABILITIES)
             if (RunnerMultimediaHostPolicy.CAPABILITY in requiredCapabilities) {
                 ipc.enableMultimedia(frame, CAPABILITIES, RunnerMultimediaHostPolicy.trustedEnabled())
             }
-            val localAuthority = localPolicy?.let { RunnerIpcLocalModelAuthority(ipc, environment::check) }
+            val localAuthority = localPolicy?.takeIf { !nativeSelected }?.let { RunnerIpcLocalModelAuthority(ipc, environment::check) }
             val runtime = RunnerWorkflowHost(ipc, identity, environment, bundle, CAPABILITIES, processAdapter, store, secrets, interactiveBroker = channels,
                 callbackEnabled = RunnerCodeControlNegotiation.LEGACY in requiredCapabilities, codeControlMode = codeControlMode, collectionPolicy = collectionPolicy, setPolicy = setPolicy,
                 localModelPolicy = localPolicy, localModelAuthority = localAuthority)
@@ -234,6 +237,7 @@ class RunnerHostSession(
             // Multimedia wiring is exercised with trusted test capabilities only. A JVM property alone
             // must not advertise it: platform purpose grants, supervisor/manifest admission and runtime
             // acceptance remain prerequisites for adding it to this inventory.
+            if (RunnerNativeModelProtocol.available()) add(RunnerNativeModelProtocol.CAPABILITY)
             if (RunnerCodeControlNegotiation.supplementAvailable()) {
                 add(RunnerCodeControlNegotiation.PER_CALL)
                 add("connector.google-marketing.operations.v1") // Typed P/S operations use this exact per-call supplement.

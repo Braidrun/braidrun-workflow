@@ -53,6 +53,8 @@ class RunnerIpc(
     fun enableArtifactCollection() { require(RunnerCollectionProtocol.available()); artifactCollectionEnabled = true }
     @Volatile private var artifactSetsEnabled = false
     fun enableArtifactSets() { require(artifactCollectionEnabled && RunnerArtifactSetProtocol.available()); artifactSetsEnabled = true }
+    @Volatile private var nativeModelEnabled = false
+    fun enableNativeModel() { require(RunnerNativeModelProtocol.available()); nativeModelEnabled = true }
     @Volatile private var localModelEnabled = false
     fun enableLocalModel() { require(RunnerLocalModelProtocol.available()); localModelEnabled = true }
     private var acceptedStart: JsonObject? = null
@@ -94,6 +96,11 @@ class RunnerIpc(
             if (!agentSandboxNegotiated) throw RunnerProtocolException()
             RunnerSandboxProtocol.validate(frame, outbound)
             if (outbound && frame.obj("payload").string("toolGroup") !in agentSandboxGroups) throw RunnerProtocolException()
+            return
+        }
+        if (localType in RunnerNativeModelProtocol.requests || localType in RunnerNativeModelProtocol.responses) {
+            if (!nativeModelEnabled || (outbound != (localType in RunnerNativeModelProtocol.requests))) throw RunnerProtocolException()
+            RunnerNativeModelProtocol.validate(frame)
             return
         }
         if (localType in RunnerLocalModelProtocol.requests || localType in RunnerLocalModelProtocol.responses) {
@@ -247,7 +254,7 @@ class RunnerIpc(
         if (frame.obj("binding") != binding || closed.get()) throw RunnerProtocolException()
         val allowed = setOf("start", "resume", "ack", "approvalDecision", "userResponse", "credentialGrant", "cancel", "environmentInvalidated", "error",
             "leaseRenewed", "environmentRefreshed", "processStarted", "processExited", "processOutput", "processInputAck", "processClosed", "outputValue", "outputAck", "callbackTokenGrant", "artifactCollectRequest", "artifactSetCollectRequest", "artifactSetIndexAck")
-        if (frame.string("type") !in allowed && !(localModelEnabled && frame.string("type") in RunnerLocalModelProtocol.responses) &&
+        if (frame.string("type") !in allowed && !(nativeModelEnabled && frame.string("type") in RunnerNativeModelProtocol.responses) && !(localModelEnabled && frame.string("type") in RunnerLocalModelProtocol.responses) &&
             !(agentSandboxNegotiated && frame.string("type") in RunnerSandboxProtocol.RESPONSE_TYPES)) throw RunnerProtocolException()
         val id = frame.string("frameId")
         val digest = sha256(canonical(frame).toByteArray())

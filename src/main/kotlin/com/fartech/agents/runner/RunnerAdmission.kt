@@ -144,7 +144,7 @@ class RunnerAdmission(
                 }
                 // The host registers only file tools (`--tools`) for Claude and drops the permission bypass.
                 if (provider == "claude") RunnerAgentToolPolicy.claudeExtraArgs(RunnerAgentToolPolicy.text(effective["external_agent_claude_extra_args"]))
-            } else requireCapability(if (local) RunnerLocalModelProtocol.CAPABILITY else "model.http.v1")
+            } else requireCapability(if (local) requireNotNull(localModelPolicy).capability else "model.http.v1")
             val tools = effective["tool_set"]?.let { v ->
                 require(v is JsonArray) { "Ambiguous tool set" }; v.map { it.jsonPrimitive.content }
             } ?: agent.tools

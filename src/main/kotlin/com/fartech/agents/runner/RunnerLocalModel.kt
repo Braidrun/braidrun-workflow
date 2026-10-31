@@ -9,7 +9,7 @@ import java.util.UUID
 import java.util.concurrent.TimeUnit
 
 /** Frozen by the trusted host, never deserialized from an Agent's arbitrary parameters.
- * P1 deliberately admits only Ollama on a registered numeric IPv4 loopback endpoint.
+ * Native bindings use an opaque native:// identity; legacy Ollama bindings retain loopback validation.
  * No credentials, arbitrary headers, provider fallback or model-management API exists here.
  */
 data class RunnerLocalModelBinding(
@@ -27,12 +27,15 @@ data class RunnerLocalModelBinding(
 ) {
     init {
         require(listOf(runnerId, ownerId, executionId, attemptId, endpointId).all { it.matches(Regex("[A-Za-z0-9][A-Za-z0-9_.:-]{0,255}")) }) { "Local model binding identity invalid" }
-        require(ENDPOINT.matches(endpoint) && endpoint.substringAfterLast(':').toIntOrNull()?.let { it in 1..65535 } == true) { "Local model endpoint must be canonical http://127.0.0.1:<port>" }
+        require(endpoint == "native://$endpointId" || ENDPOINT.matches(endpoint) && endpoint.substringAfterLast(':').toIntOrNull()?.let { it in 1..65535 } == true) { "Local model endpoint must be canonical http://127.0.0.1:<port>" }
         require(serviceVersion.matches(Regex("[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?"))) { "Local service version must be pinned" }
         require(model.matches(Regex("[A-Za-z0-9][A-Za-z0-9._/-]*:[A-Za-z0-9][A-Za-z0-9._-]*")) && !model.contains("cloud", ignoreCase = true)) { "Local model requires an explicit non-cloud tag" }
         require(digest.matches(Regex("[a-f0-9]{64}"))) { "Local model digest must be SHA-256" }
         require(contextTokens in 1..32768 && maximumOutputTokens in 1..4096 && maximumOutputTokens < contextTokens) { "Local model token limits invalid" }
+        require(!native || contextTokens in 512..8192 && maximumOutputTokens <= 1024) { "Native model token limits invalid" }
     }
+    val native: Boolean get() = endpoint == "native://$endpointId"
+    val provider: ai.koog.prompt.llm.LLMProvider get() = if (native) RunnerNativeModelProtocol.provider else ai.koog.prompt.llm.LLMProvider.Ollama
     companion object { private val ENDPOINT = Regex("http://127\\.0\\.0\\.1:[1-9][0-9]{0,4}") }
 }
 
@@ -95,6 +98,7 @@ class RunnerLocalModelClient(
     private val fence: RunnerBusinessFence,
     private val authority: RunnerLocalModelAuthority,
 ) : AutoCloseable {
+    init { require(!binding.native) { "Native models require supervisor IPC" } }
     private val active = java.util.concurrent.ConcurrentHashMap.newKeySet<okhttp3.Call>()
     @Volatile private var closed = false
     private val client = transportBuilder().build()

@@ -39,7 +39,7 @@ class RunnerWorkflowHost(
             "runnerId" to binding.runnerId, "runnerInstanceId" to binding.runnerInstanceId, "attemptId" to binding.attemptId,
             "definitionHash" to binding.definitionHash, "runtimeHash" to binding.runtimeHash)
         require(pairs.all { (key, value) -> ipc.binding.string(key) == value } && ipc.binding.long("resumeEpoch") == binding.resumeEpoch) { "Host identity differs from IPC authority" }
-        require((localModelPolicy == null) == (localModelAuthority == null)) { "Local model policy and authority must be paired" }
+        require(if (localModelPolicy?.capability == RunnerNativeModelProtocol.CAPABILITY) localModelAuthority == null else (localModelPolicy == null) == (localModelAuthority == null)) { "Local model policy and authority must be paired" }
     }
     private val staticInvocations = java.util.concurrent.ConcurrentHashMap<String, Boolean>()
     private val admittedProducers = java.util.concurrent.ConcurrentHashMap<String, String>()
@@ -56,6 +56,7 @@ class RunnerWorkflowHost(
     private val businessFence = ipc.businessFence
     private val resourcesClosed = java.util.concurrent.atomic.AtomicBoolean()
     private fun checkBusinessOpen() = businessFence.check()
+    private val nativeModelClients = java.util.concurrent.ConcurrentHashMap.newKeySet<RunnerNativeModelClient>()
     private val localModelClients = java.util.concurrent.ConcurrentHashMap.newKeySet<RunnerLocalModelClient>()
     override fun localModel(scope: WorkflowHostScope): WorkflowLocalModelSelection? {
         val policy = localModelPolicy ?: return null
@@ -71,13 +72,23 @@ class RunnerWorkflowHost(
             require(staticInvocations[scope.executionId] == true && admittedProducers[scope.executionId] == workflow && policy.resolve(workflow, step, path) == selected)
         }
         return WorkflowLocalModelSelection(binding, scope,
-            ai.koog.prompt.llm.LLModel(provider = ai.koog.prompt.llm.LLMProvider.Ollama, id = pin.model, capabilities = listOf(ai.koog.prompt.llm.LLMCapability.Completion),
+            ai.koog.prompt.llm.LLModel(provider = pin.provider, id = pin.model, capabilities = listOf(ai.koog.prompt.llm.LLMCapability.Completion),
                 contextLength = pin.contextTokens.toLong(), maxOutputTokens = pin.maximumOutputTokens.toLong()),
             ai.koog.prompt.params.LLMParams(temperature = 0.0, maxTokens = selected.outputTokens, numberOfChoices = 1, toolChoice = ai.koog.prompt.params.LLMParams.ToolChoice.None)) {
             // Admission and registration share the finalization fence: a retained factory cannot
             // add an unowned transport after close has taken its resource snapshot.
             businessFence.admit {
                 checkLive()
+                if (pin.native) {
+                    val native = RunnerNativeModelClient(pin, ipc, gate, ::checkLive)
+                    nativeModelClients.add(native)
+                    try {
+                        return@admit RunnerLocalModelPromptExecutor(pin, step, path, native::complete,
+                            { try { native.close() } finally { nativeModelClients.remove(native) } }, ::checkLive, {})
+                    } catch (failure: Throwable) {
+                        nativeModelClients.remove(native); native.close(); throw failure
+                    }
+                }
                 val client = RunnerLocalModelClient(pin, gate, businessFence, requireNotNull(localModelAuthority))
                 localModelClients.add(client)
                 try {
@@ -528,6 +539,7 @@ class RunnerWorkflowHost(
             businessFence.close() // returns only after admitted append/persist/enqueue has released this same boundary
             try { eventJournal.seal() }
             finally {
+                nativeModelClients.forEach { it.close() }; nativeModelClients.clear()
                 localModelClients.forEach { it.close() }; localModelClients.clear(); localModelAuthority?.close()
                 approvalHandler.close(); artifactSets?.close(); collectionBarrier?.close()
                 interactiveBroker?.close(); live.close(); network.close(); credentials.clear()

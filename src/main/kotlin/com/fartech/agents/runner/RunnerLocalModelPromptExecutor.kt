@@ -56,7 +56,7 @@ class RunnerLocalModelPromptExecutor internal constructor(
     private val childPath = childExecutionPath.toList()
     private val closed = AtomicBoolean()
     val localModel = LLModel(
-        provider = LLMProvider.Ollama,
+        provider = binding.provider,
         id = binding.model,
         capabilities = listOfNotNull(LLMCapability.Completion, approvedSchema?.capability),
         contextLength = binding.contextTokens.toLong(),
