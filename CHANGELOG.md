@@ -5,6 +5,19 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.6-rc.20261102.1] - 2026-11-02
+
+### Fixed
+
+- **Runner startup no longer refuses App Factory bundles over a static file beside a JSON_FILE set.**
+  `RunnerArtifactSetPolicy` treated every static publication under a JSON_FILE set's `allowedParent` (and under any
+  TREE path) as a second carrier, so the question packets `run/evidence/runner-visual-review.*` and
+  `runner-delivery-review.*` written beside the review / delivery archive made the runner host exit at startup with a
+  bare `IllegalArgumentException` (`RUNNER_ENGINE_EXIT_WITHOUT_RESULT`, production SDK integration 16c10f7c on
+  2026-11-02). The overlap is now the Supervisor's own rule (`artifact_sets.py` `SET_B2A_SELECTION_OVERLAP`) and the
+  platform's (`RunnerArtifactSets.selects`): a FILE's path, a TREE's root or members, a JSON_FILE's manifest or a direct
+  child of `allowedParent` with its extension. Those paths still have exactly one carrier.
+
 ## [1.4.6-rc.20261030.1] - 2026-10-30
 
 ### Changed

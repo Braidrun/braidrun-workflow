@@ -24,7 +24,25 @@ internal object RunnerArtifactSetProtocol {
 
 /** Frozen selectors are metadata authority only. This class never enumerates or reads business paths. */
 class RunnerArtifactSetPolicy(private val bundle: FrozenWorkflowBundle) {
-    companion object { const val PATH = "runtime/runner-artifact-sets.v1.json" }
+    companion object {
+        const val PATH = "runtime/runner-artifact-sets.v1.json"
+
+        /**
+         * Whether a static publication at [logicalPath] could also be carried by [selector]: its FILE, a member of its
+         * TREE, or a JSON_FILE's manifest or archive (a direct child of allowedParent with its extension). This is the
+         * Supervisor's own rule (workflow_runner/artifact_sets.py SET_B2A_SELECTION_OVERLAP) and the platform's
+         * (RunnerArtifactSets.selects). 2026-11-02: the former whole-allowedParent prefix refused at startup every App
+         * Factory bundle the platform and Supervisor admit, whose question packets (run/evidence/runner-*-review.*) sit
+         * beside the review / delivery archive (IllegalArgumentException, RUNNER_ENGINE_EXIT_WITHOUT_RESULT).
+         */
+        internal fun selects(selector: JsonObject, logicalPath: String): Boolean = when (selector.string("kind")) {
+            "FILE" -> logicalPath == selector.string("path")
+            "TREE" -> selector.string("path").let { logicalPath == it || logicalPath.startsWith("$it/") }
+            "JSON_FILE" -> logicalPath == selector.string("manifestPath") ||
+                (logicalPath.substringBeforeLast('/', "") == selector.string("allowedParent") && logicalPath.endsWith(selector.string("extension")))
+            else -> true
+        }
+    }
     private val original = bundle.runtimeBytes(PATH)
     val hash = sha256(original)
     private val policy = RunnerArtifactSetProtocol.parse(original.toString(Charsets.UTF_8), "policy")
@@ -95,7 +113,7 @@ class RunnerArtifactSetPolicy(private val bundle: FrozenWorkflowBundle) {
             require(d.long("maximumFileBytes") <= d.long("maximumTotalBytes"))
             require(tuples.add(canonical(buildJsonObject { put("producer", producer); put("selector", selector) })))
             require(old.none { o -> o.string("producerWorkflowId") == workflow && o.string("producerStep") == step && o.array("childSteps") == producer.array("childSteps") &&
-                (o.string("logicalPath") == (selector["path"]?.jsonPrimitive?.content ?: selector.string("allowedParent")) || (selector.string("kind") != "FILE" && o.string("logicalPath").startsWith((selector["path"]?.jsonPrimitive?.content ?: selector.string("allowedParent")) + "/"))) }) { "Exact-file/set selector overlap" }
+                selects(selector, o.string("logicalPath")) }) { "Exact-file/set selector overlap" }
         }
     }
     fun verify() { require(sha256(bundle.runtimeBytes(PATH)) == hash) }

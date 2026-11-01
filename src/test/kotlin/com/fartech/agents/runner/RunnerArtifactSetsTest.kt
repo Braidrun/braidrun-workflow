@@ -24,6 +24,47 @@ class RunnerArtifactSetsTest {
         }
     }
 
+    @Test fun `static publications overlap a set only where the Supervisor and platform say so`(@TempDir dir: Path) {
+        val archive = buildJsonObject { put("kind", "JSON_FILE"); put("manifestPath", "run/evidence/visual-review-package.json"); put("jsonPointer", "/archive_name"); put("allowedParent", "run/evidence"); put("extension", ".zip") }
+        val tree = buildJsonObject { put("kind", "TREE"); put("path", "run/evidence/screenshots"); put("extensions", buildJsonArray { add(".png") }) }
+        val file = buildJsonObject { put("kind", "FILE"); put("path", "run/evidence/triage-ledger.json") }
+        // The App Factory question packets beside the review archive (2026-11-02 production bundles) start.
+        for (path in listOf("run/evidence/runner-visual-review.json", "run/evidence/runner-visual-review.md", "run/evidence/nested/archive.zip"))
+            assertTrue(overlapPolicy(dir.resolve("a-${path.hashCode()}"), path, archive).isSuccess, path)
+        assertTrue(overlapPolicy(dir.resolve("tree-sibling"), "run/evidence/screenshots-old/a.png", tree).isSuccess)
+        assertTrue(overlapPolicy(dir.resolve("file-sibling"), "run/evidence/triage-ledger.md", file).isSuccess)
+        // A path the set itself can carry still has exactly one carrier.
+        for ((name, path, selector) in listOf(Triple("manifest", "run/evidence/visual-review-package.json", archive), Triple("zip", "run/evidence/本轮工程.zip", archive), Triple("sibling-zip", "run/evidence/screenshots.zip", archive),
+                Triple("tree-root", "run/evidence/screenshots", tree), Triple("tree-member", "run/evidence/screenshots/a/b.png", tree), Triple("file", "run/evidence/triage-ledger.json", file))) {
+            val failure = overlapPolicy(dir.resolve("x-$name"), path, selector).exceptionOrNull()
+            assertIs<IllegalArgumentException>(failure, name); assertEquals("Exact-file/set selector overlap", failure.message, name)
+        }
+        // Another producer's static file never overlaps.
+        assertTrue(overlapPolicy(dir.resolve("other-producer"), "run/evidence/visual-review-package.json", archive, staticProducer = "child").isSuccess)
+    }
+
+    private fun overlapPolicy(dir: Path, staticPath: String, selector: JsonObject, staticProducer: String = "root"): Result<RunnerArtifactSetPolicy> {
+        val f = collectionFixture(dir) { p -> JsonObject(p + ("declarations" to JsonArray(p.array("declarations").map { v ->
+            if (v.jsonObject.string("producerWorkflowId") == staticProducer) JsonObject(v.jsonObject + ("logicalPath" to JsonPrimitive(staticPath))) else v
+        }))) }
+        val sets = buildJsonObject {
+            put("schemaVersion", 1); put("rootWorkflowId", "root")
+            put("declarations", buildJsonArray { add(buildJsonObject {
+                put("declarationId", "set-root")
+                put("producer", buildJsonObject { put("workflowId", "root"); put("stepName", "produce"); put("childSteps", JsonArray(emptyList())) })
+                put("selector", selector); put("presence", "OPTIONAL"); put("purpose", "GATE_MATERIAL")
+                put("maximumFiles", if (selector.string("kind") == "TREE") 8 else 1); put("maximumFileBytes", 1024); put("maximumTotalBytes", 8192)
+            }) })
+        }
+        Files.createDirectories(dir.resolve(RunnerArtifactSetPolicy.PATH).parent); Files.writeString(dir.resolve(RunnerArtifactSetPolicy.PATH), sets.toString())
+        val files = f.bundle.array("files").map { it.jsonObject } + buildJsonObject {
+            put("path", RunnerArtifactSetPolicy.PATH); put("role", "runtime"); put("size", sets.toString().toByteArray().size); put("sha256", sha256(sets.toString().toByteArray()))
+        }
+        val meta = JsonObject(f.bundle - "bundleHash" + ("files" to JsonArray(files.sortedBy { it.string("path") })))
+        val bundle = FrozenWorkflowBundle(dir, JsonObject(meta + ("bundleHash" to JsonPrimitive(sha256(canonical(meta).toByteArray())))), f.binding)
+        return runCatching { RunnerArtifactSetPolicy(bundle) }
+    }
+
     @Test fun `all 128 declarations wait for two original set receipts and duplicate requests never repeat business`(@TempDir dir: Path) = executeCode(dir, 128, false, false)
     @Test fun `native root and actual child preserve distinct original code occurrences`(@TempDir dir: Path) = executeCode(dir, 1, true, false)
     @Test fun `nonzero natural code exit retains diagnostics before original failed closure`(@TempDir dir: Path) = executeCode(dir, 1, false, true)
