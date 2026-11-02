@@ -5,6 +5,18 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.6-rc.20261102.2] - 2026-11-02
+
+### Fixed
+
+- **Codex agent steps start on a Runner whose TMPDIR is the attempt's short alias.** Codex's workspace-write sandbox
+  adds TMPDIR as a writable root and refuses symlinked writable roots ("symlinked writable roots are not supported",
+  codex-cli 0.164). A Runner attempt's TMPDIR is a short `/tmp/brw-*/t` symlink to the attempt's `HOME/tmp` (AF_UNIX
+  socket path limit), so every native Codex step failed before reading a file (production SDK integration 59c31d9f,
+  `assess-existing-project`, 2026-11-02). When the agent's TMPDIR is a symlink and Codex's own sandbox is active,
+  `runCodexSubAgent` now passes `sandbox_workspace_write.exclude_tmpdir_env_var=true` and grants the resolved
+  directory through `sandbox_workspace_write.writable_roots`: the same files, still reachable through the alias.
+
 ## [1.4.6-rc.20261102.1] - 2026-11-02
 
 ### Fixed

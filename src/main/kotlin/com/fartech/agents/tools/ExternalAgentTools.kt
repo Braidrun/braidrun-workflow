@@ -1728,7 +1728,7 @@ class ExternalAgentTools(
 
         val cliFlags = when (engine) {
             Engine.CLAUDE -> buildClaudeFlags(ctx, model, workDir, tempFiles)
-            Engine.CODEX -> buildCodexFlags(ctx, model, auth.mode == ExternalAuthMode.SUBSCRIPTION)
+            Engine.CODEX -> buildCodexFlags(ctx, model, auth.mode == ExternalAuthMode.SUBSCRIPTION, childTmpDir(auth, ctx))
         }
 
         return buildList {
@@ -1862,7 +1862,8 @@ class ExternalAgentTools(
     private fun buildCodexFlags(
         ctx: ExternalAgentContext,
         model: String,
-        subscription: Boolean
+        subscription: Boolean,
+        tmpDir: String?
     ): List<String> = buildList {
         val resumeSessionId = ctx.resumeSessionId.trim().takeIf { it.isNotEmpty() }
         add("exec")
@@ -1905,6 +1906,10 @@ class ExternalAgentTools(
             // hanging, which is what we want for an MCP-only authoring turn.
             add("-c")
             add("approval_policy=${tomlString("never")}")
+        }
+        if (!codexBypassSandbox) {
+            // The sandbox mode may also arrive through external_agent_codex_extra_args.
+            addAll(codexSymlinkedTmpDirOverrides(tmpDir))
         }
         if (subscription) {
             // The per-tenant CODEX_HOME holds only the tenant's auth.json — no
@@ -1970,6 +1975,28 @@ class ExternalAgentTools(
             "External-agent command argv is $totalBytes bytes; maximum is $MAX_COMMAND_TOTAL_BYTES bytes. " +
                 "Reduce CLI flags or materialize configuration in a file."
         }
+    }
+
+    /** The TMPDIR the agent process sees: its explicit environment first, else the one it inherits from this JVM. */
+    private fun childTmpDir(auth: ResolvedExternalAuth, ctx: ExternalAgentContext): String? =
+        ctx.extraEnv["TMPDIR"] ?: auth.env["TMPDIR"] ?: System.getenv("TMPDIR")
+
+    /**
+     * Codex's workspace-write sandbox adds TMPDIR as a writable root and refuses to start when that root is a
+     * symlink ("symlinked writable roots are not supported"). A Runner attempt's TMPDIR is one: a short /tmp
+     * alias of the attempt's HOME/tmp, kept short for AF_UNIX socket paths. Granting the resolved directory
+     * instead covers exactly the same files, and writes through the alias still land inside it.
+     */
+    internal fun codexSymlinkedTmpDirOverrides(tmpDir: String?): List<String> {
+        val alias = tmpDir?.trim()?.takeIf { it.isNotEmpty() }
+            ?.let { runCatching { Path.of(it).toAbsolutePath().normalize() }.getOrNull() }
+            ?: return emptyList()
+        if (!Files.isSymbolicLink(alias)) return emptyList()
+        val target = runCatching { alias.toRealPath() }.getOrNull() ?: return emptyList()
+        return listOf(
+            "-c", "sandbox_workspace_write.exclude_tmpdir_env_var=true",
+            "-c", "sandbox_workspace_write.writable_roots=[${tomlString(target.toString())}]"
+        )
     }
 
     private fun tomlString(value: String): String =

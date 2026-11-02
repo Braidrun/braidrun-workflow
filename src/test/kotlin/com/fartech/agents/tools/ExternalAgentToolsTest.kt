@@ -610,6 +610,42 @@ class ExternalAgentToolsTest {
     }
 
     @Test
+    fun `codex sandbox grants a symlinked TMPDIR by its resolved directory`() = runBlocking {
+        val root = Files.createTempDirectory("codex-tmpdir").toFile()
+        try {
+            val target = File(root, "home-tmp").apply { mkdirs() }
+            val alias = File(root, "t")
+            Files.createSymbolicLink(alias.toPath(), target.toPath())
+            val plain = File(root, "plain").apply { mkdirs() }
+
+            val executor = FakeSubprocessExecutor(ExecResult(0, """{"result":"ok"}""", "", 1))
+            val (tools, _) = buildTools(executor)
+            tools.runCodexSubAgent(ExternalAgentContext(prompt = "x", model = "gpt-5-codex", extraEnv = mapOf("TMPDIR" to alias.path)))
+            val cmd = executor.lastRequest!!.command
+            assertTrue(cmd.zipWithNext().contains("-c" to "sandbox_workspace_write.exclude_tmpdir_env_var=true"))
+            val realTarget = target.toPath().toRealPath().toString()
+            assertTrue(cmd.zipWithNext().contains("-c" to "sandbox_workspace_write.writable_roots=[\"$realTarget\"]"))
+            assertTrue(cmd.indexOf("sandbox_workspace_write.exclude_tmpdir_env_var=true") < cmd.indexOf("--"))
+
+            // A real directory is left to Codex's own TMPDIR handling.
+            val plainExecutor = FakeSubprocessExecutor(ExecResult(0, """{"result":"ok"}""", "", 1))
+            buildTools(plainExecutor).first.runCodexSubAgent(
+                ExternalAgentContext(prompt = "x", model = "gpt-5-codex", extraEnv = mapOf("TMPDIR" to plain.path))
+            )
+            assertFalse(plainExecutor.lastRequest!!.command.any { it.startsWith("sandbox_workspace_write.") })
+
+            // Codex's sandbox is bypassed inside the trusted Docker executor, so there is nothing to grant.
+            val dockerExecutor = FakeSubprocessExecutor(ExecResult(0, """{"result":"ok"}""", "", 1))
+            buildTools(dockerExecutor, trustExecutorSandbox = true).first.runCodexSubAgent(
+                ExternalAgentContext(prompt = "x", model = "gpt-5-codex", extraEnv = mapOf("TMPDIR" to alias.path))
+            )
+            assertFalse(dockerExecutor.lastRequest!!.command.any { it.startsWith("sandbox_workspace_write.") })
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
     fun `codex command resumes an existing thread with the resume subcommand`() = runBlocking {
         val executor = FakeSubprocessExecutor(ExecResult(0, """{"result":"ok"}""", "", 1))
         val (tools, _) = buildTools(executor)
