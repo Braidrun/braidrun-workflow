@@ -79,26 +79,7 @@ class RunnerProcesses(
         val scope = com.fartech.agents.workflow.WorkflowHostContext.scope ?: com.fartech.agents.workflow.WorkflowHostScope(ipc.binding.string("executionId"), execution)
         val channel = requireNotNull(interactive).open(scope, request)
         val started = System.nanoTime()
-        fun capture(stream: java.io.InputStream, callback: ((String) -> Unit)?): String {
-            val output = java.io.ByteArrayOutputStream()
-            val line = java.io.ByteArrayOutputStream()
-            val buffer = ByteArray(8192)
-            while (true) {
-                val n = stream.read(buffer); if (n < 0) break
-                require(output.size() + n <= SubprocessExecutor.MAX_STREAM_BYTES) { "Stream exceeds complete-output budget" }
-                output.write(buffer, 0, n)
-                if (callback != null) for (i in 0 until n) {
-                    if (buffer[i] == 10.toByte()) {
-                        callback(line.toString(Charsets.UTF_8)); line.reset()
-                    } else {
-                        require(line.size() < RunnerIpc.MAX_FRAME_BYTES / 2) { "Progress line exceeds bounded event budget" }
-                        line.write(buffer[i].toInt())
-                    }
-                }
-            }
-            if (callback != null && line.size() > 0) callback(line.toString(Charsets.UTF_8))
-            return output.toString(Charsets.UTF_8)
-        }
+        fun capture(stream: java.io.InputStream, callback: ((String) -> Unit)?) = captureProgressStream(stream, callback)
         try {
             val stdout = async(Dispatchers.IO) { capture(channel.stdout, request.stdoutLineCallback) }
             val stderr = async(Dispatchers.IO) { capture(channel.stderr, null) }
@@ -110,4 +91,56 @@ class RunnerProcesses(
         } finally { channel.close() }
     }
 
+}
+
+/** A progress line above this is no event: an event frame carries at most half of [RunnerIpc.MAX_FRAME_BYTES]. */
+internal const val PROGRESS_LINE_LIMIT_BYTES = RunnerIpc.MAX_FRAME_BYTES / 2
+
+/**
+ * A streamed child's complete output, each line also handed to [callback] (the agent's progress events). A line above
+ * [PROGRESS_LINE_LIMIT_BYTES] is neither an event nor result evidence - Codex puts a command's whole output into one
+ * `item.completed` line, and the caller parses only the small thread/turn/agent-message events - so it is kept as a
+ * one-line marker instead of failing the call. Production 2026-11-02 (PantryWise 5c066528): one `cat` of baseline JSON
+ * failed the whole assess-existing-project agent with "Progress line exceeds bounded event budget". Without a callback
+ * the output is kept byte for byte, as before.
+ */
+internal fun captureProgressStream(stream: java.io.InputStream, callback: ((String) -> Unit)?): String {
+    val output = java.io.ByteArrayOutputStream()
+    val line = java.io.ByteArrayOutputStream()
+    var omitted = 0L
+    fun keep(bytes: ByteArray, newline: Boolean) {
+        require(output.size() + bytes.size + 1 <= SubprocessExecutor.MAX_STREAM_BYTES) { "Stream exceeds complete-output budget" }
+        output.write(bytes)
+        if (newline) output.write(10)
+    }
+    fun endLine(newline: Boolean, callback: (String) -> Unit) {
+        if (omitted > 0) {
+            keep("[progress line of $omitted bytes omitted]".toByteArray(Charsets.UTF_8), newline)
+            omitted = 0
+        } else {
+            keep(line.toByteArray(), newline)
+            callback(line.toString(Charsets.UTF_8))
+        }
+        line.reset()
+    }
+    val buffer = ByteArray(8192)
+    while (true) {
+        val n = stream.read(buffer); if (n < 0) break
+        if (callback == null) {
+            require(output.size() + n <= SubprocessExecutor.MAX_STREAM_BYTES) { "Stream exceeds complete-output budget" }
+            output.write(buffer, 0, n)
+            continue
+        }
+        for (i in 0 until n) {
+            val byte = buffer[i]
+            when {
+                byte == 10.toByte() -> endLine(true, callback)
+                omitted > 0 -> omitted++
+                line.size() >= PROGRESS_LINE_LIMIT_BYTES -> { omitted = line.size() + 1L; line.reset() }
+                else -> line.write(byte.toInt())
+            }
+        }
+    }
+    if (callback != null && (line.size() > 0 || omitted > 0)) endLine(false, callback)
+    return output.toString(Charsets.UTF_8)
 }

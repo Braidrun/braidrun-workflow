@@ -5,6 +5,17 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.6-rc.20261102.3] - 2026-11-02
+
+### Fixed
+
+- **A Runner agent step no longer fails on one oversized progress line.** `RunnerProcesses.executeStreaming` failed the
+  whole call when a child's stdout line exceeded half an IPC frame (512 KiB): Codex puts a command's whole output into one
+  `item.completed` JSON line, so a single `cat` of baseline JSON failed PantryWise's assess-existing-project agent
+  ("Progress line exceeds bounded event budget", 2026-11-02). Such a line is now kept in the output as a one-line
+  `[progress line of N bytes omitted]` marker and not handed to the progress callback; the thread, turn and agent-message
+  events the caller parses are kept. Output without a callback is unchanged.
+
 ## [1.4.6-rc.20261102.2] - 2026-11-02
 
 ### Fixed
