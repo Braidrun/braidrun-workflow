@@ -1905,6 +1905,37 @@ class ExternalAgentToolsTest {
     }
 
     @Test
+    fun `Runner API-key Claude uses private config and home without persisting the key`() = runBlocking {
+        val privateRoot=Files.createTempDirectory("runner-api-claude").toFile()
+        try {
+            val host=java.lang.reflect.Proxy.newProxyInstance(javaClass.classLoader,
+                arrayOf(com.fartech.agents.workflow.WorkflowHost::class.java)) { _, method, args ->
+                when(method.name) {
+                    "getPrivateDirectory" -> privateRoot
+                    "getCodeEnvironment" -> emptyMap<String,String>()
+                    "nativeAgentPrompt" -> args!![1]
+                    else -> error("Unexpected host call: ${method.name}")
+                }
+            } as com.fartech.agents.workflow.WorkflowHost
+            val executor=FakeSubprocessExecutor(ExecResult(0,"""{"result":"ok"}""","",1))
+            val tools=ExternalAgentTools(executor=executor,parameters=listOf(
+                ConfigurationParameter("anthropic_api_key",JsonPrimitive("synthetic-runner-key")),
+                ConfigurationParameter(ExternalAgentTools.CLAUDE_AUTH_MODE_PARAMETER,JsonPrimitive("api_key"))),
+                userId="test-user", context=SubprocessToolContext(workspaceDir=File("."),executionId="execution",stepName="write"))
+            com.fartech.agents.workflow.WorkflowHostContext.withHost(host) {
+                com.fartech.agents.workflow.WorkflowHostContext.withScope(com.fartech.agents.workflow.WorkflowHostScope("execution","execution",stepName="write")) {
+                    tools.runClaudeCodeSubAgent(ExternalAgentContext(prompt="test"))
+                }
+            }
+            val env=executor.lastRequest!!.env
+            assertTrue(File(env.getValue("CLAUDE_CONFIG_DIR")).canonicalPath.startsWith(privateRoot.canonicalPath+File.separator))
+            assertTrue(File(env.getValue("HOME")).canonicalPath.startsWith(privateRoot.canonicalPath+File.separator))
+            assertEquals("synthetic-runner-key",env["ANTHROPIC_API_KEY"])
+            assertTrue(privateRoot.walkTopDown().filter{it.isFile}.none{it.readText().contains("synthetic-runner-key")})
+        } finally {privateRoot.deleteRecursively()}
+    }
+
+    @Test
     fun `claude subscription config dir is mounted in docker mode`() = runBlocking {
         val configDir = Files.createTempDirectory("claude-config-test").toFile()
         try {

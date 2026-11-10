@@ -136,9 +136,14 @@ class RunnerAdmission(
             if (cli) {
                 val provider = if (type == "codex_agent") "codex" else "claude"
                 requireCapability("agent.$provider.v1")
-                require(effective["external_agent_${provider}_auth_mode"]?.jsonPrimitive?.content == "subscription") { "Runner CLI requires explicit scoped subscription mode" }
-                val key = if (provider == "codex") "external_agent_codex_auth_json" else "external_agent_claude_oauth_token"
-                require(effective[key]?.jsonPrimitive?.content?.let { value -> value.split(',').all { CREDENTIAL_REFERENCE.matches(it.trim()) } } == true) { "Runner CLI requires credential references" }
+                if (provider == "claude" && effective["external_agent_claude_auth_mode"] == JsonPrimitive("api_key")) {
+                    requireCapability(RunnerClaudeApiPolicy.CAPABILITY)
+                    RunnerClaudeApiPolicy.requireSelection(effective)
+                } else {
+                    require(effective["external_agent_${provider}_auth_mode"]?.jsonPrimitive?.content == "subscription") { "Runner CLI requires explicit scoped subscription mode" }
+                    val key = if (provider == "codex") "external_agent_codex_auth_json" else "external_agent_claude_oauth_token"
+                    require(effective[key]?.jsonPrimitive?.content?.let { value -> value.split(',').all { CREDENTIAL_REFERENCE.matches(it.trim()) } } == true) { "Runner CLI requires credential references" }
+                }
                 for (field in listOf("external_agent_codex_auth_file", "external_agent_codex_home_dir", "external_agent_claude_config_dir")) {
                     require(effective[field]?.jsonPrimitive?.content.isNullOrBlank()) { "Runner CLI cannot use unscoped local account state" }
                 }

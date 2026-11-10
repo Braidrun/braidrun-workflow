@@ -95,10 +95,10 @@ class RunnerWorkflowHost(
     override val subprocessExecutor: SubprocessExecutor = object : SubprocessExecutor {
         override val isDocker get() = processDelegate.isDocker
         override suspend fun execute(request: SubprocessExecutor.ExecRequest): SubprocessExecutor.ExecResult = businessFence.operation {
-            processDelegate.execute(request.copy(environmentAtStart = {
+            processDelegate.execute(RunnerClaudeApiPolicy.request(request.copy(environmentAtStart = {
                 businessFence.check()
                 request.environmentAtStart?.invoke().orEmpty()
-            }))
+            })))
         }
     }
     private val producerStarts = java.util.concurrent.ConcurrentHashMap<Pair<String, String>, String>()

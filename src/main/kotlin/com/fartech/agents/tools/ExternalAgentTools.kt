@@ -2277,13 +2277,18 @@ class ExternalAgentTools(
         // this invocation's cleanup deletes it. Native API-key runs keep the
         // operator's own CODEX_HOME, which the engine does not manage.
         val apiKeyCodexHome = if (engine == Engine.CODEX && isDocker) createEphemeralCodexHome(invocationId) else null
+        // A Runner API-key Claude invocation must never load the operator's ~/.claude account/settings.
+        val apiKeyClaudeConfig = if (engine == Engine.CLAUDE && com.fartech.agents.workflow.WorkflowHostContext.current != null) resolveClaudeConfigDir() else null
         return ResolvedExternalAuth(
             mode = ExternalAuthMode.API_KEY,
             env = buildMap {
                 put(engine.apiKeyEnvVar, apiKey)
                 if (apiKeyCodexHome != null) put("CODEX_HOME", CODEX_HOME_CONTAINER_PATH)
+                if (apiKeyClaudeConfig != null) put("CLAUDE_CONFIG_DIR", apiKeyClaudeConfig.containerPath)
             },
-            codexHomeHostDir = apiKeyCodexHome
+            codexHomeHostDir = apiKeyCodexHome,
+            claudeConfigHostDir = apiKeyClaudeConfig?.hostDir,
+            claudeConfigContainerPath = apiKeyClaudeConfig?.containerPath
         )
     }
 
