@@ -1,6 +1,7 @@
 package com.fartech.agents.runner
 
 import com.fartech.agents.tools.exec.SubprocessExecutor
+import com.fartech.agents.tools.exec.AgentOutputCapture
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -97,21 +98,23 @@ class RunnerProcesses(
 internal const val PROGRESS_LINE_LIMIT_BYTES = RunnerIpc.MAX_FRAME_BYTES / 2
 
 /**
- * A streamed child's complete output, each line also handed to [callback] (the agent's progress events). A line above
+ * A streamed child's bounded output, each line also handed to [callback] (the agent's progress events). A line above
  * [PROGRESS_LINE_LIMIT_BYTES] is neither an event nor result evidence - Codex puts a command's whole output into one
  * `item.completed` line, and the caller parses only the small thread/turn/agent-message events - so it is kept as a
  * one-line marker instead of failing the call. Production 2026-11-02 (PantryWise 5c066528): one `cat` of baseline JSON
  * failed the whole assess-existing-project agent with "Progress line exceeds bounded event budget". Without a callback
- * the output is kept byte for byte, as before.
+ * the output is kept byte for byte within the existing hard limit. Agent streams retain a bounded head and tail,
+ * including the terminal result, and keep draining after the capture fills instead of aborting a healthy child.
  */
 internal fun captureProgressStream(stream: java.io.InputStream, callback: ((String) -> Unit)?): String {
     val output = java.io.ByteArrayOutputStream()
+    val agentOutput = if (callback != null) AgentOutputCapture() else null
     val line = java.io.ByteArrayOutputStream()
     var omitted = 0L
     fun keep(bytes: ByteArray, newline: Boolean) {
-        require(output.size() + bytes.size + 1 <= SubprocessExecutor.MAX_STREAM_BYTES) { "Stream exceeds complete-output budget" }
-        output.write(bytes)
-        if (newline) output.write(10)
+        val capture = requireNotNull(agentOutput)
+        capture.write(bytes, bytes.size)
+        if (newline) capture.write(byteArrayOf(10), 1)
     }
     fun endLine(newline: Boolean, callback: (String) -> Unit) {
         if (omitted > 0) {
@@ -142,5 +145,5 @@ internal fun captureProgressStream(stream: java.io.InputStream, callback: ((Stri
         }
     }
     if (callback != null && (line.size() > 0 || omitted > 0)) endLine(false, callback)
-    return output.toString(Charsets.UTF_8)
+    return agentOutput?.text() ?: output.toString(Charsets.UTF_8)
 }
