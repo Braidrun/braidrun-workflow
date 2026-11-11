@@ -825,6 +825,18 @@ class ExternalAgentToolsTest {
     }
 
     @Test
+    fun `truncated claude stream without terminal result cannot succeed`() {
+        val executor = FakeSubprocessExecutor(ExecResult(0,
+            "{\"type\":\"assistant\"}" + SubprocessExecutor.STREAM_TRUNCATION_MARKER, "", 20))
+        val (tools, events) = buildTools(executor)
+        assertThrows(ExternalAgentTools.ExternalAgentExecutionException::class.java) {
+            runBlocking { tools.runClaudeCodeSubAgent(ExternalAgentContext(prompt = "x", name = "clipped")) }
+        }
+        assertTrue(events.any { it.type == "claude_code_sub_agent_failed" })
+        assertFalse(events.any { it.type == "claude_code_sub_agent_completed" })
+    }
+
+    @Test
     fun `claude non-zero result preserves final token usage`() {
         val failedResult = """
             {"type":"result","subtype":"error_max_turns","result":"Max turns reached","total_cost_usd":2.273578,"usage":{"input_tokens":61,"output_tokens":23392,"cache_creation_input_tokens":71431,"cache_read_input_tokens":1944026}}

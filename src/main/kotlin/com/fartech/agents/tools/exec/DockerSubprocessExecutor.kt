@@ -141,7 +141,7 @@ class DockerSubprocessExecutor(
             try {
                 dockerClient.startContainerCmd(containerId).exec()
 
-                val stdoutCapture = LogCaptureCallback(request.stdoutLineCallback)
+                val stdoutCapture = LogCaptureCallback(retainAgentResult = request.admissionKind == "AGENT_SUBPROCESS", lineCallback = request.stdoutLineCallback)
                 val stderrCapture = LogCaptureCallback()
                 dockerClient.logContainerCmd(containerId)
                     .withStdOut(true)
@@ -220,23 +220,28 @@ class DockerSubprocessExecutor(
     }
 
     internal class LogCaptureCallback(
+        retainAgentResult: Boolean = false,
         private val lineCallback: ((String) -> Unit)? = null
     ) : ResultCallback.Adapter<Frame>() {
+        private val agentCapture = if (retainAgentResult) AgentOutputCapture() else null
         private val buffer = java.io.ByteArrayOutputStream()
         private val lineBuffer = java.io.ByteArrayOutputStream()
         private var truncated = false
+        private var capturedBytes = 0
 
         @Synchronized
         override fun onNext(frame: Frame) {
+            agentCapture?.write(frame.payload, frame.payload.size)
             if (truncated) return
-            val remaining = SubprocessExecutor.MAX_STREAM_BYTES - buffer.size()
+            val remaining = SubprocessExecutor.MAX_STREAM_BYTES - capturedBytes
             if (remaining <= 0) {
                 truncated = true
                 return
             }
             val payload = frame.payload
             val take = minOf(payload.size, remaining)
-            buffer.write(payload, 0, take)
+            if (agentCapture == null) buffer.write(payload, 0, take)
+            capturedBytes += take
             emitCallbackLines(payload, take)
             if (take < payload.size) truncated = true
         }
@@ -244,6 +249,7 @@ class DockerSubprocessExecutor(
         @Synchronized
         fun text(): String {
             flushPendingLine()
+            agentCapture?.let { return it.text() }
             return buffer.toString(Charsets.UTF_8) +
                 if (truncated) SubprocessExecutor.STREAM_TRUNCATION_MARKER else ""
         }

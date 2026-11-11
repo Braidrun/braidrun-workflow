@@ -572,6 +572,16 @@ class ExternalAgentTools(
             throw e
         }
 
+        // A clipped JSONL stream without its terminal record cannot establish successful completion.
+        if (engine == Engine.CLAUDE && result.exitCode == 0 &&
+            result.stdout.contains(SubprocessExecutor.STREAM_TRUNCATION_MARKER) &&
+            result.stdout.lineSequence().mapNotNull { parseJsonObjectOrNull(it.trim()) }
+                .none { it.stringField("type") == "result" }) {
+            emit(type = engine.failedEventType(), summary = "Claude Code final result missing after output truncation",
+                detail = "invocation_id=$invocationId")
+            throw ExternalAgentExecutionException("Claude Code output was truncated and no terminal result was retained; completion is unconfirmed")
+        }
+
         // Subprocess timed out — the executors already destroyForcibly + drain
         // the streams and signal via exit code -1 + a "[TIMED OUT after Ns]"
         // marker in stderr (see NativeSubprocessExecutor.kt:108 and

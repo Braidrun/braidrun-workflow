@@ -94,7 +94,7 @@ class NativeSubprocessExecutor : SubprocessExecutor {
             // 4-core host its 3 workers can all be blocked elsewhere, the reads never start, and the 5 s get()
             // below fails an already finished command as "Error executing command: null" (2026-10-22).
             val stdoutFuture = readOnOwnThread("native-exec-stdout") {
-                readBoundedStream(proc.inputStream, request.stdoutLineCallback)
+                readBoundedStream(proc.inputStream, request.stdoutLineCallback, request.admissionKind == "AGENT_SUBPROCESS")
             }
             val stderrFuture = readOnOwnThread("native-exec-stderr") {
                 readBoundedStream(proc.errorStream)
@@ -202,11 +202,14 @@ class NativeSubprocessExecutor : SubprocessExecutor {
      */
     private fun readBoundedStream(
         input: java.io.InputStream,
-        lineCallback: ((String) -> Unit)? = null
+        lineCallback: ((String) -> Unit)? = null,
+        retainAgentResult: Boolean = false
     ): String {
+        val agentCapture = if (retainAgentResult) AgentOutputCapture() else null
         val buffer = java.io.ByteArrayOutputStream()
         val chunk = ByteArray(8 * 1024)
         var truncated = false
+        var capturedBytes = 0
         val lineBuffer = StringBuilder()
 
         fun emitCallbackLines(text: String) {
@@ -229,17 +232,20 @@ class NativeSubprocessExecutor : SubprocessExecutor {
             while (true) {
                 val read = stream.read(chunk)
                 if (read < 0) break
+                agentCapture?.write(chunk, read)
                 if (truncated) continue
-                val remaining = SubprocessExecutor.MAX_STREAM_BYTES - buffer.size()
+                val remaining = SubprocessExecutor.MAX_STREAM_BYTES - capturedBytes
                 if (remaining <= 0) {
                     truncated = true
                     continue
                 }
                 if (read <= remaining) {
-                    buffer.write(chunk, 0, read)
+                    if (agentCapture == null) buffer.write(chunk, 0, read)
+                    capturedBytes += read
                     emitCallbackLines(String(chunk, 0, read, Charsets.UTF_8))
                 } else {
-                    buffer.write(chunk, 0, remaining)
+                    if (agentCapture == null) buffer.write(chunk, 0, remaining)
+                    capturedBytes += remaining
                     emitCallbackLines(String(chunk, 0, remaining, Charsets.UTF_8))
                     truncated = true
                 }
@@ -253,7 +259,7 @@ class NativeSubprocessExecutor : SubprocessExecutor {
             }
         }
         val text = buffer.toString(Charsets.UTF_8)
-        return if (truncated) text + SubprocessExecutor.STREAM_TRUNCATION_MARKER else text
+        return agentCapture?.text() ?: if (truncated) text + SubprocessExecutor.STREAM_TRUNCATION_MARKER else text
     }
 
     private fun destroyProcessTree(process: Process): Boolean {
