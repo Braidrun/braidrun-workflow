@@ -47,11 +47,26 @@ class ExternalAgentToolsTest {
         var capturedCodexAuthJson: String? = null
             private set
 
+        var capturedAntigravityAdcJson: String? = null
+            private set
+
+        var capturedAntigravitySdkConfigJson: String? = null
+            private set
+
         override suspend fun execute(request: ExecRequest): ExecResult {
             lastRequest = request
             request.env["CODEX_HOME"]?.let { home ->
                 val authFile = File(home, "auth.json")
                 if (authFile.isFile) capturedCodexAuthJson = authFile.readText()
+            }
+            request.env["GOOGLE_APPLICATION_CREDENTIALS"]?.let { path ->
+                val adcFile = File(path)
+                if (adcFile.isFile) capturedAntigravityAdcJson = adcFile.readText()
+            }
+            request.env["BRAIDRUN_AGY_SDK_CONFIG"]?.let { path ->
+                val cfgFile = File(path).takeIf { it.isFile }
+                    ?: request.workingDir?.let { File(it, File(path).name) }?.takeIf { it.isFile }
+                if (cfgFile != null) capturedAntigravitySdkConfigJson = cfgFile.readText()
             }
             if (delayMs > 0) delay(delayMs)
             throws?.let { throw it() }
@@ -2073,6 +2088,197 @@ class ExternalAgentToolsTest {
         } finally {
             codexHome.deleteRecursively()
         }
+    }
+
+    // ------------------------------------------------------------------------
+    // Antigravity (agy CLI + google-antigravity Python SDK + API key / Account auth)
+    // ------------------------------------------------------------------------
+
+    @Test
+    fun `antigravity sub-agent runs agy CLI with API key, base URL, project, and parses stream-json usage`() = runBlocking {
+        val workspace = Files.createTempDirectory("antigravity-ws").toFile()
+        try {
+            val ndjson = listOf(
+                """{"type":"init","session_id":"agy-sess-1","model":"gemini-4-carbon"}""",
+                """{"type":"step_update","step_type":"PLANNER_RESPONSE","thinking":"Inspecting repo","content":"Working...","tool_calls":[{"name":"read_file","args":{"path":"README.md"}}]}""",
+                """{"type":"result","status":"success","response":"Final answer from Antigravity.","session_id":"agy-sess-1","usage_metadata":{"prompt_token_count":1200,"candidates_token_count":300,"thoughts_token_count":150,"cached_content_token_count":400}}"""
+            ).joinToString("\n")
+            val executor = FakeSubprocessExecutor(ExecResult(0, ndjson, "", 180))
+            val params = listOf(
+                ConfigurationParameter("antigravity_api_key", JsonPrimitive("AIzaSyTestAntigravityApiKey1234567890")),
+                ConfigurationParameter(ExternalAgentTools.ANTIGRAVITY_MODEL_PARAMETER, JsonPrimitive("gemini-4-carbon")),
+                ConfigurationParameter(ExternalAgentTools.ANTIGRAVITY_BASE_URL_PARAMETER, JsonPrimitive("https://proxy.example.com/gemini")),
+                ConfigurationParameter(ExternalAgentTools.ANTIGRAVITY_PROJECT_PARAMETER, JsonPrimitive("my-gcp-proj")),
+                ConfigurationParameter(ExternalAgentTools.ANTIGRAVITY_LOCATION_PARAMETER, JsonPrimitive("us-central1")),
+                ConfigurationParameter(ExternalAgentTools.ANTIGRAVITY_EXTRA_ARGS_PARAMETER, JsonPrimitive("--effort,high"))
+            )
+            val events = mutableListOf<CapturedEvent>()
+            val tools = ExternalAgentTools(
+                executor = executor,
+                parameters = params,
+                userId = "test-user",
+                context = SubprocessToolContext(workspaceDir = workspace, sessionId = "conv-123"),
+                onMonitorEvent = { type, summary, detail -> events += CapturedEvent(type, summary, detail) },
+                trustExecutorSandbox = true
+            )
+
+            val out = tools.runAntigravitySubAgent(
+                ExternalAgentContext(
+                    prompt = "Refactor module",
+                    name = "agy-1",
+                    systemPrompt = "Follow Kotlin style."
+                )
+            )
+
+            assertEquals("Final answer from Antigravity.", out)
+            val req = executor.lastRequest!!
+            assertEquals("agy", req.command.first())
+            assertTrue(req.command.containsInOrder("--output-format", "stream-json"))
+            assertTrue(req.command.containsInOrder("--model", "gemini-4-carbon"))
+            assertTrue(req.command.containsInOrder("--effort", "high"))
+            assertTrue(req.command.contains("--dangerously-skip-permissions"))
+            assertTrue(req.command.takeLast(2) == listOf("-p", "-"))
+            assertTrue(req.stdin!!.contains("Follow Kotlin style."))
+            assertTrue(req.stdin.contains("Refactor module"))
+            assertEquals("AIzaSyTestAntigravityApiKey1234567890", req.env["GEMINI_API_KEY"])
+            assertEquals("AIzaSyTestAntigravityApiKey1234567890", req.env["GOOGLE_API_KEY"])
+            assertEquals("https://proxy.example.com/gemini", req.env["GOOGLE_GEMINI_BASE_URL"])
+            assertEquals("my-gcp-proj", req.env["GOOGLE_CLOUD_PROJECT"])
+            assertEquals("us-central1", req.env["GOOGLE_CLOUD_LOCATION"])
+            assertEquals("true", req.env["GOOGLE_GENAI_USE_VERTEXAI"])
+
+            assertTrue(events.any { it.type == "antigravity_stream_reasoning_summary" })
+            assertTrue(events.any { it.type == "antigravity_stream_tool_call" })
+            val completed = events.first { it.type == "antigravity_sub_agent_completed" }
+            assertTrue(completed.detail!!.contains("input_tokens=1200"), completed.detail)
+            // candidates_token_count (300) + thoughts_token_count (150) = 450
+            assertTrue(completed.detail.contains("output_tokens=450"), completed.detail)
+            assertTrue(completed.detail.contains("cache_read=400"), completed.detail)
+        } finally {
+            workspace.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `antigravity sub-agent materializes google-antigravity Python SDK runner when command is antigravity-sdk`() = runBlocking {
+        val workspace = Files.createTempDirectory("antigravity-sdk-ws").toFile()
+        try {
+            val ndjson = """{"type":"result","status":"success","response":"SDK result ok","usage_metadata":{"input_tokens":50,"output_tokens":20}}"""
+            val executor = FakeSubprocessExecutor(ExecResult(0, ndjson, "", 90))
+            val params = listOf(
+                ConfigurationParameter("gemini_api_key", JsonPrimitive("AIzaSyGeminiKeyForSdkRunner1234567890")),
+                ConfigurationParameter(ExternalAgentTools.ANTIGRAVITY_COMMAND_PARAMETER, JsonPrimitive("antigravity-sdk")),
+                ConfigurationParameter(ExternalAgentTools.ANTIGRAVITY_MODEL_PARAMETER, JsonPrimitive("gemini-3.8-flash"))
+            )
+            val tools = ExternalAgentTools(
+                executor = executor,
+                parameters = params,
+                userId = "test-user",
+                context = SubprocessToolContext(workspaceDir = workspace),
+                trustExecutorSandbox = true
+            )
+
+            val out = tools.runAntigravitySubAgent(
+                ExternalAgentContext(
+                    prompt = "Summarize files",
+                    name = "agy-sdk",
+                    allowedTools = listOf("Read", "Grep"),
+                    disallowedTools = listOf("Bash")
+                )
+            )
+
+            assertEquals("SDK result ok", out)
+            val req = executor.lastRequest!!
+            assertEquals("python3", req.command.first())
+            assertEquals("python", req.imageHint)
+            assertEquals("AIzaSyGeminiKeyForSdkRunner1234567890", req.env["GEMINI_API_KEY"])
+            val sdkCfg = executor.capturedAntigravitySdkConfigJson!!
+            assertTrue(sdkCfg.contains("\"model\":\"gemini-3.8-flash\""), sdkCfg)
+            assertTrue(sdkCfg.contains("\"terminal_execution\":false"), sdkCfg)
+            // Ephemeral script and config are cleaned up after execution
+            assertTrue(workspace.listFiles().orEmpty().none { it.name.startsWith(".braidrun-antigravity-") })
+        } finally {
+            workspace.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `antigravity subscription mode writes isolated ADC credentials and fails over on 429`() = runBlocking {
+        val workspace = Files.createTempDirectory("antigravity-sub-ws").toFile()
+        try {
+            val adcCard1 = """{"type":"authorized_user","client_id":"cid-1.apps.googleusercontent.com","client_secret":"csec-1","refresh_token":"1//0refreshTokenOne1234567890abcdef"}"""
+            val adcCard2 = """{"type":"authorized_user","client_id":"cid-2.apps.googleusercontent.com","client_secret":"csec-2","refresh_token":"1//0refreshTokenTwo1234567890abcdef","quota_project_id":"qp-2"}"""
+            val rateLimitedIds = mutableListOf<String>()
+            val succeededIds = mutableListOf<String>()
+            val pool = object : ClaudeCredentialProvider {
+                private val cards = listOf(
+                    ClaudeCredentialProvider.Credential("agy-sub-1", adcCard1),
+                    ClaudeCredentialProvider.Credential("agy-sub-2", adcCard2)
+                )
+                override suspend fun acquire(excludedCredentialIds: Set<String>): ClaudeCredentialProvider.Credential? =
+                    cards.firstOrNull { it.id !in excludedCredentialIds }
+                override suspend fun markRateLimited(credential: ClaudeCredentialProvider.Credential, resetAtMillis: Long) {
+                    rateLimitedIds += credential.id
+                }
+                override suspend fun markSucceeded(credential: ClaudeCredentialProvider.Credential, executionId: String?, stepName: String?) {
+                    succeededIds += credential.id
+                }
+            }
+
+            var callCount = 0
+            val executor = FakeSubprocessExecutor(
+                resultForRequest = {
+                    callCount += 1
+                    if (callCount == 1) {
+                        ExecResult(1, "", """ERROR: 429 RESOURCE_EXHAUSTED: Quota exceeded for quota metric""", 40)
+                    } else {
+                        ExecResult(0, """{"type":"result","status":"success","response":"Recovered on second account"}""", "", 60)
+                    }
+                }
+            )
+            val params = listOf(
+                ConfigurationParameter(ExternalAgentTools.ANTIGRAVITY_AUTH_MODE_PARAMETER, JsonPrimitive("subscription")),
+                ConfigurationParameter(ExternalAgentTools.ANTIGRAVITY_MODEL_PARAMETER, JsonPrimitive("gemini-4-carbon"))
+            )
+            val events = mutableListOf<CapturedEvent>()
+            val tools = ExternalAgentTools(
+                executor = executor,
+                parameters = params,
+                userId = "test-user",
+                context = SubprocessToolContext(workspaceDir = workspace, executionId = "exec-1", stepName = "step-a"),
+                onMonitorEvent = { type, summary, detail -> events += CapturedEvent(type, summary, detail) },
+                antigravityCredentialProvider = pool,
+                trustExecutorSandbox = false
+            )
+
+            val out = tools.runAntigravitySubAgent(ExternalAgentContext(prompt = "Check quota failover", name = "agy-sub"))
+
+            assertEquals("Recovered on second account", out)
+            assertEquals(2, callCount)
+            assertEquals(listOf("agy-sub-1"), rateLimitedIds)
+            assertEquals(listOf("agy-sub-2"), succeededIds)
+            assertEquals("true", executor.lastRequest!!.env["AGY_ADC_AUTH"])
+            assertEquals("qp-2", executor.lastRequest!!.env["GOOGLE_CLOUD_QUOTA_PROJECT"])
+            assertTrue(executor.capturedAntigravityAdcJson!!.contains("1//0refreshTokenTwo1234567890abcdef"))
+            assertTrue(events.any { it.type == ExternalAgentTools.ANTIGRAVITY_SUBSCRIPTION_RATE_LIMIT_EVENT })
+        } finally {
+            workspace.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `antigravity subscription mode rejects accidental AIza API keys with guidance`() {
+        val executor = FakeSubprocessExecutor(ExecResult(0, """{"result":"ok"}""", "", 10))
+        val params = listOf(
+            ConfigurationParameter(ExternalAgentTools.ANTIGRAVITY_AUTH_MODE_PARAMETER, JsonPrimitive("subscription")),
+            ConfigurationParameter(ExternalAgentTools.ANTIGRAVITY_AUTH_JSON_PARAMETER, JsonPrimitive("AIzaSyAccidentalApiKeyInSubscriptionField12345"))
+        )
+        val (tools, _) = buildTools(executor, params)
+
+        val ex = assertThrows(IllegalArgumentException::class.java) {
+            runBlocking { tools.runAntigravitySubAgent(ExternalAgentContext(prompt = "x", name = "agy-bad-cred")) }
+        }
+        assertTrue(ex.message!!.contains("api_key"), "expected guidance to switch to api_key mode, got: ${ex.message}")
     }
 }
 

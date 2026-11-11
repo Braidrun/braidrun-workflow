@@ -87,7 +87,7 @@ object RunnerLoopPolicy {
     fun isCli(workflow: WorkflowDefinition, step: WorkflowStep): Boolean {
         if (step.iterateOver == null || step.code != null) return false
         val agent = workflow.agents[step.agent] ?: return false
-        return (agent.resolveParameters()["type"]?.jsonPrimitive?.content ?: agent.type) in setOf("claude_code_agent", "codex_agent")
+        return (agent.resolveParameters()["type"]?.jsonPrimitive?.content ?: agent.type) in setOf("claude_code_agent", "codex_agent", "antigravity_agent")
     }
 
     /** Runtime bound once the items are known; a refusal fails the loop step before any item runs. */

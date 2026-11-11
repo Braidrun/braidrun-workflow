@@ -114,6 +114,7 @@ fun parseToolSet(
     externalAgentExecutor: SubprocessExecutor? = null,
     claudeCredentialProvider: ClaudeCredentialProvider? = null,
     codexCredentialProvider: ClaudeCredentialProvider? = null,
+    antigravityCredentialProvider: ClaudeCredentialProvider? = null,
     /** See [ExternalAgentTools]: rotated Codex `auth.json` hand-back for the host. */
     onCodexAuthJsonRotated: ((credentialId: String?, authJson: String) -> Unit)? = null,
 ): ToolRegistry {
@@ -134,6 +135,7 @@ fun parseToolSet(
         externalAgentExecutor = externalAgentExecutor,
         claudeCredentialProvider = claudeCredentialProvider,
         codexCredentialProvider = codexCredentialProvider,
+        antigravityCredentialProvider = antigravityCredentialProvider,
         onCodexAuthJsonRotated = onCodexAuthJsonRotated
     )
 }
@@ -158,6 +160,7 @@ fun parseExactToolSet(
     externalAgentExecutor: SubprocessExecutor? = null,
     claudeCredentialProvider: ClaudeCredentialProvider? = null,
     codexCredentialProvider: ClaudeCredentialProvider? = null,
+    antigravityCredentialProvider: ClaudeCredentialProvider? = null,
     /** See [ExternalAgentTools]: rotated Codex `auth.json` hand-back for the host. */
     onCodexAuthJsonRotated: ((credentialId: String?, authJson: String) -> Unit)? = null,
 ): ToolRegistry = buildToolRegistry(
@@ -175,6 +178,7 @@ fun parseExactToolSet(
     externalAgentExecutor = externalAgentExecutor,
     claudeCredentialProvider = claudeCredentialProvider,
     codexCredentialProvider = codexCredentialProvider,
+    antigravityCredentialProvider = antigravityCredentialProvider,
     onCodexAuthJsonRotated = onCodexAuthJsonRotated
 )
 
@@ -260,6 +264,7 @@ private fun buildToolRegistry(
     externalAgentExecutor: SubprocessExecutor?,
     claudeCredentialProvider: ClaudeCredentialProvider?,
     codexCredentialProvider: ClaudeCredentialProvider?,
+    antigravityCredentialProvider: ClaudeCredentialProvider?,
     onCodexAuthJsonRotated: ((credentialId: String?, authJson: String) -> Unit)?,
 ): ToolRegistry = ToolRegistry {
     val browserDisabled = browserToolsDisabled(parameters)
@@ -311,6 +316,7 @@ private fun buildToolRegistry(
                 onMonitorEvent = onSubAgentEvent,
                 claudeCredentialProvider = claudeCredentialProvider,
                 codexCredentialProvider = codexCredentialProvider,
+                antigravityCredentialProvider = antigravityCredentialProvider,
                 onCodexAuthJsonRotated = onCodexAuthJsonRotated,
                 trustExecutorSandbox = parameters.parameter("subprocess_mode", "native")
                     .equals("docker", ignoreCase = true)

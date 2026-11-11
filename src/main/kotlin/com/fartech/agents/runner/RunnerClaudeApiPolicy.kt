@@ -20,7 +20,7 @@ object RunnerClaudeApiPolicy {
         require(parameters["external_agent_claude_auth_mode"] == JsonPrimitive("api_key")) { "Coding Plan requires explicit API-key mode" }
         val model = parameters["external_agent_claude_model"]?.jsonPrimitive?.contentOrNull.orEmpty()
         require(model.length in 1..512 && model.lowercase().startsWith(route.modelPrefix) && model.none { it.isWhitespace() || it.code < 32 }) { "Coding Plan requires an explicit provider model" }
-        for (key in listOf("external_agent_claude_oauth_token", "external_agent_claude_credentials_json", "external_agent_codex_auth_json"))
+        for (key in listOf("external_agent_claude_oauth_token", "external_agent_claude_credentials_json", "external_agent_codex_auth_json", "external_agent_antigravity_auth_json", "external_agent_antigravity_oauth_token"))
             require(parameters[key]?.jsonPrimitive?.contentOrNull.isNullOrBlank()) { "Coding Plan cannot fall back to subscription credentials" }
         if (credential) require(parameters["anthropic_api_key"]?.jsonPrimitive?.contentOrNull?.matches(RunnerAdmission.CREDENTIAL_REFERENCE) == true) { "Coding Plan requires a scoped model-key reference" }
         return route

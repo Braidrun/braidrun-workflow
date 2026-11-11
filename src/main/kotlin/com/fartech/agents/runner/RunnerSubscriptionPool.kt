@@ -36,7 +36,12 @@ class RunnerSubscriptionPool(
                 record("usage", buildJsonObject { put("credentialRef", ref); put("provider", provider); put("outcome", "LEASE_REFUSED") }); refused = e; continue
             }
             val credential = try {
-                val token = selected.material.string(if (provider == "codex") "authJson" else "token")
+                val token = when (provider) {
+                    "codex" -> selected.material.string("authJson")
+                    "antigravity" -> selected.material["authJson"]?.jsonPrimitive?.contentOrNull
+                        ?: selected.material.string("token")
+                    else -> selected.material.string("token")
+                }
                 secrets.register(JsonPrimitive(token))
                 ClaudeCredentialProvider.Credential(ref, token, source = "runner-scoped-lease")
             } catch (failure: Throwable) {

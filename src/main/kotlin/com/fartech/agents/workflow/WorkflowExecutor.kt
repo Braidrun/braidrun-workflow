@@ -780,6 +780,10 @@ class WorkflowExecutor(
      */
     codexCredentialProvider: ClaudeCredentialProvider? = null,
     /**
+     * Antigravity's own credential pool (Google OAuth / Application Default Credentials).
+     */
+    antigravityCredentialProvider: ClaudeCredentialProvider? = null,
+    /**
      * Receives the rotated `auth.json` when a Codex run refreshed its ChatGPT
      * tokens inside the per-run `CODEX_HOME`, so the host can write it back to
      * the credential store before that directory is deleted. Without it every
@@ -823,6 +827,7 @@ class WorkflowExecutor(
     private val extraCodeStepEnv = host?.codeEnvironment ?: extraCodeStepEnv
     private val claudeCredentialProvider = if (host != null) host.claudeCredentials else claudeCredentialProvider
     private val codexCredentialProvider = if (host != null) host.codexCredentials else codexCredentialProvider
+    private val antigravityCredentialProvider = if (host != null) host.antigravityCredentials else antigravityCredentialProvider
     private val onCodexAuthJsonRotated = if (host != null) host.codexAuthRotation else onCodexAuthJsonRotated
     private val executionApiTokenProvider = if (perCallCodeControl) null else if (host != null) host.callbackToken else executionApiTokenProvider
 
@@ -2495,7 +2500,7 @@ class WorkflowExecutor(
         }
         val structuredOutputPersistedFiles = externalStructuredOutputPersistedFiles(
             structuredOutput = resolvedStructuredOutput,
-            isExternalAgent = agentDef.isClaudeCodeAgent() || agentDef.isCodexAgent()
+            isExternalAgent = agentDef.isClaudeCodeAgent() || agentDef.isCodexAgent() || agentDef.isAntigravityAgent()
         )
         val expectedPersistedFiles = (promptPersistedFiles + structuredOutputPersistedFiles).toSortedSet()
         val effectiveInput = augmentPromptWithPersistenceRequirements(resolvedInput, promptPersistedFiles)
@@ -5439,6 +5444,7 @@ class WorkflowExecutor(
             externalAgentExecutor = codeStepExecutor,
             claudeCredentialProvider = host?.claudeCredentialsFor(hostScope(context, step.step)) ?: claudeCredentialProvider,
             codexCredentialProvider = host?.codexCredentialsFor(hostScope(context, step.step)) ?: codexCredentialProvider,
+            antigravityCredentialProvider = host?.antigravityCredentialsFor(hostScope(context, step.step)) ?: antigravityCredentialProvider,
             onCodexAuthJsonRotated = host?.codexAuthRotationFor(hostScope(context, step.step)) ?: onCodexAuthJsonRotated
         )
 
@@ -7040,6 +7046,7 @@ class WorkflowExecutor(
             externalAgentExecutor = codeStepExecutor,
             claudeCredentialProvider = host?.claudeCredentialsFor(WorkflowHostScope(host.binding.executionId, executionId ?: host.binding.executionId, stepName = stepName)) ?: claudeCredentialProvider,
             codexCredentialProvider = host?.codexCredentialsFor(WorkflowHostScope(host.binding.executionId, executionId ?: host.binding.executionId, stepName = stepName)) ?: codexCredentialProvider,
+            antigravityCredentialProvider = host?.antigravityCredentialsFor(WorkflowHostScope(host.binding.executionId, executionId ?: host.binding.executionId, stepName = stepName)) ?: antigravityCredentialProvider,
             onCodexAuthJsonRotated = host?.codexAuthRotationFor(WorkflowHostScope(host.binding.executionId, executionId ?: host.binding.executionId, stepName = stepName)) ?: onCodexAuthJsonRotated
         )
 
@@ -7168,6 +7175,7 @@ class WorkflowExecutor(
             extraCodeStepEnv = extraCodeStepEnv,
             claudeCredentialProvider = claudeCredentialProvider,
             codexCredentialProvider = codexCredentialProvider,
+            antigravityCredentialProvider = antigravityCredentialProvider,
             onCodexAuthJsonRotated = onCodexAuthJsonRotated,
             executionApiTokenProvider = executionApiTokenProvider,
             workflowResolver = workflowResolver,
@@ -7623,6 +7631,17 @@ class WorkflowExecutor(
             )
         }
 
+        if (agentDef.isAntigravityAgent()) {
+            return@withScope runAntigravityAgentStep(
+                agentName = agentName,
+                agentDef = agentDef,
+                context = context,
+                stepName = stepName,
+                input = input,
+                directoryIsolation = directoryIsolation
+            )
+        }
+
         val managedAgent = createManagedAgentForStep(
             agentName = agentName,
             agentDef = agentDef,
@@ -7700,6 +7719,7 @@ class WorkflowExecutor(
             onMonitorEvent = eventCallback,
             claudeCredentialProvider = host?.claudeCredentialsFor(hostScope(context, stepName)) ?: claudeCredentialProvider,
             codexCredentialProvider = host?.codexCredentialsFor(hostScope(context, stepName)) ?: codexCredentialProvider,
+            antigravityCredentialProvider = host?.antigravityCredentialsFor(hostScope(context, stepName)) ?: antigravityCredentialProvider,
             trustExecutorSandbox = isDockerSubprocessMode()
         )
 
@@ -7793,6 +7813,7 @@ class WorkflowExecutor(
             // auth.json belongs to. `external_agent_codex_auth_json` stays the
             // fallback when the host supplies no pool.
             codexCredentialProvider = host?.codexCredentialsFor(hostScope(context, stepName)) ?: codexCredentialProvider,
+            antigravityCredentialProvider = host?.antigravityCredentialsFor(hostScope(context, stepName)) ?: antigravityCredentialProvider,
             onCodexAuthJsonRotated = host?.codexAuthRotationFor(hostScope(context, stepName)) ?: onCodexAuthJsonRotated,
             trustExecutorSandbox = isDockerSubprocessMode()
         )
@@ -7814,6 +7835,91 @@ class WorkflowExecutor(
         )
     }
 
+    private suspend fun runAntigravityAgentStep(
+        agentName: String,
+        agentDef: AgentDefinition,
+        context: WorkflowExecutionContext,
+        stepName: String,
+        input: String,
+        directoryIsolation: DirectoryIsolationConfig = DirectoryIsolationConfig()
+    ): String {
+        val executor = codeStepExecutor
+            ?: throw WorkflowExecutionException(
+                "Antigravity Agent '$agentName' requires a SubprocessExecutor. " +
+                    "Configure codeStepExecutor / subprocess_mode for this runtime."
+            )
+
+        val sessionId = resolveSessionId(agentDef, context, agentName, stepName)
+        val resolvedParams = resolveRuntimeParametersForDirectAgent(
+            agentDef = agentDef,
+            sessionId = sessionId,
+            context = context,
+            executionId = context.executionId,
+            stepName = stepName,
+            directoryIsolation = directoryIsolation,
+            agentName = agentName,
+            workflowName = context.workflowName
+        )
+        val parameters = hostAgentParameters(mergeParameters(baseParameters, resolvedParams), context.executionId, stepName)
+        val workingDir = parameters.parameter("working_dir", "").trim().takeIf { it.isNotEmpty() }?.let(::File)
+        val outputDir = parameters.parameter(HOST_OUTPUT_DIR_RUNTIME_KEY, "").trim().takeIf { it.isNotEmpty() }?.let(::File)
+            ?: parameters.parameter("output_dir", "").trim().takeIf { it.isNotEmpty() }?.let(::File)
+        val skillsDir = parameters.parameter("skills_dir", "").trim().takeIf { it.isNotEmpty() }?.let(::File)
+
+        val eventCallback: MonitoringEventCallback? =
+            if (enableMonitoring) {
+                { type, summary, detail ->
+                    val normalized = normalizeExternalAgentEvent(type, "antigravity_agent")
+                    WorkflowMonitor.addEvent(
+                        context.executionId,
+                        stepName,
+                        AgentEvent(
+                            type = normalized.type,
+                            category = normalized.category,
+                            subCategory = normalized.subCategory,
+                            summary = summary,
+                            detail = detail,
+                            inputTokens = parseLongFromEventDetail(detail, "input_tokens")?.toInt(),
+                            outputTokens = parseLongFromEventDetail(detail, "output_tokens")?.toInt()
+                        )
+                    )
+                }
+            } else null
+
+        val antigravityAgent = ExternalAgentTools(
+            executor = executor,
+            parameters = parameters,
+            userId = baseParameters.parameter("user_id", "default"),
+            context = SubprocessToolContext(
+                workspaceDir = workingDir,
+                outputDir = outputDir,
+                skillsDir = skillsDir,
+                executionId = context.executionId,
+                stepName = stepName,
+                sessionId = sessionId
+            ),
+            onMonitorEvent = eventCallback,
+            claudeCredentialProvider = host?.claudeCredentialsFor(hostScope(context, stepName)) ?: claudeCredentialProvider,
+            codexCredentialProvider = host?.codexCredentialsFor(hostScope(context, stepName)) ?: codexCredentialProvider,
+            antigravityCredentialProvider = host?.antigravityCredentialsFor(hostScope(context, stepName)) ?: antigravityCredentialProvider,
+            trustExecutorSandbox = isDockerSubprocessMode()
+        )
+
+        return antigravityAgent.runAntigravitySubAgent(
+            ExternalAgentContext(
+                prompt = input,
+                name = agentName,
+                allowedTools = parseExternalAgentListParameter(parameters, "external_agent_antigravity_allowed_tools"),
+                disallowedTools = parseExternalAgentListParameter(parameters, "external_agent_antigravity_disallowed_tools"),
+                workingDir = workingDir?.absolutePath,
+                systemPrompt = parameters.parameter("system_prompt", ""),
+                maxTurns = parameters.parameter("external_agent_antigravity_max_turns", 32),
+                timeoutSeconds = parameters.parameter("external_agent_antigravity_timeout_seconds", 1800),
+                model = ""
+            )
+        )
+    }
+
     private data class NormalizedExternalAgentEvent(
         val type: String,
         val category: String,
@@ -7826,7 +7932,8 @@ class WorkflowExecutor(
     ): NormalizedExternalAgentEvent {
         return when (type) {
             "claude_code_stream_reasoning_summary",
-            "codex_stream_reasoning_summary" ->
+            "codex_stream_reasoning_summary",
+            "antigravity_stream_reasoning_summary" ->
                 NormalizedExternalAgentEvent(
                     type = "reasoning_message",
                     category = "llm",
@@ -7835,8 +7942,10 @@ class WorkflowExecutor(
 
             "claude_code_stream_text_delta",
             "codex_stream_text_delta",
+            "antigravity_stream_text_delta",
             "claude_code_stream_result",
-            "codex_stream_result" ->
+            "codex_stream_result",
+            "antigravity_stream_result" ->
                 NormalizedExternalAgentEvent(
                     type = "llm_stream_delta",
                     category = "llm",
@@ -7844,7 +7953,8 @@ class WorkflowExecutor(
                 )
 
             "claude_code_stream_tool_call",
-            "codex_stream_tool_call" ->
+            "codex_stream_tool_call",
+            "antigravity_stream_tool_call" ->
                 NormalizedExternalAgentEvent(
                     type = "tool_call_starting",
                     category = "tool",
@@ -7852,7 +7962,8 @@ class WorkflowExecutor(
                 )
 
             "claude_code_stream_tool_result",
-            "codex_stream_tool_result" ->
+            "codex_stream_tool_result",
+            "antigravity_stream_tool_result" ->
                 NormalizedExternalAgentEvent(
                     type = "tool_call_completed",
                     category = "tool",
@@ -7876,6 +7987,11 @@ class WorkflowExecutor(
     private fun AgentDefinition.isCodexAgent(): Boolean {
         val resolvedType = resolveParameters()["type"]?.jsonPrimitive?.contentOrNull ?: type
         return resolvedType == "codex_agent"
+    }
+
+    private fun AgentDefinition.isAntigravityAgent(): Boolean {
+        val resolvedType = resolveParameters()["type"]?.jsonPrimitive?.contentOrNull ?: type
+        return resolvedType == "antigravity_agent"
     }
 
     private fun resolveRuntimeParametersForDirectAgent(
@@ -8011,7 +8127,7 @@ class WorkflowExecutor(
         structuredOutput: StructuredOutputConfig,
         directoryIsolation: DirectoryIsolationConfig = DirectoryIsolationConfig()
     ): String {
-        if (agentDef.isClaudeCodeAgent() || agentDef.isCodexAgent()) {
+        if (agentDef.isClaudeCodeAgent() || agentDef.isCodexAgent() || agentDef.isAntigravityAgent()) {
             return runStepAgent(
                 agentName = agentName,
                 agentDef = agentDef,

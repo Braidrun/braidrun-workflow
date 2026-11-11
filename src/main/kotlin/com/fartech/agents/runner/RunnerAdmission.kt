@@ -131,20 +131,38 @@ class RunnerAdmission(
             val preset = agent.preset?.let { AgentPresetRegistry.get(it) ?: error("Unknown agent preset") }
             val effective = agent.resolveParameters()
             val type = effective["type"]?.jsonPrimitive?.content ?: agent.type
-            val cli = type in setOf("claude_code_agent", "codex_agent")
+            val cli = type in setOf("claude_code_agent", "codex_agent", "antigravity_agent")
             require(!local || !cli) { "Local model carrier cannot select a CLI agent" }
             if (cli) {
-                val provider = if (type == "codex_agent") "codex" else "claude"
+                val provider = when (type) {
+                    "codex_agent" -> "codex"
+                    "antigravity_agent" -> "antigravity"
+                    else -> "claude"
+                }
                 requireCapability("agent.$provider.v1")
                 if (provider == "claude" && effective["external_agent_claude_auth_mode"] == JsonPrimitive("api_key")) {
                     requireCapability(RunnerClaudeApiPolicy.CAPABILITY)
                     RunnerClaudeApiPolicy.requireSelection(effective)
+                } else if (provider == "antigravity" && effective["external_agent_antigravity_auth_mode"] == JsonPrimitive("api_key")) {
+                    val keyRef = effective["antigravity_api_key"]?.jsonPrimitive?.contentOrNull
+                        ?: effective["google_api_key"]?.jsonPrimitive?.contentOrNull
+                    require(keyRef != null && CREDENTIAL_REFERENCE.matches(keyRef.trim())) { "Runner Antigravity API mode requires a leased credential reference" }
                 } else {
                     require(effective["external_agent_${provider}_auth_mode"]?.jsonPrimitive?.content == "subscription") { "Runner CLI requires explicit scoped subscription mode" }
-                    val key = if (provider == "codex") "external_agent_codex_auth_json" else "external_agent_claude_oauth_token"
+                    val key = when (provider) {
+                        "codex" -> "external_agent_codex_auth_json"
+                        "antigravity" -> "external_agent_antigravity_auth_json"
+                        else -> "external_agent_claude_oauth_token"
+                    }
                     require(effective[key]?.jsonPrimitive?.content?.let { value -> value.split(',').all { CREDENTIAL_REFERENCE.matches(it.trim()) } } == true) { "Runner CLI requires credential references" }
                 }
-                for (field in listOf("external_agent_codex_auth_file", "external_agent_codex_home_dir", "external_agent_claude_config_dir")) {
+                for (field in listOf(
+                    "external_agent_codex_auth_file",
+                    "external_agent_codex_home_dir",
+                    "external_agent_claude_config_dir",
+                    "external_agent_antigravity_auth_file",
+                    "external_agent_antigravity_home_dir"
+                )) {
                     require(effective[field]?.jsonPrimitive?.content.isNullOrBlank()) { "Runner CLI cannot use unscoped local account state" }
                 }
                 // The host registers only file tools (`--tools`) for Claude and drops the permission bypass.
@@ -192,7 +210,12 @@ class RunnerAdmission(
                     }
                     if ((isSecretKey(key, value) || key == "llm_provider_keys") && value != JsonNull && value.toString() !in setOf("{}", "\"\"")) {
                         val refs = if (value is JsonObject) value.values else listOf(value)
-                        val poolReference = key in setOf("external_agent_codex_auth_json", "external_agent_claude_oauth_token")
+                        val poolReference = key in setOf(
+                            "external_agent_codex_auth_json",
+                            "external_agent_claude_oauth_token",
+                            "external_agent_antigravity_auth_json",
+                            "external_agent_antigravity_oauth_token"
+                        )
                         require(refs.all { it is JsonPrimitive && it.isString &&
                             (if (poolReference) it.content.split(',').all { ref -> CREDENTIAL_REFERENCE.matches(ref.trim()) }
                              else CREDENTIAL_REFERENCE.matches(it.content)) }) { "Secrets must be leased at runtime" }

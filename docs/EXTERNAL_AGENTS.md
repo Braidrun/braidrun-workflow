@@ -1,9 +1,10 @@
-# Claude Code and Codex Agents
+# Claude Code, Codex, and Antigravity Agents
 
-Braidrun Workflow can delegate a task to external agent runtimes through the `external_agent` tool group:
+Braidrun Workflow can delegate a task to external agent runtimes through first-class workflow step agent types (`claude_code_agent`, `codex_agent`, `antigravity_agent`) or through the `external_agent` tool group:
 
 - Claude Code through the `claude` CLI
 - OpenAI Codex through the `codex` CLI
+- Google Antigravity through the `agy` CLI or the `google-antigravity` Python SDK (`antigravity-sdk`)
 
 These are full external runtimes launched as subprocesses through the same native or Docker executor used by shell and code tools.
 
@@ -64,6 +65,28 @@ Alternative `npx` mode:
 --param external_agent_codex_extra_args=-y,@openai/codex
 ```
 
+## Antigravity
+
+Native `agy` CLI mode:
+
+```bash
+export GEMINI_API_KEY=...
+```
+
+Runtime parameters (`agy` CLI):
+
+```bash
+--param external_agent_antigravity_command=agy
+--param external_agent_antigravity_model=gemini-4-carbon
+```
+
+Alternative `google-antigravity` Python SDK mode (`pip install google-antigravity`):
+
+```bash
+--param external_agent_antigravity_command=antigravity-sdk
+--param external_agent_antigravity_model=gemini-4-carbon
+```
+
 ## Authentication
 
 The external agent tools resolve credentials from runtime parameters, configured provider keys, or environment variables.
@@ -72,8 +95,9 @@ API-key mode is recommended for stable production runs:
 
 - Claude: `anthropic_api_key` or `ANTHROPIC_API_KEY`
 - Codex: `openai_api_key` or `OPENAI_API_KEY`
+- Antigravity: `antigravity_api_key`, `gemini_api_key`, `google_api_key`, or `GEMINI_API_KEY` / `GOOGLE_API_KEY` (plus optional `external_agent_antigravity_base_url`, `external_agent_antigravity_project`, and `external_agent_antigravity_location`)
 
-Subscription-token modes exist for account-owner workflows, but API-key mode is the safer default for public or team deployments.
+Subscription / account-auth modes exist for account-owner workflows (`external_agent_<engine>_auth_mode=subscription`), including Google OAuth / Application Default Credentials (`authorized_user`, `service_account`, `external_account`, or OAuth token JSON) for Antigravity (`external_agent_antigravity_auth_json` or `external_agent_antigravity_auth_file`).
 
 ## Docker Notes
 

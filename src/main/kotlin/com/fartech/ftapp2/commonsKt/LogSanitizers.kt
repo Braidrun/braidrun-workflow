@@ -94,6 +94,7 @@ private val LONG_SECRET_BLOB_REGEX = Regex(
         """|\b(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{20,}\b""" +   // Stripe live/test keys
         """|\bAIza[0-9A-Za-z_\-]{30,}\b""" +                     // Google API keys
         """|\bya29\.[A-Za-z0-9_\-]{20,}""" +                     // Google OAuth access tokens
+        """|\b1//0[A-Za-z0-9_\-]{20,}""" +                       // Google OAuth refresh tokens
         """|\beyJ[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}\b""" // JWT (header.payload.sig)
 )
 

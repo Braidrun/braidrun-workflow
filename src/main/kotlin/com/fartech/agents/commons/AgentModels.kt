@@ -569,7 +569,8 @@ fun agentModelInfoToLLModel(agentModelInfo: Any): LLModel {
 private fun envVarNamesForProvider(provider: String): List<String> = when (provider.lowercase()) {
     "openai", "open_ai" -> listOf("OPENAI_API_KEY")
     "openrouter", "open_router" -> listOf("OPENROUTER_API_KEY", "OPEN_ROUTER_API_KEY")
-    "google" -> listOf("GOOGLE_API_KEY", "GOOGLE_GENAI_API_KEY", "GENAI_API_KEY")
+    "google", "gemini" -> listOf("GOOGLE_API_KEY", "GEMINI_API_KEY", "GOOGLE_GENAI_API_KEY", "GENAI_API_KEY")
+    "antigravity", "antigravity_api", "google_antigravity" -> listOf("ANTIGRAVITY_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_GENAI_API_KEY", "GENAI_API_KEY")
     "anthropic" -> listOf("ANTHROPIC_API_KEY")
     "deepseek" -> listOf("DEEPSEEK_API_KEY")
     // Served by openrouter.ai (see mapProviderToLLMProvider): only OpenRouter keys, never the vendor's own.
@@ -596,7 +597,8 @@ private fun resolveApiKey(provider: String, explicitApiKey: String?): String? {
 private fun providerKeyAliases(provider: String): List<String> = when (provider.lowercase()) {
     "openrouter", "open_router" -> listOf("openrouter", "open_router")
     "openai", "open_ai" -> listOf("openai", "open_ai")
-    "google" -> listOf("google")
+    "google", "gemini" -> listOf("google", "gemini")
+    "antigravity", "antigravity_api", "google_antigravity" -> listOf("antigravity", "gemini", "google")
     "anthropic" -> listOf("anthropic")
     "deepseek" -> listOf("deepseek")
     // Served by openrouter.ai: a key stored under the vendor's name is the vendor's own key and

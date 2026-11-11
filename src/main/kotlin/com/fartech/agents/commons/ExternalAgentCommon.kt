@@ -8,7 +8,8 @@ import com.fartech.ftapp2.commonsKt.parameter
 
 enum class ExternalAgentEngine {
     CLAUDE,
-    CODEX
+    CODEX,
+    ANTIGRAVITY
 }
 
 data class ExternalAgentRunResult(
@@ -28,7 +29,9 @@ suspend fun buildAndRunExternalAgent(
     onCodexAuthJsonRotated: ((credentialId: String?, authJson: String) -> Unit)? = null,
     claudeCredentialProvider: ClaudeCredentialProvider? = null,
     /** Codex's own pool — failover never crosses vendors. */
-    codexCredentialProvider: ClaudeCredentialProvider? = null
+    codexCredentialProvider: ClaudeCredentialProvider? = null,
+    /** Antigravity's own pool — failover never crosses vendors. */
+    antigravityCredentialProvider: ClaudeCredentialProvider? = null
 ): ExternalAgentRunResult {
     val executor = createSubprocessExecutor(parameters)
     val toolContext = SubprocessExecutorFactory.buildToolContext(parameters)
@@ -41,12 +44,14 @@ suspend fun buildAndRunExternalAgent(
         onMonitorEvent = onEvent,
         onCodexAuthJsonRotated = onCodexAuthJsonRotated,
         claudeCredentialProvider = claudeCredentialProvider,
-        codexCredentialProvider = codexCredentialProvider
+        codexCredentialProvider = codexCredentialProvider,
+        antigravityCredentialProvider = antigravityCredentialProvider
     )
     val detailed = tools.runConversation(
         engine = when (engine) {
             ExternalAgentEngine.CLAUDE -> ExternalAgentTools.Engine.CLAUDE
             ExternalAgentEngine.CODEX -> ExternalAgentTools.Engine.CODEX
+            ExternalAgentEngine.ANTIGRAVITY -> ExternalAgentTools.Engine.ANTIGRAVITY
         },
         ctx = agentContext,
         onTextDelta = onTextDelta

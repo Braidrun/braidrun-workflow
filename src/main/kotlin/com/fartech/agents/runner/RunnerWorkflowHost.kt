@@ -197,7 +197,7 @@ class RunnerWorkflowHost(
         checkBusinessOpen(); require(scope.rootExecutionId == binding.executionId) { "Credential file scope mismatch" }
         val root = privateDirectory.toPath().toAbsolutePath().normalize()
         val candidate = path.toAbsolutePath().normalize()
-        require(candidate.startsWith(root) && candidate.fileName.toString() == "auth.json") { "Credential file outside scoped private directory" }
+        require(candidate.startsWith(root) && candidate.fileName.toString() in setOf("auth.json", "adc_credentials.json")) { "Credential file outside scoped private directory" }
         val safe = confinedPath(root, root.relativize(candidate).toString())
         return secrets.observe(safe)
     }
@@ -216,6 +216,7 @@ class RunnerWorkflowHost(
     private fun poolKey(provider: String, scope: WorkflowHostScope) = Triple(provider, scope.executionId, scope.stepName)
     override fun claudeCredentialsFor(scope: WorkflowHostScope) = cliPools[poolKey("claude", scope)]
     override fun codexCredentialsFor(scope: WorkflowHostScope) = cliPools[poolKey("codex", scope)]
+    override fun antigravityCredentialsFor(scope: WorkflowHostScope) = cliPools[poolKey("antigravity", scope)]
     // No id-keyed rotation callback: ExternalAgentTools rotates through the invocation's own hold on the pool.
     override suspend fun interactiveProcess(scope: WorkflowHostScope, request: com.fartech.agents.tools.exec.SubprocessExecutor.ExecRequest): WorkflowInteractiveProcess =
         run { checkBusinessOpen(); requireNotNull(interactiveBroker) { "Interactive broker not assembled" }.open(scope, request) }
@@ -265,7 +266,7 @@ class RunnerWorkflowHost(
     private fun usesFileTools(parameters: List<com.fartech.ftapp2.commonsKt.ConfigurationParameter>): Boolean {
         val type = parameters.firstOrNull { it.key == "type" }?.value?.let(RunnerAgentToolPolicy::text)
         val tools = parameters.firstOrNull { it.key == "tool_set" }?.value as? JsonArray
-        return type !in setOf("claude_code_agent", "codex_agent") && tools?.any { (it as? JsonPrimitive)?.content in RunnerAgentToolPolicy.RUN_DIRECTORY_TOOL_GROUPS } == true
+        return type !in setOf("claude_code_agent", "codex_agent", "antigravity_agent") && tools?.any { (it as? JsonPrimitive)?.content in RunnerAgentToolPolicy.RUN_DIRECTORY_TOOL_GROUPS } == true
     }
     internal fun toolFileAccess(scope: WorkflowHostScope): com.fartech.agents.tools.ToolFileAccess {
         checkBusinessOpen(); gate.check()
@@ -458,7 +459,11 @@ class RunnerWorkflowHost(
             preparedModelKeys[key] = handle
             return JsonPrimitive(key)
         }
-        for ((provider, parameter) in mapOf("codex" to "external_agent_codex_auth_json", "claude" to "external_agent_claude_oauth_token")) {
+        for ((provider, parameter) in mapOf(
+            "codex" to "external_agent_codex_auth_json",
+            "claude" to "external_agent_claude_oauth_token",
+            "antigravity" to "external_agent_antigravity_auth_json"
+        )) {
             val references = parameters.firstOrNull { it.key == parameter }?.value?.jsonPrimitive?.content?.split(',')?.map { it.trim() }?.filter { it.isNotEmpty() }.orEmpty()
             if (references.isNotEmpty()) {
                 require(references.all { RunnerAdmission.CREDENTIAL_REFERENCE.matches(it) }) { "Subscription requires scoped references" }
@@ -497,7 +502,14 @@ class RunnerWorkflowHost(
         forced += com.fartech.ftapp2.commonsKt.ConfigurationParameter("external_agent_claude_extra_args", JsonPrimitive(
             if (type == "claude_code_agent") RunnerAgentToolPolicy.claudeExtraArgs(extraArgs).joinToString(",") else ""))
         val replaced = forced.map { it.key }.toSet() + (if (fileTools) setOf("workspace_dir") else emptySet())
-        val result = parameters.filterNot { it.key in setOf("external_agent_codex_auth_json", "external_agent_claude_oauth_token") }.map { p ->
+        val result = parameters.filterNot {
+            it.key in setOf(
+                "external_agent_codex_auth_json",
+                "external_agent_claude_oauth_token",
+                "external_agent_antigravity_auth_json",
+                "external_agent_antigravity_oauth_token"
+            )
+        }.map { p ->
             if (p.key == RunnerMultimediaHostPolicy.KEY) p // Keep only the reference in Agent parameters, never material.
             else if (p.key == "mcp_servers") com.fartech.ftapp2.commonsKt.ConfigurationParameter(p.key, mcp(p.value))
             else if (p.key.endsWith("_api_key") || p.key == "llm_provider_keys") com.fartech.ftapp2.commonsKt.ConfigurationParameter(p.key, lease(p.value)) else p
@@ -594,7 +606,7 @@ class RunnerWorkflowHost(
     }
     private fun checkRoutes(required: Set<String>) {
         if ("model.http.v1" in required) { validateDirectNetwork(); gate.requirePaths(setOf("jvm-http")) }
-        if (required.any { it in setOf("agent.codex.v1", "agent.claude.v1") }) { validateDirectNetwork(); gate.requirePaths(setOf("agent-cli")) }
+        if (required.any { it in setOf("agent.codex.v1", "agent.claude.v1", "agent.antigravity.v1") }) { validateDirectNetwork(); gate.requirePaths(setOf("agent-cli")) }
         if ("mcp.stdio.v1" in required) gate.requirePaths(setOf("mcp-stdio"))
         if ("step.script.v1" in required || required.any { it in RunnerAgentToolPolicy.SUBPROCESS_CAPABILITIES }) gate.requirePaths(setOf("subprocess"))
     }

@@ -17,6 +17,7 @@ interface WorkflowHost {
     fun observeCredentialFile(scope: WorkflowHostScope, path: java.nio.file.Path): AutoCloseable = AutoCloseable { }
     fun claudeCredentialsFor(scope: WorkflowHostScope): ClaudeCredentialProvider? = claudeCredentials
     fun codexCredentialsFor(scope: WorkflowHostScope): ClaudeCredentialProvider? = codexCredentials
+    fun antigravityCredentialsFor(scope: WorkflowHostScope): ClaudeCredentialProvider? = antigravityCredentials
     fun codexAuthRotationFor(scope: WorkflowHostScope): ((String?, String) -> Unit)? = codexAuthRotation
     suspend fun interactiveProcess(scope: WorkflowHostScope, request: SubprocessExecutor.ExecRequest): WorkflowInteractiveProcess =
         throw IllegalStateException("Host interactive process transport is not adapted")
@@ -31,6 +32,7 @@ interface WorkflowHost {
     val codeEnvironment: Map<String, String> get() = emptyMap()
     val claudeCredentials: ClaudeCredentialProvider? get() = null
     val codexCredentials: ClaudeCredentialProvider? get() = null
+    val antigravityCredentials: ClaudeCredentialProvider? get() = null
     val codexAuthRotation: ((String?, String) -> Unit)? get() = null
     fun nativeAgentPrompt(scope: WorkflowHostScope, prompt: String): String = prompt
     /** Pure lookup of a verified local-model scope, before any cloud/MCP preparation.

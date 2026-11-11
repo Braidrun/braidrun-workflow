@@ -173,7 +173,7 @@ class RunnerHostSession(
             })
             val required = RunnerAdmission(bundle, CAPABILITIES, localModelPolicy = localPolicy).inspect(bundle.rootDefinition)
             if ("model.http.v1" in required) { RunnerHttpClients.requireDirect(); environment.requirePaths(setOf("jvm-http")) }
-            if (required.any { it in setOf("agent.codex.v1", "agent.claude.v1") }) { RunnerHttpClients.requireDirect(); environment.requirePaths(setOf("agent-cli")) }
+            if (required.any { it in setOf("agent.codex.v1", "agent.claude.v1", "agent.antigravity.v1") }) { RunnerHttpClients.requireDirect(); environment.requirePaths(setOf("agent-cli")) }
             if ("step.script.v1" in required || required.any { it in RunnerAgentToolPolicy.SUBPROCESS_CAPABILITIES }) environment.requirePaths(setOf("subprocess"))
             val restored = if (frame.string("type") == "resume") {
                 store.restore(payload.obj("checkpoint"), payload.obj("previousBinding"))
@@ -223,7 +223,7 @@ class RunnerHostSession(
     }
     companion object {
         // Engine adapter inventory; platform/supervisor admission and runtime dependency receipts remain separate.
-        val CAPABILITIES = linkedSetOf("bundle.portableAssets.v1", "control.callback.v1", "workflow.full.v1", "step.agent.v1", "model.http.v1", "agent.codex.v1", "agent.claude.v1", RunnerClaudeApiPolicy.CAPABILITY, "tool.exit.v1", "tool.workflow.v1", "tool.user_interaction.v1", "skill.text.v1", "tool.skill_tools.v1", "service.mcp_servers.v1", "mcp.stdio.v1", "process.interactive.v1", "step.script.v1", "step.subWorkflow.v1", "step.stateMachine.v1", "interaction.approval.v1", "output.read.v1", "output.publish.v1", RunnerAdmission.CONCURRENT_CAPABILITY, RunnerLoopPolicy.CAPABILITY, RunnerLoopPolicy.CLI_CAPABILITY,
+        val CAPABILITIES = linkedSetOf("bundle.portableAssets.v1", "control.callback.v1", "workflow.full.v1", "step.agent.v1", "model.http.v1", "agent.codex.v1", "agent.claude.v1", "agent.antigravity.v1", RunnerClaudeApiPolicy.CAPABILITY, "tool.exit.v1", "tool.workflow.v1", "tool.user_interaction.v1", "skill.text.v1", "tool.skill_tools.v1", "service.mcp_servers.v1", "mcp.stdio.v1", "process.interactive.v1", "step.script.v1", "step.subWorkflow.v1", "step.stateMachine.v1", "interaction.approval.v1", "output.read.v1", "output.publish.v1", RunnerAdmission.CONCURRENT_CAPABILITY, RunnerLoopPolicy.CAPABILITY, RunnerLoopPolicy.CLI_CAPABILITY,
             // Classifier, group chat and agent_based workers run their agent calls through runStepAgent under derived step
             // names, each call's lease released when it ends (WorkflowHost.derivedScopeEnded); the agent_based
             // orchestrator runs under the step's host scope. A Jev decision still needs decision.jev.v1, which this host
