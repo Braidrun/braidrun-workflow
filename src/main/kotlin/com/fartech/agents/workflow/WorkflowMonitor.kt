@@ -216,7 +216,10 @@ object WorkflowMonitor {
     }
 
     private fun claudeProgressInvocationId(event: AgentEvent): String? {
-        if (event.type != "claude_code_sub_agent_progress" && event.type != "antigravity_sub_agent_progress") return null
+        if (event.type != "claude_code_sub_agent_progress" &&
+            event.type != "codex_sub_agent_progress" &&
+            event.type != "antigravity_sub_agent_progress"
+        ) return null
         val detail = event.detail.orEmpty()
         Regex("""(?:^|[,;\s])invocation_id=([A-Za-z0-9._-]+)""")
             .find(detail)

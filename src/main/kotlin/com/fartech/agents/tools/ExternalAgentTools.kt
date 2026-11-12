@@ -5,10 +5,14 @@ import ai.koog.agents.core.tools.annotations.Tool
 import ai.koog.agents.core.tools.reflect.ToolSet
 import com.fartech.agents.commons.MonitoringEventCallback
 import com.fartech.agents.commons.resolveConfiguredApiKey
+import com.fartech.agents.commons.resolveConfiguredApiKeyFromParams
+import com.fartech.agents.runner.RunnerClaudeApiPolicy
 import com.fartech.agents.tools.exec.DockerSubprocessExecutor
 import com.fartech.agents.tools.exec.SubprocessExecutor
 import com.fartech.agents.tools.exec.SubprocessExecutor.ExecRequest
 import com.fartech.agents.tools.exec.SubprocessToolContext
+import com.fartech.agents.commons.LlmEndpointPolicy
+import com.fartech.agents.workflow.WorkflowHostPolicy
 import com.fartech.ftapp2.commonsKt.AnsiColor
 import com.fartech.ftapp2.commonsKt.ConfigurationParameter
 import com.fartech.ftapp2.commonsKt.parameter
@@ -444,6 +448,9 @@ class ExternalAgentTools(
         com.fartech.agents.workflow.WorkflowHostContext.current?.privateDirectory?.let {
             require(ctx.mcpServers.isEmpty()) { "Runner CLI MCP requires a supervised adapter" }
             require(ctx.resumeSessionId.isBlank()) { "Runner CLI session resume needs a bound restore adapter" }
+        }
+        if (!isDocker && WorkflowHostPolicy.refusesStdioMcpServers && ctx.mcpServers.isNotEmpty()) {
+            throw IllegalStateException("Stdio MCP servers are refused by host policy")
         }
         val tempFiles = mutableListOf<File>()
 
@@ -3022,7 +3029,31 @@ class ExternalAgentTools(
         // OpenRouter (or any Anthropic-/OpenAI-compatible proxy). Validated to
         // reject obviously-broken values so a typo in the workflow YAML doesn't
         // silently disable the override.
-        baseUrlOverride?.let { baseUrl -> put(engine.baseUrlEnvVar, baseUrl) }
+        baseUrlOverride?.let { baseUrl ->
+            put(engine.baseUrlEnvVar, baseUrl)
+            if (engine == Engine.CLAUDE && auth.mode == ExternalAuthMode.API_KEY &&
+                com.fartech.agents.workflow.WorkflowHostContext.current == null
+            ) {
+                RunnerClaudeApiPolicy.route(baseUrl)?.let {
+                    val key = auth.env["ANTHROPIC_API_KEY"].orEmpty()
+                    if (key.isNotEmpty()) {
+                        put("ANTHROPIC_AUTH_TOKEN", key)
+                        put("ANTHROPIC_API_KEY", "")
+                        remove("CLAUDE_CODE_OAUTH_TOKEN")
+                    }
+                    if (effectiveModel.isNotBlank()) {
+                        listOf(
+                            "ANTHROPIC_MODEL",
+                            "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+                            "ANTHROPIC_DEFAULT_SONNET_MODEL",
+                            "ANTHROPIC_DEFAULT_OPUS_MODEL",
+                            "ANTHROPIC_SMALL_FAST_MODEL",
+                            "CLAUDE_CODE_SUBAGENT_MODEL"
+                        ).forEach { envKey -> put(envKey, effectiveModel) }
+                    }
+                }
+            }
+        }
         val outputPath = when {
             context.outputDir == null -> null
             isDocker -> "/output"
@@ -3060,6 +3091,7 @@ class ExternalAgentTools(
             "${engine.baseUrlParameterKey}='$raw' must be a fully-qualified URL " +
                 "(https:// or http://localhost[:port] for dev)"
         }
+        LlmEndpointPolicy.check(raw, engine.providerKey)
         return raw
     }
 
@@ -3194,8 +3226,37 @@ class ExternalAgentTools(
         else -> 4
     }
 
+    private fun unwrapConnectorApiKey(raw: String): String {
+        val trimmed = raw.trim()
+        if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+            val obj = parseJsonObjectOrNullStatic(trimmed)
+            val extracted = (obj?.get("api_key") ?: obj?.get("apiKey") ?: obj?.get("token"))
+                ?.jsonPrimitive?.contentOrNull?.trim()
+            if (!extracted.isNullOrEmpty()) return extracted
+        }
+        return trimmed
+    }
+
     private fun resolveApiKey(engine: Engine): String? {
         val keys = parameters.parameter("llm_provider_keys", mapOf<String, String>())
+        val baseUrl = parameters.parameter(engine.baseUrlParameterKey, "").trim()
+        val hasCustomBaseUrl = baseUrl.isNotEmpty()
+        val codingPlanProvider = if (engine == Engine.CLAUDE && hasCustomBaseUrl) {
+            RunnerClaudeApiPolicy.route(baseUrl)?.provider
+        } else null
+        if (codingPlanProvider != null) {
+            parameters.parameter("anthropic_api_key", "").trim().takeIf { it.isNotEmpty() }?.let { return it }
+            resolveConfiguredApiKeyFromParams(parameters, codingPlanProvider, keys)
+                ?.let { return unwrapConnectorApiKey(it) }
+            if (!WorkflowHostPolicy.requiresExplicitKeysForCustomLlmEndpoints) {
+                resolveConfiguredApiKey(parameters, codingPlanProvider, emptyMap())
+                    ?.let { return unwrapConnectorApiKey(it) }
+            }
+            return null
+        }
+        if (hasCustomBaseUrl && WorkflowHostPolicy.requiresExplicitKeysForCustomLlmEndpoints) {
+            return resolveConfiguredApiKeyFromParams(parameters, engine.providerKey, keys)
+        }
         return resolveConfiguredApiKey(parameters, engine.providerKey, keys)
     }
 
@@ -3839,6 +3900,20 @@ class ExternalAgentTools(
         val candidate = File(configured).absoluteFile.normalize()
         require(candidate.path.split(File.separatorChar).none { it == ".." }) {
             "$parameterName must not contain '..' path traversal segments"
+        }
+        if (WorkflowHostPolicy.requiresTenantScopedStorage) {
+            val allowedRoots = listOfNotNull(
+                com.fartech.agents.workflow.WorkflowHostContext.current?.privateDirectory,
+                context.workspaceDir,
+                context.outputDir,
+                File(System.getProperty("java.io.tmpdir"), "braidrun-codex"),
+                File(System.getProperty("java.io.tmpdir"), "braidrun-antigravity"),
+                File(System.getProperty("java.io.tmpdir"), "braidrun-claude")
+            ).map { runCatching { it.canonicalFile.toPath() }.getOrElse { _ -> it.absoluteFile.toPath().normalize() } }
+            val canonicalTarget = runCatching { candidate.canonicalFile.toPath() }.getOrElse { candidate.toPath().normalize() }
+            require(allowedRoots.any { root -> canonicalTarget.startsWith(root) }) {
+                "$parameterName='$configured' is outside managed tenant-scoped storage roots"
+            }
         }
         return candidate
     }

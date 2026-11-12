@@ -31,6 +31,25 @@ class ShellTools(
     private val isWindows: Boolean =
         System.getProperty("os.name").lowercase().contains("win")
 
+    private fun resolveSafeWorkingDir(workingDirectory: String): Result<File> {
+        val baseDir = context.workspaceDir ?: File(".")
+        if (workingDirectory.isBlank()) return Result.success(baseDir)
+        val candidate = File(workingDirectory).let { if (it.isAbsolute) it else File(baseDir, workingDirectory) }
+        if (!candidate.isDirectory) {
+            return Result.failure(IllegalArgumentException("working directory does not exist or is not a directory: $workingDirectory"))
+        }
+        val enforceConfinement = context.workspaceDir != null &&
+            (executor.isDocker || com.fartech.agents.workflow.WorkflowHostPolicy.requiresTenantScopedStorage)
+        if (enforceConfinement) {
+            val canonicalCandidate = candidate.canonicalFile.toPath()
+            val allowedRoots = listOfNotNull(context.workspaceDir, context.outputDir).map { it.canonicalFile.toPath() }
+            if (allowedRoots.none { canonicalCandidate == it || canonicalCandidate.startsWith(it) }) {
+                return Result.failure(SecurityException("working directory '$workingDirectory' escapes the allowed workspace"))
+            }
+        }
+        return Result.success(candidate)
+    }
+
     @Tool
     @LLMDescription(
         "Execute a shell command. Automatically detects the operating system and uses the appropriate shell " +
@@ -64,14 +83,8 @@ class ShellTools(
             emptyMap()
         }
 
-        val workDir = if (workingDirectory.isNotBlank()) {
-            val dir = File(workingDirectory)
-            if (!dir.isDirectory) {
-                return "The shell command output is: Error: working directory does not exist or is not a directory: $workingDirectory and exit code is: -1"
-            }
-            dir
-        } else {
-            context.workspaceDir ?: File(".")
+        val workDir = resolveSafeWorkingDir(workingDirectory).getOrElse { err ->
+            return "The shell command output is: Error: ${err.message} and exit code is: -1"
         }
 
         val result = executor.execute(
@@ -110,14 +123,8 @@ class ShellTools(
         @LLMDescription("Timeout in seconds (optional, defaults to 120)")
         timeoutSeconds: Long = DEFAULT_TIMEOUT_SECONDS
     ): String {
-        val workDir = if (workingDirectory.isNotBlank()) {
-            val dir = File(workingDirectory)
-            if (!dir.isDirectory) {
-                return "Error executing script: working directory does not exist or is not a directory: $workingDirectory"
-            }
-            dir
-        } else {
-            context.workspaceDir ?: File(".")
+        val workDir = resolveSafeWorkingDir(workingDirectory).getOrElse { err ->
+            return "Error executing script: ${err.message}"
         }
 
         val suffix = if (isWindows) ".ps1" else ".sh"
@@ -169,6 +176,8 @@ class ShellTools(
                 " [TIMED OUT after ${timeoutSeconds}s]"
             } else ""
             "The shell command output is: $output and exit code is: ${result.exitCode}$timeoutNote"
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             "Error executing script: ${e.message}"
         } finally {

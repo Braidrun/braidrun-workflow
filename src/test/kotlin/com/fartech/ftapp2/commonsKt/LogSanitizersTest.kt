@@ -162,4 +162,31 @@ class LogSanitizersTest {
         val elapsedMs = (System.nanoTime() - start) / 1_000_000
         assertTrue(elapsedMs < 2_000, "redactForLog took ${elapsedMs}ms — possible ReDoS regression")
     }
+
+    @Test
+    fun `redactForLog redacts PEM private keys JSON secret fields and provider prefixes`() {
+        val pem = "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC\n-----END PRIVATE KEY-----"
+        val pemOut = redactForLog("Loaded key:\n$pem\ndone")
+        assertTrue("<redacted>" in pemOut)
+        assertTrue("MIIEvQIB" !in pemOut)
+
+        val jsonMsg = """{"client_id":"pub","refresh_token":"1//0gSyntheticRefreshTokenValue","private_key":"secret-val"}"""
+        val jsonOut = redactForLog(jsonMsg)
+        assertTrue("1//0gSynthetic" !in jsonOut)
+        assertTrue("secret-val" !in jsonOut)
+        assertEquals(jsonOut, redactForLog(jsonOut), "JSON redaction must be idempotent")
+
+        val tokens = listOf(
+            "GOCSPX-" + "abcdefghijklmnopqrstuvwxyz0123",
+            "glpat-" + "abcdefghijklmnopqrstuvwxyz0123",
+            "hf_" + "abcdefghijklmnopqrstuvwxyzABCDEFGH",
+            "tvly-" + "abcdefghijklmnopqrstuvwxyz0123",
+            "pplx-" + "abcdefghijklmnopqrstuvwxyz0123"
+        )
+        for (tok in tokens) {
+            val out = redactForLog("Credential $tok failed")
+            assertTrue("<redacted>" in out, "Expected $tok to be redacted: $out")
+            assertTrue(tok !in out)
+        }
+    }
 }

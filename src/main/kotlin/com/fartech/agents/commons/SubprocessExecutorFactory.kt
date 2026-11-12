@@ -25,6 +25,9 @@ import java.io.File
  */
 object SubprocessExecutorFactory {
 
+    private val sharedDockerClients =
+        java.util.concurrent.ConcurrentHashMap<String, com.github.dockerjava.api.DockerClient>()
+
     /**
      * Build a [SubprocessExecutor] from workflow / agent parameters.
      *
@@ -41,7 +44,7 @@ object SubprocessExecutorFactory {
         val mode = parameters.parameter("subprocess_mode", "native")
         return when (mode) {
             "docker" -> {
-                val dockerHost = System.getenv("DOCKER_HOST") ?: "unix:///var/run/docker.sock"
+                val resolvedHost = DockerSubprocessExecutor.resolveDockerHost(System.getenv("DOCKER_HOST"))
                 val imageTag = validateImageTag(parameters.parameter("docker_exec_image_tag", "1.0"))
                 val networkName = validateDockerNetworkName(
                     parameters.parameter(
@@ -54,8 +57,11 @@ object SubprocessExecutorFactory {
                     "python" to "braidrun/exec-python-node:$imageTag",
                     "node" to "braidrun/exec-node:$imageTag"
                 )
+                val dockerClient = sharedDockerClients.computeIfAbsent(resolvedHost) {
+                    DockerSubprocessExecutor.buildDockerClient(it)
+                }
                 DockerSubprocessExecutor(
-                    DockerSubprocessExecutor.buildDockerClient(dockerHost),
+                    dockerClient,
                     imageRegistry = registry,
                     egressNetworkName = networkName
                 )

@@ -95,10 +95,13 @@ class RunnerWorkflowHost(
     override val subprocessExecutor: SubprocessExecutor = object : SubprocessExecutor {
         override val isDocker get() = processDelegate.isDocker
         override suspend fun execute(request: SubprocessExecutor.ExecRequest): SubprocessExecutor.ExecResult = businessFence.operation {
-            processDelegate.execute(RunnerClaudeApiPolicy.request(request.copy(environmentAtStart = {
-                businessFence.check()
-                request.environmentAtStart?.invoke().orEmpty()
-            })))
+            val prepared = RunnerAgentToolPolicy.enforceCliEndpointBounds(
+                RunnerClaudeApiPolicy.request(request.copy(environmentAtStart = {
+                    businessFence.check()
+                    request.environmentAtStart?.invoke().orEmpty()
+                }))
+            )
+            processDelegate.execute(prepared)
         }
     }
     private val producerStarts = java.util.concurrent.ConcurrentHashMap<Pair<String, String>, String>()
@@ -501,6 +504,16 @@ class RunnerWorkflowHost(
         val extraArgs = parameters.firstOrNull { it.key == "external_agent_claude_extra_args" }?.value?.let(RunnerAgentToolPolicy::text)
         forced += com.fartech.ftapp2.commonsKt.ConfigurationParameter("external_agent_claude_extra_args", JsonPrimitive(
             if (type == "claude_code_agent") RunnerAgentToolPolicy.claudeExtraArgs(extraArgs).joinToString(",") else ""))
+        val antigravityExtraArgs = parameters.firstOrNull { it.key == "external_agent_antigravity_extra_args" }?.value?.let(RunnerAgentToolPolicy::text)
+        forced += com.fartech.ftapp2.commonsKt.ConfigurationParameter("external_agent_antigravity_extra_args", JsonPrimitive(
+            if (type == "antigravity_agent") RunnerAgentToolPolicy.antigravityExtraArgs(antigravityExtraArgs).joinToString(",") else ""))
+        if (type == "codex_agent") {
+            val codexExtraArgs = parameters.firstOrNull { it.key == "external_agent_codex_extra_args" }?.value?.let(RunnerAgentToolPolicy::text)
+            forced += com.fartech.ftapp2.commonsKt.ConfigurationParameter(
+                "external_agent_codex_extra_args",
+                JsonPrimitive(RunnerAgentToolPolicy.codexExtraArgs(codexExtraArgs).joinToString(","))
+            )
+        }
         val replaced = forced.map { it.key }.toSet() + (if (fileTools) setOf("workspace_dir") else emptySet())
         val result = parameters.filterNot {
             it.key in setOf(
@@ -738,7 +751,7 @@ class RunnerWorkflowHost(
         live.release(executionId, name)
     }
     @Synchronized override fun monitor(update: WorkflowMonitorUpdate) {
-        if (update.type in setOf("step_completed", "step_cancelled")) update.stepName?.let { live.release(update.executionId, it) }
+        if (update.type in setOf("step_completed", "step_cancelled")) update.stepName?.let { releaseOwned(update.executionId, it) }
         val payload = buildJsonObject {
             put("executionId", update.executionId); put("kind", update.type)
             update.stepName?.let { put("stepName", it) }; update.occurrence?.let { put("occurrence", it) }; update.success?.let { put("success", it) }

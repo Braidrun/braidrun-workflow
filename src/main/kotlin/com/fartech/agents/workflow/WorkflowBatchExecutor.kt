@@ -36,6 +36,8 @@ class WorkflowBatchExecutor(
                     } else {
                         runner(item)
                     }
+                }.onFailure { err ->
+                    if (err is kotlinx.coroutines.CancellationException) throw err
                 }
                 val completedAt = System.currentTimeMillis()
 

@@ -1,6 +1,6 @@
 # Braidrun Workflow
 
-Braidrun Workflow is the open workflow runtime behind [Braidrun](https://braidrun.com). It orchestrates YAML-defined AI workflows across an embedded Koog runtime and external Claude Code and OpenAI Codex runtimes, with agent presets, deterministic code steps, tool execution, sub-workflows, MCP integration, and Docker-backed subprocess isolation.
+Braidrun Workflow is the open workflow runtime behind [Braidrun](https://braidrun.com). It orchestrates YAML-defined AI workflows across an embedded Koog runtime and external Claude Code, OpenAI Codex, and Google Antigravity runtimes, with agent presets, deterministic code steps, tool execution, sub-workflows, MCP integration, and Docker-backed subprocess isolation.
 
 Use this repository when you need the runtime as a command-line tool or an embeddable Kotlin/JVM library. Use [braidrun.com](https://braidrun.com) when you want the hosted product experience: visual workflow editing, team execution history, managed deployments, monitoring, and a web UI for non-developer operators.
 
@@ -13,7 +13,7 @@ Use this repository when you need the runtime as a command-line tool or an embed
 - Built-in tool groups for files, shell, Git, HTTP, browser automation, documents, databases, RAG, email, image processing, and MCP. Browser screenshots and MCP image results reach Anthropic, Gemini 3+ and Responses-API-only OpenAI vision models as images (text placeholders elsewhere).
 - Koog 1.3.0 model catalog (Claude 5, GPT-6 / GPT-5.6, Gemini 3.x, Qwen 3.x, Grok 4.x and more), with per-request fitting of `temperature`, `tool_choice` and Anthropic `max_tokens` to each model.
 - In-house Agent Skills (`SKILL.md`) with scoped discovery, `useSkill` activation and host-level lockdown for multi-tenant servers.
-- Multi-runtime agent execution: embedded Koog agents, plus Claude Code and OpenAI Codex as direct workflow agents or delegated sub-agents.
+- Multi-runtime agent execution: embedded Koog agents, plus Claude Code, OpenAI Codex, and Google Antigravity as direct workflow agents or delegated sub-agents.
 - Native subprocess mode for trusted local development and Docker subprocess mode for production isolation.
 
 ## Agent Runtimes
@@ -23,8 +23,9 @@ Use this repository when you need the runtime as a command-line tool or an embed
 | Koog | Embedded Kotlin/JVM runtime | General LLM-backed agents, tools, and custom workflow strategies |
 | Claude Code | `claude` CLI subprocess | Repository-aware coding agents and delegated engineering tasks |
 | OpenAI Codex | `codex` CLI subprocess | Coding agents, repository automation, and delegated engineering tasks |
+| Google Antigravity | `agy` CLI / `google-antigravity` Python SDK | Gemini-powered coding agents and delegated engineering tasks |
 
-Claude Code and Codex can run as first-class workflow agent steps or be spawned by a parent agent through the `external_agent` tool group. Both use the same native or Docker-backed subprocess executor as code and shell steps. See [Claude Code and Codex Agents](docs/EXTERNAL_AGENTS.md) for setup and authentication.
+Claude Code, Codex, and Antigravity can run as first-class workflow agent steps or be spawned by a parent agent through the `external_agent` tool group. All three use the same native or Docker-backed subprocess executor as code and shell steps. See [Claude Code, Codex, and Antigravity Agents](docs/EXTERNAL_AGENTS.md) for setup and authentication.
 
 ## Quick Start
 
@@ -34,7 +35,7 @@ Requirements:
 - Docker Desktop or Docker Engine for Docker subprocess mode
 - Provider API keys for Koog-backed agent workflows
 - `TYPESAFE_API_KEY` only for Jev decision steps (`classifier.jev`, `repeat_until.jev`)
-- Node.js and the relevant `claude` or `codex` CLI only when using Claude Code or Codex agents
+- Node.js / Python and the relevant `claude`, `codex`, or `agy` CLI / `google-antigravity` SDK only when using external agents
 
 ```bash
 ./gradlew installDist
@@ -68,8 +69,8 @@ Keep keys out of workflow YAML.
 | OpenRouter (preset default) | `OPENROUTER_API_KEY` | Koog agents |
 | OpenAI | `OPENAI_API_KEY` | Koog agents |
 | Anthropic | `ANTHROPIC_API_KEY` | Koog agents, Claude Code |
-| Google | `GOOGLE_API_KEY` | Koog agents |
-| DeepSeek | `DEEPSEEK_API_KEY` | Koog agents |
+| Google / Gemini | `GOOGLE_API_KEY` / `GEMINI_API_KEY` | Koog agents, Google Antigravity |
+| DeepSeek | `DEEPSEEK_API_KEY` | Koog agents, Claude Code (Coding Plan) |
 | TypeSafe (Jev) | `TYPESAFE_API_KEY` | `classifier.jev` and `repeat_until.jev` only |
 
 Other providers follow the same `<PROVIDER>_API_KEY` pattern.
@@ -95,7 +96,7 @@ repositories {
 }
 
 dependencies {
-    implementation("com.github.Braidrun:braidrun-workflow:1.4.5")
+    implementation("com.github.Braidrun:braidrun-workflow:1.4.6-rc.20261112.3")
 }
 ```
 
@@ -109,7 +110,7 @@ The library exposes the same parser and executor the CLI uses. See [Library Usag
 - [Library Usage](docs/LIBRARY_USAGE.md)
 - [Workflow YAML](docs/WORKFLOW_GUIDE.md)
 - [Agent Presets](docs/AGENT_PRESETS.md)
-- [Claude Code and Codex Agents](docs/EXTERNAL_AGENTS.md)
+- [Claude Code, Codex, and Antigravity Agents](docs/EXTERNAL_AGENTS.md)
 - [MCP](docs/MCP.md)
 - [Skills](docs/SKILLS.md)
 - [Prompt Caching and Token Accounting](docs/PROMPT_CACHING.md)

@@ -52,7 +52,22 @@ class CodeExecutionTools(
         timeoutSeconds: Long,
         workingDirectory: String
     ): String {
-        val workDir = if (workingDirectory.isNotBlank()) File(workingDirectory) else context.workspaceDir ?: File(".")
+        val baseDir = context.workspaceDir ?: File(".")
+        val workDir = if (workingDirectory.isNotBlank()) {
+            val candidate = File(workingDirectory).let { if (it.isAbsolute) it else File(baseDir, workingDirectory) }
+            val enforceConfinement = context.workspaceDir != null &&
+                (executor.isDocker || com.fartech.agents.workflow.WorkflowHostPolicy.requiresTenantScopedStorage)
+            if (enforceConfinement) {
+                val canonicalCandidate = candidate.canonicalFile.toPath()
+                val allowedRoots = listOfNotNull(context.workspaceDir, context.outputDir).map { it.canonicalFile.toPath() }
+                if (allowedRoots.none { canonicalCandidate == it || canonicalCandidate.startsWith(it) }) {
+                    return "Error executing code: working directory '$workingDirectory' escapes the allowed workspace"
+                }
+            }
+            candidate
+        } else {
+            baseDir
+        }
         // Phase 11: `File.createTempFile` honours umask (default 0644 on Linux). Code
         // snippets routinely contain inline API tokens / credentials the LLM was told
         // to use. SecureTempFile chmod's the file to 0600 immediately so another local
@@ -82,6 +97,8 @@ class CodeExecutionTools(
             } else ""
 
             "Exit code: ${result.exitCode}$timeoutNote\nOutput:\n$output"
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             "Error executing code: ${e.message}"
         } finally {

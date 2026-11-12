@@ -142,6 +142,11 @@ class FileReadGuard(
             Regex("""^\.kube.*"""),                   // kubeconfig
             Regex("""^\.docker.*"""),                 // docker config
             Regex("""^credentials$"""),               // Generic credentials file
+            Regex("""^auth\.json$"""),                // Codex / CLI auth state
+            Regex("""^mcp(_config)?\.json$"""),       // Claude / Antigravity MCP config (may embed env tokens)
+            Regex("""^adc_credentials\.json$"""),     // Materialized Google ADC credentials
+            Regex("""^application_default_credentials\.json$"""), // Standard gcloud ADC file
+            Regex("""^\.credentials\.json$"""),       // Claude Code OAuth credentials
             Regex("""^\.npmrc$"""),                   // npm registry tokens
             Regex("""^\.pypirc$"""),                  // PyPI registry tokens
             Regex("""^\.netrc$"""),                   // curl/ftp credentials

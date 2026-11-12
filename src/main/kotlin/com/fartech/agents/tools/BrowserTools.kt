@@ -229,12 +229,29 @@ class BrowserTools(
         }
     }
 
+    private fun shouldEnforcePublicBrowserNetwork(): Boolean =
+        (!ToolRunScope.isSingleUserProcess || com.fartech.agents.workflow.WorkflowHostPolicy.requiresPublicServiceEndpoints) &&
+            !System.getenv("WEB_TOOLS_ALLOW_PRIVATE_URLS").equals("true", ignoreCase = true)
+
     private fun openSession(browser: Browser): BrowserSession {
         val userAgent = parameters.parameter(
             "PLAYWRIGHT_USER_AGENT",
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
         )
         val context = browser.newContext(Browser.NewContextOptions().setUserAgent(userAgent))
+        if (shouldEnforcePublicBrowserNetwork() && !java.lang.reflect.Proxy.isProxyClass(context.javaClass)) {
+            context.route("**/*") { route ->
+                val reqUrl = route.request().url()
+                val lower = reqUrl.lowercase()
+                val allowed = when {
+                    lower.startsWith("http://") || lower.startsWith("https://") ->
+                        runCatching { UrlSafety.validateAndNormalizeUrl(reqUrl); true }.getOrDefault(false)
+                    lower.startsWith("about:") || lower.startsWith("data:") || lower.startsWith("blob:") -> true
+                    else -> false
+                }
+                if (allowed) route.resume() else route.abort()
+            }
+        }
         val page = try {
             context.newPage()
         } catch (e: Exception) {
@@ -255,18 +272,19 @@ class BrowserTools(
         try {
             // Reject schemes that read local state (file://) or execute code
             // in an already-loaded page (javascript:, data:, vbscript:, blob:).
-            // Without this gate an LLM could stage a `file:///etc/passwd`
-            // load and feed the contents back through `browser_get_content`.
-            // We deliberately do NOT plug in UrlSafety's SSRF resolver here:
-            // browser-driven workflows legitimately drive against localhost
-            // (test harnesses, internal admin UIs); preserve that.
+            // In multi-tenant mode, also enforce public-host SSRF validation.
             require(isAllowedBrowserScheme(url)) {
                 "URL scheme rejected — browser_navigate accepts http(s) only, got: $url"
+            }
+            if (shouldEnforcePublicBrowserNetwork()) {
+                UrlSafety.validateAndNormalizeUrl(url)
             }
             withPage(contextId) { page ->
                 val response = page.navigate(url)
                 "✅ Navigated to $url (Status: ${response?.status() ?: "unknown"})"
             }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             "❌ Navigation failed: ${e.message}"
         }
@@ -317,6 +335,8 @@ class BrowserTools(
                 )
                 ScreenshotCapture.Saved(safeFile, png)
             }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: SecurityException) {
             ScreenshotCapture.Failed("❌ Screenshot path rejected: ${e.message}")
         } catch (e: Exception) {

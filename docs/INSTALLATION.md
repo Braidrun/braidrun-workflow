@@ -89,7 +89,7 @@ repositories {
 }
 
 dependencies {
-    implementation("com.github.Braidrun:braidrun-workflow:1.4.5")
+    implementation("com.github.Braidrun:braidrun-workflow:1.4.6-rc.20261112.3")
 }
 ```
 
@@ -102,7 +102,7 @@ repositories {
 }
 
 dependencies {
-    implementation 'com.github.Braidrun:braidrun-workflow:1.4.5'
+    implementation 'com.github.Braidrun:braidrun-workflow:1.4.6-rc.20261112.3'
 }
 ```
 
@@ -114,6 +114,6 @@ To build and consume the library without JitPack:
 ./gradlew publishToMavenLocal
 ```
 
-This publishes `com.fartech.braidrun:braidrun-workflow:1.4.5` to `~/.m2`. Add `mavenLocal()` to your repositories and depend on that coordinate.
+This publishes `com.fartech.braidrun:braidrun-workflow:1.4.6-rc.20261112.3` to `~/.m2`. Add `mavenLocal()` to your repositories and depend on that coordinate.
 
 See [Library Usage](LIBRARY_USAGE.md) for the parser/executor APIs.

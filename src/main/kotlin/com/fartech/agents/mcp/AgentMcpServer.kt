@@ -41,7 +41,8 @@ import java.nio.charset.StandardCharsets
 import java.util.UUID
 
 private const val AGENT_MCP_SERVER_NAME = "braidrun-workflow"
-private const val AGENT_MCP_SERVER_VERSION = "1.0.0-SNAPSHOT"
+private val AGENT_MCP_SERVER_VERSION: String =
+    object {}.javaClass.`package`?.implementationVersion ?: "1.4.6-rc.20261112.3"
 
 private val mcpLogger = KotlinLogging.logger("com.fartech.agents.mcp.AgentMcpServer")
 

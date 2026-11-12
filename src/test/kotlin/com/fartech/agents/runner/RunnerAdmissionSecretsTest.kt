@@ -146,10 +146,26 @@ class RunnerAdmissionSecretsTest {
         assertTrue(rendered.contains("IllegalArgumentException")); assertTrue(rendered.contains("IllegalStateException"))
         assertFalse(rendered.contains("synthetic")); assertFalse(rendered.contains("example.invalid"))
     }
-    @Test fun `Antigravity CLI flags and ADC or API endpoint bounds are enforced on Runner`() {
+    @Test fun `Antigravity and Codex CLI flags and endpoint bounds are enforced on Runner`() {
         assertEquals(emptyList(), RunnerAgentToolPolicy.antigravityExtraArgs("--dangerously-skip-permissions"))
-        assertEquals(listOf("--effort", "high"), RunnerAgentToolPolicy.antigravityExtraArgs("--effort,high"))
         assertFailsWith<IllegalArgumentException> { RunnerAgentToolPolicy.antigravityExtraArgs("--workspace,/etc") }
+        assertEquals(listOf("-c", "model_reasoning_effort=\"high\""), RunnerAgentToolPolicy.codexExtraArgs("-c,model_reasoning_effort=\"high\""))
+        assertFailsWith<IllegalArgumentException> { RunnerAgentToolPolicy.codexExtraArgs("--dangerously-bypass-approvals-and-sandbox") }
+        assertFailsWith<IllegalArgumentException> { RunnerAgentToolPolicy.codexExtraArgs("-c,mcp_servers.evil.command=sh") }
+
+        fun execReq(env: Map<String, String>) = com.fartech.agents.tools.exec.SubprocessExecutor.ExecRequest(
+            command = listOf("agy"),
+            workingDir = java.io.File("."),
+            timeoutSeconds = 30,
+            env = env
+        )
+        RunnerAgentToolPolicy.enforceCliEndpointBounds(execReq(mapOf("GOOGLE_GEMINI_BASE_URL" to "https://generativelanguage.googleapis.com")))
+        assertFailsWith<IllegalArgumentException> {
+            RunnerAgentToolPolicy.enforceCliEndpointBounds(execReq(mapOf("OPENAI_BASE_URL" to "https://evil.example")))
+        }
+        assertFailsWith<IllegalArgumentException> {
+            RunnerAgentToolPolicy.enforceCliEndpointBounds(execReq(mapOf("GOOGLE_GEMINI_BASE_URL" to "https://evil.example")))
+        }
 
         val agyCaps = setOf("workflow.full.v1", "step.agent.v1", "agent.antigravity.v1")
         val validAgy = AgentDefinition(type = "antigravity_agent", overrides = mapOf(
@@ -159,12 +175,6 @@ class RunnerAdmissionSecretsTest {
         ))
         RunnerAdmission(NullWorkflowResolver, agyCaps).inspect(fileWorkflow(validAgy))
 
-        val validAdc = AgentDefinition(type = "antigravity_agent", overrides = mapOf(
-            "external_agent_antigravity_auth_mode" to JsonPrimitive("adc"),
-            "external_agent_antigravity_auth_json" to JsonPrimitive("credential:agy-adc@1")
-        ))
-        RunnerAdmission(NullWorkflowResolver, agyCaps).inspect(fileWorkflow(validAdc))
-
         val unapprovedAgyUrl = AgentDefinition(type = "antigravity_agent", overrides = mapOf(
             "external_agent_antigravity_auth_mode" to JsonPrimitive("api_key"),
             "gemini_api_key" to JsonPrimitive("credential:gemini@1"),
@@ -172,6 +182,15 @@ class RunnerAdmissionSecretsTest {
         ))
         assertFailsWith<IllegalArgumentException> {
             RunnerAdmission(NullWorkflowResolver, agyCaps).inspect(fileWorkflow(unapprovedAgyUrl))
+        }
+
+        val subWithCustomUrl = AgentDefinition(type = "codex_agent", overrides = mapOf(
+            "external_agent_codex_auth_mode" to JsonPrimitive("subscription"),
+            "external_agent_codex_auth_json" to JsonPrimitive("credential:codex@1"),
+            "external_agent_codex_base_url" to JsonPrimitive("https://api.openai.com/v1")
+        ))
+        assertFailsWith<IllegalArgumentException> {
+            RunnerAdmission(NullWorkflowResolver, setOf("workflow.full.v1", "step.agent.v1", "agent.codex.v1")).inspect(fileWorkflow(subWithCustomUrl))
         }
     }
 }

@@ -1,5 +1,6 @@
 package com.fartech.agents.runner
 
+import com.fartech.agents.tools.exec.SubprocessExecutor
 import com.fartech.agents.workflow.DirectoryIsolationConfig
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
@@ -21,10 +22,17 @@ internal object RunnerAgentToolPolicy {
     val CLAUDE_FILE_TOOLS = setOf("Read", "Write", "Edit", "MultiEdit", "Glob", "Grep", "LS")
     const val CLAUDE_DEFAULT_TOOLS = "Read,Write,Edit,Glob,Grep"
     private const val SKIP_PERMISSIONS = "--dangerously-skip-permissions"
+    private const val CODEX_BYPASS_APPROVALS = "--dangerously-bypass-approvals-and-sandbox"
     private val ANTIGRAVITY_EFFORT_LEVELS = setOf("low", "medium", "high", "xhigh", "max")
     val APPROVED_ANTIGRAVITY_API_BASE_URLS = setOf(
         "https://generativelanguage.googleapis.com",
         "https://llm.braidrun.com"
+    )
+    val APPROVED_OPENAI_API_BASE_URLS = setOf(
+        "https://api.openai.com",
+        "https://api.openai.com/v1",
+        "https://llm.braidrun.com",
+        "https://llm.braidrun.com/v1"
     )
 
     fun text(value: JsonElement?): String? = (value as? JsonPrimitive)?.takeIf { value != JsonNull }?.content
@@ -32,6 +40,11 @@ internal object RunnerAgentToolPolicy {
     fun isApprovedAntigravityApiBaseUrl(raw: String?): Boolean {
         val normalized = raw?.trim()?.trimEnd('/').orEmpty()
         return normalized.isEmpty() || normalized in APPROVED_ANTIGRAVITY_API_BASE_URLS
+    }
+
+    fun isApprovedOpenAiApiBaseUrl(raw: String?): Boolean {
+        val normalized = raw?.trim()?.trimEnd('/').orEmpty()
+        return normalized.isEmpty() || normalized in APPROVED_OPENAI_API_BASE_URLS
     }
 
     /**
@@ -83,6 +96,74 @@ internal object RunnerAgentToolPolicy {
             }
         }
         return args
+    }
+
+    /**
+     * Extra CLI arguments for a Runner Codex step. Refuses `--dangerously-bypass-approvals-and-sandbox`
+     * and `-c`/`--config` overrides targeting `mcp_servers.*` (which would bypass leased MCP admission).
+     */
+    fun codexExtraArgs(raw: String?): List<String> {
+        val args = raw.orEmpty().split(',').map { it.trim() }.filter { it.isNotEmpty() }
+        var i = 0
+        while (i < args.size) {
+            val token = args[i]
+            require(token != CODEX_BYPASS_APPROVALS && !token.startsWith("$CODEX_BYPASS_APPROVALS=")) {
+                "Runner Codex steps cannot bypass approvals and sandbox"
+            }
+            if (token == "-c" || token == "--config") {
+                val assignment = args.getOrNull(i + 1)?.trim().orEmpty()
+                require(!assignment.startsWith("mcp_servers.")) { "Runner Codex steps cannot inject mcp_servers via -c" }
+                i += 2
+                continue
+            }
+            if (token.startsWith("-c=") || token.startsWith("--config=")) {
+                val assignment = token.substringAfter('=').trim()
+                require(!assignment.startsWith("mcp_servers.")) { "Runner Codex steps cannot inject mcp_servers via -c" }
+            }
+            i += 1
+        }
+        return args
+    }
+
+    /** Final subprocess-boundary guard preventing leased CLI credentials from being sent to unapproved hosts. */
+    fun enforceCliEndpointBounds(request: SubprocessExecutor.ExecRequest): SubprocessExecutor.ExecRequest {
+        fun verifyEnv(env: Map<String, String>) {
+            val anthropicBaseUrl = env["ANTHROPIC_BASE_URL"]?.trim().orEmpty()
+            if (anthropicBaseUrl.isNotEmpty()) {
+                require(env["CLAUDE_CODE_OAUTH_TOKEN"].isNullOrBlank()) {
+                    "Runner Claude subscription credentials cannot use custom ANTHROPIC_BASE_URL"
+                }
+                require(RunnerClaudeApiPolicy.route(anthropicBaseUrl) != null) {
+                    "Runner Claude API endpoint is not an approved provider"
+                }
+            }
+            val openaiBaseUrl = env["OPENAI_BASE_URL"]?.trim().orEmpty()
+            if (openaiBaseUrl.isNotEmpty()) {
+                require(env["CODEX_HOME"].isNullOrBlank()) {
+                    "Runner Codex subscription credentials cannot use custom OPENAI_BASE_URL"
+                }
+                require(isApprovedOpenAiApiBaseUrl(openaiBaseUrl)) {
+                    "Runner OpenAI API endpoint is not an approved provider"
+                }
+            }
+            val geminiBaseUrl = env["GOOGLE_GEMINI_BASE_URL"]?.trim().orEmpty()
+            val legacyGeminiBaseUrl = env["GEMINI_API_BASE_URL"]?.trim().orEmpty()
+            if (geminiBaseUrl.isNotEmpty() || legacyGeminiBaseUrl.isNotEmpty()) {
+                require(env["GOOGLE_APPLICATION_CREDENTIALS"].isNullOrBlank()) {
+                    "Runner Antigravity subscription credentials cannot use custom Gemini base URL"
+                }
+                require(isApprovedAntigravityApiBaseUrl(geminiBaseUrl) && isApprovedAntigravityApiBaseUrl(legacyGeminiBaseUrl)) {
+                    "Runner Antigravity API endpoint is not an approved provider"
+                }
+            }
+        }
+        verifyEnv(request.env)
+        val start = request.environmentAtStart
+        return if (start == null) request else request.copy(environmentAtStart = {
+            val dynamic = start()
+            verifyEnv(request.env + dynamic)
+            dynamic
+        })
     }
 
     /**

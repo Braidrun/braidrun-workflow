@@ -239,6 +239,24 @@ class FileReadGuardTest {
     }
 
     @Test
+    fun `blocks external agent auth and MCP credential files`(@TempDir dir: File) {
+        for (name in listOf(
+            "auth.json",
+            "mcp.json",
+            "mcp_config.json",
+            "adc_credentials.json",
+            "application_default_credentials.json",
+            ".credentials.json"
+        )) {
+            val blocked = File(dir, name).also { it.createNewFile() }
+            val ex = assertThrows(SecurityException::class.java) {
+                enabledGuard.validateReadFile(blocked)
+            }
+            assertTrue(ex.message!!.contains("blacklisted"), "Expected $name to be blacklisted")
+        }
+    }
+
+    @Test
     fun `custom filename blacklist is respected`(@TempDir dir: File) {
         val guard = FileReadGuard(
             enabled = true,

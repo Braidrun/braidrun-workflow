@@ -314,7 +314,7 @@ dependencies {
 }
 
 group = "com.fartech.braidrun"
-version = "1.4.6-rc.20261112.2"
+version = "1.4.6-rc.20261112.3"
 description = "braidrun-workflow"
 
 tasks.named<Jar>("jar") {
@@ -455,8 +455,7 @@ distributions.main {
     contents {
         from(runnerHostJar) { rename { "runner-host.jar" } }
         from("src/main/resources/runner-workflow-v1") {
-            include("artifact-boundary.schema.json", "artifact-boundary-origin.txt", "artifact-set.schema.json", "artifact-set-origin.txt", "artifact-set-semantics-origin.txt")
-            include("gate-set-control.schema.json", "gate-set-control-origin.txt", "gate-projection.schema.json", "gate-projection-origin.txt", "gate-feedback-context.schema.json", "gate-feedback-context-origin.txt")
+            include("*.schema.json", "*origin.txt", "contract-semantics.txt")
             into("protocol")
         }
     }

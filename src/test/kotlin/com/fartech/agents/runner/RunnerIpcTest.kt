@@ -100,7 +100,7 @@ class RunnerIpcTest {
     @Test fun `acknowledged events leave the retained set and replay only as their exact durable original`() = runBlocking<Unit> {
         IpcHarness().use { h ->
             val durable = java.util.concurrent.ConcurrentHashMap<String, ByteArray>()
-            val journal = RunnerEventJournal(h.binding, RunnerSecrets(), { path, bytes -> durable[path] = bytes }, { h.ipc.sendFrame(it); Unit }, {}, h.ipc.businessFence)
+            val journal = RunnerEventJournal(h.binding, RunnerSecrets(), { path, bytes -> durable[path] = bytes }, { h.ipc.sendFrame(it) }, {}, h.ipc.businessFence)
             h.ipc.retainEventsDurably { seq -> durable[".runner-state/events/$seq.json"] }
             val events = (1..3).map { journal.append("usage", buildJsonObject { put("outcome", "RELEASED"); put("n", it) }) }
             events.forEach { assertEquals(it, h.next()) }
@@ -125,7 +125,7 @@ class RunnerIpcTest {
 
     @Test fun `without a durable journal reader acknowledged events stay retained`() = runBlocking<Unit> {
         IpcHarness().use { h ->
-            val journal = RunnerEventJournal(h.binding, RunnerSecrets(), { _, _ -> }, { h.ipc.sendFrame(it); Unit }, {}, h.ipc.businessFence)
+            val journal = RunnerEventJournal(h.binding, RunnerSecrets(), { _, _ -> }, { h.ipc.sendFrame(it) }, {}, h.ipc.businessFence)
             val event = journal.append("usage", buildJsonObject { put("outcome", "RELEASED") }); assertEquals(event, h.next())
             h.ipc.reclaimAcknowledged(1)
             assertEquals(1, h.ipc.retainedEvidenceCount())
@@ -141,7 +141,7 @@ class RunnerIpcTest {
             if (frame.string("type") == "ack") { journal.acknowledge(frame.obj("payload")); ipc.reclaimAcknowledged(journal.acknowledged()); acknowledged++ }
         }
         try {
-            journal = RunnerEventJournal(binding, RunnerSecrets(), { _, _ -> }, { ipc.sendFrame(it); Unit }, {}, ipc.businessFence)
+            journal = RunnerEventJournal(binding, RunnerSecrets(), { _, _ -> }, { ipc.sendFrame(it) }, {}, ipc.businessFence)
             ipc.retainEventsDurably { null }
             val renewals = RunnerIpc.MAX_INBOUND_IDENTITIES + 4464
             repeat(renewals) { i ->

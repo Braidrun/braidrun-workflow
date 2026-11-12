@@ -64,19 +64,35 @@ class GitTools(
                 result.exitCode != 0 -> "Git error (exit code ${result.exitCode}):\n$truncated"
                 else -> truncated
             }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             "Error running git: ${e.message}"
         }
     }
 
+    private fun requireSafeGitArg(value: String, name: String): String {
+        val trimmed = value.trim()
+        require(!trimmed.startsWith("-")) { "Invalid git $name '$value': option flags are not allowed" }
+        return trimmed
+    }
+
     private fun resolveWorkingDir(workingDir: String): File {
+        val baseDir = context.workspaceDir ?: File(".")
         if (workingDir.isNotBlank()) {
-            val dir = File(workingDir)
-            // Graceful fallback — git itself will complain if the dir doesn't exist,
-            // preserving the old behaviour for callers.
+            val dir = File(workingDir).let { if (it.isAbsolute) it else File(baseDir, workingDir) }
+            val enforceConfinement = context.workspaceDir != null &&
+                (executor.isDocker || com.fartech.agents.workflow.WorkflowHostPolicy.requiresTenantScopedStorage)
+            if (enforceConfinement) {
+                val canonicalCandidate = dir.canonicalFile.toPath()
+                val allowedRoots = listOfNotNull(context.workspaceDir, context.outputDir).map { it.canonicalFile.toPath() }
+                require(allowedRoots.any { canonicalCandidate == it || canonicalCandidate.startsWith(it) }) {
+                    "Repository path '$workingDir' escapes the allowed workspace"
+                }
+            }
             if (dir.isDirectory) return dir
         }
-        return context.workspaceDir ?: File(".")
+        return baseDir
     }
 
     private fun buildExecutorEnvironment(workDir: File): Map<String, String> {
@@ -136,12 +152,18 @@ class GitTools(
         val args = mutableListOf("diff")
         if (staged) args.add("--cached")
         args.add("--stat")
-        if (filePath.isNotBlank()) args.add(filePath)
+        if (filePath.isNotBlank()) {
+            args.add("--")
+            args.add(filePath)
+        }
         val statOutput = runGit(args, repoPath)
 
         val detailArgs = mutableListOf("diff")
         if (staged) detailArgs.add("--cached")
-        if (filePath.isNotBlank()) detailArgs.add(filePath)
+        if (filePath.isNotBlank()) {
+            detailArgs.add("--")
+            detailArgs.add(filePath)
+        }
         val detailOutput = runGit(detailArgs, repoPath)
 
         return if (detailOutput.isBlank()) {
@@ -201,9 +223,9 @@ class GitTools(
         @LLMDescription("File path(s) to stage, comma-separated. Use '.' to stage all changes.")
         files: String = "."
     ): String {
-        val fileList = files.split(",").map { it.trim() }
+        val fileList = files.split(",").map { it.trim() }.filter { it.isNotEmpty() }
         printlnColor(AnsiColor.BLUE, "[Git] add $files")
-        return runGit(listOf("add") + fileList, repoPath).let { output ->
+        return runGit(listOf("add", "--") + fileList, repoPath).let { output ->
             if (output.isBlank()) "Successfully staged: $files" else output
         }
     }
@@ -235,12 +257,11 @@ class GitTools(
         createNew: Boolean = false
     ): String {
         printlnColor(AnsiColor.BLUE, "[Git] checkout $branch")
+        if (branch.trim().startsWith("-")) return "Error running git: Invalid git branch '$branch': option flags are not allowed"
         val args = mutableListOf("checkout")
         if (createNew) args.add("-b")
-        // `--` separator blocks refs from being interpreted as flags (e.g. branch name "--author=x"
-        // would otherwise be parsed as a git option). Pair with the identifier below.
+        args.add(branch.trim())
         args.add("--")
-        args.add(branch)
         return runGit(args, repoPath)
     }
 
@@ -255,8 +276,12 @@ class GitTools(
         branch: String = ""
     ): String {
         printlnColor(AnsiColor.BLUE, "[Git] pull $remote $branch")
-        val args = mutableListOf("pull", remote)
-        if (branch.isNotBlank()) args.add(branch)
+        val safeRemote = runCatching { requireSafeGitArg(remote, "remote") }.getOrElse { return "Error running git: ${it.message}" }
+        val args = mutableListOf("pull", safeRemote)
+        if (branch.isNotBlank()) {
+            val safeBranch = runCatching { requireSafeGitArg(branch, "branch") }.getOrElse { return "Error running git: ${it.message}" }
+            args.add(safeBranch)
+        }
         return runGit(args, repoPath)
     }
 
@@ -273,10 +298,14 @@ class GitTools(
         setUpstream: Boolean = false
     ): String {
         printlnColor(AnsiColor.BLUE, "[Git] push $remote $branch")
+        val safeRemote = runCatching { requireSafeGitArg(remote, "remote") }.getOrElse { return "Error running git: ${it.message}" }
         val args = mutableListOf("push")
         if (setUpstream) args.add("-u")
-        args.add(remote)
-        if (branch.isNotBlank()) args.add(branch)
+        args.add(safeRemote)
+        if (branch.isNotBlank()) {
+            val safeBranch = runCatching { requireSafeGitArg(branch, "branch") }.getOrElse { return "Error running git: ${it.message}" }
+            args.add(safeBranch)
+        }
         return runGit(args, repoPath)
     }
 
@@ -289,7 +318,8 @@ class GitTools(
         commit: String = "HEAD"
     ): String {
         printlnColor(AnsiColor.BLUE, "[Git] show $commit")
-        return runGit(listOf("show", "--stat", commit), repoPath)
+        val safeCommit = runCatching { requireSafeGitArg(commit, "commit") }.getOrElse { return "Error running git: ${it.message}" }
+        return runGit(listOf("show", "--stat", safeCommit, "--"), repoPath)
     }
 
     @Tool

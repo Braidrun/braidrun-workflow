@@ -467,12 +467,23 @@ class FileManagementTools(
             if (!file.exists()) return "Error: file does not exist: $path"
             if (!file.isFile) return "Error: not a file: $path"
 
-            val lines = file.readLines()
-            val start = (startLine - 1).coerceIn(0, lines.size)
-            val end = if (endLine < 0) lines.size else endLine.coerceIn(start, lines.size)
+            val safeStart = startLine.coerceAtLeast(1)
+            var totalLines = 0
+            val selectedLines = mutableListOf<String>()
+            file.useLines { sequence ->
+                sequence.forEach { line ->
+                    totalLines++
+                    if (totalLines >= safeStart && (endLine < 0 || totalLines <= endLine)) {
+                        if (selectedLines.size < MAX_READ_RANGE_LINES) {
+                            selectedLines.add(line)
+                        }
+                    }
+                }
+            }
+            val start = (safeStart - 1).coerceIn(0, totalLines)
+            val end = if (endLine < 0) totalLines else endLine.coerceIn(start, totalLines)
 
-            val selectedLines = lines.subList(start, end)
-            "Lines $startLine-$end of ${lines.size} total:\n${selectedLines.joinToString("\n")}"
+            "Lines ${if (totalLines == 0) 0 else start + 1}-$end of $totalLines total:\n${selectedLines.joinToString("\n")}"
         } catch (e: Exception) {
             "Error reading file range: ${e.message}"
         }
@@ -539,9 +550,16 @@ class FileManagementTools(
             outDir.mkdirs()
 
             var count = 0
+            var totalExtractedBytes = 0L
+            var entryCount = 0
+            val buffer = ByteArray(8192)
             ZipInputStream(FileInputStream(zipFile)).use { zis ->
                 var entry = zis.nextEntry
                 while (entry != null) {
+                    entryCount++
+                    if (entryCount > MAX_UNZIP_ENTRIES) {
+                        return "Error: ZIP archive exceeds maximum entry limit ($MAX_UNZIP_ENTRIES entries)"
+                    }
                     val outFile = File(outDir, entry.name)
                     // Security: prevent zip slip
                     if (!isWithinDirectory(outFile, outDir)) {
@@ -551,7 +569,19 @@ class FileManagementTools(
                         outFile.mkdirs()
                     } else {
                         outFile.parentFile?.mkdirs()
-                        FileOutputStream(outFile).use { fos -> zis.copyTo(fos) }
+                        FileOutputStream(outFile).use { fos ->
+                            while (true) {
+                                val read = zis.read(buffer)
+                                if (read == -1) break
+                                totalExtractedBytes += read
+                                if (totalExtractedBytes > MAX_UNZIP_TOTAL_BYTES) {
+                                    fos.close()
+                                    outFile.delete()
+                                    return "Error: ZIP extraction exceeded maximum uncompressed size (${formatSize(MAX_UNZIP_TOTAL_BYTES)})"
+                                }
+                                fos.write(buffer, 0, read)
+                            }
+                        }
                         count++
                     }
                     zis.closeEntry()
@@ -686,6 +716,9 @@ class FileManagementTools(
          * ~30k files, a Kotlin/Gradle project ~10k) while bounding worst-case impact.
          */
         internal const val MAX_COPY_ENTRIES = 100_000
+        internal const val MAX_UNZIP_ENTRIES = 10_000
+        internal const val MAX_UNZIP_TOTAL_BYTES = 256L * 1024L * 1024L
+        internal const val MAX_READ_RANGE_LINES = 50_000
 
         /**
          * Max length of a user-supplied search pattern. 4 KiB is far above what any legit
@@ -713,12 +746,24 @@ class FileManagementTools(
          */
         fun createFromParameters(
             parameters: List<ConfigurationParameter>,
-            readGuard: FileReadGuard = FileReadGuard.DISABLED
+            readGuard: FileReadGuard = FileReadGuard.DISABLED,
+            strict: Boolean = false
         ): FileManagementTools {
             val workingDir = parameters.parameter("working_dir", "")
             val outputDir = parameters.parameter("output_dir", "")
+            val parameterStrict = parameters.parameter(
+                com.fartech.agents.commons.SandboxedFileSystemProvider.STRICT_SANDBOX_PARAMETER,
+                "false"
+            ).equals("true", ignoreCase = true)
+            val effectiveStrict = strict || parameterStrict ||
+                com.fartech.agents.workflow.WorkflowHostPolicy.requiresTenantScopedStorage
 
             if (workingDir.isBlank()) {
+                if (effectiveStrict) {
+                    throw IllegalStateException(
+                        "[Sandbox/C7] Refusing to create unsandboxed FileManagementTools: `working_dir` parameter is missing or blank."
+                    )
+                }
                 return FileManagementTools(readGuard = readGuard)
             }
 
@@ -727,9 +772,14 @@ class FileManagementTools(
             if (outputDir.isNotBlank()) {
                 allowedDirs.add(Path.of(outputDir))
             }
-            // 系统临时目录
-            val tempDir = System.getProperty("java.io.tmpdir", "/tmp")
-            allowedDirs.add(Path.of(tempDir))
+            if (com.fartech.agents.workflow.WorkflowHostPolicy.requiresTenantScopedStorage) {
+                val scopedTmp = Path.of(workingDir, "tmp")
+                runCatching { scopedTmp.toFile().mkdirs() }
+                allowedDirs.add(scopedTmp)
+            } else {
+                val tempDir = System.getProperty("java.io.tmpdir", "/tmp")
+                allowedDirs.add(Path.of(tempDir))
+            }
 
             return FileManagementTools(allowedDirs, readGuard)
         }

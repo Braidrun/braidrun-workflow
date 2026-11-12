@@ -473,12 +473,13 @@ inline fun parseProxyConfig(
     }
 }
 
+private val socksAuthLock = Any()
+
 private fun proxyConfig(
     proxyConfigString: String?,
     engineConfig: OkHttpConfig,
     config: HttpClientConfig<*>
 ) {
-    clearSocksProxyAuthentication()
     proxyConfigString?.let {
         // Operator-configured proxies are commonly internal DNS names; exempt the
         // proxy host itself from SsrfValidatingDns (see trustedProxyHosts docs).
@@ -532,15 +533,19 @@ private fun configureHttpProxyAuthentication(
 }
 
 private fun configureSocksProxyAuthentication(user: String?, password: String?) {
-    if (user.isNullOrBlank()) {
-        clearSocksProxyAuthentication()
-        return
+    synchronized(socksAuthLock) {
+        if (user.isNullOrBlank()) {
+            clearSocksProxyAuthentication()
+            return
+        }
+        System.setProperty(SOCKS_PROXY_USERNAME_PROPERTY, user)
+        System.setProperty(SOCKS_PROXY_PASSWORD_PROPERTY, password.orEmpty())
     }
-    System.setProperty(SOCKS_PROXY_USERNAME_PROPERTY, user)
-    System.setProperty(SOCKS_PROXY_PASSWORD_PROPERTY, password.orEmpty())
 }
 
 private fun clearSocksProxyAuthentication() {
-    System.clearProperty(SOCKS_PROXY_USERNAME_PROPERTY)
-    System.clearProperty(SOCKS_PROXY_PASSWORD_PROPERTY)
+    synchronized(socksAuthLock) {
+        System.clearProperty(SOCKS_PROXY_USERNAME_PROPERTY)
+        System.clearProperty(SOCKS_PROXY_PASSWORD_PROPERTY)
+    }
 }

@@ -89,13 +89,27 @@ private val LONG_SECRET_BLOB_REGEX = Regex(
         """|\bAKIA[A-Z0-9]{12,}\b""" +                          // AWS access keys
         """|\bgithub_pat_[A-Za-z0-9_]{20,}\b""" +               // GitHub fine-grained PAT
         """|\bgh[psuhroaPSUHROA]_[A-Za-z0-9]{30,}\b""" +        // GitHub PAT/OAuth/U2S/refresh
+        """|\bglpat-[A-Za-z0-9_\-]{20,}\b""" +                  // GitLab PAT
+        """|\bhf_[A-Za-z0-9]{20,}\b""" +                        // HuggingFace tokens
+        """|\btvly-[A-Za-z0-9_\-]{16,}\b""" +                   // Tavily API keys
+        """|\bpplx-[A-Za-z0-9_\-]{20,}\b""" +                   // Perplexity API keys
         """|\bxox[abpors]-[A-Za-z0-9\-]{10,}\b""" +             // Slack bot/user/refresh tokens
         """|\bxapp-[A-Za-z0-9\-]{10,}\b""" +                    // Slack app-level tokens
         """|\b(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{20,}\b""" +   // Stripe live/test keys
         """|\bAIza[0-9A-Za-z_\-]{30,}\b""" +                     // Google API keys
+        """|\bGOCSPX-[A-Za-z0-9_\-]{20,}\b""" +                  // Google OAuth client secrets
         """|\bya29\.[A-Za-z0-9_\-]{20,}""" +                     // Google OAuth access tokens
         """|\b1//0[A-Za-z0-9_\-]{20,}""" +                       // Google OAuth refresh tokens
         """|\beyJ[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}\b""" // JWT (header.payload.sig)
+)
+
+private val PEM_PRIVATE_KEY_REGEX = Regex(
+    """-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]{16,16384}?-----END [A-Z0-9 ]*PRIVATE KEY-----"""
+)
+
+private val JSON_SECRET_FIELD_REGEX = Regex(
+    """("(?:access_token|refresh_token|id_token|client_secret|private_key|api_key|oauth_token)"\s*:\s*")((?:\\.|[^"\\]){8,})(")""",
+    RegexOption.IGNORE_CASE
 )
 
 /**
@@ -123,9 +137,13 @@ private val AWS_SECRET_KEY_REGEX = Regex(
 fun redactForLog(message: String): String {
     var s = message
     s = redactSensitiveUrlForLogs(s)
+    s = PEM_PRIVATE_KEY_REGEX.replace(s, "-----BEGIN PRIVATE KEY-----<redacted>-----END PRIVATE KEY-----")
     s = INLINE_CREDENTIAL_URL_REGEX.replace(s) { m -> "${m.groupValues[1]}<redacted>@" }
     s = AUTHORIZATION_HEADER_REGEX.replace(s) { m -> "${m.groupValues[1]}<redacted>" }
     s = AWS_SECRET_KEY_REGEX.replace(s) { m -> "${m.groupValues[1]}<redacted>" }
+    s = JSON_SECRET_FIELD_REGEX.replace(s) { m ->
+        if (m.groupValues[2] == "<redacted>") m.value else "${m.groupValues[1]}<redacted>${m.groupValues[3]}"
+    }
     s = LONG_SECRET_BLOB_REGEX.replace(s, "<redacted>")
     return s
 }

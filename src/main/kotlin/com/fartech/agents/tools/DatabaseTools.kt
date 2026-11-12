@@ -42,7 +42,86 @@ object DatabaseTools : ToolSet {
     private const val CONNECT_TIMEOUT_SECONDS = 10
     private const val SOCKET_TIMEOUT_SECONDS = 60
 
+    private val DANGEROUS_JDBC_PARAMS = listOf(
+        "allowloadlocalinfile",
+        "allowurlinlocalinfile",
+        "allowloadlocalinfileinpath",
+        "autodeserialize",
+        "queryinterceptors",
+        "statementinterceptors",
+        "socketfactory",
+        "sslfactory",
+        "sslpasswordcallback",
+        "enable_load_extension",
+        "init="
+    )
+
+    private val MUTATING_SQL_KEYWORDS = Regex(
+        """\b(?:INSERT|UPDATE|DELETE|DROP|ALTER|TRUNCATE|CREATE|REPLACE|MERGE|GRANT|REVOKE|COPY|CALL|DO|ATTACH|DETACH|VACUUM|REINDEX)\b""",
+        RegexOption.IGNORE_CASE
+    )
+
+    private fun isReadOnlyMode(): Boolean =
+        System.getProperty("BRAIDRUN_DB_READONLY")?.equals("true", ignoreCase = true) == true ||
+            System.getenv("BRAIDRUN_DB_READONLY")?.equals("true", ignoreCase = true) == true
+
+    private fun resolveSafeSqliteUrl(databasePath: String, readOnly: Boolean = isReadOnlyMode()): String {
+        val trimmed = databasePath.trim()
+        require(trimmed.isNotBlank()) { "SQLite database path must not be blank" }
+        require(!trimmed.startsWith("file:", ignoreCase = true) && '?' !in trimmed) {
+            "SQLite URI parameters are not allowed: $databasePath"
+        }
+        val effectivePath = if (com.fartech.agents.workflow.WorkflowHostPolicy.requiresTenantScopedStorage) {
+            val safeFile = if (readOnly) {
+                ToolPathSecurity.validateInputPath(trimmed)
+            } else {
+                ToolPathSecurity.validateOutputPath(trimmed)
+            }
+            if (readOnly) {
+                require(safeFile.isFile) { "SQLite database file does not exist: $databasePath" }
+            }
+            safeFile.absolutePath
+        } else {
+            trimmed
+        }
+        return "jdbc:sqlite:$effectivePath"
+    }
+
+    private fun validateJdbcConnectionString(connectionString: String) {
+        val trimmed = connectionString.trim()
+        require(trimmed.lowercase().startsWith("jdbc:")) {
+            "Connection string must start with 'jdbc:'"
+        }
+        val lower = trimmed.lowercase()
+        val forbidden = DANGEROUS_JDBC_PARAMS.firstOrNull { lower.contains(it) }
+        require(forbidden == null) {
+            "Rejected unsafe JDBC driver parameter '$forbidden' in connection string"
+        }
+        if (lower.startsWith("jdbc:sqlite:")) {
+            resolveSafeSqliteUrl(trimmed.substringAfter(':').substringAfter(':'))
+            return
+        }
+        if (com.fartech.agents.workflow.WorkflowHostPolicy.requiresPublicServiceEndpoints) {
+            val rest = trimmed.removePrefix("jdbc:").removePrefix("JDBC:")
+            val schemeSep = rest.indexOf("://")
+            require(schemeSep > 0) {
+                "JDBC connection string must use a network host URL on this server"
+            }
+            val authorityAndPath = rest.substring(schemeSep + 3)
+            val authority = authorityAndPath.substringBefore('/').substringBefore('?').substringBefore(';')
+            val hostPort = authority.substringAfterLast('@')
+            val host = if (hostPort.startsWith("[")) {
+                hostPort.substringAfter('[').substringBefore(']')
+            } else {
+                hostPort.substringBefore(':')
+            }
+            require(host.isNotBlank()) { "JDBC connection string is missing a host" }
+            com.fartech.ftapp2.commonsKt.HttpHostSafety.assertHostIsPublic(host)
+        }
+    }
+
     private fun getConnection(connectionString: String, username: String, password: String): Connection {
+        validateJdbcConnectionString(connectionString)
         // DriverManager.setLoginTimeout is JVM-global (not per-call), but setting it here
         // still bounds the worst case. Per-driver socket timeouts below are layered on top.
         DriverManager.setLoginTimeout(CONNECT_TIMEOUT_SECONDS)
@@ -51,6 +130,9 @@ object DatabaseTools : ToolSet {
         } else {
             DriverManager.getConnection(connectionString)
         }.also { conn ->
+            if (isReadOnlyMode()) {
+                runCatching { conn.isReadOnly = true }
+            }
             // Network-read timeout so a hung server doesn't park the calling thread
             // indefinitely. setNetworkTimeout signature is (Executor, millis); we use a
             // direct-executor so the driver doesn't need a pool of its own.
@@ -69,15 +151,24 @@ object DatabaseTools : ToolSet {
     // LLM can prepend a SQL block comment hiding a DROP TABLE statement. Additionally rejects
     // any statement-separator (`;` outside of quoted literals followed by non-whitespace) so
     // `SELECT 1; DROP TABLE` is caught even on drivers that accept multi-statement queries.
-    internal fun isReadOnlySql(sql: String): Boolean {
-        val stripped = stripSqlComments(sql).trim()
+    internal fun isReadOnlySql(sql: String): Boolean =
+        // Evaluate under both ANSI SQL (`''` only) and MySQL/Postgres (`\'` backslash escapes)
+        // quoting rules so neither dialect's quote-escaping semantics can smuggle a `;` or DML/DDL.
+        isReadOnlySqlForDialect(sql, backslashEscapes = false) &&
+            isReadOnlySqlForDialect(sql, backslashEscapes = true)
+
+    private fun isReadOnlySqlForDialect(sql: String, backslashEscapes: Boolean): Boolean {
+        val stripped = stripSqlComments(sql, backslashEscapes).trim()
         if (stripped.isEmpty()) return false
         // Reject multi-statement SQL outright in read-only mode. Most drivers
         // won't execute the trailing statements, but some (MySQL with
         // `allowMultiQueries=true`, SQLite `Statement.execute`) will, and
         // the first-statement check below would approve `SELECT 1; DROP…`.
-        if (containsStatementSeparator(stripped)) return false
-        val head = stripped.uppercase()
+        if (containsStatementSeparator(stripped, backslashEscapes)) return false
+        val withoutLiterals = stripQuotedLiterals(stripped, backslashEscapes)
+        if (MUTATING_SQL_KEYWORDS.containsMatchIn(withoutLiterals)) return false
+        val head = withoutLiterals.trim().uppercase()
+        if (head.startsWith("PRAGMA") && '=' in withoutLiterals) return false
         return head.startsWith("SELECT") ||
             head.startsWith("SHOW") ||
             head.startsWith("DESCRIBE") ||
@@ -87,7 +178,38 @@ object DatabaseTools : ToolSet {
             head.startsWith("WITH ")
     }
 
-    private fun stripSqlComments(sql: String): String {
+    private fun stripQuotedLiterals(sql: String, backslashEscapes: Boolean): String {
+        val out = StringBuilder(sql.length)
+        var i = 0
+        val n = sql.length
+        while (i < n) {
+            val c = sql[i]
+            if (c == '\'' || c == '"') {
+                val quote = c
+                out.append(' ')
+                i++
+                while (i < n) {
+                    val cc = sql[i]
+                    if (backslashEscapes && cc == '\\' && i + 1 < n) {
+                        i += 2
+                    } else if (cc == quote && i + 1 < n && sql[i + 1] == quote) {
+                        i += 2
+                    } else if (cc == quote) {
+                        i++
+                        break
+                    } else {
+                        i++
+                    }
+                }
+            } else {
+                out.append(c)
+                i++
+            }
+        }
+        return out.toString()
+    }
+
+    private fun stripSqlComments(sql: String, backslashEscapes: Boolean = false): String {
         val out = StringBuilder(sql.length)
         var i = 0
         val n = sql.length
@@ -108,9 +230,9 @@ object DatabaseTools : ToolSet {
                     out.append(c); i++
                     while (i < n) {
                         val cc = sql[i]
-                        // SQL escape is doubled quote (`''` or `""`); keep the pair
-                        // intact so the closing-quote search doesn't terminate early.
-                        if (cc == quote && i + 1 < n && sql[i + 1] == quote) {
+                        if (backslashEscapes && cc == '\\' && i + 1 < n) {
+                            out.append(cc); out.append(sql[i + 1]); i += 2
+                        } else if (cc == quote && i + 1 < n && sql[i + 1] == quote) {
                             out.append(cc); out.append(sql[i + 1]); i += 2
                         } else if (cc == quote) {
                             out.append(cc); i++; break
@@ -150,7 +272,7 @@ object DatabaseTools : ToolSet {
     }
 
     /** True if `sql` (already comment-stripped) holds a `;` outside string literals with non-blank content after it. */
-    private fun containsStatementSeparator(sql: String): Boolean {
+    private fun containsStatementSeparator(sql: String, backslashEscapes: Boolean = false): Boolean {
         var i = 0
         val n = sql.length
         while (i < n) {
@@ -160,8 +282,9 @@ object DatabaseTools : ToolSet {
                     val quote = c
                     i++
                     while (i < n && sql[i] != quote) {
-                        // SQL escape is doubled quote (`''`); skip the pair.
-                        if (sql[i] == quote && i + 1 < n && sql[i + 1] == quote) i += 2 else i++
+                        if (backslashEscapes && sql[i] == '\\' && i + 1 < n) i += 2
+                        else if (sql[i] == quote && i + 1 < n && sql[i + 1] == quote) i += 2
+                        else i++
                     }
                     if (i < n) i++
                 }
@@ -181,9 +304,7 @@ object DatabaseTools : ToolSet {
      * rejected, or `null` to allow it.
      */
     private fun readOnlyViolation(sql: String): String? {
-        val readonly = System.getProperty("BRAIDRUN_DB_READONLY")?.equals("true", ignoreCase = true) == true ||
-            System.getenv("BRAIDRUN_DB_READONLY")?.equals("true", ignoreCase = true) == true
-        if (!readonly) return null
+        if (!isReadOnlyMode()) return null
         if (isReadOnlySql(sql)) return null
         return "Error: BRAIDRUN_DB_READONLY=true rejects non-SELECT/SHOW/DESCRIBE/EXPLAIN/WITH/PRAGMA statements. " +
             "Remove the flag or switch to a read-only query."
@@ -251,7 +372,7 @@ object DatabaseTools : ToolSet {
         return try {
             readOnlyViolation(sql)?.let { return it }
             Class.forName("org.sqlite.JDBC")
-            val connStr = "jdbc:sqlite:$databasePath"
+            val connStr = resolveSafeSqliteUrl(databasePath, readOnly = isReadOnlySql(sql))
             printlnColor(AnsiColor.MAGENTA, "[SQLite] $sql")
 
             getConnection(connStr, "", "").use { conn ->
@@ -328,7 +449,7 @@ object DatabaseTools : ToolSet {
     ): String {
         return try {
             Class.forName("org.sqlite.JDBC")
-            val connStr = "jdbc:sqlite:$databasePath"
+            val connStr = resolveSafeSqliteUrl(databasePath, readOnly = true)
 
             getConnection(connStr, "", "").use { conn ->
                 conn.createStatement().use { stmt ->
@@ -379,7 +500,7 @@ object DatabaseTools : ToolSet {
         return try {
             requireSafeIdentifier(tableName, "table name")
             Class.forName("org.sqlite.JDBC")
-            val connStr = "jdbc:sqlite:$databasePath"
+            val connStr = resolveSafeSqliteUrl(databasePath, readOnly = true)
 
             getConnection(connStr, "", "").use { conn ->
                 conn.createStatement().use { stmt ->

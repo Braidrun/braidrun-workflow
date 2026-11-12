@@ -146,4 +146,28 @@ class DatabaseToolsReadOnlyTest {
         // The stripper must not exit the literal on the first '.
         assertTrue(tools.isReadOnlySql("SELECT 'O''Brien' AS name"))
     }
+
+    @Test
+    fun `mutating CTE and EXPLAIN ANALYZE mutations are rejected`() {
+        assertFalse(tools.isReadOnlySql("WITH deleted AS (DELETE FROM users RETURNING *) SELECT * FROM deleted"))
+        assertFalse(tools.isReadOnlySql("WITH ins AS (INSERT INTO audit VALUES (1) RETURNING *) SELECT * FROM ins"))
+        assertFalse(tools.isReadOnlySql("EXPLAIN ANALYZE DELETE FROM users"))
+        assertFalse(tools.isReadOnlySql("EXPLAIN ANALYZE UPDATE users SET role = 'admin'"))
+        assertTrue(tools.isReadOnlySql("SELECT 'DELETE FROM users' AS harmless_literal"))
+    }
+
+    @Test
+    fun `mutating PRAGMA assignment is rejected while query PRAGMA stays allowed`() {
+        assertTrue(tools.isReadOnlySql("PRAGMA table_info(users)"))
+        assertFalse(tools.isReadOnlySql("PRAGMA journal_mode = WAL"))
+        assertFalse(tools.isReadOnlySql("PRAGMA writable_schema=1"))
+    }
+
+    @Test
+    fun `backslash escaped single quote cannot smuggle statement separator`() {
+        // ANSI SQL / PostgreSQL / SQLite: \' closes the literal and runs `; DROP TABLE`
+        assertFalse(tools.isReadOnlySql("SELECT 'foo\\' ; DROP TABLE users --'"))
+        // MySQL (NO_BACKSLASH_ESCAPES=off): \' escapes the quote so the literal closes at the 3rd '
+        assertFalse(tools.isReadOnlySql("SELECT 'a\\'', 'b'; DROP TABLE users"))
+    }
 }

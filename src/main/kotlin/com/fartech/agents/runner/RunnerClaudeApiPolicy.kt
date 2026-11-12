@@ -34,7 +34,8 @@ object RunnerClaudeApiPolicy {
         require(model.lowercase().startsWith(route.modelPrefix)) { "Coding Plan CLI model differs from provider" }
         fun mapped(env: Map<String, String>): Map<String, String> {
             require(RunnerClaudeApiPolicy.route(env["ANTHROPIC_BASE_URL"]) == route) { "Coding Plan endpoint changed at start" }
-            val key = env["ANTHROPIC_API_KEY"].orEmpty()
+            val key = env["ANTHROPIC_API_KEY"]?.takeIf { it.isNotBlank() }
+                ?: env["ANTHROPIC_AUTH_TOKEN"].orEmpty()
             require(key.isNotBlank() && (route.provider != "qwen_coding_plan" || key.startsWith("sk-sp-"))) { "Coding Plan credential invalid" }
             return env + listOf("ANTHROPIC_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL", "ANTHROPIC_DEFAULT_SONNET_MODEL",
                 "ANTHROPIC_DEFAULT_OPUS_MODEL", "ANTHROPIC_SMALL_FAST_MODEL", "CLAUDE_CODE_SUBAGENT_MODEL").associateWith { model } +

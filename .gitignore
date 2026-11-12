@@ -8,3 +8,4 @@ out/
 *.log
 __pycache__/
 .workflow-runs/
+.agent_history/

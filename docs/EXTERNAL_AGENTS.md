@@ -101,6 +101,7 @@ API-key mode is recommended for stateless / containerized runs:
 - Claude: `anthropic_api_key` or `ANTHROPIC_API_KEY`
 - Codex: `openai_api_key` or `OPENAI_API_KEY`
 - Antigravity: `antigravity_api_key`, `gemini_api_key`, `google_api_key`, or `GEMINI_API_KEY` / `GOOGLE_API_KEY` (plus optional `external_agent_antigravity_base_url`, `external_agent_antigravity_project`, and `external_agent_antigravity_location`)
+- Claude Coding Plan providers: `glm_coding_plan_api_key`, `qwen_coding_plan_api_key`, `qwen_token_plan_api_key`, or `deepseek_api_key` when `external_agent_claude_base_url` targets a supported Coding Plan endpoint
 
 Subscription / account-auth modes exist for account-owner workflows:
 

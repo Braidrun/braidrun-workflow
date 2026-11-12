@@ -2346,6 +2346,36 @@ class ExternalAgentToolsTest {
     }
 
     @Test
+    fun `claude Coding Plan base URL maps ANTHROPIC_AUTH_TOKEN and default model aliases outside Runner`() = runBlocking {
+        val workspace = Files.createTempDirectory("claude-coding-plan-ws").toFile()
+        try {
+            val executor = FakeSubprocessExecutor(
+                ExecResult(0, """{"type":"result","subtype":"success","result":"ok"}""", "", 20)
+            )
+            val params = listOf(
+                ConfigurationParameter("glm_coding_plan_api_key", JsonPrimitive("glm-secret-token-123456")),
+                ConfigurationParameter(ExternalAgentTools.CLAUDE_MODEL_PARAMETER, JsonPrimitive("glm-5.1")),
+                ConfigurationParameter("external_agent_claude_base_url", JsonPrimitive("https://open.bigmodel.cn/api/anthropic"))
+            )
+            val tools = ExternalAgentTools(
+                executor = executor,
+                parameters = params,
+                userId = "test-user",
+                context = SubprocessToolContext(workspaceDir = workspace),
+                trustExecutorSandbox = true
+            )
+            assertEquals("ok", tools.runClaudeCodeSubAgent(ExternalAgentContext(prompt = "hi", name = "glm-claude")))
+            val env = executor.lastRequest!!.env
+            assertEquals("glm-secret-token-123456", env["ANTHROPIC_AUTH_TOKEN"])
+            assertEquals("", env["ANTHROPIC_API_KEY"])
+            assertEquals("glm-5.1", env["ANTHROPIC_DEFAULT_HAIKU_MODEL"])
+            assertEquals("glm-5.1", env["ANTHROPIC_SMALL_FAST_MODEL"])
+        } finally {
+            workspace.deleteRecursively()
+        }
+    }
+
+    @Test
     fun `antigravity personal subscription mode preserves host HOME, scrubs GCP and API env, strips conflicting effort, and parses real agy 1_5_6 stream-json`() = runBlocking {
         val workspace = Files.createTempDirectory("antigravity-personal-ws").toFile()
         var capturedSettingsText: String? = null

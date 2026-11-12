@@ -143,6 +143,10 @@ class RunnerAdmission(
                 if (provider == "claude" && effective["external_agent_claude_auth_mode"] == JsonPrimitive("api_key")) {
                     requireCapability(RunnerClaudeApiPolicy.CAPABILITY)
                     RunnerClaudeApiPolicy.requireSelection(effective)
+                    require(effective["external_agent_codex_base_url"]?.jsonPrimitive?.contentOrNull.isNullOrBlank() &&
+                        effective["external_agent_antigravity_base_url"]?.jsonPrimitive?.contentOrNull.isNullOrBlank()) {
+                        "Runner CLI cannot set cross-provider base URLs"
+                    }
                 } else if (provider == "antigravity" && effective["external_agent_antigravity_auth_mode"] == JsonPrimitive("api_key")) {
                     val providerKeys = effective["llm_provider_keys"] as? JsonObject
                     val keyRef = effective["antigravity_api_key"]?.jsonPrimitive?.contentOrNull
@@ -155,9 +159,22 @@ class RunnerAdmission(
                     require(RunnerAgentToolPolicy.isApprovedAntigravityApiBaseUrl(effective["external_agent_antigravity_base_url"]?.jsonPrimitive?.contentOrNull)) {
                         "Runner Antigravity API endpoint is not an approved provider"
                     }
+                    require(effective["external_agent_claude_base_url"]?.jsonPrimitive?.contentOrNull.isNullOrBlank() &&
+                        effective["external_agent_codex_base_url"]?.jsonPrimitive?.contentOrNull.isNullOrBlank()) {
+                        "Runner CLI cannot set cross-provider base URLs"
+                    }
                 } else {
                     val allowedModes = if (provider == "antigravity") setOf("subscription", "adc") else setOf("subscription")
                     require(effective["external_agent_${provider}_auth_mode"]?.jsonPrimitive?.content in allowedModes) { "Runner CLI requires explicit scoped subscription mode" }
+                    for (baseUrlField in listOf(
+                        "external_agent_claude_base_url",
+                        "external_agent_codex_base_url",
+                        "external_agent_antigravity_base_url"
+                    )) {
+                        require(effective[baseUrlField]?.jsonPrimitive?.contentOrNull.isNullOrBlank()) {
+                            "Runner subscription CLI cannot redirect credentials to a custom base URL"
+                        }
+                    }
                     val key = when (provider) {
                         "codex" -> "external_agent_codex_auth_json"
                         "antigravity" -> "external_agent_antigravity_auth_json"
@@ -174,9 +191,22 @@ class RunnerAdmission(
                 )) {
                     require(effective[field]?.jsonPrimitive?.content.isNullOrBlank()) { "Runner CLI cannot use unscoped local account state" }
                 }
+                for (cmdField in listOf(
+                    "external_agent_claude_command",
+                    "external_agent_codex_command",
+                    "external_agent_antigravity_command"
+                )) {
+                    val cmd = RunnerAgentToolPolicy.text(effective[cmdField])
+                    if (!cmd.isNullOrBlank()) {
+                        require(!LITERAL_SECRET.containsMatchIn(cmd) && cmd.none { it == '\n' || it == '\r' || it == '\u0000' }) {
+                            "Invalid Runner CLI command"
+                        }
+                    }
+                }
                 // The host registers only file tools (`--tools`) for Claude and drops the permission bypass.
                 if (provider == "claude") RunnerAgentToolPolicy.claudeExtraArgs(RunnerAgentToolPolicy.text(effective["external_agent_claude_extra_args"]))
                 if (provider == "antigravity") RunnerAgentToolPolicy.antigravityExtraArgs(RunnerAgentToolPolicy.text(effective["external_agent_antigravity_extra_args"]))
+                if (provider == "codex") RunnerAgentToolPolicy.codexExtraArgs(RunnerAgentToolPolicy.text(effective["external_agent_codex_extra_args"]))
             } else requireCapability(if (local) RunnerLocalModelProtocol.CAPABILITY else "model.http.v1")
             val tools = effective["tool_set"]?.let { v ->
                 require(v is JsonArray) { "Ambiguous tool set" }; v.map { it.jsonPrimitive.content }

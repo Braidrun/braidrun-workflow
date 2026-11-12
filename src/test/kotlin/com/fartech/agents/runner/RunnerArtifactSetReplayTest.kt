@@ -38,7 +38,7 @@ class RunnerArtifactSetReplayTest {
             h.ipc.enableArtifactCollection(); h.ipc.enableArtifactSets()
             val gate = RunnerEnvironmentGate(binding, setOf("engine-http")); gate.install(RunnerProtocolTest.environment(binding, Instant.now()))
             val secrets = RunnerSecrets(); val store = RunnerCheckpointStore(dir, binding, secrets)
-            journal = RunnerEventJournal(binding, secrets, { path, bytes -> store.writePrivate(path, bytes); Unit }, { h.ipc.sendFrame(it); Unit }, { gate.invalidate("JOURNAL_FAILED") })
+            journal = RunnerEventJournal(binding, secrets, { path, bytes -> store.writePrivate(path, bytes) }, { h.ipc.sendFrame(it) }, { gate.invalidate("JOURNAL_FAILED") })
             val j = requireNotNull(journal)
             val producer = buildJsonObject { put("workflowId", "root"); put("stepName", "write"); put("childExecutionPath", JsonArray(emptyList())); put("producerStartEventId", "original-active-start") }
             var active = true

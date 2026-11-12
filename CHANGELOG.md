@@ -5,6 +5,73 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.6-rc.20261112.3] - 2026-11-12
+
+### Added
+
+- **Unified Coding Plan provider routing for `claude_code_agent`.** Non-Runner workflows now share
+  `RunnerClaudeApiPolicy.route(...)` (`ANTHROPIC_AUTH_TOKEN` + `ANTHROPIC_DEFAULT_*_MODEL`) and resolve
+  `glm_coding_plan_api_key`, `qwen_coding_plan_api_key`, `qwen_token_plan_api_key`, and `deepseek_api_key`.
+
+### Fixed & Security
+
+- **Host-policy enforcement for external agents and built-in tools.** External agents enforce
+  `WorkflowHostPolicy.refusesStdioMcpServers`, `LlmEndpointPolicy.check(...)`, explicit custom-endpoint keys, and
+  tenant-scoped auth/config directory confinement. `SandboxedFileSystemProvider`, `FileManagementTools`, `ShellTools`,
+  `GitTools`, `CodeExecutionTools`, `DatabaseTools`, `BrowserTools`, and `WorkflowExecutor` enforce tenant storage
+  confinement, read-only SQL CTE/`EXPLAIN ANALYZE`/`PRAGMA` guards, Playwright SSRF route filtering, zip-bomb caps,
+  and `CancellationException` propagation.
+- **Runner CLI endpoint and flag admission.** `RunnerAdmission` and `RunnerAgentToolPolicy` validate Antigravity and
+  Codex extra arguments, approved Antigravity API base URLs, subscription-mode base URL prohibitions, and subprocess
+  environment endpoint bounds; `RunnerWorkflowHost` releases step leases on `step_completed` and `step_cancelled`.
+- **Subprocess streaming, Docker client reuse, and log redaction.** `NativeSubprocessExecutor` writes `stdin`
+  concurrently after starting output readers and decodes UTF-8 on newline boundaries; `SubprocessExecutorFactory`
+  reuses `DockerClient` instances per host URI; `LogSanitizers` redacts PEM private keys, JSON secret fields, and
+  `GOCSPX-` / `glpat-` / `hf_` / `tvly-` / `pplx-` tokens; `FileReadGuard` blacklists `auth.json`, `mcp_config.json`,
+  and ADC credential files.
+
+## [1.4.6-rc.20261112.2] - 2026-11-12
+
+### Fixed
+
+- **Antigravity personal subscription quota isolation and official `google-antigravity==0.1.23` SDK alignment.**
+  Separates personal subscription auth (`agy auth login` state under `~/.gemini` without GCP ADC, Vertex AI, or API-key
+  injection) from explicit `gcp_adc` / Vertex AI project credentials, passes `--print=` for non-interactive `agy` CLI
+  runs, and aligns `antigravity-sdk` with `google-antigravity==0.1.23` (`Agent.run_async`, `ToolServerConfig`, and
+  mutually exclusive `CapabilitiesConfig` `enabled_tools` / `disabled_tools`).
+
+## [1.4.6-rc.20261112.1] - 2026-11-12
+
+### Added
+
+- **Google Antigravity runtime (`antigravity_agent` and `external_agent` tool group).** Supports headless `agy` CLI
+  (`--print= --input-format stream-json --output-format stream-json --disable-slash-commands`, NDJSON `stdin` user
+  messages, `~/.gemini/config/mcp_config.json`, and `~/.gemini/antigravity-cli/settings.json`) and the async
+  `google-antigravity` Python SDK (`antigravity-sdk` via `LocalAgentConfig` / `Agent`).
+
+## [1.4.6-rc.20261111.2] - 2026-11-11
+
+### Fixed
+
+- **Runner streaming processes retain terminal CLI result lines across verbose output truncation.** `RunnerProcesses`
+  preserves the trailing completion envelope when verbose agent progress exceeds the bounded capture budget.
+
+## [1.4.6-rc.20261111.1] - 2026-11-11
+
+### Fixed
+
+- **External CLI agents retain terminal results after verbose output truncation.** `NativeSubprocessExecutor` and
+  `ExternalAgentTools` preserve trailing completion lines and detect `[output truncated after ...]` markers across
+  Claude Code, Codex, and Antigravity runs.
+
+## [1.4.6-rc.20261110.1] - 2026-11-10
+
+### Added
+
+- **Scoped Coding Plan providers in Runner Claude CLI.** `RunnerClaudeApiPolicy` routes approved domestic Coding Plan
+  endpoints (`glm_coding_plan`, `qwen_coding_plan`, `qwen_token_plan`, `deepseek`) with scoped `ANTHROPIC_AUTH_TOKEN`
+  credentials and model defaults.
+
 ## [1.4.6-rc.20261102.3] - 2026-11-02
 
 ### Fixed

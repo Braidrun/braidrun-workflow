@@ -252,7 +252,7 @@ class SandboxedFileSystemProvider(
             val outputDir = parameters.parameter("output_dir", "")
             val parameterStrict = parameters.parameter(STRICT_SANDBOX_PARAMETER, "false")
                 .equals("true", ignoreCase = true)
-            val effectiveStrict = strict || parameterStrict
+            val effectiveStrict = strict || parameterStrict || com.fartech.agents.workflow.WorkflowHostPolicy.requiresTenantScopedStorage
 
             if (workingDir.isBlank()) {
                 if (effectiveStrict) {
@@ -283,9 +283,15 @@ class SandboxedFileSystemProvider(
                 allowedDirs.add(Path.of(outputDir))
             }
 
-            // 系统临时目录（Agent 可能需要写入临时文件）
-            val tempDir = System.getProperty("java.io.tmpdir", "/tmp")
-            allowedDirs.add(Path.of(tempDir))
+            // 临时目录：多租户模式下限定在步骤隔离目录内，防止跨租户访问共享 /tmp
+            if (com.fartech.agents.workflow.WorkflowHostPolicy.requiresTenantScopedStorage) {
+                val scopedTmp = Path.of(workingDir, "tmp")
+                runCatching { scopedTmp.toFile().mkdirs() }
+                allowedDirs.add(scopedTmp)
+            } else {
+                val tempDir = System.getProperty("java.io.tmpdir", "/tmp")
+                allowedDirs.add(Path.of(tempDir))
+            }
 
             return SandboxedFileSystemProvider(allowedDirs, readGuard = readGuard)
         }

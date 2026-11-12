@@ -467,7 +467,8 @@ internal fun autoPersistStepOutputIfPossible(
     output: String,
     expectedPersistedFiles: Set<String>,
     claimedPersistedFiles: Set<String>,
-    validation: PersistedFileValidationResult
+    validation: PersistedFileValidationResult,
+    allowedRoots: List<File> = emptyList()
 ): String? {
     if (output.isBlank()) return null
     if (claimedPersistedFiles.isNotEmpty()) return null
@@ -479,6 +480,15 @@ internal fun autoPersistStepOutputIfPossible(
     if (!isTextLikePersistedFilePath(targetPath)) return null
 
     val targetFile = File(targetPath)
+    if (WorkflowHostPolicy.requiresTenantScopedStorage || WorkflowHostContext.current != null) {
+        if (allowedRoots.isEmpty()) return null
+        val canonicalTarget = runCatching { targetFile.canonicalFile.toPath() }.getOrNull() ?: return null
+        val withinAllowed = allowedRoots.any { root ->
+            val canonicalRoot = runCatching { root.canonicalFile.toPath() }.getOrNull() ?: return@any false
+            canonicalTarget == canonicalRoot || canonicalTarget.startsWith(canonicalRoot)
+        }
+        if (!withinAllowed) return null
+    }
     targetFile.parentFile?.mkdirs()
     targetFile.writeText(output)
     return targetFile.path
@@ -551,7 +561,10 @@ private fun normalizePersistedFilePath(path: String, baseDir: String? = null): S
     if (!looksLikePersistedFilePath(trimmedPath)) return null
 
     val resolvedFile = when {
-        trimmedPath.startsWith("~/") -> File(System.getProperty("user.home"), trimmedPath.removePrefix("~/"))
+        trimmedPath.startsWith("~/") -> {
+            if (WorkflowHostPolicy.requiresTenantScopedStorage || WorkflowHostContext.current != null) return null
+            File(System.getProperty("user.home"), trimmedPath.removePrefix("~/"))
+        }
         File(trimmedPath).isAbsolute -> File(trimmedPath)
         baseDir != null -> File(baseDir, trimmedPath.removePrefix("./"))
         else -> File(trimmedPath)
@@ -3112,7 +3125,7 @@ class WorkflowExecutor(
 
     // ── Code step: 旧路径 (ProcessBuilder 直接执行) ─────────────────
 
-    private fun executeCodeStepLegacy(
+    private suspend fun executeCodeStepLegacy(
         step: WorkflowStep,
         config: CodeStepConfig,
         finalScript: String,
@@ -3157,7 +3170,16 @@ class WorkflowExecutor(
                 name = "wf-code-legacy-${step.step}"
                 start()
             }
-            val completed = process.waitFor(config.timeout.toLong(), java.util.concurrent.TimeUnit.SECONDS)
+            val completed = try {
+                kotlinx.coroutines.runInterruptible {
+                    process.waitFor(config.timeout.toLong(), java.util.concurrent.TimeUnit.SECONDS)
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                process.toHandle().descendants().forEach { runCatching { it.destroyForcibly() } }
+                process.destroyForcibly()
+                reader.join(2_000)
+                throw e
+            }
 
             if (!completed) {
                 // Kill first so the reader sees EOF and exits promptly.
@@ -6182,6 +6204,8 @@ class WorkflowExecutor(
                     delay(backoffDelay.milliseconds)
                 }
 
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
                 lastError = e
                 lastFailedResult = null
@@ -6291,6 +6315,8 @@ class WorkflowExecutor(
                     try {
                         executeStepOnce(rollbackStepDef, workflow, context)
                         rollbackExecuted = true
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
                     } catch (e: Exception) {
                         logger.error(e) { "[Workflow:${workflow.name}] Rollback step '$rollbackStep' failed: ${e.message}" }
                     }
@@ -7698,7 +7724,10 @@ class WorkflowExecutor(
                             summary = summary,
                             detail = detail,
                             inputTokens = parseLongFromEventDetail(detail, "input_tokens")?.toInt(),
-                            outputTokens = parseLongFromEventDetail(detail, "output_tokens")?.toInt()
+                            outputTokens = parseLongFromEventDetail(detail, "output_tokens")?.toInt(),
+                            totalTokens = parseLongFromEventDetail(detail, "total_tokens")?.toInt(),
+                            cacheReadTokens = (parseLongFromEventDetail(detail, "cache_read") ?: parseLongFromEventDetail(detail, "cache_read_tokens"))?.toInt(),
+                            cacheCreationTokens = (parseLongFromEventDetail(detail, "cache_creation") ?: parseLongFromEventDetail(detail, "cache_creation_tokens"))?.toInt()
                         )
                     )
                 }
@@ -7788,7 +7817,10 @@ class WorkflowExecutor(
                             summary = summary,
                             detail = detail,
                             inputTokens = parseLongFromEventDetail(detail, "input_tokens")?.toInt(),
-                            outputTokens = parseLongFromEventDetail(detail, "output_tokens")?.toInt()
+                            outputTokens = parseLongFromEventDetail(detail, "output_tokens")?.toInt(),
+                            totalTokens = parseLongFromEventDetail(detail, "total_tokens")?.toInt(),
+                            cacheReadTokens = (parseLongFromEventDetail(detail, "cache_read") ?: parseLongFromEventDetail(detail, "cache_read_tokens"))?.toInt(),
+                            cacheCreationTokens = (parseLongFromEventDetail(detail, "cache_creation") ?: parseLongFromEventDetail(detail, "cache_creation_tokens"))?.toInt()
                         )
                     )
                 }
@@ -7880,7 +7912,10 @@ class WorkflowExecutor(
                             summary = summary,
                             detail = detail,
                             inputTokens = parseLongFromEventDetail(detail, "input_tokens")?.toInt(),
-                            outputTokens = parseLongFromEventDetail(detail, "output_tokens")?.toInt()
+                            outputTokens = parseLongFromEventDetail(detail, "output_tokens")?.toInt(),
+                            totalTokens = parseLongFromEventDetail(detail, "total_tokens")?.toInt(),
+                            cacheReadTokens = (parseLongFromEventDetail(detail, "cache_read") ?: parseLongFromEventDetail(detail, "cache_read_tokens"))?.toInt(),
+                            cacheCreationTokens = (parseLongFromEventDetail(detail, "cache_creation") ?: parseLongFromEventDetail(detail, "cache_creation_tokens"))?.toInt()
                         )
                     )
                 }
@@ -8278,6 +8313,8 @@ class WorkflowExecutor(
                 }
             }
             result
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             bestRecoveredResult()?.let { (recovered, metadata) ->
                 return persistStructuredOutput(
@@ -8285,7 +8322,8 @@ class WorkflowExecutor(
                     structuredOutput = structuredOutput,
                     toJsonElement = toJsonElement,
                     result = recovered,
-                    metadata = metadata
+                    metadata = metadata,
+                    executionId = context.executionId
                 )
             }
             writeStructuredOutputRepairContext(
@@ -8351,7 +8389,42 @@ class WorkflowExecutor(
             )
         }
 
-        return persistStructuredOutput(stepName, structuredOutput, toJsonElement, result, metadata)
+        return persistStructuredOutput(stepName, structuredOutput, toJsonElement, result, metadata, context.executionId)
+    }
+
+    private fun isAllowedTenantHostFile(
+        file: File,
+        executionId: String? = null,
+        extraAllowedDirs: List<File?> = emptyList()
+    ): Boolean {
+        if (!WorkflowHostPolicy.requiresTenantScopedStorage && WorkflowHostContext.current == null) {
+            return true
+        }
+        val candidatePath = runCatching {
+            if (java.nio.file.Files.isSymbolicLink(file.toPath())) return false
+            file.canonicalFile.toPath()
+        }.getOrNull() ?: return false
+        val pathStr = candidatePath.toString()
+        if ("/.runner-private" in pathStr || "/.runner-state" in pathStr) return false
+
+        val roots = buildList {
+            addAll(extraAllowedDirs.filterNotNull())
+            baseParameters.parameter("working_dir", "").trim().takeIf { it.isNotEmpty() }?.let { add(File(it)) }
+            baseParameters.parameter("output_dir", "").trim().takeIf { it.isNotEmpty() }?.let { add(File(it)) }
+            executionId?.takeIf { it.isNotBlank() }?.let { add(File("./.workflow-runs/$it")) }
+            WorkflowHostContext.current?.privateDirectory?.let { priv ->
+                val privPath = runCatching { priv.canonicalFile.toPath() }.getOrNull()
+                if (privPath != null && (candidatePath == privPath || candidatePath.startsWith(privPath))) {
+                    return false
+                }
+                priv.parentFile?.let { add(it) }
+            }
+        }
+        if (roots.isEmpty()) return false
+        return roots.any { root ->
+            val canonicalRoot = runCatching { root.canonicalFile.toPath() }.getOrNull() ?: return@any false
+            candidatePath == canonicalRoot || candidatePath.startsWith(canonicalRoot)
+        }
     }
 
     private fun writeStructuredOutputRepairContext(
@@ -8365,6 +8438,7 @@ class WorkflowExecutor(
         val writeTo = structuredOutput.writeTo?.trim().orEmpty()
         if (writeTo.isBlank()) return
         val persistedContents = (candidateFiles.ifEmpty { listOf(File(writeTo)) })
+            .filter { isAllowedTenantHostFile(it, executionId, candidateFiles.mapNotNull { c -> c.parentFile }) }
             .mapNotNull { file ->
                 runCatching {
                     file
@@ -8407,9 +8481,11 @@ class WorkflowExecutor(
                 appendLine(snippet)
             }
         }
-        runCatching {
-            target.parentFile?.mkdirs()
-            target.writeText(content, Charsets.UTF_8)
+        if (isAllowedTenantHostFile(target, executionId, candidateFiles.mapNotNull { it.parentFile })) {
+            runCatching {
+                target.parentFile?.mkdirs()
+                target.writeText(content, Charsets.UTF_8)
+            }
         }
     }
 
@@ -8522,13 +8598,17 @@ class WorkflowExecutor(
         structuredOutput: StructuredOutputConfig,
         toJsonElement: (Output) -> JsonElement,
         result: Output,
-        metadata: Map<String, String> = emptyMap()
+        metadata: Map<String, String> = emptyMap(),
+        executionId: String? = null
     ): String {
         val jsonElement = toJsonElement(result)
         val jsonText = structuredOutputFileJson.encodeToString(JsonElement.serializer(), jsonElement)
         val writeTo = structuredOutput.writeTo?.trim().orEmpty()
         if (writeTo.isNotBlank()) {
             val target = File(writeTo)
+            if (!isAllowedTenantHostFile(target, executionId)) {
+                throw SecurityException("Structured output path '$writeTo' escapes the tenant workspace")
+            }
             beforeStructuredOutputWriteForTest(writeTo)
             target.parentFile?.mkdirs()
             target.writeText(jsonText, Charsets.UTF_8)
@@ -8638,7 +8718,12 @@ class WorkflowExecutor(
                     output = output,
                     expectedPersistedFiles = expectedPersistedFiles,
                     claimedPersistedFiles = claimedPersistedFiles,
-                    validation = validation
+                    validation = validation,
+                    allowedRoots = buildList {
+                        workingDir?.takeIf { it.isNotBlank() }?.let { add(File(it)) }
+                        baseParameters.parameter("output_dir", "").trim().takeIf { it.isNotEmpty() }?.let { add(File(it)) }
+                        add(File("./.workflow-runs/$executionId"))
+                    }
                 )
             }.onFailure { error ->
                 logger.warn(error) { "[Workflow] Auto-persist fallback failed for step '${step.step}'" }
@@ -9636,6 +9721,19 @@ class WorkflowExecutor(
         }
         return try {
             val file = File(sourceRaw)
+            if (!isAllowedTenantHostFile(file, context.executionId)) {
+                logger.warn { "[Workflow:${context.workflowName}] Step '$stepName' reviewable group '${group.name}' 拒绝越界路径: $sourceRaw" }
+                return ReviewablePayloadGroup(
+                    name = group.name,
+                    sourceVar = group.sourceVar,
+                    outputVar = group.outputVar,
+                    title = group.title,
+                    keyField = group.keyField,
+                    columns = group.columns,
+                    items = emptyList(),
+                    sourcePath = null
+                )
+            }
             if (!file.exists()) {
                 logger.warn { "[Workflow:${context.workflowName}] Step '$stepName' reviewable group '${group.name}' 文件不存在: $sourceRaw" }
                 return ReviewablePayloadGroup(
@@ -9703,8 +9801,9 @@ class WorkflowExecutor(
         for (group in request.reviewableGroups) {
             val approvedItems: List<JsonElement> = edits[group.name] ?: group.items
             totalApproved += approvedItems.size
-            val outDir: File = group.sourcePath?.let { File(it).parentFile }
-                ?: File("./.workflow-runs/${context.executionId}").also { it.mkdirs() }
+            val fallbackDir = File("./.workflow-runs/${context.executionId}").also { it.mkdirs() }
+            val candidateDir: File = group.sourcePath?.let { File(it).parentFile } ?: fallbackDir
+            val outDir: File = if (isAllowedTenantHostFile(candidateDir, context.executionId)) candidateDir else fallbackDir
             val outFile = File(outDir, "reviewed_${group.name}.json")
             try {
                 outFile.parentFile?.mkdirs()
@@ -9898,6 +9997,8 @@ class WorkflowExecutor(
                     // worker via runBlocking inside an already-running coroutine.
                     val result = ragTools.indexFileSuspend(absolutePath, sf.tags)
                     logger.info { "[Workflow:${workflow.name}] KB pre-load '${sf.path}': $result" }
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
                 } catch (e: Exception) {
                     logger.warn(e) { "[Workflow:${workflow.name}] Failed to pre-load '${sf.path}' into knowledge base" }
                 }
@@ -10050,6 +10151,8 @@ class WorkflowExecutor(
                     logger.warn { "[Workflow:${workflow.name}] KB max_indexed_documents (${kb.maxIndexedDocuments}) reached, skipping auto-index for step '$stepName'" }
                     return
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
                 logger.debug(e) { "KB document listing failed, proceeding to index" }
             }
@@ -10075,6 +10178,8 @@ class WorkflowExecutor(
                     )
                 )
             }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             logger.warn(e) { "[Workflow:${workflow.name}] Failed to auto-index step '$stepName' output to KB" }
         }

@@ -44,7 +44,7 @@ class RunnerCollectionReviewTest {
         val original = collectFrame(f, "root"); var events = 0
         fun broker(h: IpcHarness, gate: RunnerEnvironmentGate): RunnerCollectionBarrier {
             h.ipc.enableArtifactCollection(); val store = RunnerCheckpointStore(dir, f.binding, RunnerSecrets())
-            val journal = RunnerEventJournal(f.binding, RunnerSecrets(), { p, b -> store.writePrivate(p, b); Unit }, { h.ipc.sendFrame(it); Unit }, {})
+            val journal = RunnerEventJournal(f.binding, RunnerSecrets(), { p, b -> store.writePrivate(p, b) }, { h.ipc.sendFrame(it) }, {})
             return RunnerCollectionBarrier(dir, h.ipc, store, gate, policy, RunnerSecrets(), { body -> assertEquals("original-start", body.string("producerStartEventId")) },
                 recordEvent = { payload, reply, frame, before -> events++; journal.append("artifact", payload, frame, reply, before) },
                 acknowledge = journal::acknowledge, guardedComplete = { _, action -> action() })

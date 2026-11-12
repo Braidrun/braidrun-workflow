@@ -132,7 +132,7 @@ enum class AgentTools {
     @LLMDescription("RAG (Retrieval-Augmented Generation) tools for document indexing and semantic search over a vector knowledge base")
     RAG_TOOLS,
 
-    @LLMDescription("A tool set for spawning external agent SDKs (Anthropic Claude Code, OpenAI Codex) as sub-agents — useful for delegating complex coding tasks to a complete external agentic runtime")
+    @LLMDescription("A tool set for spawning external agent SDKs (Anthropic Claude Code, OpenAI Codex, Google Antigravity) as sub-agents — useful for delegating complex coding tasks to a complete external agentic runtime")
     EXTERNAL_AGENT
 
 }
@@ -335,6 +335,36 @@ internal fun requireAllowedMcpServers(servers: Map<String, McpServerConfig>) {
  *                    payloads never reach the model as text either way (see [MediaAwareMcpTool]).
  * @return The updated tool registry including tools registered from all valid MCP servers.
  */
+private object ScopedMcpProcessTracker {
+    private val processesByScope = java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.CopyOnWriteArrayList<AutoCloseable>>()
+    private val listenerRegistered = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    private fun ensureLifecycleHooks() {
+        if (listenerRegistered.compareAndSet(false, true)) {
+            com.fartech.agents.tools.ToolRunScope.onRunEnd { scopeId ->
+                closeScope(scopeId)
+            }
+            runCatching {
+                Runtime.getRuntime().addShutdownHook(Thread({
+                    processesByScope.keys.toList().forEach(::closeScope)
+                }, "mcp-stdio-reaper"))
+            }
+        }
+    }
+
+    fun register(scopeId: String, closeable: AutoCloseable) {
+        ensureLifecycleHooks()
+        processesByScope.computeIfAbsent(scopeId) { java.util.concurrent.CopyOnWriteArrayList() }.add(closeable)
+    }
+
+    fun closeScope(scopeId: String) {
+        val resources = processesByScope.remove(scopeId) ?: return
+        resources.forEach { resource ->
+            runCatching { resource.close() }
+        }
+    }
+}
+
 suspend fun registerMcpTools(
     httpAccess: HttpAccess,
     parameters: List<ConfigurationParameter>,
@@ -345,6 +375,7 @@ suspend fun registerMcpTools(
     requireAllowedMcpServers(mcpServersConfig.getEnabledServers())
     val agentEnv = parameters.parameter("env", "").takeIf { it.isNotBlank() }
     val mcpRegistries = mutableSetOf<ToolRegistry>()
+    val runScopeId = com.fartech.agents.tools.ToolRunScope.currentId() ?: "unscoped"
 
     mcpServersConfig.getEnabledServers().forEach { (serverName, mcpServer) ->
         // Track the stdio child so the catch below can reap it: if the MCP
@@ -403,7 +434,19 @@ suspend fun registerMcpTools(
                 name = serverName,
             )
             mcpRegistries.add(registry.withMcpToolResultMedia(mediaPolicy))
+            ScopedMcpProcessTracker.register(runScopeId, AutoCloseable {
+                runCatching { kotlinx.coroutines.runBlocking { transport.close() } }
+                spawnedProcess?.let { proc ->
+                    runCatching {
+                        proc.toHandle().descendants().forEach { it.destroyForcibly() }
+                        proc.destroyForcibly()
+                    }
+                }
+            })
 
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            spawnedProcess?.let { proc -> runCatching { proc.destroyForcibly() } }
+            throw e
         } catch (e: Exception) {
             if (com.fartech.agents.workflow.WorkflowHostContext.current != null) throw e
             // 记录错误但不中断整个注册过程;先把已启动的 stdio 子进程杀掉,避免泄漏。
