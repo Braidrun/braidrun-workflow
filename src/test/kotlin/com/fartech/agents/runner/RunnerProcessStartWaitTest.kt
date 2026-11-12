@@ -11,7 +11,7 @@ import java.time.Instant
 import kotlin.test.*
 
 class RunnerProcessStartWaitTest {
-    @Test fun `both launch paths survive durable event backlog longer than thirty seconds`(@TempDir dir: Path) = runBlocking {
+    @Test fun `both launch paths survive durable event backlog longer than thirty seconds`(@TempDir dir: Path) = runBlocking<Unit> {
         IpcHarness().use { h ->
             val gate = RunnerEnvironmentGate(h.binding, setOf("engine-http"))
             gate.install(RunnerProtocolTest.environment(h.binding, Instant.now()))
@@ -49,7 +49,7 @@ class RunnerProcessStartWaitTest {
         put("timeoutSeconds", 60); put("stdin", JsonNull); put("captureLimitBytes", 1024)
     }
 
-    @Test fun `unconfirmed launch exhausts its bound by closing authority without replay`() = runBlocking {
+    @Test fun `unconfirmed launch exhausts its bound by closing authority without replay`() = runBlocking<Unit> {
         IpcHarness().use { h ->
             assertEquals(300_000L, RunnerIpc.PROCESS_START_WAIT_MS)
             val start = async { assertFailsWith<RunnerAuthorityLost> { h.ipc.requestProcessStart("processLaunch", payload(), 100) } }
@@ -60,7 +60,7 @@ class RunnerProcessStartWaitTest {
         }
     }
 
-    @Test fun `parent cancellation interrupts launch wait without pretending its deadline expired`() = runBlocking {
+    @Test fun `parent cancellation interrupts launch wait without pretending its deadline expired`() = runBlocking<Unit> {
         IpcHarness().use { h ->
             val start = async { h.ipc.requestProcessStart("processLaunch", payload()) }
             h.next()
