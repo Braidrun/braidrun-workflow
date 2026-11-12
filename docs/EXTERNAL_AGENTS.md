@@ -67,37 +67,46 @@ Alternative `npx` mode:
 
 ## Antigravity
 
-Native `agy` CLI mode:
+Native `agy` CLI mode with **Antigravity Personal Subscription** (uses host OS Keychain + `~/.gemini` session after signing in interactively via `agy`, with zero GCP/Vertex/API-key env injection):
+
+```bash
+--param external_agent_antigravity_auth_mode=subscription
+--param external_agent_antigravity_command=agy
+--param external_agent_antigravity_model=gemini-3.8-flash-medium
+```
+
+Native `agy` CLI mode with **API Key**:
 
 ```bash
 export GEMINI_API_KEY=...
-```
-
-Runtime parameters (`agy` CLI):
-
-```bash
+--param external_agent_antigravity_auth_mode=api_key
 --param external_agent_antigravity_command=agy
---param external_agent_antigravity_model=gemini-4-carbon
+--param external_agent_antigravity_model=gemini-3.8-flash
 ```
 
-Alternative `google-antigravity` Python SDK mode (`pip install google-antigravity`):
+Official `google-antigravity` Python SDK mode (`pip install google-antigravity`, API Key or Vertex AI ADC only; optional `--param external_agent_antigravity_python=/path/to/venv/bin/python`):
 
 ```bash
+--param external_agent_antigravity_auth_mode=api_key
 --param external_agent_antigravity_command=antigravity-sdk
---param external_agent_antigravity_model=gemini-4-carbon
+--param external_agent_antigravity_model=gemini-3.8-flash
 ```
 
 ## Authentication
 
 The external agent tools resolve credentials from runtime parameters, configured provider keys, or environment variables.
 
-API-key mode is recommended for stable production runs:
+API-key mode is recommended for stateless / containerized runs:
 
 - Claude: `anthropic_api_key` or `ANTHROPIC_API_KEY`
 - Codex: `openai_api_key` or `OPENAI_API_KEY`
 - Antigravity: `antigravity_api_key`, `gemini_api_key`, `google_api_key`, or `GEMINI_API_KEY` / `GOOGLE_API_KEY` (plus optional `external_agent_antigravity_base_url`, `external_agent_antigravity_project`, and `external_agent_antigravity_location`)
 
-Subscription / account-auth modes exist for account-owner workflows (`external_agent_<engine>_auth_mode=subscription`), including Google OAuth / Application Default Credentials (`authorized_user`, `service_account`, `external_account`, or OAuth token JSON) for Antigravity (`external_agent_antigravity_auth_json` or `external_agent_antigravity_auth_file`).
+Subscription / account-auth modes exist for account-owner workflows:
+
+- **Antigravity Personal Subscription (`external_agent_antigravity_auth_mode=subscription` / `personal_subscription`)**: Runs native `agy` against the host user's signed-in Antigravity personal subscription (Google One / AI Pro / AI Ultra Gemini quota). Braidrun preserves the host `HOME` (required for macOS Keychain & `~/.gemini/antigravity-cli`), passes per-session tool restrictions via `agy --settings <tempFile>`, and never injects `AGY_ADC_AUTH`, `GOOGLE_APPLICATION_CREDENTIALS`, `GOOGLE_GENAI_USE_VERTEXAI`, `GOOGLE_CLOUD_PROJECT`, or `GEMINI_API_KEY`. Note: `google-antigravity==0.1.23` `LocalAgentConfig` only supports Gemini API keys or Vertex AI ADC, so Personal Subscription requires `agy` CLI (`external_agent_antigravity_command=agy`) in native mode.
+- **Antigravity Google Cloud / Enterprise ADC (`external_agent_antigravity_auth_mode=adc`)**: Materializes Google Application Default Credentials JSON (`authorized_user`, `service_account`, `external_account`, or `gdch_service_account` via `antigravity_subscription` credential, `external_agent_antigravity_auth_json`, or `external_agent_antigravity_auth_file`) into an isolated `0600` home with `GOOGLE_APPLICATION_CREDENTIALS` + `AGY_ADC_AUTH=true` (plus optional `external_agent_antigravity_project` / `external_agent_antigravity_location` for Vertex AI).
+- When `agy` runs in isolated API-key or ADC mode, Braidrun Workflow writes `~/.gemini/antigravity-cli/settings.json` (`modelProvider: "gemini"`, `customModelsConfig`, `permissions`), `~/.gemini/config/mcp_config.json`, and `~/.gemini/config/config.json` inside the isolated agent home directory.
 
 ## Docker Notes
 

@@ -146,4 +146,32 @@ class RunnerAdmissionSecretsTest {
         assertTrue(rendered.contains("IllegalArgumentException")); assertTrue(rendered.contains("IllegalStateException"))
         assertFalse(rendered.contains("synthetic")); assertFalse(rendered.contains("example.invalid"))
     }
+    @Test fun `Antigravity CLI flags and ADC or API endpoint bounds are enforced on Runner`() {
+        assertEquals(emptyList(), RunnerAgentToolPolicy.antigravityExtraArgs("--dangerously-skip-permissions"))
+        assertEquals(listOf("--effort", "high"), RunnerAgentToolPolicy.antigravityExtraArgs("--effort,high"))
+        assertFailsWith<IllegalArgumentException> { RunnerAgentToolPolicy.antigravityExtraArgs("--workspace,/etc") }
+
+        val agyCaps = setOf("workflow.full.v1", "step.agent.v1", "agent.antigravity.v1")
+        val validAgy = AgentDefinition(type = "antigravity_agent", overrides = mapOf(
+            "external_agent_antigravity_auth_mode" to JsonPrimitive("api_key"),
+            "gemini_api_key" to JsonPrimitive("credential:gemini@1"),
+            "external_agent_antigravity_base_url" to JsonPrimitive("https://generativelanguage.googleapis.com")
+        ))
+        RunnerAdmission(NullWorkflowResolver, agyCaps).inspect(fileWorkflow(validAgy))
+
+        val validAdc = AgentDefinition(type = "antigravity_agent", overrides = mapOf(
+            "external_agent_antigravity_auth_mode" to JsonPrimitive("adc"),
+            "external_agent_antigravity_auth_json" to JsonPrimitive("credential:agy-adc@1")
+        ))
+        RunnerAdmission(NullWorkflowResolver, agyCaps).inspect(fileWorkflow(validAdc))
+
+        val unapprovedAgyUrl = AgentDefinition(type = "antigravity_agent", overrides = mapOf(
+            "external_agent_antigravity_auth_mode" to JsonPrimitive("api_key"),
+            "gemini_api_key" to JsonPrimitive("credential:gemini@1"),
+            "external_agent_antigravity_base_url" to JsonPrimitive("https://evil.example")
+        ))
+        assertFailsWith<IllegalArgumentException> {
+            RunnerAdmission(NullWorkflowResolver, agyCaps).inspect(fileWorkflow(unapprovedAgyUrl))
+        }
+    }
 }

@@ -75,18 +75,8 @@ class NativeSubprocessExecutor : SubprocessExecutor {
             process = processBuilder.start()
             val proc = process
 
-            // Pipe stdin if provided. Wrap in runCatching so a broken pipe (process exited
-            // before consuming stdin) doesn't prevent us from collecting whatever output it
-            // did produce.
-            if (request.stdin != null) {
-                runCatching {
-                    proc.outputStream.bufferedWriter().use { it.write(request.stdin) }
-                }.onFailure { e ->
-                    logger.debug(e) { "[NativeExec] stdin write failed (process may have exited early)" }
-                }
-            }
-
-            // Read stdout and stderr concurrently to avoid pipe buffer deadlock.
+            // Read stdout and stderr concurrently BEFORE writing stdin to avoid pipe buffer
+            // deadlock when a child writes >64 KiB to stdout/stderr before draining stdin.
             // Cap each stream at SubprocessExecutor.MAX_STREAM_BYTES so a runaway
             // child can't OOM the JVM by spamming output; appends a marker on
             // truncation so callers can distinguish from legitimate empty output.
@@ -98,6 +88,20 @@ class NativeSubprocessExecutor : SubprocessExecutor {
             }
             val stderrFuture = readOnOwnThread("native-exec-stderr") {
                 readBoundedStream(proc.errorStream)
+            }
+
+            // Pipe stdin asynchronously on its own daemon thread so large stdin payloads
+            // cannot block waitFor(timeoutSeconds) or coroutine cancellation.
+            if (request.stdin != null) {
+                readOnOwnThread("native-exec-stdin") {
+                    runCatching {
+                        proc.outputStream.bufferedWriter(Charsets.UTF_8).use { it.write(request.stdin) }
+                    }.onFailure { e ->
+                        logger.debug(e) { "[NativeExec] stdin write failed (process may have exited early)" }
+                    }
+                }
+            } else {
+                runCatching { proc.outputStream.close() }
             }
 
             val completed = runInterruptible { proc.waitFor(request.timeoutSeconds, TimeUnit.SECONDS) }
@@ -210,20 +214,21 @@ class NativeSubprocessExecutor : SubprocessExecutor {
         val chunk = ByteArray(8 * 1024)
         var truncated = false
         var capturedBytes = 0
-        val lineBuffer = StringBuilder()
+        val lineBytes = java.io.ByteArrayOutputStream()
 
-        fun emitCallbackLines(text: String) {
+        fun emitCallbackBytes(bytes: ByteArray, length: Int) {
             if (lineCallback == null) return
-            text.forEach { ch ->
-                if (ch == '\n') {
-                    val line = lineBuffer.toString().trimEnd('\r')
-                    lineBuffer.setLength(0)
+            for (i in 0 until length) {
+                val b = bytes[i]
+                if (b == '\n'.code.toByte()) {
+                    val line = lineBytes.toString(Charsets.UTF_8).trimEnd('\r')
+                    lineBytes.reset()
                     if (line.isNotEmpty()) {
                         runCatching { lineCallback.invoke(line) }
                             .onFailure { e -> logger.debug(e) { "[NativeExec] stdout line callback failed" } }
                     }
                 } else {
-                    lineBuffer.append(ch)
+                    lineBytes.write(b.toInt() and 0xFF)
                 }
             }
         }
@@ -242,17 +247,17 @@ class NativeSubprocessExecutor : SubprocessExecutor {
                 if (read <= remaining) {
                     if (agentCapture == null) buffer.write(chunk, 0, read)
                     capturedBytes += read
-                    emitCallbackLines(String(chunk, 0, read, Charsets.UTF_8))
+                    emitCallbackBytes(chunk, read)
                 } else {
                     if (agentCapture == null) buffer.write(chunk, 0, remaining)
                     capturedBytes += remaining
-                    emitCallbackLines(String(chunk, 0, remaining, Charsets.UTF_8))
+                    emitCallbackBytes(chunk, remaining)
                     truncated = true
                 }
             }
         }
-        if (lineCallback != null && lineBuffer.isNotEmpty()) {
-            val line = lineBuffer.toString().trimEnd('\r')
+        if (lineCallback != null && lineBytes.size() > 0) {
+            val line = lineBytes.toString(Charsets.UTF_8).trimEnd('\r')
             if (line.isNotEmpty()) {
                 runCatching { lineCallback.invoke(line) }
                     .onFailure { e -> logger.debug(e) { "[NativeExec] stdout line callback failed" } }

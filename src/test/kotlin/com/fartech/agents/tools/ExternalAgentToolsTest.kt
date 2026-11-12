@@ -10,6 +10,8 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 import java.io.File
@@ -2133,13 +2135,20 @@ class ExternalAgentToolsTest {
             assertEquals("Final answer from Antigravity.", out)
             val req = executor.lastRequest!!
             assertEquals("agy", req.command.first())
+            assertTrue(req.command.containsInOrder("--input-format", "stream-json"))
             assertTrue(req.command.containsInOrder("--output-format", "stream-json"))
+            assertTrue(req.command.contains("--disable-slash-commands"))
+            assertTrue(req.command.containsInOrder("--project", "my-gcp-proj"))
             assertTrue(req.command.containsInOrder("--model", "gemini-4-carbon"))
             assertTrue(req.command.containsInOrder("--effort", "high"))
             assertTrue(req.command.contains("--dangerously-skip-permissions"))
-            assertTrue(req.command.takeLast(2) == listOf("-p", "-"))
-            assertTrue(req.stdin!!.contains("Follow Kotlin style."))
-            assertTrue(req.stdin.contains("Refactor module"))
+            assertTrue(req.command.contains("--print="))
+            assertTrue(!req.command.contains("-p"))
+            val stdinJson = kotlinx.serialization.json.Json.parseToJsonElement(req.stdin!!.trim()).jsonObject
+            assertEquals("user", stdinJson["event"]?.jsonPrimitive?.content)
+            val stdinContent = stdinJson["message"]!!.jsonObject["content"]!!.jsonPrimitive.content
+            assertTrue(stdinContent.contains("Follow Kotlin style."))
+            assertTrue(stdinContent.contains("Refactor module"))
             assertEquals("AIzaSyTestAntigravityApiKey1234567890", req.env["GEMINI_API_KEY"])
             assertEquals("AIzaSyTestAntigravityApiKey1234567890", req.env["GOOGLE_API_KEY"])
             assertEquals("https://proxy.example.com/gemini", req.env["GOOGLE_GEMINI_BASE_URL"])
@@ -2279,6 +2288,196 @@ class ExternalAgentToolsTest {
             runBlocking { tools.runAntigravitySubAgent(ExternalAgentContext(prompt = "x", name = "agy-bad-cred")) }
         }
         assertTrue(ex.message!!.contains("api_key"), "expected guidance to switch to api_key mode, got: ${ex.message}")
+    }
+
+    @Test
+    fun `antigravity nested stream-json envelopes enforce replay safety and parse cache_read_tokens`() = runBlocking {
+        val workspace = Files.createTempDirectory("antigravity-nested-ws").toFile()
+        val customHome = Files.createTempDirectory("antigravity-custom-home").toFile()
+        try {
+            val ndjson = listOf(
+                """{"event":"init","init":{"session_id":"nested-conv-1","model":"gemini-3-flash-preview"}}""",
+                """{"event":"step_update","step_update":{"step_type":"tool","tool_info":{"name":"run_command","args":{"command":"ls"}}}}""",
+                """{"event":"result","result":{"status":"success","response":"Nested result ok","usage":{"input_tokens":500,"output_tokens":120,"cache_read_tokens":200,"cache_write_tokens":50}}}"""
+            ).joinToString("\n")
+            assertTrue(!ExternalAgentTools.antigravityRunReplaySafe(ndjson))
+
+            val executor = FakeSubprocessExecutor(ExecResult(0, ndjson, "", 50))
+            val params = listOf(
+                ConfigurationParameter("gemini_api_key", JsonPrimitive("AIzaSyNestedStreamTestKey1234567890")),
+                ConfigurationParameter(ExternalAgentTools.ANTIGRAVITY_MODEL_PARAMETER, JsonPrimitive("gemini-3-flash-preview")),
+                ConfigurationParameter(ExternalAgentTools.ANTIGRAVITY_BASE_URL_PARAMETER, JsonPrimitive("https://proxy.example.com/gemini")),
+                ConfigurationParameter(ExternalAgentTools.ANTIGRAVITY_HOME_DIR_PARAMETER, JsonPrimitive(customHome.absolutePath))
+            )
+            val events = mutableListOf<CapturedEvent>()
+            val tools = ExternalAgentTools(
+                executor = executor,
+                parameters = params,
+                userId = "test-user",
+                context = SubprocessToolContext(workspaceDir = workspace),
+                onMonitorEvent = { type, summary, detail -> events += CapturedEvent(type, summary, detail) },
+                trustExecutorSandbox = true
+            )
+            val out = tools.runAntigravitySubAgent(
+                ExternalAgentContext(
+                    prompt = "Inspect files",
+                    name = "agy-nested",
+                    allowedTools = listOf("Read"),
+                    disallowedTools = listOf("Bash"),
+                    mcpServers = listOf(ExternalMcpServerConfig(name = "docs", command = "node", args = listOf("mcp.js")))
+                )
+            )
+            assertEquals("Nested result ok", out)
+            val req = executor.lastRequest!!
+            // Tool restrictions drop --dangerously-skip-permissions and materialize permissions in settings.json
+            assertTrue(!req.command.contains("--dangerously-skip-permissions"))
+            val settingsText = File(customHome, ".gemini/antigravity-cli/settings.json").readText()
+            assertTrue(settingsText.contains("\"modelProvider\":\"gemini\""), settingsText)
+            assertTrue(settingsText.contains("gemini-api://https://proxy.example.com/gemini/models/gemini-3-flash-preview"), settingsText)
+            assertTrue(settingsText.contains("\"command(*)\""), settingsText)
+            val mcpText = File(customHome, ".gemini/config/mcp_config.json").readText()
+            assertTrue(mcpText.contains("\"docs\""), mcpText)
+            val completed = events.first { it.type == "antigravity_sub_agent_completed" }
+            assertTrue(completed.detail!!.contains("cache_read=200"), completed.detail)
+        } finally {
+            workspace.deleteRecursively()
+            customHome.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `antigravity personal subscription mode preserves host HOME, scrubs GCP and API env, strips conflicting effort, and parses real agy 1_5_6 stream-json`() = runBlocking {
+        val workspace = Files.createTempDirectory("antigravity-personal-ws").toFile()
+        var capturedSettingsText: String? = null
+        try {
+            val ndjson = listOf(
+                """{"event":"init","init":{"conversation_id":"f217bcf0-1a9b-45b6-b5ac-709e5952346f","model":"gemini-3.8-flash-medium"}}""",
+                """{"event":"step_update","step_update":{"conversation_id":"f217bcf0-1a9b-45b6-b5ac-709e5952346f","step_index":0,"state":"DONE","step_type":"user_input"}}""",
+                """{"event":"step_update","step_update":{"conversation_id":"f217bcf0-1a9b-45b6-b5ac-709e5952346f","step_index":1,"state":"ACTIVE","step_type":"agent_response","thinking_delta":"Checking workspace..."}}""",
+                """{"event":"step_update","step_update":{"conversation_id":"f217bcf0-1a9b-45b6-b5ac-709e5952346f","step_index":2,"state":"ACTIVE","step_type":"tool","tool_name":"run_command","tool_info":{"name":"run_command","parameters":{"CommandLine":"uname -s"}}}}""",
+                """{"event":"step_update","step_update":{"conversation_id":"f217bcf0-1a9b-45b6-b5ac-709e5952346f","step_index":2,"state":"DONE","step_type":"tool","tool_name":"run_command","tool_info":{"name":"run_command","parameters":{"CommandLine":"uname -s"},"output":"Darwin\n"},"usage":{"input_tokens":8259,"output_tokens":45,"total_tokens":8304}}}""",
+                """{"event":"step_update","step_update":{"conversation_id":"f217bcf0-1a9b-45b6-b5ac-709e5952346f","step_index":3,"state":"ACTIVE","step_type":"agent_response","text_delta":"Personal "}}""",
+                """{"event":"step_update","step_update":{"conversation_id":"f217bcf0-1a9b-45b6-b5ac-709e5952346f","step_index":3,"state":"ACTIVE","step_type":"agent_response","text_delta":"quota ok"}}""",
+                """{"event":"result","result":{"conversation_id":"f217bcf0-1a9b-45b6-b5ac-709e5952346f","status":"DONE","response":"","usage":{"input_tokens":17062,"output_tokens":687,"thinking_tokens":123,"total_tokens":17749}}}"""
+            ).joinToString("\n")
+
+            val executor = FakeSubprocessExecutor(
+                resultForRequest = { req ->
+                    val settingsIdx = req.command.indexOf("--settings")
+                    if (settingsIdx >= 0 && settingsIdx + 1 < req.command.size) {
+                        capturedSettingsText = File(req.command[settingsIdx + 1]).readText()
+                    }
+                    ExecResult(0, ndjson, "", 120)
+                }
+            )
+            val params = listOf(
+                ConfigurationParameter(ExternalAgentTools.ANTIGRAVITY_AUTH_MODE_PARAMETER, JsonPrimitive("subscription")),
+                ConfigurationParameter(ExternalAgentTools.ANTIGRAVITY_MODEL_PARAMETER, JsonPrimitive("gemini-3.8-flash-medium")),
+                // Leftover GCP project or effort flags must NEVER leak into personal subscription CLI runs
+                ConfigurationParameter(ExternalAgentTools.ANTIGRAVITY_PROJECT_PARAMETER, JsonPrimitive("stale-gcp-project")),
+                ConfigurationParameter(ExternalAgentTools.ANTIGRAVITY_EXTRA_ARGS_PARAMETER, JsonPrimitive("--effort,low,--verbose"))
+            )
+            val events = mutableListOf<CapturedEvent>()
+            val streamedChunks = mutableListOf<String>()
+            val tools = ExternalAgentTools(
+                executor = executor,
+                parameters = params,
+                userId = "test-user",
+                context = SubprocessToolContext(workspaceDir = workspace),
+                onMonitorEvent = { type, summary, detail -> events += CapturedEvent(type, summary, detail) },
+                trustExecutorSandbox = false
+            )
+
+            val detailed = tools.runConversation(
+                ExternalAgentTools.Engine.ANTIGRAVITY,
+                ExternalAgentContext(
+                    prompt = "Verify personal subscription",
+                    name = "agy-personal",
+                    allowedTools = listOf("Read"),
+                    disallowedTools = listOf("Bash")
+                ),
+                onTextDelta = { streamedChunks += it }
+            )
+
+            assertEquals("Personal quota ok", detailed.text)
+            assertEquals("Personal quota ok", streamedChunks.joinToString(""))
+            assertEquals("f217bcf0-1a9b-45b6-b5ac-709e5952346f", detailed.sessionId)
+            assertEquals(17062L, detailed.inputTokens)
+            assertEquals(687L, detailed.outputTokens)
+
+            val req = executor.lastRequest!!
+            assertEquals("agy", req.command.first())
+            assertTrue(req.command.contains("--print="), "Headless print mode requires --print=: ${req.command}")
+            assertTrue(!req.command.contains("--project"), "Personal subscription must never pass --project: ${req.command}")
+            assertTrue(!req.command.contains("--effort"), "Tier-suffixed model must strip conflicting --effort: ${req.command}")
+            assertTrue(req.command.contains("--verbose"))
+            assertTrue(req.command.contains("--settings"), "Per-session tool rules must use --settings: ${req.command}")
+            assertTrue(capturedSettingsText!!.contains("\"read_file(*)\""), capturedSettingsText!!)
+            assertTrue(capturedSettingsText!!.contains("\"command(*)\""), capturedSettingsText!!)
+
+            // Strictly zero API-key, ADC, Vertex, or empty-HOME env overrides
+            for (forbidden in listOf(
+                "HOME",
+                "AGY_ADC_AUTH",
+                "GOOGLE_APPLICATION_CREDENTIALS",
+                "GOOGLE_GENAI_USE_VERTEXAI",
+                "GOOGLE_CLOUD_PROJECT",
+                "GEMINI_API_KEY",
+                "GOOGLE_API_KEY",
+                "ANTIGRAVITY_API_KEY"
+            )) {
+                assertTrue(forbidden !in req.env, "Personal subscription must not inject $forbidden into env: ${req.env}")
+            }
+
+            val startEvent = events.first { it.type == "antigravity_sub_agent_starting" }
+            assertTrue(startEvent.detail!!.contains("authSource=personal_subscription"), startEvent.detail)
+            val usageEvents = events.filter { it.type == "antigravity_sub_agent_usage" }
+            assertEquals(1, usageEvents.size)
+            assertTrue(usageEvents.single().detail!!.contains("input_tokens=17062"), usageEvents.single().detail)
+            assertTrue(usageEvents.single().detail!!.contains("output_tokens=687"), usageEvents.single().detail)
+            val toolCallEvent = events.first { it.type == "antigravity_stream_tool_call" }
+            assertTrue(toolCallEvent.detail!!.contains("uname -s"), toolCallEvent.detail)
+            val toolResultEvent = events.first { it.type == "antigravity_stream_tool_result" }
+            assertTrue(toolResultEvent.detail!!.contains("Darwin"), toolResultEvent.detail)
+        } finally {
+            workspace.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `antigravity personal subscription rejects antigravity-sdk and docker modes and adc mode requires credential`() {
+        val nativeExec = FakeSubprocessExecutor(ExecResult(0, """{"result":"ok"}""", "", 10))
+        // 1. Personal subscription + antigravity-sdk -> rejected with guidance to use `agy` CLI
+        val sdkParams = listOf(
+            ConfigurationParameter(ExternalAgentTools.ANTIGRAVITY_AUTH_MODE_PARAMETER, JsonPrimitive("subscription")),
+            ConfigurationParameter(ExternalAgentTools.ANTIGRAVITY_COMMAND_PARAMETER, JsonPrimitive("antigravity-sdk"))
+        )
+        val sdkTools = ExternalAgentTools(nativeExec, sdkParams, trustExecutorSandbox = false)
+        val sdkEx = assertThrows(IllegalArgumentException::class.java) {
+            runBlocking { sdkTools.runAntigravitySubAgent(ExternalAgentContext(prompt = "hi", name = "sdk-personal")) }
+        }
+        assertTrue(sdkEx.message!!.contains("agy"), sdkEx.message)
+
+        // 2. Personal subscription + Docker -> rejected because host OS Keychain is unreachable
+        val dockerExec = FakeSubprocessExecutor(ExecResult(0, """{"result":"ok"}""", "", 10))
+        val dockerParams = listOf(
+            ConfigurationParameter(ExternalAgentTools.ANTIGRAVITY_AUTH_MODE_PARAMETER, JsonPrimitive("subscription"))
+        )
+        val dockerTools = ExternalAgentTools(dockerExec, dockerParams, trustExecutorSandbox = true)
+        val dockerEx = assertThrows(IllegalStateException::class.java) {
+            runBlocking { dockerTools.runAntigravitySubAgent(ExternalAgentContext(prompt = "hi", name = "docker-personal")) }
+        }
+        assertTrue(dockerEx.message!!.contains("Keychain"), dockerEx.message)
+
+        // 3. Explicit `adc` mode without ADC JSON -> rejected instead of silently falling back to host login
+        val adcParams = listOf(
+            ConfigurationParameter(ExternalAgentTools.ANTIGRAVITY_AUTH_MODE_PARAMETER, JsonPrimitive("adc"))
+        )
+        val adcTools = ExternalAgentTools(nativeExec, adcParams, trustExecutorSandbox = false)
+        val adcEx = assertThrows(IllegalStateException::class.java) {
+            runBlocking { adcTools.runAntigravitySubAgent(ExternalAgentContext(prompt = "hi", name = "adc-missing")) }
+        }
+        assertTrue(adcEx.message!!.contains("ADC"), adcEx.message)
     }
 }
 

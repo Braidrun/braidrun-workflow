@@ -21,8 +21,18 @@ internal object RunnerAgentToolPolicy {
     val CLAUDE_FILE_TOOLS = setOf("Read", "Write", "Edit", "MultiEdit", "Glob", "Grep", "LS")
     const val CLAUDE_DEFAULT_TOOLS = "Read,Write,Edit,Glob,Grep"
     private const val SKIP_PERMISSIONS = "--dangerously-skip-permissions"
+    private val ANTIGRAVITY_EFFORT_LEVELS = setOf("low", "medium", "high", "xhigh", "max")
+    val APPROVED_ANTIGRAVITY_API_BASE_URLS = setOf(
+        "https://generativelanguage.googleapis.com",
+        "https://llm.braidrun.com"
+    )
 
     fun text(value: JsonElement?): String? = (value as? JsonPrimitive)?.takeIf { value != JsonNull }?.content
+
+    fun isApprovedAntigravityApiBaseUrl(raw: String?): Boolean {
+        val normalized = raw?.trim()?.trimEnd('/').orEmpty()
+        return normalized.isEmpty() || normalized in APPROVED_ANTIGRAVITY_API_BASE_URLS
+    }
 
     /**
      * `external_agent_claude_allowed_tools` entries restricted to [CLAUDE_FILE_TOOLS] (a path rule such as
@@ -45,6 +55,33 @@ internal object RunnerAgentToolPolicy {
     fun claudeExtraArgs(raw: String?): List<String> {
         val args = raw.orEmpty().split(',').map { it.trim() }.filter { it.isNotEmpty() }.filterNot { it == SKIP_PERMISSIONS }
         require(args.isEmpty()) { "Runner Claude Code steps take no extra CLI arguments" }
+        return args
+    }
+
+    /**
+     * Extra CLI arguments for a Runner Antigravity step. Drops `--dangerously-skip-permissions` and
+     * permits only `--effort` with an approved reasoning level; `--settings`, `--add-dir`, `--mode`,
+     * `--sandbox`, `--conversation`, etc. are refused.
+     */
+    fun antigravityExtraArgs(raw: String?): List<String> {
+        val args = raw.orEmpty().split(',').map { it.trim() }.filter { it.isNotEmpty() }.filterNot { it == SKIP_PERMISSIONS }
+        var i = 0
+        while (i < args.size) {
+            val token = args[i]
+            when {
+                token == "--effort" -> {
+                    val level = args.getOrNull(i + 1)?.lowercase().orEmpty()
+                    require(level in ANTIGRAVITY_EFFORT_LEVELS) { "Invalid Antigravity --effort value '$level'" }
+                    i += 2
+                }
+                token.startsWith("--effort=") -> {
+                    val level = token.substringAfter('=').lowercase()
+                    require(level in ANTIGRAVITY_EFFORT_LEVELS) { "Invalid Antigravity --effort value '$level'" }
+                    i += 1
+                }
+                else -> throw IllegalArgumentException("Runner Antigravity steps do not allow extra CLI argument '$token'")
+            }
+        }
         return args
     }
 

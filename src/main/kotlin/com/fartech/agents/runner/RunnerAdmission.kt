@@ -144,11 +144,20 @@ class RunnerAdmission(
                     requireCapability(RunnerClaudeApiPolicy.CAPABILITY)
                     RunnerClaudeApiPolicy.requireSelection(effective)
                 } else if (provider == "antigravity" && effective["external_agent_antigravity_auth_mode"] == JsonPrimitive("api_key")) {
+                    val providerKeys = effective["llm_provider_keys"] as? JsonObject
                     val keyRef = effective["antigravity_api_key"]?.jsonPrimitive?.contentOrNull
                         ?: effective["google_api_key"]?.jsonPrimitive?.contentOrNull
+                        ?: effective["gemini_api_key"]?.jsonPrimitive?.contentOrNull
+                        ?: providerKeys?.get("antigravity")?.jsonPrimitive?.contentOrNull
+                        ?: providerKeys?.get("google")?.jsonPrimitive?.contentOrNull
+                        ?: providerKeys?.get("gemini")?.jsonPrimitive?.contentOrNull
                     require(keyRef != null && CREDENTIAL_REFERENCE.matches(keyRef.trim())) { "Runner Antigravity API mode requires a leased credential reference" }
+                    require(RunnerAgentToolPolicy.isApprovedAntigravityApiBaseUrl(effective["external_agent_antigravity_base_url"]?.jsonPrimitive?.contentOrNull)) {
+                        "Runner Antigravity API endpoint is not an approved provider"
+                    }
                 } else {
-                    require(effective["external_agent_${provider}_auth_mode"]?.jsonPrimitive?.content == "subscription") { "Runner CLI requires explicit scoped subscription mode" }
+                    val allowedModes = if (provider == "antigravity") setOf("subscription", "adc") else setOf("subscription")
+                    require(effective["external_agent_${provider}_auth_mode"]?.jsonPrimitive?.content in allowedModes) { "Runner CLI requires explicit scoped subscription mode" }
                     val key = when (provider) {
                         "codex" -> "external_agent_codex_auth_json"
                         "antigravity" -> "external_agent_antigravity_auth_json"
@@ -167,6 +176,7 @@ class RunnerAdmission(
                 }
                 // The host registers only file tools (`--tools`) for Claude and drops the permission bypass.
                 if (provider == "claude") RunnerAgentToolPolicy.claudeExtraArgs(RunnerAgentToolPolicy.text(effective["external_agent_claude_extra_args"]))
+                if (provider == "antigravity") RunnerAgentToolPolicy.antigravityExtraArgs(RunnerAgentToolPolicy.text(effective["external_agent_antigravity_extra_args"]))
             } else requireCapability(if (local) RunnerLocalModelProtocol.CAPABILITY else "model.http.v1")
             val tools = effective["tool_set"]?.let { v ->
                 require(v is JsonArray) { "Ambiguous tool set" }; v.map { it.jsonPrimitive.content }

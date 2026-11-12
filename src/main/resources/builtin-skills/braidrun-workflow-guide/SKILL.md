@@ -61,7 +61,7 @@ braidrun-workflow mcp-server --tool-group file_system,shell,git
 
 ## External Agents
 
-Use the `external_agent` tool group when the parent agent should spawn Claude Code or OpenAI Codex.
+Use first-class agent types (`claude_code_agent`, `codex_agent`, `antigravity_agent`) or the `external_agent` tool group when the parent agent should spawn Claude Code, OpenAI Codex, or Google Antigravity (`agy` CLI / `antigravity-sdk`).
 
 Common runtime parameters:
 
@@ -69,8 +69,11 @@ Common runtime parameters:
 - `external_agent_claude_model`
 - `external_agent_codex_command`
 - `external_agent_codex_model`
+- `external_agent_antigravity_command`
+- `external_agent_antigravity_model`
 - `external_agent_claude_extra_args`
 - `external_agent_codex_extra_args`
+- `external_agent_antigravity_extra_args`
 
 Prefer API-key authentication for stable automation.
 

@@ -16,7 +16,7 @@ Docker mode routes subprocess-backed tools through ephemeral containers instead 
 - shell tools
 - Git tools
 - browser automation
-- external Claude Code and Codex agents
+- external Claude Code, OpenAI Codex, and Google Antigravity agents
 
 Docker is not required for YAML validation, dry-run planning, preset listing, tool listing, or embedding the parser without executing subprocess tools.
 

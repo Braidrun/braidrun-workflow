@@ -13,6 +13,7 @@ import com.fartech.ftapp2.commonsKt.AnsiColor
 import com.fartech.ftapp2.commonsKt.ConfigurationParameter
 import com.fartech.ftapp2.commonsKt.parameter
 import com.fartech.ftapp2.commonsKt.printlnColor
+import com.fartech.ftapp2.commonsKt.redactForLog
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.cancelAndJoin
@@ -331,12 +332,13 @@ class ExternalAgentTools(
 
                 return when (normalized) {
                     "api", "api_key", "apikey", "direct" -> API_KEY
-                    "oauth", "oauth_token", "adc", "account", "subscription",
+                    "oauth", "oauth_token", "google_oauth", "adc", "cloud_auth", "account", "subscription",
+                    "personal", "personal_subscription", "host_login", "agy_login",
                     "claude_subscription", "codex_subscription",
                     "antigravity_subscription", "antigravity_oauth", "antigravity_account", "antigravity_adc" -> SUBSCRIPTION
                     else -> throw IllegalArgumentException(
                         "$parameterName='$raw' is invalid. " +
-                            "Use 'api_key' or 'subscription'."
+                            "Use 'api_key', 'subscription', or 'adc'."
                     )
                 }
             }
@@ -370,6 +372,7 @@ class ExternalAgentTools(
         val antigravityHomeHostDir: File? = null,
         val antigravityCredentialFile: File? = null,
         val antigravityEnableAdc: Boolean = false,
+        val antigravityPersonalSubscription: Boolean = false,
         val deleteAntigravityHomeOnExit: Boolean = true
     )
 
@@ -487,8 +490,6 @@ class ExternalAgentTools(
         // by setting external_agent_<engine>_command / _extra_args parameters; default is "claude" / "codex" / "agy"
         // assumed to be on PATH inside the container or host.
         val effectiveModel = resolveModel(engine, ctx)
-        val extraCommandEnv = mutableMapOf<String, String>()
-        val command = buildCommand(engine, ctx, effectiveModel, auth, workDir, tempFiles, extraCommandEnv)
 
         val timeoutSeconds = ctx.timeoutSeconds
             .coerceAtLeast(MIN_TIMEOUT_SECONDS)
@@ -496,9 +497,8 @@ class ExternalAgentTools(
 
         // Resolve the optional base URL once so we can mention it in the start-event
         // detail (operators want to see at a glance whether the SDK is talking to
-        // OpenRouter or directly to Anthropic / OpenAI) AND inside buildEnvironment.
-        // The double-resolve is intentional — both call sites use the same validator
-        // so a malformed URL fails fast before we spawn anything.
+        // OpenRouter or directly to Anthropic / OpenAI), materialize custom model config
+        // for Antigravity CLI, AND inject it inside buildEnvironment.
         val baseUrlOverride = runCatching { resolveBaseUrlOverride(engine, auth) }.getOrElse { e ->
             emit(
                 type = engine.failedEventType(),
@@ -507,6 +507,9 @@ class ExternalAgentTools(
             )
             throw e
         }
+
+        val extraCommandEnv = mutableMapOf<String, String>()
+        val command = buildCommand(engine, ctx, effectiveModel, auth, baseUrlOverride, workDir, tempFiles, extraCommandEnv)
 
         emit(
             type = engine.startEventType(),
@@ -520,6 +523,13 @@ class ExternalAgentTools(
                 append("workDir=${workDir.absolutePath}, ")
                 append("executor=${if (isDocker) "docker" else "native"}, ")
                 append("authMode=${auth.mode.detailValue}")
+                if (engine == Engine.ANTIGRAVITY) {
+                    when {
+                        auth.antigravityPersonalSubscription -> append(", authSource=personal_subscription")
+                        auth.antigravityEnableAdc -> append(", authSource=google_adc")
+                        auth.mode == ExternalAuthMode.API_KEY -> append(", authSource=api_key")
+                    }
+                }
                 if (baseUrlOverride != null) append(", baseUrl=$baseUrlOverride")
             }
         )
@@ -557,10 +567,28 @@ class ExternalAgentTools(
                 durationMs = durationMs ?: (System.currentTimeMillis() - startedAtMillis)
             )
 
-        val rawPrompt = if (engine == Engine.ANTIGRAVITY && !isAntigravitySdkMode() && ctx.systemPrompt.isNotBlank()) {
-            "${ctx.systemPrompt.trim()}\n\n${ctx.prompt}"
+        val rawPrompt = if (engine == Engine.ANTIGRAVITY && !isAntigravitySdkMode()) {
+            val appendPrompt = parameters.parameter(ANTIGRAVITY_APPEND_SYSTEM_PROMPT_PARAMETER, "").trim()
+            listOf(ctx.systemPrompt.trim(), appendPrompt, ctx.prompt)
+                .filter { it.isNotEmpty() }
+                .joinToString("\n\n")
         } else {
             ctx.prompt
+        }
+        val effectivePrompt = com.fartech.agents.workflow.WorkflowHostContext.current?.let { host ->
+            val scope = com.fartech.agents.workflow.WorkflowHostContext.scope
+                ?: com.fartech.agents.workflow.WorkflowHostScope(host.binding.executionId, context.executionId ?: host.binding.executionId, stepName = context.stepName)
+            host.nativeAgentPrompt(scope, rawPrompt)
+        } ?: rawPrompt
+        val stdinPayload = if (engine == Engine.ANTIGRAVITY && !isAntigravitySdkMode()) {
+            Json.encodeToString(
+                buildJsonObject {
+                    put("event", JsonPrimitive("user"))
+                    put("message", buildJsonObject { put("content", JsonPrimitive(effectivePrompt)) })
+                }
+            ) + "\n"
+        } else {
+            effectivePrompt
         }
         val request = ExecRequest(
             command = command,
@@ -570,13 +598,9 @@ class ExternalAgentTools(
             // DockerSubprocessExecutor uses StdinOnce and closes the attach after
             // writing, so the child reliably receives EOF without putting the
             // payload in execve argv.
-            stdin = com.fartech.agents.workflow.WorkflowHostContext.current?.let { host ->
-                val scope = com.fartech.agents.workflow.WorkflowHostContext.scope
-                    ?: com.fartech.agents.workflow.WorkflowHostScope(host.binding.executionId, context.executionId ?: host.binding.executionId, stepName = context.stepName)
-                host.nativeAgentPrompt(scope, rawPrompt)
-            } ?: rawPrompt,
+            stdin = stdinPayload,
             timeoutSeconds = timeoutSeconds.toLong(),
-            env = buildEnvironment(engine, auth, ctx, extraCommandEnv),
+            env = buildEnvironment(engine, auth, ctx, effectiveModel, baseUrlOverride, extraCommandEnv),
             mounts = buildMounts(auth),
             imageHint = if (engine == Engine.ANTIGRAVITY && isAntigravitySdkMode()) "python" else "node",
             // Opt into the host's agent working-set estimate, independently of the
@@ -616,14 +640,27 @@ class ExternalAgentTools(
             throw e
         }
 
-        // A clipped JSONL stream without its terminal record cannot establish successful completion.
-        if (engine == Engine.CLAUDE && result.exitCode == 0 &&
-            result.stdout.contains(SubprocessExecutor.STREAM_TRUNCATION_MARKER) &&
-            result.stdout.lineSequence().mapNotNull { parseJsonObjectOrNull(it.trim()) }
-                .none { it.stringField("type") == "result" }) {
-            emit(type = engine.failedEventType(), summary = "Claude Code final result missing after output truncation",
-                detail = "invocation_id=$invocationId")
-            throw ExternalAgentExecutionException("Claude Code output was truncated and no terminal result was retained; completion is unconfirmed")
+        // A clipped JSONL stream without its terminal record cannot establish successful completion
+        // (Codex additionally checks its on-disk session rollout below before rejecting truncation).
+        if (result.exitCode == 0 && engine != Engine.CODEX && result.stdout.contains(SubprocessExecutor.STREAM_TRUNCATION_MARKER)) {
+            val parsedEvents = result.stdout.lineSequence().mapNotNull { parseJsonObjectOrNull(it.trim()) }
+            val hasTerminalRecord = when (engine) {
+                Engine.CLAUDE -> parsedEvents.any { it.stringField("type") == "result" }
+                Engine.ANTIGRAVITY -> parsedEvents.any {
+                    (it.stringField("event") ?: it.stringField("type"))?.lowercase() == "result"
+                }
+                Engine.CODEX -> true
+            }
+            if (!hasTerminalRecord) {
+                emit(
+                    type = engine.failedEventType(),
+                    summary = "${engine.displayName} final result missing after output truncation",
+                    detail = "invocation_id=$invocationId"
+                )
+                throw ExternalAgentExecutionException(
+                    "${engine.displayName} output was truncated and no terminal result was retained; completion is unconfirmed"
+                )
+            }
         }
 
         // Subprocess timed out — the executors already destroyForcibly + drain
@@ -638,7 +675,7 @@ class ExternalAgentTools(
             emit(
                 type = engine.timeoutEventType(),
                 summary = "⏱️ ${engine.displayName} Sub Agent 超时: $invocationLabel",
-                detail = "invocation_id=$invocationId, timeout=${timeoutSeconds}s, stderr_tail=${result.stderr.takeLast(500)}"
+                detail = "invocation_id=$invocationId, timeout=${timeoutSeconds}s, stderr_tail=${redactForLog(result.stderr.takeLast(500))}"
             )
             throw ExternalAgentTimeoutException(
                 "${engine.displayName} sub-agent '$resolvedName' timed out after ${timeoutSeconds}s"
@@ -874,14 +911,15 @@ class ExternalAgentTools(
                     attempted.size < MAX_SUBSCRIPTION_CREDENTIAL_ATTEMPTS
                 emit(
                     type = ANTIGRAVITY_SUBSCRIPTION_RATE_LIMIT_EVENT,
-                    summary = if (shouldReplay) {
-                        "🔄 Antigravity 账号凭据已限额，正在切换备用凭据: $invocationLabel"
-                    } else {
-                        "⏸️ Antigravity 账号额度用尽: $invocationLabel"
+                    summary = when {
+                        shouldReplay -> "🔄 Antigravity 账号凭据已限额，正在切换备用凭据: $invocationLabel"
+                        auth.antigravityPersonalSubscription -> "⏸️ Antigravity 个人订阅 Gemini 额度已用尽或限流: $invocationLabel"
+                        else -> "⏸️ Antigravity 账号额度用尽: $invocationLabel"
                     },
                     detail = buildString {
                         append("invocation_id=$invocationId, credential_id=${auth.subscriptionCredentialId}")
                         auth.subscriptionCredentialLabel?.let { append(", credential_label=$it") }
+                        if (auth.antigravityPersonalSubscription) append(", auth_source=personal_subscription")
                         append(", resets_at_ms=$resetAtMillis")
                         append(", partial_progress=${!replaySafe}")
                         append(", replay_enabled=$shouldReplay")
@@ -890,6 +928,12 @@ class ExternalAgentTools(
                 )
                 if (shouldReplay) {
                     return ExternalAttemptOutcome.Failover(ctx, attempted)
+                }
+                if (auth.antigravityPersonalSubscription) {
+                    throw ExternalAgentExecutionException(
+                        "Antigravity sub-agent '$resolvedName' hit an Antigravity personal subscription Gemini quota/rate limit. " +
+                            "stderr: $tail"
+                    )
                 }
                 throw ExternalAgentExecutionException(
                     "Antigravity sub-agent '$resolvedName' stopped on an account usage/rate limit" +
@@ -905,6 +949,20 @@ class ExternalAgentTools(
                 auth.mode == ExternalAuthMode.SUBSCRIPTION &&
                 isAntigravityAuthFailure(result.stdout, result.stderr)
             ) {
+                if (auth.antigravityPersonalSubscription) {
+                    emit(
+                        type = ANTIGRAVITY_SUBSCRIPTION_EXPIRED_EVENT,
+                        summary = "🔑 Antigravity 个人订阅未登录或会话已失效: $invocationLabel",
+                        detail = "invocation_id=$invocationId, auth_source=personal_subscription, " +
+                            "宿主机 agy CLI 未登录或个人订阅会话已失效，请在运行 Braidrun 的机器终端执行 `agy` 完成浏览器 Google 账号登录。" +
+                            "stderr_tail=$tail"
+                    )
+                    throw ExternalAgentExecutionException(
+                        "Antigravity sub-agent '$resolvedName' failed personal subscription authentication — " +
+                            "the host 'agy' CLI is not signed in or its session expired. Run `agy` interactively on the " +
+                            "Braidrun host to complete browser sign-in. stderr: $tail"
+                    )
+                }
                 val credential = auth.subscriptionCredential
                 val replaySafe = antigravityRunReplaySafe(result.stdout)
                 val attempted = attemptedCredentialIds + setOfNotNull(credential?.id)
@@ -955,6 +1013,21 @@ class ExternalAgentTools(
             recoverCodexUsage(reason = "missing_usage", partial = false, durationMs = result.durationMs)
         } else {
             null
+        }
+        if (engine == Engine.CODEX &&
+            result.stdout.contains(SubprocessExecutor.STREAM_TRUNCATION_MARKER) &&
+            parsed.usage == null &&
+            recoveredUsage == null &&
+            parsed.text.isBlank()
+        ) {
+            emit(
+                type = engine.failedEventType(),
+                summary = "${engine.displayName} final result missing after output truncation",
+                detail = "invocation_id=$invocationId"
+            )
+            throw ExternalAgentExecutionException(
+                "${engine.displayName} output was truncated and no terminal result was retained; completion is unconfirmed"
+            )
         }
         auth.subscriptionCredential?.let { credential ->
             runCatching {
@@ -1841,6 +1914,7 @@ class ExternalAgentTools(
         private val seenMessages = linkedSetOf<String>()
         private var systemEventEmitted = false
         private var usageEmitted = false
+        private var lastStepUsage: TokenUsage? = null
         private val pendingThoughts = StringBuilder()
         private var streamedText = ""
         private var debugEmittedTextLen = 0
@@ -1861,7 +1935,11 @@ class ExternalAgentTools(
                 "init", "system" -> handleInit(obj)
                 "step_update" -> handleStepUpdate(obj)
                 "thought_delta", "thought", "thinking", "reasoning" -> {
-                    val thought = obj.stringField("content") ?: obj.stringField("text") ?: obj.stringField("delta")
+                    val thought = obj.stringField("thinking_delta")
+                        ?: obj.stringField("thought_delta")
+                        ?: obj.stringField("content")
+                        ?: obj.stringField("text")
+                        ?: obj.stringField("delta")
                     if (!thought.isNullOrEmpty()) appendThought(thought)
                 }
                 "tool_call", "tool_use" -> {
@@ -1873,12 +1951,15 @@ class ExternalAgentTools(
                     flushPendingThoughts()
                     handleToolResult(obj)
                 }
-                "text_delta", "content_delta", "agent_message", "assistant" -> {
-                    flushPendingThoughts()
-                    val text = obj.stringField("content")
+                "agent_response", "text_delta", "content_delta", "agent_message", "assistant" -> {
+                    val text = obj.stringField("text_delta")
+                        ?: obj.stringField("content")
                         ?: obj.stringField("text")
                         ?: obj.stringField("delta")
-                    if (!text.isNullOrEmpty()) emitTextDelta(text)
+                    if (!text.isNullOrEmpty()) {
+                        flushPendingThoughts()
+                        emitTextDelta(text)
+                    }
                 }
                 "result", "turn.completed" -> {
                     flushPendingThoughts()
@@ -1916,8 +1997,12 @@ class ExternalAgentTools(
         private fun handleInit(obj: JsonObject) {
             if (systemEventEmitted) return
             systemEventEmitted = true
-            val model = obj.stringField("model")
-            val conversationId = obj.stringField("conversation_id") ?: obj.stringField("session_id")
+            val payload = (obj["init"] as? JsonObject) ?: obj
+            val model = payload.stringField("model") ?: obj.stringField("model")
+            val conversationId = payload.stringField("conversation_id")
+                ?: payload.stringField("session_id")
+                ?: obj.stringField("conversation_id")
+                ?: obj.stringField("session_id")
             emit(
                 type = "antigravity_stream_system",
                 summary = "🪐 Antigravity 会话已初始化: $label",
@@ -1930,43 +2015,69 @@ class ExternalAgentTools(
         }
 
         private fun handleStepUpdate(obj: JsonObject) {
-            val inlineThought = obj.stringField("thinking") ?: obj.stringField("thought")
+            val payload = (obj["step_update"] as? JsonObject) ?: obj
+            extractAntigravityTokenUsage(payload)?.let { usage ->
+                val input = usage.inputTokens?.coerceAtLeast(0L) ?: 0L
+                val output = usage.outputTokens?.coerceAtLeast(0L) ?: 0L
+                if (input > 0L || output > 0L) {
+                    lastStepUsage = usage
+                }
+            }
+            val inlineThought = payload.stringField("thinking_delta")
+                ?: payload.stringField("thought_delta")
+                ?: payload.stringField("thinking")
+                ?: payload.stringField("thought")
             if (!inlineThought.isNullOrEmpty()) {
                 appendThought(inlineThought)
             }
-            val inlineToolCalls = obj["tool_calls"] as? kotlinx.serialization.json.JsonArray
+            val inlineToolCalls = payload["tool_calls"] as? kotlinx.serialization.json.JsonArray
             if (!inlineToolCalls.isNullOrEmpty()) {
                 flushPendingThoughts()
                 flushStreamedTextDebug()
                 inlineToolCalls.mapNotNull { it as? JsonObject }.forEach(::handleToolCall)
             }
+            val toolInfo = payload["tool_info"] as? JsonObject
+            val state = payload.stringField("state")?.uppercase()
             val subtype = (
-                obj.stringField("step_type")
-                    ?: obj.stringField("subtype")
-                    ?: obj.stringField("type")?.takeUnless { it.equals("step_update", ignoreCase = true) }
+                payload.stringField("step_type")
+                    ?: payload.stringField("subtype")
+                    ?: payload.stringField("type")?.takeUnless { it.equals("step_update", ignoreCase = true) }
                 )?.lowercase()
             when (subtype) {
+                "user_input" -> Unit
                 "thought_delta", "thought", "thinking", "reasoning" -> {
-                    val thought = obj.stringField("content") ?: obj.stringField("text") ?: obj.stringField("delta")
+                    val thought = payload.stringField("content") ?: payload.stringField("text") ?: payload.stringField("delta")
                     if (!thought.isNullOrEmpty()) appendThought(thought)
                 }
-                "tool_call", "tool_use", "command_execution" -> {
+                "tool", "tool_call", "tool_use", "command_execution" -> {
                     flushPendingThoughts()
                     flushStreamedTextDebug()
-                    handleToolCall(obj)
+                    val target = toolInfo ?: payload
+                    val hasCompletedOutput = state == "DONE" &&
+                        (target["output"] != null || target["result"] != null || target["error"] != null)
+                    if (hasCompletedOutput) {
+                        handleToolResult(target)
+                    } else {
+                        handleToolCall(target)
+                    }
                 }
                 "tool_result", "tool_output" -> {
                     flushPendingThoughts()
-                    handleToolResult(obj)
+                    handleToolResult(toolInfo ?: payload)
                 }
-                "text_delta", "text", "content_delta", "agent_message", "planner_response" -> {
-                    flushPendingThoughts()
-                    val piece = obj.stringField("content") ?: obj.stringField("text") ?: obj.stringField("delta")
-                    if (!piece.isNullOrEmpty()) emitTextDelta(piece)
+                "agent_response", "text_delta", "text", "content_delta", "agent_message", "planner_response" -> {
+                    val piece = payload.stringField("text_delta")
+                        ?: payload.stringField("content")
+                        ?: payload.stringField("text")
+                        ?: payload.stringField("delta")
+                    if (!piece.isNullOrEmpty()) {
+                        flushPendingThoughts()
+                        emitTextDelta(piece)
+                    }
                 }
                 "error" -> {
                     flushPendingThoughts()
-                    val err = obj.stringField("message") ?: obj.stringField("content") ?: compactJson(obj, 800)
+                    val err = payload.stringField("message") ?: payload.stringField("content") ?: compactJson(payload, 800)
                     emitOnce(
                         type = "antigravity_stream_error",
                         summary = buildSummaryWithPreview("⚠️ Antigravity 错误: $label", err),
@@ -1974,9 +2085,18 @@ class ExternalAgentTools(
                     )
                 }
                 else -> {
-                    flushPendingThoughts()
-                    val content = obj.stringField("content") ?: obj.stringField("text")
-                    if (!content.isNullOrBlank()) emitTextDelta(content)
+                    if (toolInfo != null) {
+                        flushPendingThoughts()
+                        flushStreamedTextDebug()
+                        handleToolCall(toolInfo)
+                    }
+                    val content = payload.stringField("text_delta")
+                        ?: payload.stringField("content")
+                        ?: payload.stringField("text")
+                    if (!content.isNullOrBlank()) {
+                        flushPendingThoughts()
+                        emitTextDelta(content)
+                    }
                 }
             }
         }
@@ -2000,8 +2120,8 @@ class ExternalAgentTools(
         }
 
         private fun handleToolCall(obj: JsonObject) {
-            val name = obj.stringField("name") ?: obj.stringField("tool") ?: obj.stringField("command") ?: "tool"
-            val argsElem = obj["args"] ?: obj["arguments"] ?: obj["input"]
+            val name = obj.stringField("name") ?: obj.stringField("tool_name") ?: obj.stringField("tool") ?: obj.stringField("command") ?: "tool"
+            val argsElem = obj["args"] ?: obj["arguments"] ?: obj["parameters"] ?: obj["input"]
             emitOnce(
                 type = "antigravity_stream_tool_call",
                 summary = "🔧 Antigravity 调用工具: $label / $name",
@@ -2029,10 +2149,11 @@ class ExternalAgentTools(
         }
 
         private fun handleToolResult(obj: JsonObject) {
-            val name = obj.stringField("name") ?: obj.stringField("tool") ?: "tool"
+            val name = obj.stringField("name") ?: obj.stringField("tool_name") ?: obj.stringField("tool") ?: "tool"
             val content = obj.stringField("content")
                 ?: obj.stringField("result")
                 ?: obj.stringField("output")
+                ?: obj.stringField("error")
                 ?: extractToolResultContent(obj)
             emitOnce(
                 type = "antigravity_stream_tool_result",
@@ -2064,7 +2185,8 @@ class ExternalAgentTools(
         }
 
         private fun handleResult(obj: JsonObject) {
-            val usage = extractAntigravityTokenUsage(obj)
+            val payload = (obj["result"] as? JsonObject) ?: obj
+            val usage = extractAntigravityTokenUsage(obj) ?: lastStepUsage
             if (!usageEmitted && usage != null) {
                 val input = usage.inputTokens?.coerceAtLeast(0L) ?: 0L
                 val output = usage.outputTokens?.coerceAtLeast(0L) ?: 0L
@@ -2079,11 +2201,17 @@ class ExternalAgentTools(
                             append(", output_tokens=$output")
                             append(", total_tokens=${input + output}")
                             usage.cacheReadInputTokens?.let { append(", cache_read=$it") }
+                            usage.cacheCreationInputTokens?.let { append(", cache_creation=$it") }
                         }
                     )
                 }
             }
             val resultText = obj.stringField("result")
+                ?: payload.stringField("response")
+                ?: payload.stringField("result")
+                ?: payload.stringField("text")
+                ?: payload.stringField("output")
+                ?: payload.stringField("content")
                 ?: obj.stringField("response")
                 ?: obj.stringField("text")
                 ?: obj.stringField("output")
@@ -2092,16 +2220,21 @@ class ExternalAgentTools(
             if (streamedText.isEmpty() && resultText.isNotBlank()) {
                 onTextDelta?.invoke(resultText)
             }
+            val status = payload.stringField("status") ?: obj.stringField("status")
+            val conversationId = payload.stringField("conversation_id")
+                ?: payload.stringField("session_id")
+                ?: obj.stringField("conversation_id")
+                ?: obj.stringField("session_id")
             emitOnce(
                 type = "antigravity_stream_result",
                 summary = buildSummaryWithPreview(
                     "🏁 Antigravity 最终结果: $label",
-                    resultText.ifBlank { obj.stringField("status") ?: "completed" }
+                    resultText.ifBlank { status ?: "completed" }
                 ),
                 detail = buildString {
                     append("invocation_id=$invocationId")
-                    obj.stringField("status")?.let { append(", status=$it") }
-                    (obj.stringField("conversation_id") ?: obj.stringField("session_id"))?.let {
+                    status?.let { append(", status=$it") }
+                    conversationId?.let {
                         append(", session_id=${it.take(16)}")
                     }
                 }
@@ -2141,38 +2274,70 @@ class ExternalAgentTools(
         return rawCommand.equals(ANTIGRAVITY_SDK_COMMAND, ignoreCase = true)
     }
 
+    private fun resolveNativeAntigravityExecutable(baseCommand: String): String {
+        if (baseCommand != Engine.ANTIGRAVITY.defaultCommand) return baseCommand
+        if (isDocker || executor !is com.fartech.agents.tools.exec.NativeSubprocessExecutor) return baseCommand
+        val pathEntries = (System.getenv("PATH") ?: "")
+            .split(File.pathSeparatorChar)
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+        if (pathEntries.any { dir -> File(dir, baseCommand).let { it.isFile && it.canExecute() } }) {
+            return baseCommand
+        }
+        val userHome = System.getenv("HOME")?.takeIf { it.isNotBlank() } ?: System.getProperty("user.home")
+        if (!userHome.isNullOrBlank()) {
+            val localBinAgy = File(userHome, ".local/bin/agy")
+            if (localBinAgy.isFile && localBinAgy.canExecute()) {
+                return localBinAgy.absolutePath
+            }
+        }
+        return baseCommand
+    }
+
     private fun buildCommand(
         engine: Engine,
         ctx: ExternalAgentContext,
         model: String,
         auth: ResolvedExternalAuth,
+        baseUrlOverride: String?,
         workDir: File,
         tempFiles: MutableList<File>,
         extraCommandEnv: MutableMap<String, String>
     ): List<String> {
-        val baseCommand = parameters.parameter(engine.commandParameterKey, engine.defaultCommand)
+        val configuredCommand = parameters.parameter(engine.commandParameterKey, engine.defaultCommand)
             .trim()
             .takeIf { it.isNotEmpty() }
             ?: engine.defaultCommand
 
-        if (engine == Engine.ANTIGRAVITY && baseCommand.equals(ANTIGRAVITY_SDK_COMMAND, ignoreCase = true)) {
-            return materializeAntigravitySdkRunner(ctx, model, auth, workDir, tempFiles, extraCommandEnv)
+        if (engine == Engine.ANTIGRAVITY && configuredCommand.equals(ANTIGRAVITY_SDK_COMMAND, ignoreCase = true)) {
+            return materializeAntigravitySdkRunner(ctx, model, auth, baseUrlOverride, workDir, tempFiles, extraCommandEnv)
                 .also(::validateCommandArguments)
+        }
+
+        val baseCommand = if (engine == Engine.ANTIGRAVITY) {
+            resolveNativeAntigravityExecutable(configuredCommand)
+        } else {
+            configuredCommand
         }
 
         // Operator-supplied extra args come BEFORE engine-specific flags so something like
         // `external_agent_claude_command=npx`, `_extra_args=-y,@anthropic-ai/claude-code`
         // produces `npx -y @anthropic-ai/claude-code -p ...` (npx then forwards remaining args).
-        val extraArgs = parameters
+        val rawExtraArgs = parameters
             .parameter(engine.extraArgsParameterKey, "")
             .split(',')
             .map { it.trim() }
             .filter { it.isNotEmpty() }
+        val extraArgs = if (engine == Engine.ANTIGRAVITY && hasBakedAntigravityEffortSuffix(model)) {
+            stripAntigravityEffortFlags(rawExtraArgs)
+        } else {
+            rawExtraArgs
+        }
 
         val cliFlags = when (engine) {
             Engine.CLAUDE -> buildClaudeFlags(ctx, model, workDir, tempFiles)
             Engine.CODEX -> buildCodexFlags(ctx, model, auth.mode == ExternalAuthMode.SUBSCRIPTION, childTmpDir(auth, ctx))
-            Engine.ANTIGRAVITY -> buildAntigravityFlags(ctx, model, auth)
+            Engine.ANTIGRAVITY -> buildAntigravityFlags(ctx, model, auth, baseUrlOverride, tempFiles)
         }
 
         return buildList {
@@ -2406,42 +2571,102 @@ class ExternalAgentTools(
         add("-")
     }
 
+    private fun antigravitySkipPermissionsEffective(ctx: ExternalAgentContext): Boolean {
+        ctx.antigravitySkipPermissions?.let { return it }
+        val configured = parameters.parameter(ANTIGRAVITY_SKIP_PERMISSIONS_PARAMETER, "").trim()
+        if (configured.equals("true", ignoreCase = true)) return true
+        if (configured.equals("false", ignoreCase = true)) return false
+        return trustExecutorSandbox && ctx.allowedTools.isEmpty() && ctx.disallowedTools.isEmpty()
+    }
+
+    private fun computeAntigravityPermissionRules(ctx: ExternalAgentContext): Pair<List<String>, List<String>> {
+        val enforceToolRules = !antigravitySkipPermissionsEffective(ctx) &&
+            (ctx.allowedTools.isNotEmpty() || ctx.disallowedTools.isNotEmpty())
+        if (!enforceToolRules) return emptyList<String>() to emptyList()
+        val allowRules = if (ctx.allowedTools.isNotEmpty()) {
+            mapAntigravityPermissionRules(ctx.allowedTools, includeMcpAllow = ctx.mcpServers.isNotEmpty())
+        } else emptyList()
+        val denyRules = buildSet {
+            addAll(mapAntigravityPermissionRules(ctx.disallowedTools))
+            if (ctx.allowedTools.isNotEmpty()) {
+                val allRules = listOf("command(*)", "read_file(*)", "write_file(*)", "read_url(*)", "execute_url(*)")
+                for (rule in allRules) {
+                    if (rule !in allowRules) add(rule)
+                }
+            }
+        }.toList()
+        return allowRules to denyRules
+    }
+
     private fun buildAntigravityFlags(
         ctx: ExternalAgentContext,
         model: String,
-        auth: ResolvedExternalAuth
+        auth: ResolvedExternalAuth,
+        baseUrlOverride: String?,
+        tempFiles: MutableList<File>
     ): List<String> = buildList {
-        // Persist CLI settings (enableAdc, MCP servers) into the isolated per-invocation
-        // Antigravity home before spawning `agy`.
+        // Persist CLI settings (modelProvider, customModelsConfig, permissions), ADC config,
+        // and MCP servers into the isolated per-invocation Antigravity home before spawning `agy`.
         auth.antigravityHomeHostDir?.let { homeDir ->
-            writeAntigravityCliSettings(homeDir, ctx.mcpServers, auth.antigravityEnableAdc)
+            writeAntigravityCliSettings(homeDir, ctx, model, auth, baseUrlOverride)
         }
+        if (auth.antigravityPersonalSubscription) {
+            val (allowRules, denyRules) = computeAntigravityPermissionRules(ctx)
+            if (allowRules.isNotEmpty() || denyRules.isNotEmpty()) {
+                val settingsObj = buildJsonObject {
+                    put("permissions", buildJsonObject {
+                        if (allowRules.isNotEmpty()) put("allow", JsonArray(allowRules.map(::JsonPrimitive)))
+                        if (denyRules.isNotEmpty()) put("deny", JsonArray(denyRules.map(::JsonPrimitive)))
+                    })
+                }
+                val settingsFile = File.createTempFile("braidrun-antigravity-settings-", ".json")
+                settingsFile.writeText(Json.encodeToString(settingsObj), Charsets.UTF_8)
+                applyCodexHomePermissions(settingsFile.parentFile ?: settingsFile, settingsFile)
+                tempFiles += settingsFile
+                add("--settings")
+                add(settingsFile.absolutePath)
+            }
+        }
+        add("--input-format")
+        add("stream-json")
         add("--output-format")
         add("stream-json")
+        add("--disable-slash-commands")
         ctx.resumeSessionId.trim().takeIf { it.isNotEmpty() }?.let { sessionId ->
             add("--conversation")
             add(sessionId)
+        }
+        // Personal subscription mode NEVER passes --project so execution strictly uses the
+        // signed-in Antigravity personal subscription quota rather than Google Cloud / Vertex AI.
+        if (!auth.antigravityPersonalSubscription) {
+            val project = parameters.parameter(ANTIGRAVITY_PROJECT_PARAMETER, "").trim()
+                .ifEmpty { auth.env["GOOGLE_CLOUD_PROJECT"].orEmpty() }
+            if (project.isNotEmpty()) {
+                add("--project")
+                add(project)
+            }
         }
         claudeAdditionalAllowedDirs().forEach { dir ->
             add("--add-dir")
             add(dir)
         }
-        if (ctx.antigravitySkipPermissions ?: trustExecutorSandbox) {
+        if (antigravitySkipPermissionsEffective(ctx)) {
             add("--dangerously-skip-permissions")
         }
         if (model.isNotBlank()) {
             add("--model")
             add(model)
         }
-        // Pass `-p -` so `agy` runs headlessly and reads the prompt from ExecRequest.stdin
-        // instead of exposing user prompts in execve argv.
-        add("-p")
-        add("-")
+        // `--print=` (empty attached value) switches `agy` into non-interactive headless print
+        // mode without consuming the next flag or exposing prompts in execve argv; combined with
+        // `--input-format stream-json`, `agy` reads NDJSON `{"event":"user","message":{"content":...}}`
+        // turns from stdin and exits upon EOF.
+        add("--print=")
     }
 
     /**
      * Materializes a self-contained Python runner script driving the official
-     * `google-antigravity` Python SDK (`from google.antigravity import Agent, LocalAgentConfig, CapabilitiesConfig, McpStdioServer`).
+     * `google-antigravity` Python SDK (`from google.antigravity import Agent, LocalAgentConfig, CapabilitiesConfig, types`).
      *
      * Secrets are NEVER written to the metadata file: API keys and ADC credentials
      * are read exclusively from environment variables inside the child process.
@@ -2450,6 +2675,7 @@ class ExternalAgentTools(
         ctx: ExternalAgentContext,
         model: String,
         auth: ResolvedExternalAuth,
+        baseUrlOverride: String?,
         workDir: File,
         tempFiles: MutableList<File>,
         extraCommandEnv: MutableMap<String, String>
@@ -2489,10 +2715,17 @@ class ExternalAgentTools(
             auth.antigravityHomeHostDir != null -> File(auth.antigravityHomeHostDir, "sessions").absolutePath
             else -> null
         }
+        val appDataDir = when {
+            isDocker && auth.antigravityHomeHostDir != null -> "$ANTIGRAVITY_HOME_CONTAINER_PATH/appdata"
+            isDocker -> "/tmp/antigravity-appdata"
+            auth.antigravityHomeHostDir != null -> File(auth.antigravityHomeHostDir, "appdata").absolutePath
+            else -> null
+        }
 
         val configJson = buildJsonObject {
             put("model", JsonPrimitive(model))
             put("workspaces", JsonArray(workspaces.map(::JsonPrimitive)))
+            put("skip_permissions", JsonPrimitive(antigravitySkipPermissionsEffective(ctx)))
             if (skillsPaths.isNotEmpty()) {
                 put("skills_paths", JsonArray(skillsPaths.map(::JsonPrimitive)))
             }
@@ -2505,6 +2738,12 @@ class ExternalAgentTools(
             if (saveDir != null) {
                 put("save_dir", JsonPrimitive(saveDir))
             }
+            if (appDataDir != null) {
+                put("app_data_dir", JsonPrimitive(appDataDir))
+            }
+            if (!baseUrlOverride.isNullOrBlank()) {
+                put("base_url", JsonPrimitive(baseUrlOverride))
+            }
             if (useVertex) {
                 put("vertex", JsonPrimitive(true))
                 if (project.isNotEmpty()) put("project", JsonPrimitive(project))
@@ -2512,6 +2751,12 @@ class ExternalAgentTools(
             }
             if (capabilities.isNotEmpty()) {
                 put("capabilities", JsonObject(capabilities.mapValues { JsonPrimitive(it.value) }))
+            }
+            if (ctx.allowedTools.isNotEmpty()) {
+                put("allowed_tools", JsonArray(ctx.allowedTools.map(::JsonPrimitive)))
+            }
+            if (ctx.disallowedTools.isNotEmpty()) {
+                put("disallowed_tools", JsonArray(ctx.disallowedTools.map(::JsonPrimitive)))
             }
             if (ctx.mcpServers.isNotEmpty()) {
                 put("mcp_servers", JsonArray(ctx.mcpServers.map { server ->
@@ -2548,7 +2793,10 @@ class ExternalAgentTools(
         val scriptCliPath = if (isDocker) "/workspace/${scriptFile.name}" else scriptFile.absolutePath
         val configCliPath = if (isDocker) "/workspace/${configFile.name}" else configFile.absolutePath
         extraCommandEnv["BRAIDRUN_AGY_SDK_CONFIG"] = configCliPath
-        return listOf("python3", scriptCliPath)
+        val pythonBin = parameters.parameter(ANTIGRAVITY_PYTHON_PARAMETER, "").trim()
+            .ifEmpty { if (!isDocker) System.getenv("BRAIDRUN_ANTIGRAVITY_PYTHON")?.trim().orEmpty() else "" }
+            .ifEmpty { "python3" }
+        return listOf(pythonBin, scriptCliPath)
     }
 
     private fun deriveAntigravityCapabilities(ctx: ExternalAgentContext): Map<String, Boolean> {
@@ -2577,27 +2825,101 @@ class ExternalAgentTools(
         return caps
     }
 
+    private fun mapAntigravityPermissionRules(tools: List<String>, includeMcpAllow: Boolean = false): List<String> {
+        val rules = linkedSetOf<String>()
+        for (raw in tools) {
+            val lower = raw.trim().lowercase()
+            when {
+                lower.isEmpty() -> Unit
+                lower in setOf("bash", "shell", "terminal", "terminal_execution", "run_command", "command") -> rules += "command(*)"
+                lower in setOf("read", "glob", "grep", "ls", "read_file", "view_file", "list_dir", "find_by_name", "grep_search") -> rules += "read_file(*)"
+                lower in setOf("write", "edit", "multiedit", "write_file", "edit_file", "write_to_file", "replace_file_content") -> rules += "write_file(*)"
+                lower in setOf("file_system") -> {
+                    rules += "read_file(*)"
+                    rules += "write_file(*)"
+                }
+                lower in setOf("web", "webfetch", "websearch", "web_search", "search_web", "read_url", "read_url_content") -> rules += "read_url(*)"
+                lower in setOf("browser", "browser_control", "execute_url") -> {
+                    rules += "read_url(*)"
+                    rules += "execute_url(*)"
+                }
+                lower.startsWith("mcp__") || lower == "mcp" -> rules += "mcp(*)"
+            }
+        }
+        if (includeMcpAllow) rules += "mcp(*)"
+        return rules.toList()
+    }
+
     private fun writeAntigravityCliSettings(
         homeDir: File,
-        mcpServers: List<ExternalMcpServerConfig>,
-        enableAdc: Boolean
+        ctx: ExternalAgentContext,
+        model: String,
+        auth: ResolvedExternalAuth,
+        baseUrlOverride: String?
     ) {
-        if (!enableAdc && mcpServers.isEmpty()) return
-        val settingsDir = File(homeDir, ".gemini/antigravity-cli")
-        createDirectories(settingsDir, "Antigravity CLI settings")
-        val settingsObj = buildJsonObject {
-            if (enableAdc) {
-                put("enableAdc", JsonPrimitive(true))
-            }
-            if (mcpServers.isNotEmpty()) {
+        if (ctx.mcpServers.isNotEmpty()) {
+            val configDir = File(homeDir, ".gemini/config")
+            createDirectories(configDir, "Antigravity MCP config")
+            val mcpObj = buildJsonObject {
                 put("mcpServers", buildJsonObject {
-                    mcpServers.forEach { server ->
+                    ctx.mcpServers.forEach { server ->
                         put(server.name, buildJsonObject {
                             put("command", JsonPrimitive(server.command))
                             put("args", JsonArray(server.args.map(::JsonPrimitive)))
                             put("env", JsonObject(server.env.mapValues { JsonPrimitive(it.value) }))
                         })
                     }
+                })
+            }
+            val mcpFile = File(configDir, "mcp_config.json")
+            mcpFile.writeText(Json.encodeToString(mcpObj), Charsets.UTF_8)
+            applyCodexHomePermissions(configDir, mcpFile)
+        }
+        if (auth.antigravityEnableAdc) {
+            val configDir = File(homeDir, ".gemini/config")
+            createDirectories(configDir, "Antigravity user config")
+            val userCfgObj = buildJsonObject {
+                put("userSettings", buildJsonObject {
+                    put("enableAdc", JsonPrimitive(true))
+                })
+            }
+            val cfgFile = File(configDir, "config.json")
+            cfgFile.writeText(Json.encodeToString(userCfgObj), Charsets.UTF_8)
+            applyCodexHomePermissions(configDir, cfgFile)
+        }
+        if (auth.antigravityPersonalSubscription) {
+            // In personal subscription mode, per-session permissions are passed via `--settings <file>`
+            // so we never mutate or shadow the user's signed-in `~/.gemini/antigravity-cli/settings.json`.
+            return
+        }
+        val directGeminiApiKey = auth.mode == ExternalAuthMode.API_KEY && auth.env["GOOGLE_GENAI_USE_VERTEXAI"] != "true"
+        val (allowRules, denyRules) = computeAntigravityPermissionRules(ctx)
+
+        if (!auth.antigravityEnableAdc && !directGeminiApiKey && allowRules.isEmpty() && denyRules.isEmpty()) return
+        val settingsDir = File(homeDir, ".gemini/antigravity-cli")
+        createDirectories(settingsDir, "Antigravity CLI settings")
+        val settingsObj = buildJsonObject {
+            if (auth.antigravityEnableAdc) {
+                put("enableAdc", JsonPrimitive(true))
+            }
+            if (directGeminiApiKey) {
+                put("modelProvider", JsonPrimitive("gemini"))
+                if (!baseUrlOverride.isNullOrBlank() && model.isNotBlank()) {
+                    val endpoint = baseUrlOverride.trimEnd('/')
+                    put("customModelsConfig", buildJsonObject {
+                        put("customModels", buildJsonObject {
+                            put(model, buildJsonObject {
+                                put("modelName", JsonPrimitive("gemini-api://$endpoint/models/$model"))
+                                put("toolFormatterType", JsonPrimitive("TOOL_FORMATTER_TYPE_NONE"))
+                            })
+                        })
+                    })
+                }
+            }
+            if (allowRules.isNotEmpty() || denyRules.isNotEmpty()) {
+                put("permissions", buildJsonObject {
+                    if (allowRules.isNotEmpty()) put("allow", JsonArray(allowRules.map(::JsonPrimitive)))
+                    if (denyRules.isNotEmpty()) put("deny", JsonArray(denyRules.map(::JsonPrimitive)))
                 })
             }
         }
@@ -2654,6 +2976,8 @@ class ExternalAgentTools(
         engine: Engine,
         auth: ResolvedExternalAuth,
         ctx: ExternalAgentContext,
+        effectiveModel: String,
+        baseUrlOverride: String?,
         extraCommandEnv: Map<String, String> = emptyMap()
     ): Map<String, String> = buildMap {
         putAll(auth.env)
@@ -2662,7 +2986,7 @@ class ExternalAgentTools(
         com.fartech.agents.workflow.WorkflowHostContext.current?.privateDirectory?.let { privateRoot ->
             val reserved = setOf(
                 "HOME", "CODEX_HOME", "CLAUDE_CONFIG_DIR", "CLAUDE_CODE_OAUTH_TOKEN",
-                "OPENAI_API_KEY", "ANTHROPIC_API_KEY",
+                "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN",
                 "GEMINI_API_KEY", "GOOGLE_API_KEY", "ANTIGRAVITY_API_KEY",
                 "GOOGLE_APPLICATION_CREDENTIALS", "AGY_ADC_AUTH",
                 "GOOGLE_OAUTH_ACCESS_TOKEN", "ANTIGRAVITY_OAUTH_TOKEN", "AGY_AUTH_TOKEN",
@@ -2673,7 +2997,7 @@ class ExternalAgentTools(
             createDirectories(home, "Runner scoped HOME")
             java.nio.file.Files.setPosixFilePermissions(home.toPath(), java.nio.file.attribute.PosixFilePermissions.fromString("rwx------"))
             if (engine == Engine.ANTIGRAVITY) {
-                writeAntigravityCliSettings(home, ctx.mcpServers, auth.antigravityEnableAdc)
+                writeAntigravityCliSettings(home, ctx, effectiveModel, auth, baseUrlOverride)
             }
             put("HOME", home.absolutePath)
             putAll(requireNotNull(com.fartech.agents.workflow.WorkflowHostContext.current).codeEnvironment)
@@ -2698,7 +3022,7 @@ class ExternalAgentTools(
         // OpenRouter (or any Anthropic-/OpenAI-compatible proxy). Validated to
         // reject obviously-broken values so a typo in the workflow YAML doesn't
         // silently disable the override.
-        resolveBaseUrlOverride(engine, auth)?.let { baseUrl -> put(engine.baseUrlEnvVar, baseUrl) }
+        baseUrlOverride?.let { baseUrl -> put(engine.baseUrlEnvVar, baseUrl) }
         val outputPath = when {
             context.outputDir == null -> null
             isDocker -> "/output"
@@ -2965,8 +3289,20 @@ class ExternalAgentTools(
         val apiKeyCodexHome = if (engine == Engine.CODEX && isDocker) createEphemeralCodexHome(invocationId) else null
         // A Runner API-key Claude invocation must never load the operator's ~/.claude account/settings.
         val apiKeyClaudeConfig = if (engine == Engine.CLAUDE && com.fartech.agents.workflow.WorkflowHostContext.current != null) resolveClaudeConfigDir() else null
-        val apiKeyAntigravityHome = if (engine == Engine.ANTIGRAVITY && (isDocker || ctx.mcpServers.isNotEmpty() || com.fartech.agents.workflow.WorkflowHostContext.current != null)) {
-            createEphemeralAntigravityHome(invocationId)
+        val deleteAntigravityHome = shouldDeleteAntigravityHomeOnExit(ctx)
+        val configuredAntigravityHome = parameters.parameter(ANTIGRAVITY_HOME_DIR_PARAMETER, "").trim()
+        val apiKeyAntigravityHome = if (
+            engine == Engine.ANTIGRAVITY &&
+            (!isAntigravitySdkMode() || isDocker || ctx.mcpServers.isNotEmpty() ||
+                configuredAntigravityHome.isNotEmpty() ||
+                com.fartech.agents.workflow.WorkflowHostContext.current != null)
+        ) {
+            runCatching { materializeAntigravityHome(invocationId, ephemeral = deleteAntigravityHome) }
+                .onFailure { e ->
+                    if (configuredAntigravityHome.isNotEmpty()) throw e
+                    logger.warn(e) { "[ExternalAgent] Could not create a host Antigravity home" }
+                }
+                .getOrNull()
         } else null
         val configuredProject = if (engine == Engine.ANTIGRAVITY) {
             parameters.parameter(ANTIGRAVITY_PROJECT_PARAMETER, "").trim()
@@ -2998,7 +3334,8 @@ class ExternalAgentTools(
             codexHomeHostDir = apiKeyCodexHome,
             claudeConfigHostDir = apiKeyClaudeConfig?.hostDir,
             claudeConfigContainerPath = apiKeyClaudeConfig?.containerPath,
-            antigravityHomeHostDir = apiKeyAntigravityHome
+            antigravityHomeHostDir = apiKeyAntigravityHome,
+            deleteAntigravityHomeOnExit = apiKeyAntigravityHome != null && shouldDeleteAntigravityHomeOnExit(ctx)
         )
     }
 
@@ -3121,20 +3458,33 @@ class ExternalAgentTools(
     }
 
     /**
-     * Antigravity account / OAuth / ADC authentication (`antigravity_subscription`).
+     * Antigravity account / subscription / ADC authentication.
      *
-     * Supports:
-     * 1. Google Application Default Credentials JSON (`authorized_user`, `service_account`,
-     *    `external_account`) materialized to an isolated `0600` `<antigravityHome>/adc_credentials.json`
-     *    with `GOOGLE_APPLICATION_CREDENTIALS` + `AGY_ADC_AUTH=true`.
-     * 2. Antigravity OAuth session/token JSON (`access_token`, `refresh_token`, optional
-     *    `client_id` / `client_secret`) or OAuth bearer token (`ya29....`).
+     * Supports two strictly separated quota modes:
+     * 1. **Antigravity Personal Subscription (`subscription` / `personal_subscription`)**:
+     *    Uses the host's signed-in `agy` CLI session (macOS Keychain / `~/.gemini/antigravity-cli`)
+     *    to consume the user's Antigravity personal subscription Gemini quota. Never injects
+     *    `AGY_ADC_AUTH`, `GOOGLE_APPLICATION_CREDENTIALS`, `GOOGLE_GENAI_USE_VERTEXAI`,
+     *    `GOOGLE_CLOUD_PROJECT`, or `GEMINI_API_KEY`.
+     * 2. **Google Cloud / Enterprise ADC (`adc` / `cloud_auth`, or when explicit ADC material is supplied)**:
+     *    Materializes an isolated `0600` `<antigravityHome>/adc_credentials.json` with
+     *    `GOOGLE_APPLICATION_CREDENTIALS` + `AGY_ADC_AUTH=true`.
      */
+    private fun antigravityRawAuthModeNormalized(): String =
+        parameters.parameter(Engine.ANTIGRAVITY.authModeParameterKey, "api_key")
+            .trim()
+            .lowercase()
+            .replace('-', '_')
+
     private suspend fun resolveAntigravitySubscriptionAuth(
         ctx: ExternalAgentContext,
         invocationId: String,
         attemptedCredentialIds: Set<String>
     ): ResolvedExternalAuth {
+        val rawMode = antigravityRawAuthModeNormalized()
+        if (rawMode in setOf("personal", "personal_subscription", "host_login", "agy_login")) {
+            return antigravityPersonalSubscriptionAuth(ctx, invocationId)
+        }
         val localAuth = loadAntigravityAuthFile()
         val candidate = if (localAuth == null) antigravityCredentialProvider?.acquire(attemptedCredentialIds) else null
         return releasingOnFailure(Engine.ANTIGRAVITY, candidate) {
@@ -3152,6 +3502,89 @@ class ExternalAgentTools(
         val useVertex: Boolean = false
     )
 
+    private fun antigravityPersonalSubscriptionAuth(
+        ctx: ExternalAgentContext,
+        invocationId: String
+    ): ResolvedExternalAuth {
+        if (com.fartech.agents.workflow.WorkflowHostContext.current != null) {
+            throw IllegalStateException(
+                "Antigravity personal subscription mode relies on the host user's signed-in 'agy' CLI session " +
+                    "and cannot run inside an isolated Runner host. Use 'api_key' or 'adc' mode."
+            )
+        }
+        if (isDocker || executor.isDocker) {
+            throw IllegalStateException(
+                "Antigravity personal subscription mode relies on the host OS Keychain and signed-in 'agy' CLI session, " +
+                    "which are unavailable inside stateless Docker containers. Switch subprocess execution to native mode, " +
+                    "or use 'api_key' / 'adc' mode."
+            )
+        }
+        if (isAntigravitySdkMode()) {
+            throw IllegalArgumentException(
+                "The official 'google-antigravity' Python SDK (LocalAgentConfig) only supports Gemini API keys or Vertex AI ADC, " +
+                    "not Antigravity personal subscription OAuth. Set '$ANTIGRAVITY_COMMAND_PARAMETER=agy' (CLI mode) " +
+                    "to consume your Antigravity personal subscription Gemini quota."
+            )
+        }
+        val forbiddenPersonalEnvKeys = setOf(
+            "GEMINI_API_KEY", "GOOGLE_API_KEY", "ANTIGRAVITY_API_KEY",
+            "GOOGLE_APPLICATION_CREDENTIALS", "AGY_ADC_AUTH",
+            "GOOGLE_GENAI_USE_VERTEXAI", "GOOGLE_GENAI_USE_ENTERPRISE",
+            "GOOGLE_CLOUD_PROJECT", "GOOGLE_CLOUD_LOCATION", "GOOGLE_CLOUD_QUOTA_PROJECT",
+            "GOOGLE_OAUTH_ACCESS_TOKEN", "ANTIGRAVITY_OAUTH_TOKEN", "AGY_AUTH_TOKEN"
+        )
+        require(ctx.extraEnv.keys.none { it.uppercase() in forbiddenPersonalEnvKeys }) {
+            "Antigravity personal subscription mode forbids API key, Google Cloud ADC, or Vertex AI environment " +
+                "overrides so execution strictly consumes your Antigravity personal subscription quota."
+        }
+
+        if (ctx.mcpServers.isEmpty()) {
+            return ResolvedExternalAuth(
+                mode = ExternalAuthMode.SUBSCRIPTION,
+                env = emptyMap(),
+                antigravityHomeHostDir = null,
+                antigravityEnableAdc = false,
+                antigravityPersonalSubscription = true,
+                deleteAntigravityHomeOnExit = false
+            )
+        }
+
+        val mcpHome = materializePersonalSubscriptionMcpHome(invocationId)
+        return ResolvedExternalAuth(
+            mode = ExternalAuthMode.SUBSCRIPTION,
+            env = mapOf("HOME" to mcpHome.absolutePath),
+            antigravityHomeHostDir = mcpHome,
+            antigravityEnableAdc = false,
+            antigravityPersonalSubscription = true,
+            deleteAntigravityHomeOnExit = true
+        )
+    }
+
+    private fun materializePersonalSubscriptionMcpHome(invocationId: String): File {
+        val homeDir = materializeAntigravityHome(invocationId, ephemeral = true)
+        val realHomePath = (System.getenv("HOME")?.takeIf { it.isNotBlank() } ?: System.getProperty("user.home"))
+            ?.let { File(it) }
+            ?.takeIf { it.isDirectory }
+        if (realHomePath != null && realHomePath.canonicalFile != homeDir.canonicalFile) {
+            fun linkIfExists(relativePath: String) {
+                val src = File(realHomePath, relativePath)
+                if (!src.exists()) return
+                val dst = File(homeDir, relativePath)
+                dst.parentFile?.let { createDirectories(it, "Antigravity personal auth bridge") }
+                if (!Files.exists(dst.toPath(), NOFOLLOW_LINKS)) {
+                    runCatching { Files.createSymbolicLink(dst.toPath(), src.toPath()) }
+                }
+            }
+            linkIfExists("Library/Keychains")
+            linkIfExists(".config")
+            linkIfExists(".gemini/antigravity-cli")
+            linkIfExists(".gemini/oauth_creds.json")
+            linkIfExists(".gemini/google_accounts.json")
+            linkIfExists(".gemini/config/config.json")
+        }
+        return homeDir
+    }
+
     private fun antigravitySubscriptionAuth(
         ctx: ExternalAgentContext,
         invocationId: String,
@@ -3167,14 +3600,32 @@ class ExternalAgentTools(
                 "Antigravity credential provider returned an already-attempted credential"
             )
         }
-        val material = localAuth
+        val rawMode = antigravityRawAuthModeNormalized()
+        val requireExplicitAdc = rawMode in setOf("adc", "cloud_auth", "antigravity_adc")
+        val resolvedMaterial = localAuth
             ?: candidate?.token?.let(::normalizeAntigravitySubscriptionCredential)
             ?: resolveAntigravitySubscriptionMaterial()
-            ?: throw IllegalStateException(
-                "Missing Antigravity account credential. Create a credential with provider " +
-                    "'$ANTIGRAVITY_SUBSCRIPTION_PROVIDER' (Google OAuth / Application Default Credentials JSON " +
-                    "or Antigravity OAuth token), or set workflow parameter '$ANTIGRAVITY_AUTH_JSON_PARAMETER'."
+
+        if (resolvedMaterial == null) {
+            if (!requireExplicitAdc && antigravityCredentialProvider == null) {
+                return antigravityPersonalSubscriptionAuth(ctx, invocationId)
+            }
+            throw IllegalStateException(
+                "Missing Antigravity Google Cloud ADC credential. Create a credential with provider " +
+                    "'$ANTIGRAVITY_SUBSCRIPTION_PROVIDER' (Application Default Credentials JSON), " +
+                    "or set workflow parameter '$ANTIGRAVITY_AUTH_JSON_PARAMETER' — or switch to " +
+                    "'$ANTIGRAVITY_AUTH_MODE_PARAMETER=subscription' on a native host signed in via `agy`."
             )
+        }
+        val material = resolvedMaterial
+
+        if (!material.enableAdc && !isAntigravitySdkMode()) {
+            throw IllegalArgumentException(
+                "Headless Antigravity CLI ('agy') subscription mode requires Google Application Default Credentials JSON " +
+                    "('authorized_user' with client_id/client_secret/refresh_token, 'service_account', or 'external_account'). " +
+                    "Raw OAuth bearer tokens are not supported by 'agy'; provide full ADC JSON or switch to 'api_key' mode."
+            )
+        }
 
         val deleteHomeOnExit = localAuth != null || shouldDeleteAntigravityHomeOnExit(ctx)
         val homeDir = materializeAntigravityHome(invocationId, ephemeral = deleteHomeOnExit)
@@ -3299,14 +3750,20 @@ class ExternalAgentTools(
             val location = obj.stringField("location")?.trim()?.takeIf { it.isNotEmpty() }
             val vertexFlag = (obj["vertex"] as? JsonPrimitive)?.content?.toBooleanStrictOrNull() == true
 
-            val isStandardAdc = credType in setOf("authorized_user", "service_account", "external_account", "impersonated_service_account")
+            val isStandardAdc = credType in setOf(
+                "authorized_user",
+                "service_account",
+                "external_account",
+                "impersonated_service_account",
+                "gdch_service_account"
+            )
             if (isStandardAdc) {
                 when (credType) {
                     "authorized_user" -> require(!clientId.isNullOrBlank() && !clientSecret.isNullOrBlank() && !refreshToken.isNullOrBlank()) {
                         "Antigravity 'authorized_user' ADC JSON must include 'client_id', 'client_secret', and 'refresh_token'."
                     }
-                    "service_account" -> require(!obj.stringField("client_email").isNullOrBlank() && !obj.stringField("private_key").isNullOrBlank()) {
-                        "Antigravity 'service_account' ADC JSON must include 'client_email' and 'private_key'."
+                    "service_account", "gdch_service_account" -> require(!obj.stringField("client_email").isNullOrBlank() && !obj.stringField("private_key").isNullOrBlank()) {
+                        "Antigravity '$credType' ADC JSON must include 'client_email' and 'private_key'."
                     }
                 }
                 return NormalizedAntigravityMaterial(
@@ -3316,7 +3773,7 @@ class ExternalAgentTools(
                     projectId = projectId,
                     quotaProjectId = quotaProjectId,
                     location = location,
-                    useVertex = vertexFlag || credType == "service_account"
+                    useVertex = vertexFlag || credType == "service_account" || credType == "gdch_service_account"
                 )
             }
 
@@ -3347,7 +3804,7 @@ class ExternalAgentTools(
             return NormalizedAntigravityMaterial(
                 credentialJsonForFile = trimmed,
                 enableAdc = false,
-                accessToken = accessToken ?: refreshToken,
+                accessToken = accessToken,
                 projectId = projectId,
                 location = location,
                 useVertex = vertexFlag
@@ -3378,10 +3835,18 @@ class ExternalAgentTools(
         return true
     }
 
+    private fun validateConfiguredHomeDir(configured: String, parameterName: String): File {
+        val candidate = File(configured).absoluteFile.normalize()
+        require(candidate.path.split(File.separatorChar).none { it == ".." }) {
+            "$parameterName must not contain '..' path traversal segments"
+        }
+        return candidate
+    }
+
     private fun materializeAntigravityHome(invocationId: String, ephemeral: Boolean): File {
         val configured = parameters.parameter(ANTIGRAVITY_HOME_DIR_PARAMETER, "").trim()
         val base = if (configured.isNotEmpty()) {
-            File(configured)
+            validateConfiguredHomeDir(configured, ANTIGRAVITY_HOME_DIR_PARAMETER)
         } else {
             defaultAntigravityHomeDir(invocationId, ephemeral)
         }
@@ -3561,7 +4026,7 @@ class ExternalAgentTools(
     ): File {
         val configured = parameters.parameter(CODEX_HOME_DIR_PARAMETER, "").trim()
         val base = if (configured.isNotEmpty()) {
-            File(configured)
+            validateConfiguredHomeDir(configured, CODEX_HOME_DIR_PARAMETER)
         } else {
             defaultCodexHomeDir(invocationId, ephemeral)
         }
@@ -3661,7 +4126,7 @@ class ExternalAgentTools(
     private fun resolveClaudeConfigDir(): ResolvedClaudeConfigDir {
         val configured = parameters.parameter(CLAUDE_CONFIG_DIR_PARAMETER, "").trim()
         if (configured.isNotEmpty()) {
-            val hostDir = File(configured)
+            val hostDir = validateConfiguredHomeDir(configured, CLAUDE_CONFIG_DIR_PARAMETER)
             createDirectories(hostDir, "Claude config")
             applyClaudeConfigPermissions(hostDir)
             return ResolvedClaudeConfigDir(
@@ -4055,33 +4520,58 @@ class ExternalAgentTools(
 
         for (ev in events) {
             val eventKind = (ev.stringField("event") ?: ev.stringField("type"))?.lowercase()
-            (ev.stringField("conversation_id") ?: ev.stringField("session_id"))
+            val initPayload = ev["init"] as? JsonObject
+            val stepPayload = ev["step_update"] as? JsonObject
+            val resPayload = ev["result"] as? JsonObject
+
+            (ev.stringField("conversation_id")
+                ?: ev.stringField("session_id")
+                ?: initPayload?.stringField("conversation_id")
+                ?: initPayload?.stringField("session_id")
+                ?: resPayload?.stringField("conversation_id")
+                ?: resPayload?.stringField("session_id"))
                 ?.takeIf { it.isNotBlank() }
                 ?.let { sessionId = it }
-            (ev.doubleField("cost_usd") ?: ev.doubleField("total_cost_usd"))
+            (ev.doubleField("cost_usd")
+                ?: ev.doubleField("total_cost_usd")
+                ?: resPayload?.doubleField("cost_usd")
+                ?: resPayload?.doubleField("total_cost_usd"))
                 ?.let { costUsd = it }
             extractAntigravityTokenUsage(ev)?.let { usage = it }
 
             when (eventKind) {
                 "step_update" -> {
+                    val payload = stepPayload ?: ev
                     val subtype = (
-                        ev.stringField("step_type")
-                            ?: ev.stringField("subtype")
-                            ?: ev.stringField("type")?.takeUnless { it.equals("step_update", ignoreCase = true) }
+                        payload.stringField("step_type")
+                            ?: payload.stringField("subtype")
+                            ?: payload.stringField("type")?.takeUnless { it.equals("step_update", ignoreCase = true) }
                         )?.lowercase()
                     when (subtype) {
-                        "text_delta", "text", "content_delta", "agent_message", "planner_response", null -> {
-                            (ev.stringField("content") ?: ev.stringField("text") ?: ev.stringField("delta"))
+                        "user_input" -> Unit
+                        "agent_response", "text_delta", "text", "content_delta", "agent_message", "planner_response", null -> {
+                            (payload.stringField("text_delta")
+                                ?: payload.stringField("content")
+                                ?: payload.stringField("text")
+                                ?: payload.stringField("delta"))
                                 ?.let { streamedDeltas.append(it) }
                         }
                     }
                 }
-                "text_delta", "content_delta", "agent_message" -> {
-                    (ev.stringField("content") ?: ev.stringField("text") ?: ev.stringField("delta"))
+                "agent_response", "text_delta", "content_delta", "agent_message" -> {
+                    (ev.stringField("text_delta")
+                        ?: ev.stringField("content")
+                        ?: ev.stringField("text")
+                        ?: ev.stringField("delta"))
                         ?.let { streamedDeltas.append(it) }
                 }
                 "result" -> {
                     (ev.stringField("result")
+                        ?: resPayload?.stringField("response")
+                        ?: resPayload?.stringField("result")
+                        ?: resPayload?.stringField("text")
+                        ?: resPayload?.stringField("output")
+                        ?: resPayload?.stringField("content")
                         ?: ev.stringField("response")
                         ?: ev.stringField("text")
                         ?: ev.stringField("output")
@@ -4092,6 +4582,7 @@ class ExternalAgentTools(
                 else -> {
                     if (events.size == 1) {
                         (ev.stringField("result")
+                            ?: resPayload?.stringField("response")
                             ?: ev.stringField("response")
                             ?: ev.stringField("text")
                             ?: ev.stringField("output")
@@ -4168,8 +4659,30 @@ class ExternalAgentTools(
         const val ANTIGRAVITY_PROJECT_PARAMETER = "external_agent_antigravity_project"
         const val ANTIGRAVITY_LOCATION_PARAMETER = "external_agent_antigravity_location"
         const val ANTIGRAVITY_APPEND_SYSTEM_PROMPT_PARAMETER = "external_agent_antigravity_append_system_prompt"
+        const val ANTIGRAVITY_PYTHON_PARAMETER = "external_agent_antigravity_python"
+        const val ANTIGRAVITY_SKIP_PERMISSIONS_PARAMETER = "external_agent_antigravity_skip_permissions"
         const val ANTIGRAVITY_SUBSCRIPTION_PROVIDER = "antigravity_subscription"
         const val ANTIGRAVITY_SDK_COMMAND = "antigravity-sdk"
+        private val ANTIGRAVITY_MODEL_EFFORT_SUFFIX_REGEX =
+            Regex(".*-(low|medium|high|xhigh|max)$", RegexOption.IGNORE_CASE)
+
+        internal fun hasBakedAntigravityEffortSuffix(model: String): Boolean =
+            model.trim().matches(ANTIGRAVITY_MODEL_EFFORT_SUFFIX_REGEX)
+
+        internal fun stripAntigravityEffortFlags(args: List<String>): List<String> = buildList {
+            var i = 0
+            while (i < args.size) {
+                val token = args[i]
+                when {
+                    token.equals("--effort", ignoreCase = true) -> i += 2
+                    token.startsWith("--effort=", ignoreCase = true) -> i += 1
+                    else -> {
+                        add(token)
+                        i += 1
+                    }
+                }
+            }
+        }
 
         /** Container path the per-tenant CODEX_HOME is bind-mounted to in Docker mode. */
         private const val CODEX_HOME_CONTAINER_PATH = "/codex-home"
@@ -4460,8 +4973,10 @@ class ExternalAgentTools(
         )
 
         internal fun isSubprocessTimeout(exitCode: Int, stderr: String): Boolean =
-            exitCode == -1 && (stderr.contains("TIMED OUT") ||
-                stderr.contains("[Container error: Awaiting status code timeout.]"))
+            (exitCode == -1 && (stderr.contains("TIMED OUT") ||
+                stderr.contains("[Container error: Awaiting status code timeout.]"))) ||
+                (exitCode == 3 && stderr.contains("AGY_ERROR") &&
+                    stderr.lowercase().let { "timed out" in it || "\"timeout\"" in it || "print-timeout" in it })
 
         internal fun isCodexAuthFailure(stdout: String, stderr: String): Boolean =
             codexErrorTexts(stdout, stderr).any { text ->
@@ -4528,10 +5043,10 @@ class ExternalAgentTools(
             val decoded = when (engine) {
                 Engine.CLAUDE -> claudeFailureSummary(stdout)
                 Engine.CODEX -> codexFailureSummary(stdout)
-                Engine.ANTIGRAVITY -> antigravityFailureSummary(stdout)
+                Engine.ANTIGRAVITY -> antigravityFailureSummary(stdout, stderr)
             }?.takeIf { it.isNotBlank() }
             val raw = stderr.takeLast(1200).ifBlank { stdout.takeLast(1200) }
-            return listOfNotNull(decoded, raw.takeIf { it.isNotBlank() }).joinToString(" | ")
+            return redactForLog(listOfNotNull(decoded, raw.takeIf { it.isNotBlank() }).joinToString(" | "))
         }
 
         /** Claude's `type=result` record — the whole object for `--output-format json`, last line for `stream-json`. */
@@ -4584,8 +5099,10 @@ class ExternalAgentTools(
         }
 
         private val ANTIGRAVITY_SIDE_EFFECT_STEP_TYPES = setOf(
+            "tool",
             "tool_call",
             "tool_use",
+            "tool_result",
             "command_execution",
             "file_change",
             "patch_apply",
@@ -4602,7 +5119,9 @@ class ExternalAgentTools(
             "default credentials were not found",
             "reauth related error",
             "token has been expired or revoked",
-            "authentication failed"
+            "authentication failed",
+            "please sign in",
+            "sign in to"
         )
 
         private val ANTIGRAVITY_RATE_LIMIT_MARKERS = listOf(
@@ -4618,16 +5137,47 @@ class ExternalAgentTools(
             return stdout.lineSequence()
                 .mapNotNull { parseJsonObjectOrNullStatic(it.trim()) }
                 .none { obj ->
-                    val stepType = obj.stringField("type")?.lowercase()
+                    val stepPayload = (obj["step_update"] as? JsonObject) ?: obj
+                    val stepType = (
+                        stepPayload.stringField("step_type")
+                            ?: stepPayload.stringField("subtype")
+                            ?: stepPayload.stringField("type")?.takeUnless { it.equals("step_update", ignoreCase = true) }
+                            ?: obj.stringField("type")
+                        )?.lowercase()
                     val eventKind = obj.stringField("event")?.lowercase()
-                    stepType in ANTIGRAVITY_SIDE_EFFECT_STEP_TYPES || eventKind in ANTIGRAVITY_SIDE_EFFECT_STEP_TYPES
+                    val hasToolCalls = (stepPayload["tool_calls"] as? JsonArray)?.isNotEmpty() == true ||
+                        (obj["tool_calls"] as? JsonArray)?.isNotEmpty() == true ||
+                        stepPayload["tool_info"] is JsonObject
+                    hasToolCalls ||
+                        stepType in ANTIGRAVITY_SIDE_EFFECT_STEP_TYPES ||
+                        eventKind in ANTIGRAVITY_SIDE_EFFECT_STEP_TYPES
                 }
         }
 
         private fun antigravityErrorTexts(stdout: String, stderr: String): List<String> = buildList {
-            stderr.takeIf { it.isNotBlank() }?.let(::add)
+            if (stderr.isNotBlank()) {
+                add(stderr)
+                stderr.lineSequence().forEach { line ->
+                    val trimmed = line.trim()
+                    if (trimmed.startsWith("AGY_ERROR:")) {
+                        val jsonPart = trimmed.removePrefix("AGY_ERROR:").trim()
+                        parseJsonObjectOrNullStatic(jsonPart)?.let { errObj ->
+                            (errObj.stringField("message")
+                                ?: errObj.stringField("error")
+                                ?: errObj.stringField("type"))?.let(::add)
+                        }
+                    }
+                }
+            }
             stdout.lineSequence()
-                .mapNotNull { parseJsonObjectOrNullStatic(it.trim()) }
+                .mapNotNull { line ->
+                    val trimmed = line.trim()
+                    if (trimmed.startsWith("AGY_ERROR:")) {
+                        parseJsonObjectOrNullStatic(trimmed.removePrefix("AGY_ERROR:").trim())
+                            ?.let { return@mapNotNull buildJsonObject { put("event", JsonPrimitive("error")); put("error", it) } }
+                    }
+                    parseJsonObjectOrNullStatic(trimmed)
+                }
                 .forEach { obj ->
                     val eventKind = (obj.stringField("event") ?: obj.stringField("type"))?.lowercase()
                     when (eventKind) {
@@ -4636,11 +5186,25 @@ class ExternalAgentTools(
                                 ?: obj.stringField("message")
                                 ?: obj.stringField("error"))?.let(::add)
                         }
-                        "step_update" -> if (obj.stringField("type")?.lowercase() == "error") {
-                            (obj.stringField("message") ?: obj.stringField("content"))?.let(::add)
+                        "step_update" -> {
+                            val payload = (obj["step_update"] as? JsonObject) ?: obj
+                            val subtype = (payload.stringField("step_type") ?: payload.stringField("type"))?.lowercase()
+                            if (subtype == "error") {
+                                (payload.stringField("message") ?: payload.stringField("content"))?.let(::add)
+                            }
+                            (payload["tool_info"] as? JsonObject)?.stringField("error")?.let(::add)
                         }
-                        "result" -> if (obj.stringField("status")?.lowercase() in setOf("error", "failed")) {
-                            (obj.stringField("error") ?: obj.stringField("message") ?: obj.stringField("result"))?.let(::add)
+                        "result" -> {
+                            val payload = (obj["result"] as? JsonObject) ?: obj
+                            val status = (payload.stringField("status") ?: obj.stringField("status"))?.lowercase()
+                            if (status in setOf("error", "failed") || payload.stringField("error") != null) {
+                                (payload.stringField("error")
+                                    ?: payload.stringField("message")
+                                    ?: payload.stringField("response")
+                                    ?: obj.stringField("error")
+                                    ?: obj.stringField("message")
+                                    ?: obj.stringField("result"))?.let(::add)
+                            }
                         }
                     }
                 }
@@ -4662,9 +5226,9 @@ class ExternalAgentTools(
                 }
             }
 
-        private fun antigravityFailureSummary(stdout: String): String? {
-            val trimmed = stdout.trim().takeIf { it.isNotEmpty() } ?: return null
-            val message = antigravityErrorTexts(trimmed, "")
+        private fun antigravityFailureSummary(stdout: String, stderr: String = ""): String? {
+            val message = antigravityErrorTexts(stdout.trim(), stderr.trim())
+                .filter { it != stderr.trim() }
                 .lastOrNull()
                 ?.replace('\n', ' ')
                 ?.trim()
@@ -4674,8 +5238,14 @@ class ExternalAgentTools(
         }
 
         internal fun extractAntigravityTokenUsage(obj: JsonObject): TokenUsage? {
+            val resPayload = obj["result"] as? JsonObject
+            val stepPayload = obj["step_update"] as? JsonObject
             val usageObj = (obj["usage_metadata"] as? JsonObject)
                 ?: (obj["usage"] as? JsonObject)
+                ?: (resPayload?.get("usage_metadata") as? JsonObject)
+                ?: (resPayload?.get("usage") as? JsonObject)
+                ?: (stepPayload?.get("usage_metadata") as? JsonObject)
+                ?: (stepPayload?.get("usage") as? JsonObject)
                 ?: return null
             val input = usageObj.longField("input_tokens")
                 ?: usageObj.longField("prompt_token_count")
@@ -4686,118 +5256,276 @@ class ExternalAgentTools(
             val thoughts = usageObj.longField("thoughts_token_count") ?: 0L
             val output = explicitOutput ?: candidates?.let { it + thoughts }
             val cacheRead = usageObj.longField("cache_read_input_tokens")
+                ?: usageObj.longField("cache_read_tokens")
                 ?: usageObj.longField("cached_content_token_count")
                 ?: usageObj.longField("cached_input_tokens")
+            val cacheCreation = usageObj.longField("cache_creation_input_tokens")
+                ?: usageObj.longField("cache_write_tokens")
             if (input == null && output == null) return null
             return TokenUsage(
                 inputTokens = input,
                 outputTokens = output,
-                cacheCreationInputTokens = usageObj.longField("cache_creation_input_tokens"),
+                cacheCreationInputTokens = cacheCreation,
                 cacheReadInputTokens = cacheRead
             )
         }
 
         private val ANTIGRAVITY_PYTHON_SDK_RUNNER_SCRIPT = """
+import asyncio
+import inspect
 import json
 import os
 import pathlib
+import re
 import sys
 
-from google.antigravity import Agent, CapabilitiesConfig, LocalAgentConfig, McpStdioServer
+from google.antigravity import (
+    Agent,
+    BuiltinTools,
+    CapabilitiesConfig,
+    GeminiAPIEndpoint,
+    LocalAgentConfig,
+    ModelTarget,
+    ModelType,
+    types,
+)
+try:
+    from google.antigravity.hooks import policy as agy_policy
+except Exception:
+    agy_policy = None
 
 
-def main() -> int:
+def _map_builtin_tools(names):
+    if not names:
+        return None
+    builtin_cls = BuiltinTools or getattr(types, "BuiltinTools", None)
+    mapped = []
+    for raw in names:
+        lower = str(raw).strip().lower()
+        candidates = []
+        if lower in ("bash", "shell", "terminal", "terminal_execution", "run_command"):
+            candidates = ["RUN_COMMAND"]
+        elif lower in ("read", "read_file", "view_file"):
+            candidates = ["VIEW_FILE"]
+        elif lower in ("write", "write_file", "write_to_file", "create_file"):
+            candidates = ["CREATE_FILE", "EDIT_FILE"]
+        elif lower in ("edit", "multiedit", "edit_file", "replace_file_content"):
+            candidates = ["EDIT_FILE"]
+        elif lower in ("glob", "find_by_name", "find_file", "ls", "list_dir"):
+            candidates = ["FIND_FILE", "LIST_DIR"]
+        elif lower in ("grep", "grep_search", "search_dir"):
+            candidates = ["SEARCH_DIR"]
+        elif lower in ("web", "webfetch", "websearch", "web_search", "search_web", "read_url_content"):
+            candidates = ["SEARCH_WEB", "READ_URL_CONTENT"]
+        elif lower in ("browser", "browser_control"):
+            candidates = ["READ_URL_CONTENT"]
+        elif lower in ("subagent", "invoke_subagent"):
+            candidates = ["INVOKE_SUBAGENT"]
+        elif lower in ("workflow", "run_workflow"):
+            candidates = ["RUN_WORKFLOW"]
+        elif lower == "file_system":
+            candidates = ["VIEW_FILE", "CREATE_FILE", "EDIT_FILE", "LIST_DIR", "FIND_FILE", "SEARCH_DIR"]
+        if builtin_cls is not None:
+            for attr in candidates:
+                val = getattr(builtin_cls, attr, None)
+                if val is not None and val not in mapped:
+                    mapped.append(val)
+    return mapped or None
+
+
+def _build_capabilities(meta):
+    allowed = meta.get("allowed_tools") or []
+    disallowed = list(meta.get("disallowed_tools") or [])
+    caps_summary = meta.get("capabilities") or {}
+    lower_disallowed = {str(d).lower() for d in disallowed}
+    if caps_summary.get("terminal_execution") is False and "bash" not in lower_disallowed:
+        disallowed.append("bash")
+    if caps_summary.get("web_search") is False and "web_search" not in lower_disallowed:
+        disallowed.append("web_search")
+    if caps_summary.get("browser_control") is False and "browser" not in lower_disallowed:
+        disallowed.append("browser")
+    if caps_summary.get("file_system") is False and "file_system" not in lower_disallowed:
+        disallowed.append("file_system")
+
+    kw = {}
+    enabled = _map_builtin_tools(allowed)
+    disabled = _map_builtin_tools(disallowed)
+    if allowed:
+        effective_enabled = list(enabled or [])
+        if disabled:
+            disabled_set = set(disabled)
+            effective_enabled = [t for t in effective_enabled if t not in disabled_set]
+        kw["enabled_tools"] = effective_enabled
+    elif disabled:
+        kw["disabled_tools"] = disabled
+    return CapabilitiesConfig(**kw) if kw else None
+
+
+async def _run() -> int:
     cfg_path = os.environ.get("BRAIDRUN_AGY_SDK_CONFIG", "")
     meta = json.loads(pathlib.Path(cfg_path).read_text(encoding="utf-8")) if cfg_path else {}
     prompt = sys.stdin.read()
 
     local_kwargs = {
-        "workspaces": [pathlib.Path(p) for p in meta.get("workspaces", [os.getcwd()])],
+        "workspaces": [str(pathlib.Path(p)) for p in meta.get("workspaces", [os.getcwd()])],
     }
     if meta.get("system_instructions"):
-        local_kwargs["system_instructions"] = meta["system_instructions"]
-    if meta.get("capabilities"):
-        local_kwargs["capabilities"] = CapabilitiesConfig(**meta["capabilities"])
+        local_kwargs["system_instructions"] = str(meta["system_instructions"])
+    caps_obj = _build_capabilities(meta)
+    if caps_obj is not None:
+        local_kwargs["capabilities"] = caps_obj
     if meta.get("skills_paths"):
-        local_kwargs["skills_paths"] = [pathlib.Path(p) for p in meta["skills_paths"]]
+        local_kwargs["skills_paths"] = [str(pathlib.Path(p)) for p in meta["skills_paths"]]
+
     mcp_list = meta.get("mcp_servers") or []
-    if mcp_list:
-        local_kwargs["mcp_servers"] = {
-            s["name"]: McpStdioServer(
-                command=s["command"],
-                args=s.get("args") or [],
-                env=s.get("env") or None,
+    mcp_objs = []
+    for s in mcp_list:
+        mcp_objs.append(
+            types.McpStdioServer(
+                name=str(s["name"]),
+                command=str(s["command"]),
+                args=[str(a) for a in (s.get("args") or [])],
+                env={str(k): str(v) for k, v in (s.get("env") or {}).items()} or None,
             )
-            for s in mcp_list
-        }
+        )
+    if mcp_objs:
+        local_kwargs["mcp_servers"] = mcp_objs
 
-    agent_kwargs = {"config": LocalAgentConfig(**local_kwargs)}
-    if meta.get("model"):
-        agent_kwargs["model"] = meta["model"]
-    if meta.get("save_dir"):
-        agent_kwargs["save_dir"] = pathlib.Path(meta["save_dir"])
-    if meta.get("conversation_id"):
-        agent_kwargs["conversation_id"] = meta["conversation_id"]
+    if agy_policy is not None:
+        if meta.get("skip_permissions", True) and hasattr(agy_policy, "allow_all"):
+            local_kwargs["policies"] = [agy_policy.allow_all()]
+        elif mcp_objs and hasattr(agy_policy, "confirm_run_command"):
+            mcp_allow = []
+            for srv in mcp_objs:
+                res = agy_policy.allow(srv)
+                mcp_allow.extend(res if isinstance(res, list) else [res])
+            local_kwargs["policies"] = [agy_policy.confirm_run_command(), *mcp_allow]
+
+    conv_id_cfg = str(meta.get("conversation_id") or "").strip()
+    if len(conv_id_cfg) >= 32 and re.match(r"^[a-zA-Z0-9-]+$", conv_id_cfg):
+        local_kwargs["conversation_id"] = conv_id_cfg
+        cont_enum = getattr(types, "SessionContinuationMode", None)
+        if cont_enum is not None and hasattr(cont_enum, "CREATE_OR_RESUME"):
+            local_kwargs["session_continuation_mode"] = cont_enum.CREATE_OR_RESUME
+
+    for path_key in ("save_dir", "app_data_dir"):
+        if meta.get(path_key):
+            p = pathlib.Path(meta[path_key])
+            p.mkdir(parents=True, exist_ok=True)
+            local_kwargs[path_key] = str(p)
+
+    api_key = (
+        os.environ.get("GEMINI_API_KEY")
+        or os.environ.get("GOOGLE_API_KEY")
+        or os.environ.get("ANTIGRAVITY_API_KEY")
+        or ""
+    ).strip() or None
+    if os.environ.get("AGY_ADC_AUTH") == "true":
+        api_key = None
+    base_url = (meta.get("base_url") or os.environ.get("GOOGLE_GEMINI_BASE_URL") or "").strip() or None
+    model_name = (meta.get("model") or "").strip() or None
+
     if meta.get("vertex"):
-        agent_kwargs["vertex"] = True
+        local_kwargs["vertex"] = True
         if meta.get("project"):
-            agent_kwargs["project"] = meta["project"]
+            local_kwargs["project"] = str(meta["project"])
         if meta.get("location"):
-            agent_kwargs["location"] = meta["location"]
+            local_kwargs["location"] = str(meta["location"])
+        if model_name:
+            local_kwargs["model"] = model_name
+    elif base_url:
+        target_model = model_name or "gemini-2.5-flash"
+        local_kwargs["models"] = [
+            ModelTarget(
+                name=target_model,
+                types=[ModelType.TEXT],
+                endpoint=GeminiAPIEndpoint(base_url=base_url, api_key=api_key),
+            )
+        ]
+    else:
+        if model_name:
+            local_kwargs["model"] = model_name
+        if api_key:
+            local_kwargs["api_key"] = api_key
 
-    api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
-    if api_key and os.environ.get("AGY_ADC_AUTH") != "true":
-        agent_kwargs["api_key"] = api_key
+    config = LocalAgentConfig(**local_kwargs)
+    async with Agent(config) as agent:
+        conv_id = getattr(agent, "conversation_id", None)
+        print(json.dumps({"event": "init", "conversation_id": conv_id, "model": model_name or ""}), flush=True)
 
-    agent = Agent(**agent_kwargs)
-    conv_id = getattr(agent, "conversation_id", None)
-    print(json.dumps({"event": "init", "conversation_id": conv_id, "model": meta.get("model") or ""}), flush=True)
+        response = await agent.chat(prompt)
 
-    response = agent.generate_content(prompt)
-    for thought in (getattr(response, "thoughts", None) or []):
-        if thought:
-            print(json.dumps({"event": "step_update", "type": "thought_delta", "content": str(thought)}), flush=True)
-    for tc in (getattr(response, "tool_calls", None) or []):
+        streamed_text_parts = []
+        chunks = getattr(response, "chunks", None)
+        if chunks is not None and hasattr(chunks, "__aiter__"):
+            async for chunk in chunks:
+                if isinstance(chunk, types.Thought):
+                    if chunk.text:
+                        print(json.dumps({"event": "step_update", "step_type": "thought_delta", "content": chunk.text}), flush=True)
+                elif isinstance(chunk, types.ToolCall):
+                    print(json.dumps({
+                        "event": "step_update",
+                        "step_type": "tool_call",
+                        "name": chunk.name,
+                        "args": chunk.args,
+                    }), flush=True)
+                elif isinstance(chunk, types.ToolResult):
+                    print(json.dumps({
+                        "event": "step_update",
+                        "step_type": "tool_result",
+                        "name": chunk.name,
+                        "result": chunk.result,
+                        "error": chunk.error,
+                    }), flush=True)
+                elif isinstance(chunk, types.Text):
+                    if chunk.text:
+                        streamed_text_parts.append(chunk.text)
+                        print(json.dumps({"event": "step_update", "step_type": "agent_response", "text_delta": chunk.text}), flush=True)
+                elif isinstance(chunk, str) and chunk:
+                    streamed_text_parts.append(chunk)
+                    print(json.dumps({"event": "step_update", "step_type": "agent_response", "text_delta": chunk}), flush=True)
+
+        text_attr = getattr(response, "text", None)
+        if callable(text_attr):
+            maybe_coro = text_attr()
+            text = await maybe_coro if inspect.isawaitable(maybe_coro) else maybe_coro
+        elif isinstance(text_attr, str):
+            text = text_attr
+        else:
+            text = ""
+        if not text and streamed_text_parts:
+            text = "".join(streamed_text_parts)
+        elif text and not streamed_text_parts:
+            print(json.dumps({"event": "step_update", "step_type": "agent_response", "text_delta": text}), flush=True)
+
+        usage_meta = getattr(response, "usage_metadata", None)
+        usage_dict = None
+        if usage_meta is not None:
+            prompt_tokens = getattr(usage_meta, "prompt_token_count", 0) or 0
+            cand_tokens = getattr(usage_meta, "candidates_token_count", 0) or 0
+            thought_tokens = getattr(usage_meta, "thoughts_token_count", 0) or 0
+            cached_tokens = getattr(usage_meta, "cached_content_token_count", 0) or 0
+            usage_dict = {
+                "prompt_token_count": prompt_tokens,
+                "candidates_token_count": cand_tokens,
+                "thoughts_token_count": thought_tokens,
+                "cached_content_token_count": cached_tokens,
+                "input_tokens": prompt_tokens,
+                "output_tokens": cand_tokens + thought_tokens,
+            }
+
         print(json.dumps({
-            "event": "step_update",
-            "type": "tool_call",
-            "name": getattr(tc, "name", "tool"),
-            "args": getattr(tc, "args", None),
-            "result": getattr(tc, "result", None),
+            "event": "result",
+            "status": "completed",
+            "result": text or "",
+            "conversation_id": getattr(agent, "conversation_id", None) or conv_id,
+            "usage_metadata": usage_dict,
         }), flush=True)
-
-    text = getattr(response, "text", "") or ""
-    if text:
-        print(json.dumps({"event": "step_update", "type": "text_delta", "content": text}), flush=True)
-
-    usage_meta = getattr(response, "usage_metadata", None)
-    usage_dict = None
-    if usage_meta is not None:
-        prompt_tokens = getattr(usage_meta, "prompt_token_count", 0) or 0
-        cand_tokens = getattr(usage_meta, "candidates_token_count", 0) or 0
-        thought_tokens = getattr(usage_meta, "thoughts_token_count", 0) or 0
-        cached_tokens = getattr(usage_meta, "cached_content_token_count", 0) or 0
-        usage_dict = {
-            "prompt_token_count": prompt_tokens,
-            "candidates_token_count": cand_tokens,
-            "thoughts_token_count": thought_tokens,
-            "cached_content_token_count": cached_tokens,
-            "input_tokens": prompt_tokens,
-            "output_tokens": cand_tokens + thought_tokens,
-        }
-
-    print(json.dumps({
-        "event": "result",
-        "status": "completed",
-        "result": text,
-        "conversation_id": getattr(agent, "conversation_id", conv_id),
-        "usage_metadata": usage_dict,
-    }), flush=True)
     return 0
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(asyncio.run(_run()))
 """.trimIndent()
 
         private fun parseJsonObjectOrNullStatic(text: String): JsonObject? =
