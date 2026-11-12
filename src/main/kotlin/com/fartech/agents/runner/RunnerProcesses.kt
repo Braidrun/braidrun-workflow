@@ -46,12 +46,12 @@ class RunnerProcesses(
         val prepared = request.preparedForStart()
         ipc.businessFence.check(); gate.check()
         val requestId = UUID.randomUUID().toString(); val startedAt = System.nanoTime()
-        val started = ipc.request("processLaunch", buildJsonObject {
+        val started = ipc.requestProcessStart("processLaunch", buildJsonObject {
             put("requestId", requestId); put("argv", JsonArray(prepared.command.map(::JsonPrimitive)))
             put("relativeCwd", relative); put("environment", JsonObject(prepared.env.mapValues { JsonPrimitive(it.value) }))
             put("purpose", prepared.admissionKind); put("stdin", prepared.stdin?.let(::JsonPrimitive) ?: JsonNull)
             put("timeoutSeconds", request.timeoutSeconds); put("captureLimitBytes", RunnerIpc.MAX_FRAME_BYTES / 4)
-        }, "processStarted", minOf(request.timeoutSeconds * 1000, 30_000))
+        })
         require(started.string("requestId") == requestId && started.long("pid") > 0 && started.long("processGroupId") > 0) { "Supervisor launch registration mismatch" }
         val registrationId = started.string("registrationId")
         check(registrations.add(registrationId)) { "Process registration identity reused" }

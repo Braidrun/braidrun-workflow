@@ -2,6 +2,7 @@ package com.fartech.agents.runner
 
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.*
 import java.io.InputStream
 import java.io.OutputStream
@@ -216,6 +217,22 @@ class RunnerIpc(
     }
 
     class CorrelatedReply(val frameId: String, val payload: JsonObject)
+
+    /** A launch may queue behind durable event/checkpoint uploads. Never retry an uncertain launch. */
+    internal suspend fun requestProcessStart(type: String, payload: JsonObject,
+                                             timeoutMs: Long = PROCESS_START_WAIT_MS): JsonObject {
+        require(type == "processLaunch" || type == "processOpen")
+        require(timeoutMs in 1..PROCESS_START_WAIT_MS)
+        val reply = withTimeoutOrNull(timeoutMs) {
+            request(type, payload, "processStarted", Long.MAX_VALUE)
+        }
+        if (reply != null) return reply
+        // The supervisor may already own the process. Close authority and let root-stop settle it,
+        // rather than misreporting this nested IPC timeout as the enclosing business-step timeout.
+        fail()
+        throw RunnerAuthorityLost()
+    }
+
     suspend fun request(type: String, payload: JsonObject, responseType: String, timeoutMs: Long = 30_000): JsonObject =
         requestCorrelated(type, payload, responseType, timeoutMs).payload
 
@@ -357,6 +374,7 @@ class RunnerIpc(
         const val OUTBOUND_CAPACITY = 128
         /** A burst waits for S to read; only a reader stalled this long closes authority. */
         const val OUTBOUND_WAIT_MS = 30_000L
+        const val PROCESS_START_WAIT_MS = 300_000L
         const val MAX_INBOUND_IDENTITIES = 65536
         /** No unbounded BufferedReader.readLine; EOF without newline is a protocol failure. */
         fun readLine(input: InputStream): ByteArray? {

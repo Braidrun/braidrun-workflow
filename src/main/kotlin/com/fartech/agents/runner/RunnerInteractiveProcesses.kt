@@ -44,12 +44,12 @@ class RunnerInteractiveProcesses(
         val session = Session(requestId, ownerJob ?: com.fartech.agents.workflow.WorkflowHostContext.job ?: currentCoroutineContext()[Job], request.timeoutSeconds)
         check(sessions.putIfAbsent(requestId, session) == null)
         try {
-            val started = ipc.request("processOpen", buildJsonObject {
+            val started = ipc.requestProcessStart("processOpen", buildJsonObject {
                 put("requestId", requestId); put("argv", JsonArray(prepared.command.map(::JsonPrimitive)))
                 put("relativeCwd", relative); put("environment", JsonObject(prepared.env.mapValues { JsonPrimitive(it.value) }))
                 put("purpose", prepared.admissionKind); put("timeoutSeconds", prepared.timeoutSeconds)
                 put("maxOutputBytes", 16 * 1024 * 1024); put("maxPendingBytes", 1024 * 1024); put("channelEncoding", "base64")
-            }, "processStarted")
+            })
             require(started.string("requestId") == requestId && started.long("pid") > 0 && started.long("processGroupId") > 0) { "Interactive registration mismatch" }
             session.start(started.string("registrationId"))
             return session
