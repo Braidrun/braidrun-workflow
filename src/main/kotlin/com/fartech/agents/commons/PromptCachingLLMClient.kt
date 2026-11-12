@@ -17,21 +17,47 @@ import ai.koog.prompt.streaming.StreamFrame
 import com.fartech.ftapp2.commonsKt.ConfigurationParameter
 import com.fartech.ftapp2.commonsKt.parameter
 import kotlinx.coroutines.flow.Flow
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.intOrNull
 
 /**
  * Workflow / preset parameter: place Anthropic prompt-cache breakpoints automatically on
- * direct Anthropic requests. Default `true`; `false` sends prompts without added breakpoints
- * (caller-supplied [PromptCacheHints] markers are still honoured).
+ * direct Anthropic requests (and top-level ephemeral `cache_control` on OpenRouter requests
+ * targeting `anthropic/` or `google/` models). Default `true`; `false` sends prompts without
+ * added breakpoints (caller-supplied [PromptCacheHints] markers are still honoured on providers
+ * that support block-level markers).
  */
 const val ANTHROPIC_PROMPT_CACHING_PARAMETER = "anthropic_prompt_caching"
 
 /** Anthropic's per-request limit on `cache_control` breakpoints, the automatic one included. */
 internal const val ANTHROPIC_MAX_CACHE_BREAKPOINTS = 4
 
+/** Top-level OpenRouter request field enabling automatic prompt caching on explicit-cache models. */
+internal const val OPENROUTER_CACHE_CONTROL_KEY = "cache_control"
+
+private val OPENROUTER_EPHEMERAL_CACHE_CONTROL = JsonObject(
+    mapOf("type" to JsonPrimitive("ephemeral"))
+)
+
 internal fun anthropicPromptCachingEnabled(parameters: List<ConfigurationParameter>): Boolean =
     parameters.parameter(ANTHROPIC_PROMPT_CACHING_PARAMETER, true)
+
+/**
+ * OpenRouter supports top-level `cache_control: {"type": "ephemeral"}` on `/api/v1/chat/completions`
+ * for upstream providers requiring explicit cache breakpoints (`anthropic/` and `google/` model IDs).
+ * Koog's `OpenRouterLLMClient` ignores message-part and tool `CacheControl` markers (and turns
+ * multi-part `Message.System` into multiple system messages), but flattens
+ * `LLMParams.additionalProperties` onto the top-level JSON request body via
+ * `OpenRouterChatCompletionRequestSerializer`.
+ */
+internal fun isOpenRouterExplicitCacheModel(model: LLModel): Boolean {
+    val id = model.id.lowercase()
+    return id.startsWith("anthropic/") ||
+        id.startsWith("google/") ||
+        id.startsWith("claude-") ||
+        id.startsWith("gemini-")
+}
 
 /**
  * [LLMClient] decorator that fits prompt-cache markers to the provider a request is sent to.
@@ -60,7 +86,7 @@ internal class PromptCachingLLMClient(
         model: LLModel,
         tools: List<ToolDescriptor>,
     ): Message.Assistant {
-        val request = prepare(prompt, tools)
+        val request = prepare(prompt, model, tools)
         return delegate.execute(request.prompt, model, request.tools)
     }
 
@@ -69,7 +95,7 @@ internal class PromptCachingLLMClient(
         model: LLModel,
         tools: List<ToolDescriptor>,
     ): Flow<StreamFrame> {
-        val request = prepare(prompt, tools)
+        val request = prepare(prompt, model, tools)
         return delegate.executeStreaming(request.prompt, model, request.tools)
     }
 
@@ -78,15 +104,15 @@ internal class PromptCachingLLMClient(
         model: LLModel,
         tools: List<ToolDescriptor>,
     ): LLMChoice {
-        val request = prepare(prompt, tools)
+        val request = prepare(prompt, model, tools)
         return delegate.executeMultipleChoices(request.prompt, model, request.tools)
     }
 
     override suspend fun moderate(prompt: Prompt, model: LLModel): ModerationResult =
-        delegate.moderate(prepareCacheControls(prompt, emptyList(), delegate.llmProvider(), placeBreakpoints = false).prompt, model)
+        delegate.moderate(prepareCacheControls(prompt, emptyList(), delegate.llmProvider(), placeBreakpoints = false, model = model).prompt, model)
 
-    private fun prepare(prompt: Prompt, tools: List<ToolDescriptor>): CacheControlledRequest =
-        prepareCacheControls(prompt, tools, delegate.llmProvider(), anthropicCaching)
+    private fun prepare(prompt: Prompt, model: LLModel, tools: List<ToolDescriptor>): CacheControlledRequest =
+        prepareCacheControls(prompt, tools, delegate.llmProvider(), anthropicCaching, model)
 }
 
 /** A prompt and its tool list after cache-control preparation. */
@@ -94,14 +120,16 @@ internal data class CacheControlledRequest(val prompt: Prompt, val tools: List<T
 
 /**
  * The request [provider] should receive: foreign cache markers removed, split system messages
- * joined for providers without explicit caching, and — for Anthropic with [placeBreakpoints] —
- * automatic breakpoints added.
+ * joined for providers without explicit block caching, automatic breakpoints added for direct
+ * Anthropic with [placeBreakpoints], and top-level `cache_control: {"type": "ephemeral"}` added
+ * for OpenRouter requests targeting explicit-cache models (`anthropic/` and `google/` model IDs).
  */
 internal fun prepareCacheControls(
     prompt: Prompt,
     tools: List<ToolDescriptor>,
     provider: LLMProvider,
     placeBreakpoints: Boolean,
+    model: LLModel? = null,
 ): CacheControlledRequest {
     val honoured: (CacheControl) -> Boolean = when (provider) {
         LLMProvider.Anthropic -> { cc -> cc is AnthropicCacheControl }
@@ -114,6 +142,34 @@ internal fun prepareCacheControls(
     }
     if (provider == LLMProvider.Anthropic && placeBreakpoints) {
         request = placeAnthropicBreakpoints(request)
+    }
+    val shouldUseOpenRouterCacheControl =
+        provider == LLMProvider.OpenRouter &&
+            placeBreakpoints &&
+            model != null &&
+            isOpenRouterExplicitCacheModel(model)
+    val existingAdditional = request.prompt.params.additionalProperties
+    if (shouldUseOpenRouterCacheControl) {
+        if (existingAdditional == null || OPENROUTER_CACHE_CONTROL_KEY !in existingAdditional) {
+            val updatedAdditional = existingAdditional.orEmpty() +
+                (OPENROUTER_CACHE_CONTROL_KEY to OPENROUTER_EPHEMERAL_CACHE_CONTROL)
+            request = request.copy(
+                prompt = request.prompt.withParams(
+                    request.prompt.params.copy(additionalProperties = updatedAdditional)
+                )
+            )
+        }
+    } else if (
+        existingAdditional != null &&
+        OPENROUTER_CACHE_CONTROL_KEY in existingAdditional &&
+        (provider != LLMProvider.OpenRouter || existingAdditional[OPENROUTER_CACHE_CONTROL_KEY] == OPENROUTER_EPHEMERAL_CACHE_CONTROL)
+    ) {
+        val cleaned = existingAdditional - OPENROUTER_CACHE_CONTROL_KEY
+        request = request.copy(
+            prompt = request.prompt.withParams(
+                request.prompt.params.copy(additionalProperties = cleaned.ifEmpty { null })
+            )
+        )
     }
     return request
 }

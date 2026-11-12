@@ -580,6 +580,14 @@ object WorkflowParser {
                         owner = "Step '${step.step}' state '$stateKey'",
                         extracts = stateStep.extract
                     )
+
+                    stateStep.timeoutSeconds?.let { timeoutSeconds ->
+                        if (timeoutSeconds <= 0) {
+                            throw WorkflowValidationException(
+                                "Step '${step.step}' state '$stateKey' timeout_seconds must be > 0 (got $timeoutSeconds)"
+                            )
+                        }
+                    }
                 }
 
                 stateDef.transitions.forEach { transition ->
@@ -782,9 +790,38 @@ object WorkflowParser {
      *   - 若 child 有 module 契约 → 严格校验 inputs key 集合、required 是否提供、outputs key 是否声明
      *   - 若 child 没有 module 契约 → 宽松模式,只校验 required_inputs 列表里的 key 在 sub_workflow.inputs 中存在
      */
+    private data class SubWorkflowSite(
+        val ownerLabel: String,
+        val displayStepName: String,
+        val config: SubWorkflowConfig
+    )
+
+    private fun collectSubWorkflowSites(workflow: WorkflowDefinition): List<SubWorkflowSite> {
+        val sites = mutableListOf<SubWorkflowSite>()
+        for (step in workflow.workflow) {
+            step.subWorkflow?.let { config ->
+                sites += SubWorkflowSite(
+                    ownerLabel = "Step '${step.step}'",
+                    displayStepName = step.step,
+                    config = config
+                )
+            }
+            step.stateMachine?.states?.forEach { (stateKey, stateDef) ->
+                stateDef.stepConfig?.subWorkflow?.let { config ->
+                    sites += SubWorkflowSite(
+                        ownerLabel = "Step '${step.step}' state '$stateKey'",
+                        displayStepName = "${step.step}.$stateKey",
+                        config = config
+                    )
+                }
+            }
+        }
+        return sites
+    }
+
     private fun validateSubWorkflows(workflow: WorkflowDefinition, resolver: WorkflowResolver) {
-        val hasAnySubWorkflow = workflow.workflow.any { it.isSubWorkflow }
-        if (!hasAnySubWorkflow) return
+        val sites = collectSubWorkflowSites(workflow)
+        if (sites.isEmpty()) return
 
         if (resolver === NullWorkflowResolver) {
             parserLogger.warn {
@@ -792,10 +829,9 @@ object WorkflowParser {
             }
         }
 
+        // 1. Top-level step 组合约束
         for (step in workflow.workflow) {
-            val config = step.subWorkflow ?: continue
-
-            // 1. 组合约束
+            if (step.subWorkflow == null) continue
             if (step.iterateOver != null) {
                 throw WorkflowValidationException(
                     "Step '${step.step}': sub_workflow cannot be combined with iterate_over (deferred to Phase 4)"
@@ -811,9 +847,14 @@ object WorkflowParser {
                     "Step '${step.step}': sub_workflow cannot be combined with step-level parallel"
                 )
             }
+        }
 
-            // 2. 跨工作流校验(需要 resolver)
-            if (resolver === NullWorkflowResolver) continue
+        // 2. 跨工作流校验(需要 resolver) — 覆盖顶层 step.subWorkflow 与 state_machine 各状态 stepConfig.subWorkflow
+        if (resolver === NullWorkflowResolver) return
+
+        for (site in sites) {
+            val config = site.config
+            val ownerLabel = site.ownerLabel
 
             val resolved = try {
                 resolver.resolve(config.toReference())
@@ -821,20 +862,20 @@ object WorkflowParser {
                 when (config.missingReferencePolicy) {
                     SubWorkflowMissingReferencePolicy.ERROR ->
                         throw WorkflowValidationException(
-                            "Step '${step.step}' sub_workflow reference cannot be resolved: ${e.message}",
+                            "$ownerLabel sub_workflow reference cannot be resolved: ${e.message}",
                             e
                         )
 
                     SubWorkflowMissingReferencePolicy.WARN -> {
                         parserLogger.warn {
-                            "Step '${step.step}' sub_workflow reference (${config.identityLabel()}) cannot be resolved during static validation: ${e.message}"
+                            "$ownerLabel sub_workflow reference (${config.identityLabel()}) cannot be resolved during static validation: ${e.message}"
                         }
                         continue
                     }
 
                     SubWorkflowMissingReferencePolicy.SKIP_STEP -> {
                         parserLogger.warn {
-                            "Step '${step.step}' sub_workflow reference (${config.identityLabel()}) cannot be resolved; will be skipped at runtime"
+                            "$ownerLabel sub_workflow reference (${config.identityLabel()}) cannot be resolved; will be skipped at runtime"
                         }
                         continue
                     }
@@ -845,10 +886,10 @@ object WorkflowParser {
 
             if (childModule != null) {
                 // 严格模式
-                validateSubWorkflowAgainstContract(step, config, childDef.name, childModule)
+                validateSubWorkflowAgainstContract(ownerLabel, config, childDef.name, childModule)
             } else {
                 // 宽松模式
-                validateSubWorkflowLooseMode(step, config, childDef)
+                validateSubWorkflowLooseMode(ownerLabel, config, childDef)
             }
         }
     }
@@ -857,7 +898,7 @@ object WorkflowParser {
      * 严格模式: child 有契约,父 sub_workflow 必须严格匹配。
      */
     private fun validateSubWorkflowAgainstContract(
-        step: WorkflowStep,
+        ownerLabel: String,
         config: SubWorkflowConfig,
         childName: String,
         contract: WorkflowModuleContract
@@ -870,7 +911,7 @@ object WorkflowParser {
         for (key in config.inputs.keys) {
             if (key !in inputNames) {
                 throw WorkflowValidationException(
-                    "Step '${step.step}' sub_workflow input '$key' is not declared in module contract of '$childName' (allowed: ${inputNames.sorted()})"
+                    "$ownerLabel sub_workflow input '$key' is not declared in module contract of '$childName' (allowed: ${inputNames.sorted()})"
                 )
             }
         }
@@ -879,7 +920,7 @@ object WorkflowParser {
         for (req in requiredInputs) {
             if (req !in config.inputs.keys) {
                 throw WorkflowValidationException(
-                    "Step '${step.step}' sub_workflow missing required input '$req' (declared in module contract of '$childName')"
+                    "$ownerLabel sub_workflow missing required input '$req' (declared in module contract of '$childName')"
                 )
             }
         }
@@ -891,26 +932,26 @@ object WorkflowParser {
             if (spec.type == "enum" && !value.contains("{{")) {
                 if (spec.allowedValues != null && value !in spec.allowedValues) {
                     throw WorkflowValidationException(
-                        "Step '${step.step}' sub_workflow input '$key'='$value' is not in allowed_values ${spec.allowedValues}"
+                        "$ownerLabel sub_workflow input '$key'='$value' is not in allowed_values ${spec.allowedValues}"
                     )
                 }
             }
             if (spec.type == "number" && !value.contains("{{")) {
                 val num = value.toDoubleOrNull()
                     ?: throw WorkflowValidationException(
-                        "Step '${step.step}' sub_workflow input '$key' expects type=number but got '$value'"
+                        "$ownerLabel sub_workflow input '$key' expects type=number but got '$value'"
                     )
                 spec.min?.let {
                     if (num < it) {
                         throw WorkflowValidationException(
-                            "Step '${step.step}' sub_workflow input '$key'=$num is below min=$it"
+                            "$ownerLabel sub_workflow input '$key'=$num is below min=$it"
                         )
                     }
                 }
                 spec.max?.let {
                     if (num > it) {
                         throw WorkflowValidationException(
-                            "Step '${step.step}' sub_workflow input '$key'=$num is above max=$it"
+                            "$ownerLabel sub_workflow input '$key'=$num is above max=$it"
                         )
                     }
                 }
@@ -923,14 +964,14 @@ object WorkflowParser {
             if (childOutputName.contains("{{")) continue
             if (childOutputName !in outputNames) {
                 throw WorkflowValidationException(
-                    "Step '${step.step}' sub_workflow output '$parentVar' maps to child output '$childOutputName' which is not declared in module contract of '$childName' (allowed: ${outputNames.sorted()})"
+                    "$ownerLabel sub_workflow output '$parentVar' maps to child output '$childOutputName' which is not declared in module contract of '$childName' (allowed: ${outputNames.sorted()})"
                 )
             }
         }
 
         if (contract.deprecated) {
             parserLogger.warn {
-                "Step '${step.step}' references deprecated module '$childName'${contract.deprecationNote?.let { ": $it" }.orEmpty()}"
+                "$ownerLabel references deprecated module '$childName'${contract.deprecationNote?.let { ": $it" }.orEmpty()}"
             }
         }
     }
@@ -939,7 +980,7 @@ object WorkflowParser {
      * 宽松模式: child 没有契约,只做手写 required_inputs 的最小校验。
      */
     private fun validateSubWorkflowLooseMode(
-        step: WorkflowStep,
+        ownerLabel: String,
         config: SubWorkflowConfig,
         childDef: WorkflowDefinition
     ) {
@@ -947,7 +988,7 @@ object WorkflowParser {
         for (req in config.requiredInputs) {
             if (req !in config.inputs.keys) {
                 throw WorkflowValidationException(
-                    "Step '${step.step}' sub_workflow declared required input '$req' but did not supply it in 'inputs'"
+                    "$ownerLabel sub_workflow declared required input '$req' but did not supply it in 'inputs'"
                 )
             }
         }
@@ -957,7 +998,7 @@ object WorkflowParser {
         for (key in config.inputs.keys) {
             if (key !in childVars) {
                 parserLogger.warn {
-                    "Step '${step.step}' sub_workflow input '$key' is not declared in child workflow '${childDef.name}' variables (loose mode warning)"
+                    "$ownerLabel sub_workflow input '$key' is not declared in child workflow '${childDef.name}' variables (loose mode warning)"
                 }
             }
         }
@@ -983,7 +1024,7 @@ object WorkflowParser {
      */
     private fun detectSubWorkflowCycles(workflow: WorkflowDefinition, resolver: WorkflowResolver) {
         if (resolver === NullWorkflowResolver) return  // 无 resolver 时跳过(已在 validateSubWorkflows 中 warn 过)
-        if (workflow.workflow.none { it.isSubWorkflow }) return
+        if (collectSubWorkflowSites(workflow).isEmpty()) return
 
         val visited = mutableSetOf<String>()
         val stack = linkedSetOf<String>()
@@ -1000,15 +1041,15 @@ object WorkflowParser {
             if (identity in visited) return
             stack += identity
             try {
-                def.workflow.forEach { step ->
-                    val config = step.subWorkflow ?: return@forEach
+                collectSubWorkflowSites(def).forEach { site ->
+                    val config = site.config
                     val resolved = try {
                         resolver.resolve(config.toReference())
                     } catch (e: WorkflowValidationException) {
                         // 记录未解析的引用,以便发出一次性 warning。
                         // 即使我们跳过了静态检查,runtime 仍会通过 SubWorkflowStackElement
                         // 独立地阻止递归/深度超限。
-                        skippedReferences += "${step.step} → ${config.toReference()}"
+                        skippedReferences += "${site.displayStepName} → ${config.toReference()}"
                         return@forEach
                     }
                     dfs(resolved.definition, resolved.identity)

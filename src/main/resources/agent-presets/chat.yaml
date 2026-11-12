@@ -29,7 +29,7 @@ parameters:
       - model: minimax-m2.7
         provider: open_router
     fallback:
-      model: minimax-m2.7
+      model: gemini-2.5-flash
       provider: open_router
     temperature: 1.0
 

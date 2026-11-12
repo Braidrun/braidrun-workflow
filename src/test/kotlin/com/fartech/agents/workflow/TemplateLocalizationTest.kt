@@ -127,8 +127,8 @@ class TemplateLocalizationTest {
 
     private fun templateFiles(): List<File> =
         templatesDir.listFiles { file -> file.isFile && file.extension == "yaml" }
-            ?.sortedBy { it.name }
             .orEmpty()
+            .sortedBy { it.name }
 
     private fun removeTranslationBlocks(source: String): String {
         val kept = mutableListOf<String>()

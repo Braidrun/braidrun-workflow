@@ -36,8 +36,14 @@ package com.fartech.agents.workflow
  */
 internal object WorkflowTemplateResolver {
 
+    private val PLACEHOLDER_REGEX = Regex("\\{\\{([^{}]+)\\}\\}")
+
     /**
      * Resolve every placeholder in [template] against [context] and return the result.
+     *
+     * Uses a single-pass regex replacement so substituted step outputs or variable values
+     * containing `{{...}}` sequences are never re-expanded (preventing double-expansion
+     * injection such as an upstream output containing `{{var:secret}}`).
      *
      * Substitution is NOT safe against operator injection in condition expressions —
      * use [resolveConditionPart] / `ConditionEvaluator.evaluateWorkflowCondition` when
@@ -46,21 +52,32 @@ internal object WorkflowTemplateResolver {
      * an opaque string.
      */
     fun resolve(template: String, context: WorkflowExecutionContext): String {
-        if (template.isEmpty() || '{' !in template) return template
-        var result = template
+        if (template.isEmpty() || !template.contains("{{")) return template
 
-        // Step outputs resolved first, so a variable with the same name does NOT shadow
-        // step output (matches legacy behaviour across all three previous implementations).
-        context.stepOutputs.forEach { (stepName, output) ->
-            result = result.replace("{{steps.$stepName.output}}", output)
-            result = result.replace("{{$stepName}}", output)
+        val stepOutputs = context.stepOutputs.toMap()
+        val variables = context.variables.toMap()
+
+        return PLACEHOLDER_REGEX.replace(template) { match ->
+            val expr = match.groupValues[1]
+            when {
+                expr.startsWith("var:") -> {
+                    val varName = expr.removePrefix("var:")
+                    variables[varName]?.toString() ?: match.value
+                }
+                expr.startsWith("steps.") && expr.endsWith(".output") && expr.length > "steps..output".length -> {
+                    val stepName = expr.substring("steps.".length, expr.length - ".output".length)
+                    stepOutputs[stepName]
+                        ?: stepOutputs[expr]
+                        ?: variables[expr]?.toString()
+                        ?: match.value
+                }
+                else -> {
+                    stepOutputs[expr]
+                        ?: variables[expr]?.toString()
+                        ?: match.value
+                }
+            }
         }
-        context.variables.forEach { (varName, value) ->
-            val s = value.toString()
-            result = result.replace("{{var:$varName}}", s)
-            result = result.replace("{{$varName}}", s)
-        }
-        return result
     }
 
     /**

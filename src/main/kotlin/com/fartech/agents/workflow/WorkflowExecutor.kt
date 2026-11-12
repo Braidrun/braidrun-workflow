@@ -993,16 +993,18 @@ class WorkflowExecutor(
     private data class TransitionHandlingResult(
         val shouldStop: Boolean = false,
         val activatedTargets: Set<String> = emptySet(),
-        val rollbackExecuted: Boolean = false
+        val rollbackExecuted: Boolean = false,
+        val explicitContinue: Boolean = false
     ) {
         val hasRecoveryPath: Boolean
-            get() = shouldStop || activatedTargets.isNotEmpty() || rollbackExecuted
+            get() = shouldStop || activatedTargets.isNotEmpty() || rollbackExecuted || explicitContinue
 
         fun merge(other: TransitionHandlingResult): TransitionHandlingResult {
             return TransitionHandlingResult(
                 shouldStop = shouldStop || other.shouldStop,
                 activatedTargets = activatedTargets + other.activatedTargets,
-                rollbackExecuted = rollbackExecuted || other.rollbackExecuted
+                rollbackExecuted = rollbackExecuted || other.rollbackExecuted,
+                explicitContinue = explicitContinue || other.explicitContinue
             )
         }
     }
@@ -1421,6 +1423,15 @@ class WorkflowExecutor(
                 context.recoveredFailures.add(sourceStepName)
             }
         }
+        val workflowHasInlineRecovery = workflow.errorHandling?.onError.orEmpty().any(::isInlineRecoveryAction)
+        workflow.workflow.forEach { step ->
+            val preserved = resumeState.preservedStepResults[step.step]
+            if (preserved != null && !preserved.success) {
+                if (workflowHasInlineRecovery || step.onFailure.any(::isInlineRecoveryAction)) {
+                    context.recoveredFailures.add(step.step)
+                }
+            }
+        }
 
         logger.info {
             "[Workflow:${workflow.name}] Hydrated resume state: " +
@@ -1452,9 +1463,10 @@ class WorkflowExecutor(
                 ?.takeIf { it.isNotEmpty() }
                 ?: output.trim()
 
-            val resolvedCategory = config.categories.firstOrNull { it.name.equals(normalizedOutput, ignoreCase = true) }?.name
-                ?: config.categories.firstOrNull { normalizedOutput.contains(it.name, ignoreCase = true) }?.name
-                ?: normalizedOutput
+            val resolvedCategory = matchClassifierCategory(
+                rawText = normalizedOutput,
+                categoryNames = config.categories.map { it.name }
+            ) ?: normalizedOutput
 
             if (resolvedCategory.isNotBlank()) {
                 context.setVariable(config.outputVariable, resolvedCategory)
@@ -2010,6 +2022,7 @@ class WorkflowExecutor(
             )
         }
         var lastResult: StepExecutionResult? = null
+        var conditionMet = false
         val monitoringEnabled = enableMonitoring && manageMonitoring
         var monitoringCompleted = false
 
@@ -2128,6 +2141,7 @@ class WorkflowExecutor(
 
             // 检查终止条件
             if (evaluateCondition(config.condition, context)) {
+                conditionMet = true
                 logger.info { "[Workflow:${workflow.name}] repeat_until condition met for step '${step.step}' at iteration $iteration" }
                 break
             }
@@ -2137,9 +2151,19 @@ class WorkflowExecutor(
             }
         }
 
-        val finalResult = lastResult ?: throw WorkflowExecutionException(
+        var finalResult = lastResult ?: throw WorkflowExecutionException(
             "repeat_until for step '${step.step}' produced no result"
         )
+        if (!conditionMet && finalResult.success && config.failOnMaxIterations) {
+            val maxIterError =
+                "repeat_until for step '${step.step}' exhausted max_iterations (${config.maxIterations}) without satisfying condition '${config.condition}'"
+            finalResult = finalResult.copy(
+                success = false,
+                error = maxIterError,
+                producedVariables = context.snapshotVariablesForPersistence()
+            )
+            context.stepResults[step.step] = finalResult
+        }
         if (monitoringEnabled && !monitoringCompleted) {
             WorkflowMonitor.completeStep(
                 context.executionId,
@@ -2199,7 +2223,21 @@ class WorkflowExecutor(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            logger.error(e) { "[Workflow:${workflow.name}] Evaluate agent '$evalAgentName' failed for step '${step.step}': ${e.message}" }
+            val errorMsg = e.message ?: e::class.java.simpleName
+            logger.error(e) {
+                "[Workflow:${workflow.name}] Evaluate agent '$evalAgentName' failed for step '${step.step}' at iteration $iteration: $errorMsg"
+            }
+            context.setStepOutput("${step.step}:evaluate:error", errorMsg)
+            if (enableMonitoring) {
+                WorkflowMonitor.addEvent(
+                    context.executionId, step.step, AgentEvent(
+                        type = "repeat_until_evaluate_failed",
+                        category = "agent",
+                        summary = "⚠️ Evaluate agent '$evalAgentName' failed (iteration $iteration): $errorMsg",
+                        detail = e.stackTraceToString().take(1000)
+                    )
+                )
+            }
             null
         } finally {
             // The round's evaluator lease, CLI pool and skill state end with the round (host keys "<step>:evaluate:<n>").
@@ -2216,18 +2254,33 @@ class WorkflowExecutor(
         variableName: String,
         text: String,
         context: WorkflowExecutionContext
+    ) = extractAndSetVariable(pattern, variableName, text, context, clearOnMissing = false)
+
+    private fun extractAndSetVariable(
+        pattern: String,
+        variableName: String,
+        text: String,
+        context: WorkflowExecutionContext,
+        clearOnMissing: Boolean
     ) {
         try {
-            val regex = Regex(pattern)
+            val options = if ('^' in pattern || '$' in pattern) setOf(RegexOption.MULTILINE) else emptySet()
+            val regex = Regex(pattern, options)
             val match = regex.find(text)
             if (match != null) {
                 val value = if (match.groupValues.size > 1) match.groupValues[1] else match.value
                 context.setVariable(variableName, value)
                 logger.info { "Extracted variable '$variableName' = '$value' from evaluation output" }
             } else {
+                if (clearOnMissing) {
+                    context.variables.remove(variableName)
+                }
                 logger.warn { "Pattern '$pattern' did not match evaluation output for variable '$variableName'" }
             }
         } catch (e: Exception) {
+            if (clearOnMissing) {
+                context.variables.remove(variableName)
+            }
             logger.error(e) { "Failed to extract variable '$variableName' with pattern '$pattern': ${e.message}" }
         }
     }
@@ -2352,6 +2405,7 @@ class WorkflowExecutor(
                         context.executionId,
                         step.step,
                         success = result.success,
+                        error = result.error,
                         output = result.output
                     )
                 }
@@ -2780,8 +2834,84 @@ class WorkflowExecutor(
             )
         }
 
-        return try {
-            val result = executeStepByType(stateStep, workflow, context, directoryIsolation)
+        val retryConfig = stateStep.retry
+        val maxAttempts = retryConfig?.maxAttempts ?: 1
+        val stateTimeoutMs = stateStep.timeoutSeconds?.let { it.toLong() * 1000L }
+        var finalStepResult: StepResult? = null
+        var lastException: Exception? = null
+
+        for (attempt in 0 until maxAttempts) {
+            try {
+                if (attempt > 0) {
+                    logger.info {
+                        "[Workflow:${workflow.name}] State step '${stateStep.step}' retry attempt ${attempt + 1}/$maxAttempts"
+                    }
+                    if (enableMonitoring) {
+                        WorkflowMonitor.recordRetry(context.executionId, subStepName)
+                    }
+                }
+
+                val attemptResult = if (stateTimeoutMs != null) {
+                    withResourceAwareTimeout(stateTimeoutMs) {
+                        executeStepByType(stateStep, workflow, context, directoryIsolation)
+                    }
+                } else {
+                    executeStepByType(stateStep, workflow, context, directoryIsolation)
+                }
+
+                if (attemptResult.success) {
+                    finalStepResult = attemptResult
+                    lastException = null
+                    break
+                }
+
+                finalStepResult = attemptResult
+                lastException = null
+                if (retryConfig != null && attempt < maxAttempts - 1) {
+                    val backoffDelay = calculateBackoffDelay(retryConfig, attempt)
+                    logger.warn {
+                        "[Workflow:${workflow.name}] State step '${stateStep.step}' reported failure, retrying after ${backoffDelay}ms..."
+                    }
+                    delay(backoffDelay.milliseconds)
+                }
+            } catch (e: TimeoutCancellationException) {
+                if (stateTimeoutMs != null && kotlin.coroutines.coroutineContext.isActive) {
+                    val timeoutMsg = "State step '${stateStep.step}' timed out after ${stateStep.timeoutSeconds}s"
+                    finalStepResult = StepResult(success = false, error = timeoutMsg)
+                    lastException = null
+                    if (retryConfig != null && attempt < maxAttempts - 1) {
+                        val backoffDelay = calculateBackoffDelay(retryConfig, attempt)
+                        logger.warn {
+                            "[Workflow:${workflow.name}] $timeoutMsg, retrying after ${backoffDelay}ms..."
+                        }
+                        delay(backoffDelay.milliseconds)
+                    }
+                } else {
+                    if (enableMonitoring) {
+                        WorkflowMonitor.completeStep(context.executionId, subStepName, false, error = "Cancelled")
+                    }
+                    throw e
+                }
+            } catch (e: CancellationException) {
+                if (enableMonitoring) {
+                    WorkflowMonitor.completeStep(context.executionId, subStepName, false, error = "Cancelled")
+                }
+                throw e
+            } catch (e: Exception) {
+                lastException = e
+                finalStepResult = null
+                if (retryConfig != null && attempt < maxAttempts - 1) {
+                    val backoffDelay = calculateBackoffDelay(retryConfig, attempt)
+                    logger.warn {
+                        "[Workflow:${workflow.name}] State step '${stateStep.step}' failed (${e.message}), retrying after ${backoffDelay}ms..."
+                    }
+                    delay(backoffDelay.milliseconds)
+                }
+            }
+        }
+
+        val result = finalStepResult
+        if (result != null) {
             result.output?.let { output ->
                 context.setStepOutput("${outerStep.step}.$stateName", output)
                 processExtract(stateStep, output, context, workflow)
@@ -2789,49 +2919,51 @@ class WorkflowExecutor(
 
             if (result.success) collectDeclaredArtifacts(workflow, stateStep, context, result)
             if (enableMonitoring) {
-                WorkflowMonitor.completeStep(context.executionId, subStepName, true, result.output)
+                WorkflowMonitor.completeStep(
+                    context.executionId,
+                    subStepName,
+                    result.success,
+                    error = result.error,
+                    output = result.output
+                )
                 WorkflowMonitor.addEvent(
                     context.executionId, outerStep.step, AgentEvent(
-                        type = "state_machine_state_completed",
+                        type = if (result.success) "state_machine_state_completed" else "state_machine_state_failed",
                         category = "agent",
                         subCategory = "state_machine",
-                        summary = "✅ 状态完成: $stateName",
-                        detail = "event=${stateDef.successEvent}"
+                        summary = if (result.success) "✅ 状态完成: $stateName" else "❌ 状态失败: $stateName",
+                        detail = if (result.success) "event=${stateDef.successEvent}" else (result.error ?: "event=${stateDef.failureEvent}")
                     )
                 )
             }
 
-            StateExecutionResult(
+            return StateExecutionResult(
                 success = result.success,
                 event = if (result.success) stateDef.successEvent else stateDef.failureEvent,
                 output = result.output,
                 error = result.error
             )
-        } catch (e: CancellationException) {
-            if (enableMonitoring) {
-                WorkflowMonitor.completeStep(context.executionId, subStepName, false, error = "Cancelled")
-            }
-            throw e
-        } catch (e: Exception) {
-            if (enableMonitoring) {
-                WorkflowMonitor.completeStep(context.executionId, subStepName, false, error = e.message)
-                WorkflowMonitor.addEvent(
-                    context.executionId, outerStep.step, AgentEvent(
-                        type = "state_machine_state_failed",
-                        category = "agent",
-                        subCategory = "state_machine",
-                        summary = "❌ 状态失败: $stateName",
-                        detail = e.message
-                    )
-                )
-            }
+        }
 
-            StateExecutionResult(
-                success = false,
-                event = stateDef.failureEvent,
-                error = e.message ?: "Unknown error"
+        val errorMessage = lastException?.message ?: "Unknown error"
+        if (enableMonitoring) {
+            WorkflowMonitor.completeStep(context.executionId, subStepName, false, error = errorMessage)
+            WorkflowMonitor.addEvent(
+                context.executionId, outerStep.step, AgentEvent(
+                    type = "state_machine_state_failed",
+                    category = "agent",
+                    subCategory = "state_machine",
+                    summary = "❌ 状态失败: $stateName",
+                    detail = errorMessage
+                )
             )
         }
+
+        return StateExecutionResult(
+            success = false,
+            event = stateDef.failureEvent,
+            error = errorMessage
+        )
     }
 
     private fun createStateMachineStateStep(
@@ -2852,7 +2984,9 @@ class WorkflowExecutor(
             // sub_workflow step, just scoped under the state-machine's
             // "$outerStep.$stateName" id for monitoring & output.
             subWorkflow = stateStep.subWorkflow,
-            extract = stateStep.extract
+            extract = stateStep.extract,
+            retry = stateStep.retry,
+            timeoutSeconds = stateStep.timeoutSeconds
         )
     }
 
@@ -3095,31 +3229,43 @@ class WorkflowExecutor(
             sandboxEnv["BRAIDRUN_EXECUTION_ID"] = context.executionId
             sandboxEnv["BRAIDRUN_STEP_NAME"] = step.step
 
+            val envDirName = if (directoryIsolation.enabled) {
+                ".wf_env"
+            } else {
+                ".wf_env_${sanitizeStepNameForId(step.step)}"
+            }
             val spillResult = spillLargeCodeStepEnvValues(
                 env = sandboxEnv,
                 hostWorkingDir = workDir,
                 containerWorkingDir = if (isDocker) "/workspace" else null,
-                bridgeLanguage = config.language
+                bridgeLanguage = config.language,
+                envDirName = envDirName
             )
-            scriptFile.writeText(scriptWithSpilledEnvBridge(finalScript, config.language, spillResult))
+            try {
+                scriptFile.writeText(scriptWithSpilledEnvBridge(finalScript, config.language, spillResult))
 
-            // 5. 执行
-            val command = interpreterResolution.command + scriptFileName
-            return executor.execute(
-                SubprocessExecutor.ExecRequest(
-                    command = command,
-                    workingDir = workDir,
-                    timeoutSeconds = config.timeout.toLong(),
-                    env = sandboxEnv,
-                    mounts = mounts,
-                    imageHint = resolveCodeStepImageHint(config.language),
-                    userId = baseParameters.parameter("user_id", "local-user"),
-                    admissionKind = "CODE_STEP",
-                    environmentAtStart = if (perCallCodeControl || executionApiTokenProvider != null) {
-                        { freshCodeStepCallbackEnvironment(config.timeout.toLong(), context, step.step) }
-                    } else null
+                // 5. 执行
+                val command = interpreterResolution.command + scriptFileName
+                return executor.execute(
+                    SubprocessExecutor.ExecRequest(
+                        command = command,
+                        workingDir = workDir,
+                        timeoutSeconds = config.timeout.toLong(),
+                        env = sandboxEnv,
+                        mounts = mounts,
+                        imageHint = resolveCodeStepImageHint(config.language),
+                        userId = baseParameters.parameter("user_id", "local-user"),
+                        admissionKind = "CODE_STEP",
+                        environmentAtStart = if (perCallCodeControl || executionApiTokenProvider != null) {
+                            { freshCodeStepCallbackEnvironment(config.timeout.toLong(), context, step.step) }
+                        } else null
+                    )
                 )
-            )
+            } finally {
+                if (!directoryIsolation.enabled) {
+                    spillResult.hostEnvDir?.let { runCatching { it.deleteRecursively() } }
+                }
+            }
         } finally {
             scriptFile.delete()
         }
@@ -3240,14 +3386,15 @@ class WorkflowExecutor(
         env: MutableMap<String, String>,
         hostWorkingDir: File,
         containerWorkingDir: String?,
-        bridgeLanguage: String
+        bridgeLanguage: String,
+        envDirName: String = ".wf_env"
     ): CodeStepEnvSpillResult {
         val oversized = env.entries
             .filter { (key, value) -> shouldSpillCodeStepEnvValue(key, value) }
             .map { it.key to it.value }
         if (oversized.isEmpty()) return CodeStepEnvSpillResult()
 
-        val hostEnvDir = File(hostWorkingDir, ".wf_env").apply { mkdirs() }
+        val hostEnvDir = File(hostWorkingDir, envDirName).apply { mkdirs() }
         if (containerWorkingDir != null) {
             relaxCodeStepEnvDirectoryPermissionsForDocker(hostEnvDir)
         }
@@ -3260,26 +3407,28 @@ class WorkflowExecutor(
             }
             env.remove(key)
             env["${key}__FILE"] = if (containerWorkingDir != null) {
-                "$containerWorkingDir/.wf_env/$fileName"
+                "$containerWorkingDir/$envDirName/$fileName"
             } else {
                 hostFile.absolutePath
             }
         }
         when (bridgeLanguage.lowercase()) {
-            "python" -> installPythonSpilledEnvBridge(env, hostEnvDir, containerWorkingDir)
-            "javascript", "typescript" -> installNodeSpilledEnvBridge(env, hostEnvDir, containerWorkingDir)
+            "python" -> installPythonSpilledEnvBridge(env, hostEnvDir, containerWorkingDir, envDirName)
+            "javascript", "typescript" -> installNodeSpilledEnvBridge(env, hostEnvDir, containerWorkingDir, envDirName)
         }
-        return CodeStepEnvSpillResult(spilled = true)
+        return CodeStepEnvSpillResult(spilled = true, hostEnvDir = hostEnvDir)
     }
 
     private data class CodeStepEnvSpillResult(
-        val spilled: Boolean = false
+        val spilled: Boolean = false,
+        val hostEnvDir: File? = null
     )
 
     private fun installPythonSpilledEnvBridge(
         env: MutableMap<String, String>,
         hostEnvDir: File,
-        containerWorkingDir: String?
+        containerWorkingDir: String?,
+        envDirName: String = ".wf_env"
     ) {
         val bridgeFile = File(hostEnvDir, "sitecustomize.py")
         bridgeFile.writeText(PYTHON_SPILLED_ENV_BRIDGE, Charsets.UTF_8)
@@ -3287,7 +3436,7 @@ class WorkflowExecutor(
             relaxCodeStepEnvFilePermissionsForDocker(bridgeFile)
         }
         val bridgePath = if (containerWorkingDir != null) {
-            "$containerWorkingDir/.wf_env"
+            "$containerWorkingDir/$envDirName"
         } else {
             hostEnvDir.absolutePath
         }
@@ -3302,7 +3451,8 @@ class WorkflowExecutor(
     private fun installNodeSpilledEnvBridge(
         env: MutableMap<String, String>,
         hostEnvDir: File,
-        containerWorkingDir: String?
+        containerWorkingDir: String?,
+        envDirName: String = ".wf_env"
     ) {
         val hostNodeModulesDir = File(hostEnvDir, "node_modules").apply { mkdirs() }
         val hostModuleDir = File(hostNodeModulesDir, NODE_SPILLED_ENV_BRIDGE_MODULE).apply { mkdirs() }
@@ -3314,7 +3464,7 @@ class WorkflowExecutor(
             relaxCodeStepEnvFilePermissionsForDocker(bridgeFile)
         }
         val nodePath = if (containerWorkingDir != null) {
-            "$containerWorkingDir/.wf_env/node_modules"
+            "$containerWorkingDir/$envDirName/node_modules"
         } else {
             hostNodeModulesDir.absolutePath
         }
@@ -3452,7 +3602,51 @@ class WorkflowExecutor(
             }
             else -> null
         }
-        return if (preamble != null) "$preamble\n\n$script" else script
+        val body = if (preamble != null) "$preamble\n\n$script" else script
+        if (
+            config.language.lowercase() == "python" &&
+            ("get_var" in preamble.orEmpty() || "get_var" in script) &&
+            "def get_var" !in preamble.orEmpty() &&
+            "import get_var" !in preamble.orEmpty() &&
+            "def get_var" !in script &&
+            "import get_var" !in script
+        ) {
+            val defaultPythonGetVar = """
+                import os as __br_os, re as __br_re
+                def get_var(key, default=""):
+                    _k = str(key)
+                    _u = "WF_VAR_" + _k.upper()
+                    if _u in __br_os.environ:
+                        return __br_os.environ[_u]
+                    _s = "WF_VAR_" + __br_re.sub(r"[^A-Z0-9_]", "_", _k.upper())
+                    return __br_os.environ.get(_s, default)
+            """.trimIndent()
+            val lines = body.lines()
+            var insertAt = 0
+            while (insertAt < lines.size) {
+                val trimmed = lines[insertAt].trim()
+                val isCommentOrBlank = trimmed.isEmpty() || trimmed.startsWith("#")
+                val isSingleLineFutureImport =
+                    trimmed.startsWith("from __future__ import ") && !trimmed.endsWith("\\") && "(" !in trimmed
+                if (isCommentOrBlank || isSingleLineFutureImport) {
+                    insertAt++
+                } else {
+                    break
+                }
+            }
+            return if (insertAt == 0) {
+                "$defaultPythonGetVar\n\n$body"
+            } else {
+                val prefix = lines.subList(0, insertAt).joinToString("\n").trimEnd()
+                val remainder = lines.subList(insertAt, lines.size).joinToString("\n")
+                if (remainder.isBlank()) {
+                    "$prefix\n\n$defaultPythonGetVar"
+                } else {
+                    "$prefix\n\n$defaultPythonGetVar\n\n$remainder"
+                }
+            }
+        }
+        return body
     }
 
     /** 构建 code step 环境变量 (WF_VAR_*, STEP_OUTPUT_*, STEP_INPUTS, WF_EXECUTION_ID) */
@@ -3857,11 +4051,7 @@ class WorkflowExecutor(
 
         // 解析分类结果
         val categoryNames = config.categories.map { it.name }
-        val matchedCategory = if (rawResult != null) {
-            val trimmed = rawResult.trim().lowercase()
-            categoryNames.firstOrNull { it.lowercase() == trimmed }
-                ?: categoryNames.firstOrNull { trimmed.contains(it.lowercase()) }
-        } else null
+        val matchedCategory = rawResult?.let { matchClassifierCategory(it, categoryNames) }
 
         val finalCategory = matchedCategory ?: config.defaultCategory
         ?: throw WorkflowExecutionException(
@@ -3887,6 +4077,21 @@ class WorkflowExecutor(
 
         val output = "classification: $finalCategory"
         return StepResult(success = true, output = output)
+    }
+
+    internal fun matchClassifierCategory(rawText: String, categoryNames: List<String>): String? {
+        val trimmed = rawText.trim()
+        if (trimmed.isEmpty()) return null
+        categoryNames.firstOrNull { it.equals(trimmed, ignoreCase = true) }?.let { return it }
+
+        val sortedByLength = categoryNames.sortedByDescending { it.length }
+        sortedByLength.firstOrNull { cat ->
+            Regex("(?i)(?<![\\p{L}\\p{N}_])" + Regex.escape(cat) + "(?![\\p{L}\\p{N}_])").containsMatchIn(trimmed)
+        }?.let { return it }
+
+        return sortedByLength.firstOrNull { cat ->
+            trimmed.contains(cat, ignoreCase = true)
+        }
     }
 
     /**
@@ -4145,13 +4350,28 @@ class WorkflowExecutor(
             try {
                 if (config.pattern != null) {
                     // 正则提取
-                    extractAndSetVariable(config.pattern, config.variable, output, context)
+                    extractAndSetVariable(
+                        pattern = config.pattern,
+                        variableName = config.variable,
+                        text = output,
+                        context = context,
+                        clearOnMissing = config.clearOnMissing
+                    )
                 } else if (config.jsonPath != null) {
                     // JSON path 提取
-                    extractJsonPath(config.jsonPath, config.variable, output, context)
+                    extractJsonPath(
+                        jsonPath = config.jsonPath,
+                        variableName = config.variable,
+                        text = output,
+                        context = context,
+                        clearOnMissing = config.clearOnMissing
+                    )
                 }
                 remapExtractedContainerOutputPath(step, config.variable, hostOutputDir, context)
             } catch (e: Exception) {
+                if (config.clearOnMissing) {
+                    context.variables.remove(config.variable)
+                }
                 logger.error(e) { "[Extract] Step '${step.step}': failed to extract variable '${config.variable}': ${e.message}" }
             }
         }
@@ -4382,10 +4602,21 @@ class WorkflowExecutor(
         variableName: String,
         text: String,
         context: WorkflowExecutionContext
+    ) = extractJsonPath(jsonPath, variableName, text, context, clearOnMissing = false)
+
+    private fun extractJsonPath(
+        jsonPath: String,
+        variableName: String,
+        text: String,
+        context: WorkflowExecutionContext,
+        clearOnMissing: Boolean
     ) {
         try {
             val candidates = extractBalancedJsonCandidates(text)
             if (candidates.isEmpty()) {
+                if (clearOnMissing) {
+                    context.variables.remove(variableName)
+                }
                 logger.warn { "[Extract] No JSON found in output for json_path '$jsonPath'" }
                 return
             }
@@ -4400,6 +4631,9 @@ class WorkflowExecutor(
                 .flatMap { candidate -> expandJsonCandidate(candidate) }
 
             if (parsedCandidates.isEmpty()) {
+                if (clearOnMissing) {
+                    context.variables.remove(variableName)
+                }
                 logger.warn { "[Extract] No parseable JSON found in output for json_path '$jsonPath'" }
                 return
             }
@@ -4421,6 +4655,9 @@ class WorkflowExecutor(
             context.setVariable(variableName, value)
             logger.info { "[Extract] Extracted variable '$variableName' = '$value' via json_path '$jsonPath'" }
         } catch (e: Exception) {
+            if (clearOnMissing) {
+                context.variables.remove(variableName)
+            }
             logger.warn { "[Extract] Failed to extract json_path '$jsonPath' for variable '$variableName': ${e.message}" }
         }
     }
@@ -4950,6 +5187,9 @@ class WorkflowExecutor(
         }
 
         var terminated = false
+        var attemptedSpeakerTurns = 0
+        var successfulSpeakerTurns = 0
+        var lastSpeakerError: String? = null
 
         // 执行对话轮次：每个 participant 发言一次算一轮
         for (round in 1..config.maxRounds) {
@@ -4980,9 +5220,10 @@ class WorkflowExecutor(
                 )
 
                 val turnScope = "${step.step}:group_chat:round${round}:${speakerName}"
+                attemptedSpeakerTurns++
                 val response = endingDerivedScope(context, turnScope) {
                     try {
-                        runStepAgent(
+                        val turnOutput = runStepAgent(
                             agentName = speakerName,
                             agentDef = agentDef,
                             context = context,
@@ -4990,11 +5231,14 @@ class WorkflowExecutor(
                             input = prompt,
                             directoryIsolation = directoryIsolation
                         )
+                        successfulSpeakerTurns++
+                        turnOutput
                     } catch (e: CancellationException) {
                         // Don't record a fabricated "[Error: ...]" turn and keep looping
                         // through remaining speakers/rounds on user cancel.
                         throw e
                     } catch (e: Exception) {
+                        lastSpeakerError = e.message ?: e::class.java.simpleName
                         logger.error(e) { "[Workflow:${workflow.name}] Group chat: $speakerName failed in round $round" }
                         "[Error: ${e.message}]"
                     }
@@ -5051,6 +5295,26 @@ class WorkflowExecutor(
                     }
                 }
             }
+        }
+
+        if (attemptedSpeakerTurns > 0 && successfulSpeakerTurns == 0) {
+            val errorMsg = buildString {
+                append("Group chat '${step.step}' failed: all $attemptedSpeakerTurns speaker turns failed")
+                lastSpeakerError?.takeIf { it.isNotBlank() }?.let { append(" (last error: $it)") }
+            }
+            if (enableMonitoring) {
+                WorkflowMonitor.addEvent(
+                    context.executionId, step.step, AgentEvent(
+                        type = "group_chat_failed",
+                        category = "agent",
+                        subCategory = "group_chat",
+                        summary = "❌ Group Chat 失败: 所有发言轮次均失败 ($attemptedSpeakerTurns 次)",
+                        detail = errorMsg
+                    )
+                )
+            }
+            logger.error { "[Workflow:${workflow.name}] $errorMsg" }
+            return StepResult(success = false, error = errorMsg)
         }
 
         // 生成最终输出（摘要）
@@ -5347,6 +5611,7 @@ class WorkflowExecutor(
         // 构建 Orchestrator 的 system prompt
         val orchestratorDef = config.orchestrator
         val orchestratorParams = orchestratorDef.resolveParameters(workflow.agents).toMutableMap()
+        applyWorkflowStepDefaultSkillsPolicy(orchestratorDef, orchestratorParams, workflow.agents)
         val existingSystemPrompt = (orchestratorParams["system_prompt"] as? kotlinx.serialization.json.JsonPrimitive)?.content ?: ""
 
         val agentBasedSystemPrompt = buildString {
@@ -5401,7 +5666,9 @@ class WorkflowExecutor(
         val parameters = hostAgentParameters(mergeParameters(baseParameters, orchestratorParams), context.executionId, step.step)
 
         // 提取 tool_set（在 Orchestrator 的基础工具之上追加 OrchestratorTools）
-        val rawToolNames = parameters.parameter("tool_set", linkedSetOf("exit")).toList()
+        val rawToolNames = parameters.parameter("tool_set", linkedSetOf("exit"))
+            .toList()
+            .let { names -> if (skillsSubsystemDisabled(parameters)) names.filterNot { it == "skill_tools" } else names }
 
         val orchestratorHookCallback: com.fartech.agents.commons.MonitoringEventCallback? =
             if (enableMonitoring) {
@@ -6271,6 +6538,14 @@ class WorkflowExecutor(
         }
     }
 
+    private fun isInlineRecoveryAction(action: TransitionAction): Boolean {
+        if (action.stop) return false
+        val normalized = action.action?.trim()?.lowercase()
+        return normalized == "continue" ||
+            normalized in setOf("set_variable", "set_var") ||
+            action.rollback != null
+    }
+
     /**
      * 处理转换动作
      */
@@ -6283,6 +6558,7 @@ class WorkflowExecutor(
     ): TransitionHandlingResult {
         val activatedTargets = linkedSetOf<String>()
         var rollbackExecuted = false
+        var explicitContinue = false
 
         actions.forEach { action ->
             // 处理通知
@@ -6291,12 +6567,37 @@ class WorkflowExecutor(
                 // 这里可以集成 InstantMessagingTools
             }
 
+            when (action.action?.trim()?.lowercase()) {
+                "continue" -> {
+                    explicitContinue = true
+                    action.message?.takeIf { it.isNotBlank() }?.let { msg ->
+                        val resolved = WorkflowTemplateResolver.resolve(msg, context)
+                        logger.info { "[Workflow:${workflow.name}] Continue from $sourceLabel: $resolved" }
+                    }
+                }
+                "set_variable", "set_var" -> {
+                    val key = action.key?.trim()
+                    if (!key.isNullOrEmpty()) {
+                        val resolvedValue = WorkflowTemplateResolver.resolve(action.value.orEmpty(), context)
+                        context.setVariable(key, resolvedValue)
+                        explicitContinue = true
+                    }
+                }
+                "log" -> {
+                    action.message?.takeIf { it.isNotBlank() }?.let { msg ->
+                        val resolved = WorkflowTemplateResolver.resolve(msg, context)
+                        logger.info { "[Workflow:${workflow.name}] Transition log from $sourceLabel: $resolved" }
+                    }
+                }
+            }
+
             // 处理停止
             if (action.stop) {
                 return TransitionHandlingResult(
                     shouldStop = true,
                     activatedTargets = activatedTargets,
-                    rollbackExecuted = rollbackExecuted
+                    rollbackExecuted = rollbackExecuted,
+                    explicitContinue = explicitContinue
                 )
             }
 
@@ -6331,7 +6632,8 @@ class WorkflowExecutor(
 
         return TransitionHandlingResult(
             activatedTargets = activatedTargets,
-            rollbackExecuted = rollbackExecuted
+            rollbackExecuted = rollbackExecuted,
+            explicitContinue = explicitContinue
         )
     }
 
@@ -6752,7 +7054,12 @@ class WorkflowExecutor(
             )
         }
 
-        val transitionResult = handleTransitions(step, stepResult, workflow, context)
+        val stepTransitionResult = handleTransitions(step, stepResult, workflow, context)
+        val transitionResult = if (!stepResult.success) {
+            stepTransitionResult.merge(handleWorkflowErrorTransitions(step, workflow, context))
+        } else {
+            stepTransitionResult
+        }
         // Non-throwing failure path (e.g. sub_workflow returned StepResult(success=false))
         // must honour on_failure recovery too — otherwise on_failure.next only works for
         // exceptions, and a sub_workflow failure with an explicit on_failure transition
@@ -6884,6 +7191,7 @@ class WorkflowExecutor(
         }
         // 解析最终参数（预设 + 覆盖 或 向后兼容字段）
         val resolvedParams = agentDef.resolveParameters().toMutableMap()
+        applyWorkflowStepDefaultSkillsPolicy(agentDef, resolvedParams)
         normalizeRuntimeDirectoryAliases(resolvedParams)
         injectWorkflowRuntimeParameters(
             target = resolvedParams,
@@ -7226,6 +7534,76 @@ class WorkflowExecutor(
             merged[key] = ConfigurationParameter(key, value)
         }
         return merged.values.toMutableList()
+    }
+
+    private fun applyWorkflowStepDefaultSkillsPolicy(
+        agentDef: AgentDefinition,
+        target: MutableMap<String, JsonElement>,
+        referencedAgents: Map<String, AgentDefinition>? = null
+    ) {
+        if (workflowAgentExplicitlyOptsInToSkills(agentDef, referencedAgents, mutableSetOf())) {
+            if (agentDef.skillsConfig != null && agentDef.overrides["skills_config"] == null) {
+                target["skills_config"] = workflowJson.encodeToJsonElement(
+                    SkillsConfiguration.serializer(),
+                    agentDef.skillsConfig
+                )
+            }
+            return
+        }
+        val existingObj = target["skills_config"] as? JsonObject
+        target["skills_config"] = JsonObject(
+            (existingObj ?: emptyMap()) + ("enabled" to JsonPrimitive(false))
+        )
+    }
+
+    private fun workflowAgentExplicitlyOptsInToSkills(
+        agentDef: AgentDefinition,
+        referencedAgents: Map<String, AgentDefinition>?,
+        visited: MutableSet<String>
+    ): Boolean {
+        if (agentDef.skillsConfig != null) {
+            return agentDef.skillsConfig.enabled
+        }
+        val overrideSkillsObj = agentDef.overrides["skills_config"] as? JsonObject
+        if (overrideSkillsObj?.get("enabled")?.jsonPrimitive?.contentOrNull?.toBooleanStrictOrNull() == false) {
+            return false
+        }
+        if (agentDef.tools.any { it.trim() == "skill_tools" }) return true
+        if ("skill_tools" in extractToolNames(agentDef.overrides["tool_set"])) return true
+        if ("skill_tools" in extractToolNames(baseParameters.firstOrNull { it.key == "tool_set" }?.value)) return true
+        if (!agentDef.clawhubCacheDir.isNullOrBlank()) return true
+        if (hasNonEmptyJsonPathOrList(agentDef.overrides["skills"])) return true
+        if (hasNonEmptyJsonPathOrList(agentDef.overrides["skills_dir"])) return true
+        if (hasNonEmptyJsonPathOrList(agentDef.overrides["shared_skills_dir"])) return true
+        if (hasNonEmptyJsonPathOrList(agentDef.overrides["clawhub_cache_dir"])) return true
+        if (hasExplicitSkillsConfigOptIn(overrideSkillsObj)) return true
+        if (hasExplicitSkillsConfigOptIn(baseParameters.firstOrNull { it.key == "skills_config" }?.value as? JsonObject)) return true
+
+        val refName = agentDef.agentRef
+        if (refName != null && referencedAgents != null && visited.add(refName)) {
+            val refDef = referencedAgents[refName]
+            if (refDef != null && workflowAgentExplicitlyOptsInToSkills(refDef, referencedAgents, visited)) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private fun hasNonEmptyJsonPathOrList(element: JsonElement?): Boolean = when (element) {
+        is JsonArray -> element.isNotEmpty()
+        is JsonPrimitive -> !element.contentOrNull.isNullOrBlank()
+        else -> false
+    }
+
+    private fun hasExplicitSkillsConfigOptIn(obj: JsonObject?): Boolean {
+        if (obj == null) return false
+        val enabled = obj["enabled"]?.jsonPrimitive?.contentOrNull?.toBooleanStrictOrNull()
+        if (enabled == false) return false
+        if (enabled == true) return true
+        if (!obj["skillsPath"]?.jsonPrimitive?.contentOrNull.isNullOrBlank()) return true
+        if ((obj["additionalSkillPaths"] as? JsonArray)?.isNotEmpty() == true) return true
+        if ((obj["enabledSkills"] as? JsonArray)?.isNotEmpty() == true) return true
+        return false
     }
 
     private fun prepareMaterializedSkillsRuntime(

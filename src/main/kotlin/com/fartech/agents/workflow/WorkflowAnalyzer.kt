@@ -40,15 +40,7 @@ object WorkflowAnalyzer {
     fun collectReferencedVariables(workflow: WorkflowDefinition): Set<String> {
         val result = mutableSetOf<String>()
         for (step in workflow.workflow) {
-            result += referencesIn(step.input)
-            result += referencesIn(step.condition)
-            step.groupChat?.initialMessage?.let { result += referencesIn(it) }
-            step.agentBased?.goal?.let { result += referencesIn(it) }
-            step.classifier?.input?.let { result += referencesIn(it) }
-            jevTemplateFields(step).forEach { result += referencesIn(it) }
-            step.iterateOver?.source?.let { result += referencesIn(it) }
-            step.aggregate?.sources?.forEach { result += referencesIn(it) }
-            step.subWorkflow?.inputs?.values?.forEach { result += referencesIn(it) }
+            result += collectStepReadVariables(step)
         }
         return result
     }
@@ -59,14 +51,7 @@ object WorkflowAnalyzer {
     fun collectReferencedStepOutputs(workflow: WorkflowDefinition): Set<String> {
         val result = mutableSetOf<String>()
         for (step in workflow.workflow) {
-            result += stepOutputsReferencedIn(step.input)
-            step.groupChat?.initialMessage?.let { result += stepOutputsReferencedIn(it) }
-            step.agentBased?.goal?.let { result += stepOutputsReferencedIn(it) }
-            step.classifier?.input?.let { result += stepOutputsReferencedIn(it) }
-            jevTemplateFields(step).forEach { result += stepOutputsReferencedIn(it) }
-            step.iterateOver?.source?.let { result += stepOutputsReferencedIn(it) }
-            step.aggregate?.sources?.forEach { result += stepOutputsReferencedIn(it) }
-            step.subWorkflow?.inputs?.values?.forEach { result += stepOutputsReferencedIn(it) }
+            result += collectStepReferencedOutputs(step)
         }
         return result
     }
@@ -81,16 +66,12 @@ object WorkflowAnalyzer {
      * - `classifier.output_variable`(Jev 分类另含 `<out>_confidence` / `<out>_probabilities` 与附加问题变量)
      * - `repeat_until.extract_variable`
      * - `repeat_until.jev` 的问题/综合分变量
+     * - `sub_workflow.outputs` keys 与 `state_machine` 各状态 `step` / `actions` 的变量写回
      */
     fun collectWrittenVariables(workflow: WorkflowDefinition): Set<String> {
         val result = mutableSetOf<String>()
         for (step in workflow.workflow) {
-            step.extract?.forEach { result += it.variable }
-            step.iterateOver?.resultsVariable?.let { result += it }
-            step.aggregate?.outputVariable?.let { result += it }
-            step.classifier?.outputVariable?.let { result += it }
-            step.repeatUntil?.extractVariable?.let { result += it }
-            result += jevWrittenVariables(step)
+            result += collectStepWrittenVariables(step)
         }
         return result
     }
@@ -116,35 +97,13 @@ object WorkflowAnalyzer {
         val readInSelected = mutableSetOf<String>()
         val writtenInSelected = mutableSetOf<String>()
         for (step in selected) {
-            readInSelected += referencesIn(step.input)
-            readInSelected += referencesIn(step.condition)
-            step.groupChat?.initialMessage?.let { readInSelected += referencesIn(it) }
-            step.agentBased?.goal?.let { readInSelected += referencesIn(it) }
-            step.classifier?.input?.let { readInSelected += referencesIn(it) }
-            jevTemplateFields(step).forEach { readInSelected += referencesIn(it) }
-            step.iterateOver?.source?.let { readInSelected += referencesIn(it) }
-            step.aggregate?.sources?.forEach { readInSelected += referencesIn(it) }
-            step.subWorkflow?.inputs?.values?.forEach { readInSelected += referencesIn(it) }
-
-            step.extract?.forEach { writtenInSelected += it.variable }
-            step.iterateOver?.resultsVariable?.let { writtenInSelected += it }
-            step.aggregate?.outputVariable?.let { writtenInSelected += it }
-            step.classifier?.outputVariable?.let { writtenInSelected += it }
-            step.repeatUntil?.extractVariable?.let { writtenInSelected += it }
-            writtenInSelected += jevWrittenVariables(step)
+            readInSelected += collectStepReadVariables(step)
+            writtenInSelected += collectStepWrittenVariables(step)
         }
 
         val readOutsideAfter = mutableSetOf<String>()
         for (step in outside) {
-            readOutsideAfter += referencesIn(step.input)
-            readOutsideAfter += referencesIn(step.condition)
-            step.groupChat?.initialMessage?.let { readOutsideAfter += referencesIn(it) }
-            step.agentBased?.goal?.let { readOutsideAfter += referencesIn(it) }
-            step.classifier?.input?.let { readOutsideAfter += referencesIn(it) }
-            jevTemplateFields(step).forEach { readOutsideAfter += referencesIn(it) }
-            step.iterateOver?.source?.let { readOutsideAfter += referencesIn(it) }
-            step.aggregate?.sources?.forEach { readOutsideAfter += referencesIn(it) }
-            step.subWorkflow?.inputs?.values?.forEach { readOutsideAfter += referencesIn(it) }
+            readOutsideAfter += collectStepReadVariables(step)
         }
 
         val readOnly = readInSelected - writtenInSelected
@@ -157,6 +116,111 @@ object WorkflowAnalyzer {
             writtenAndExposed = writtenAndExposed,
             writtenInternalOnly = writtenThenRead
         )
+    }
+
+    private fun collectStepReadVariables(step: WorkflowStep): Set<String> {
+        val result = mutableSetOf<String>()
+        result += referencesIn(step.input)
+        result += referencesIn(step.condition)
+        step.groupChat?.initialMessage?.let { result += referencesIn(it) }
+        step.agentBased?.goal?.let { result += referencesIn(it) }
+        step.classifier?.input?.let { result += referencesIn(it) }
+        jevTemplateFields(step).forEach { result += referencesIn(it) }
+        step.iterateOver?.source?.let { result += referencesIn(it) }
+        step.aggregate?.sources?.forEach { result += referencesIn(it) }
+        step.subWorkflow?.inputs?.values?.forEach { result += referencesIn(it) }
+
+        step.stateMachine?.states?.values?.forEach { stateDef ->
+            (stateDef.onEnter + stateDef.onExit).forEach { action ->
+                action.value?.let { result += referencesIn(it) }
+                action.message?.let { result += referencesIn(it) }
+            }
+            stateDef.transitions.forEach { transition ->
+                result += referencesIn(transition.condition)
+                transition.actions.forEach { action ->
+                    action.value?.let { result += referencesIn(it) }
+                    action.message?.let { result += referencesIn(it) }
+                }
+            }
+            stateDef.stepConfig?.let { stateStep ->
+                result += referencesIn(stateStep.input)
+                stateStep.groupChat?.initialMessage?.let { result += referencesIn(it) }
+                stateStep.agentBased?.goal?.let { result += referencesIn(it) }
+                stateStep.classifier?.let { classifier ->
+                    result += referencesIn(classifier.input)
+                    classifier.instructions?.let { result += referencesIn(it) }
+                    classifier.jev?.questions?.forEach { result += referencesIn(it.instructions) }
+                }
+                stateStep.subWorkflow?.inputs?.values?.forEach { result += referencesIn(it) }
+            }
+        }
+        return result
+    }
+
+    private fun collectStepReferencedOutputs(step: WorkflowStep): Set<String> {
+        val result = mutableSetOf<String>()
+        result += stepOutputsReferencedIn(step.input)
+        step.groupChat?.initialMessage?.let { result += stepOutputsReferencedIn(it) }
+        step.agentBased?.goal?.let { result += stepOutputsReferencedIn(it) }
+        step.classifier?.input?.let { result += stepOutputsReferencedIn(it) }
+        jevTemplateFields(step).forEach { result += stepOutputsReferencedIn(it) }
+        step.iterateOver?.source?.let { result += stepOutputsReferencedIn(it) }
+        step.aggregate?.sources?.forEach { result += stepOutputsReferencedIn(it) }
+        step.subWorkflow?.inputs?.values?.forEach { result += stepOutputsReferencedIn(it) }
+
+        step.stateMachine?.states?.values?.forEach { stateDef ->
+            (stateDef.onEnter + stateDef.onExit).forEach { action ->
+                action.value?.let { result += stepOutputsReferencedIn(it) }
+                action.message?.let { result += stepOutputsReferencedIn(it) }
+            }
+            stateDef.transitions.forEach { transition ->
+                result += stepOutputsReferencedIn(transition.condition)
+                transition.actions.forEach { action ->
+                    action.value?.let { result += stepOutputsReferencedIn(it) }
+                    action.message?.let { result += stepOutputsReferencedIn(it) }
+                }
+            }
+            stateDef.stepConfig?.let { stateStep ->
+                result += stepOutputsReferencedIn(stateStep.input)
+                stateStep.groupChat?.initialMessage?.let { result += stepOutputsReferencedIn(it) }
+                stateStep.agentBased?.goal?.let { result += stepOutputsReferencedIn(it) }
+                stateStep.classifier?.let { classifier ->
+                    result += stepOutputsReferencedIn(classifier.input)
+                    classifier.instructions?.let { result += stepOutputsReferencedIn(it) }
+                    classifier.jev?.questions?.forEach { result += stepOutputsReferencedIn(it.instructions) }
+                }
+                stateStep.subWorkflow?.inputs?.values?.forEach { result += stepOutputsReferencedIn(it) }
+            }
+        }
+        return result
+    }
+
+    private fun collectStepWrittenVariables(step: WorkflowStep): Set<String> {
+        val result = mutableSetOf<String>()
+        step.extract?.forEach { result += it.variable }
+        step.iterateOver?.resultsVariable?.let { result += it }
+        step.aggregate?.outputVariable?.let { result += it }
+        step.classifier?.outputVariable?.let { result += it }
+        step.repeatUntil?.extractVariable?.let { result += it }
+        result += jevWrittenVariables(step)
+        step.subWorkflow?.outputs?.keys?.let { result += it }
+
+        step.stateMachine?.states?.values?.forEach { stateDef ->
+            (stateDef.onEnter + stateDef.onExit + stateDef.transitions.flatMap { it.actions }).forEach { action ->
+                if (action.action == "set_variable" || action.action == "set_var") {
+                    action.key?.takeIf { it.isNotBlank() }?.let { result += it }
+                }
+            }
+            stateDef.stepConfig?.let { stateStep ->
+                stateStep.extract?.forEach { result += it.variable }
+                stateStep.classifier?.let { classifier ->
+                    result += classifier.outputVariable
+                    result += classifier.jevWrittenVariables()
+                }
+                stateStep.subWorkflow?.outputs?.keys?.let { result += it }
+            }
+        }
+        return result
     }
 
     /**

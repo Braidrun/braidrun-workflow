@@ -199,4 +199,72 @@ class PromptCachingLLMClientTest {
             "cache_control" in systemBlock(listOf(ConfigurationParameter(ANTHROPIC_PROMPT_CACHING_PARAMETER, JsonPrimitive(false))))
         )
     }
+
+    @Test
+    fun `OpenRouter explicit-cache models get top-level ephemeral cache_control and joined system prompt`() {
+        for (modelKey in listOf("claude-sonnet-4.6", "gemini-2.5-flash")) {
+            val http = CapturingHttpClientFactory()
+            val config = LLModelConfig(provider = "open_router", model = modelKey)
+            val (_, client) = createLLMClient(emptyList(), config, mapOf("open_router" to "sk-or-test"), http)
+            val markedPrompt = prepareCacheControls(splitPrompt(), tools, LLMProvider.Anthropic, placeBreakpoints = true).prompt
+
+            runBlocking { client.execute(markedPrompt, determineLLMModel(config), tools) }
+
+            val wireJson = http.requests.single().json
+            assertEquals(
+                "ephemeral",
+                wireJson["cache_control"]?.jsonObject?.get("type")?.jsonPrimitive?.content,
+                "Expected top-level cache_control on OpenRouter for $modelKey: $wireJson"
+            )
+            val systemMessages = wireJson["messages"]!!.jsonArray
+                .map { it.jsonObject }
+                .filter { it["role"]?.jsonPrimitive?.content == "system" }
+            assertEquals(1, systemMessages.size, "Split system message should be joined into one system message on OpenRouter")
+            assertEquals(stable + env, systemMessages.single()["content"]?.jsonPrimitive?.content)
+        }
+    }
+
+    @Test
+    fun `OpenRouter skips top-level cache_control for non-explicit-cache models and when caching is disabled`() {
+        for (modelKey in listOf("gpt-4.1-mini", "minimax-m2.7")) {
+            val http = CapturingHttpClientFactory()
+            val config = LLModelConfig(provider = "open_router", model = modelKey)
+            val (_, client) = createLLMClient(emptyList(), config, mapOf("open_router" to "sk-or-test"), http)
+            runBlocking { client.execute(splitPrompt(), determineLLMModel(config), tools) }
+            val wireJson = http.requests.single().json
+            assertFalse("cache_control" in wireJson, "Did not expect cache_control on OpenRouter for $modelKey")
+        }
+
+        val disabledHttp = CapturingHttpClientFactory()
+        val claudeConfig = LLModelConfig(provider = "open_router", model = "claude-sonnet-4-6")
+        val (_, disabledClient) = createLLMClient(
+            listOf(ConfigurationParameter(ANTHROPIC_PROMPT_CACHING_PARAMETER, JsonPrimitive(false))),
+            claudeConfig,
+            mapOf("open_router" to "sk-or-test"),
+            disabledHttp,
+        )
+        runBlocking { disabledClient.execute(splitPrompt(), determineLLMModel(claudeConfig), tools) }
+        assertFalse("cache_control" in disabledHttp.requests.single().json)
+    }
+
+    @Test
+    fun `OpenRouter ephemeral cache_control is stripped when prompt cascades to non-OpenRouter provider`() {
+        val openRouterClaude = determineLLMModel(LLModelConfig(provider = "open_router", model = "claude-sonnet-4-6"))
+        val preparedForOpenRouter = prepareCacheControls(
+            splitPrompt(),
+            tools,
+            LLMProvider.OpenRouter,
+            placeBreakpoints = true,
+            model = openRouterClaude,
+        )
+        assertTrue(OPENROUTER_CACHE_CONTROL_KEY in preparedForOpenRouter.prompt.params.additionalProperties.orEmpty())
+
+        val cascadedToOpenAI = prepareCacheControls(
+            preparedForOpenRouter.prompt,
+            preparedForOpenRouter.tools,
+            LLMProvider.OpenAI,
+            placeBreakpoints = true,
+        )
+        assertNull(cascadedToOpenAI.prompt.params.additionalProperties)
+    }
 }

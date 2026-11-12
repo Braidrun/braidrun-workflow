@@ -1559,7 +1559,11 @@ data class RepeatUntilConfig(
      * extract_pattern / extract_variable 互斥。见 [RepeatUntilJevConfig]。
      */
     @SerialName("jev")
-    val jev: RepeatUntilJevConfig? = null
+    val jev: RepeatUntilJevConfig? = null,
+
+    /** 当达到 max_iterations 仍未满足条件时是否将该步骤判定为失败（默认 false 保持向后兼容） */
+    @SerialName("fail_on_max_iterations")
+    val failOnMaxIterations: Boolean = false
 ) {
     init {
         require(condition.isNotBlank()) { "repeat_until condition cannot be blank" }
@@ -1670,7 +1674,11 @@ data class ExtractConfig(
 
     /** 提取值存入的变量名 */
     @SerialName("variable")
-    val variable: String
+    val variable: String,
+
+    /** 当提取未命中时是否清除上下文中已存在的同名旧变量（默认 false 保持向后兼容） */
+    @SerialName("clear_on_missing")
+    val clearOnMissing: Boolean = false
 ) {
     init {
         require(variable.isNotBlank()) { "extract variable name cannot be blank" }
@@ -2641,7 +2649,13 @@ data class StateStepConfig(
     val subWorkflow: SubWorkflowConfig? = null,
 
     @SerialName("extract")
-    val extract: List<ExtractConfig>? = null
+    val extract: List<ExtractConfig>? = null,
+
+    @SerialName("retry")
+    val retry: RetryConfig? = null,
+
+    @SerialName("timeout_seconds")
+    val timeoutSeconds: Int? = null
 ) {
     val isGroupChat: Boolean get() = groupChat != null
     val isAgentBased: Boolean get() = agentBased != null

@@ -31,9 +31,9 @@ parameters:
       - model: minimax-m2.7
         provider: open_router
     fallback:
-      model: minimax-m2.7
+      model: gemini-2.5-flash
       provider: open_router
-    temperature: 1.2
+    temperature: 0.7
 
   retry_max_attempts: 3
   retry_initial_delay: 1000
@@ -54,7 +54,6 @@ parameters:
   # ============================================================
   tool_set:
     - exit
-    - sub_agent
     - shell
     - file_system
     - office

@@ -164,7 +164,12 @@ class ModelCatalogInvariantsTest {
     fun `every model referenced by presets and bundled templates exists in the registry`() {
         val pair = Regex("model:\\s*\"?([\\w./:-]+)\"?\\s*\\n\\s*provider:\\s*\"?([\\w.-]+)\"?")
         val presetDir = File(requireNotNull(javaClass.classLoader.getResource("agent-presets")).toURI())
-        val sources = (presetDir.walkTopDown() + File("workflows").walkTopDown() + File("examples").walkTopDown())
+        val sources = (
+            presetDir.walkTopDown() +
+                File("workflows").walkTopDown() +
+                File("src/test/resources/workflows").walkTopDown() +
+                File("examples").walkTopDown()
+            )
             .filter { it.isFile && (it.extension == "yaml" || it.extension == "yml") }
             .toList()
         assertTrue(sources.any { it.path.contains("agent-presets") })

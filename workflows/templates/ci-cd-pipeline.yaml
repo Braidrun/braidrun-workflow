@@ -74,14 +74,14 @@ workflow:
       language: bash
       script: |
         set -euo pipefail
-        {{var:build_command}}
+        "$WF_VAR_BUILD_COMMAND"
   - step: test
     depends_on: [build]
     code:
       language: bash
       script: |
         set -euo pipefail
-        {{var:test_command}}
+        "$WF_VAR_TEST_COMMAND"
   - step: summarize
     agent: devops
     depends_on: [test]

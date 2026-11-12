@@ -96,7 +96,7 @@ repositories {
 }
 
 dependencies {
-    implementation("com.github.Braidrun:braidrun-workflow:1.4.6-rc.20261112.4")
+    implementation("com.github.Braidrun:braidrun-workflow:1.4.6-rc.20261113.1")
 }
 ```
 

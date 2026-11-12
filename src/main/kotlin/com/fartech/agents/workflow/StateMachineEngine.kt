@@ -124,7 +124,7 @@ class StateMachineEngine(
                     action.message?.let { logger.info { resolveTemplate(it) } }
                 }
 
-                "set_variable" -> {
+                "set_variable", "set_var" -> {
                     action.key?.let { key ->
                         action.value?.let { value ->
                             context.variables[key] = resolveTemplate(value)

@@ -87,6 +87,54 @@ class CodeStepSandboxTest {
         }
 
         @Test
+        fun `python inline script calling get_var without preamble injects default helper`() {
+            val executor = createExecutor()
+            val step = WorkflowStep(
+                step = "test",
+                code = CodeStepConfig(language = "python", script = "print(get_var('foo_bar'))")
+            )
+            val workflow = WorkflowDefinition(
+                name = "test", agents = emptyMap(), workflow = listOf(step)
+            )
+
+            val method = WorkflowExecutor::class.java.getDeclaredMethod(
+                "buildFinalCodeScript",
+                WorkflowStep::class.java,
+                WorkflowDefinition::class.java,
+                CodeStepConfig::class.java
+            )
+            method.isAccessible = true
+            val result = method.invoke(executor, step, workflow, step.code) as String
+
+            assertTrue(result.contains("def get_var(key, default=\"\"):"), "Result: $result")
+            assertTrue(result.endsWith("print(get_var('foo_bar'))"), "Result: $result")
+            assertTrue(workflow.codePreamble.isEmpty(), "workflow.codePreamble must not be mutated")
+        }
+
+        @Test
+        fun `non-python inline script without preamble is unchanged`() {
+            val executor = createExecutor()
+            val step = WorkflowStep(
+                step = "test",
+                code = CodeStepConfig(language = "bash", script = "echo hello")
+            )
+            val workflow = WorkflowDefinition(
+                name = "test", agents = emptyMap(), workflow = listOf(step)
+            )
+
+            val method = WorkflowExecutor::class.java.getDeclaredMethod(
+                "buildFinalCodeScript",
+                WorkflowStep::class.java,
+                WorkflowDefinition::class.java,
+                CodeStepConfig::class.java
+            )
+            method.isAccessible = true
+            val result = method.invoke(executor, step, workflow, step.code) as String
+
+            assertEquals("echo hello", result)
+        }
+
+        @Test
         fun `inline preamble is prepended`() {
             val executor = createExecutor()
             val step = WorkflowStep(

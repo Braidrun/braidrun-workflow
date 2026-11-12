@@ -5,6 +5,25 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.6-rc.20261113.1] - 2026-11-13
+
+### Added, Fixed & Performance
+
+- **Workflow runtime robustness and security hardening.** `WorkflowExecutor` injects a non-intrusive Python
+  `get_var(key, default="")` runtime fallback without mutating `WorkflowDefinition.codePreamble` hashes, resolves
+  classifier categories with word-boundary and longest-match precedence, isolates per-step `.wf_env_<step>` directories
+  when `directory_isolation.enabled = false`, supports `extract` `MULTILINE` anchors and `clear_on_missing`, fails
+  `group_chat` when every participant fails, exposes `repeat_until` `fail_on_max_iterations` and evaluation failure
+  events, and supports inline `on_failure` recovery via `action: continue` and `action: set_var` / `set_variable`
+  (including resume state reconstruction). `WorkflowTemplateResolver` performs single-pass placeholder substitution to
+  prevent double-expansion injection. `WorkflowParser`, `WorkflowAnalyzer`, and `StateMachineEngine` recursively
+  validate `state_machine.states[*].step.sub_workflow` cycles/contracts and support per-state `retry`, `timeout_seconds`,
+  and `set_var` actions.
+- **Prompt caching and builtin preset optimization.** `PromptCachingLLMClient` forwards top-level `cache_control`
+  breakpoints on OpenRouter for Claude and Gemini models and joins split system messages. Workflow step agents omit
+  `skill_tools` unless skills are explicitly enabled, and all 19 builtin agent presets configure heterogeneous fallback
+  models, leaner leaf tool sets, and `just_work_parallel` execution where reasoning-per-round is unnecessary.
+
 ## [1.4.6-rc.20261112.4] - 2026-11-12
 
 ### Added & Security

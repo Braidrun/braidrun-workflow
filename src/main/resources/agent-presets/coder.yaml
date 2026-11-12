@@ -31,7 +31,7 @@ parameters:
       - model: minimax-m2.7
         provider: open_router
     fallback:
-      model: minimax-m2.7
+      model: gemini-2.5-flash
       provider: open_router
     temperature: 0.7
 
@@ -43,7 +43,7 @@ parameters:
   # ============================================================
   # 3. STRATEGY & EXECUTION
   # ============================================================
-  strategy: just_work_parallel_reasoning
+  strategy: just_work_parallel
   sub_agent_strategy: just_work_parallel
   max_iterations: 8196
   reasoning_interval: 1

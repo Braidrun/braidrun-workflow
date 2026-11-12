@@ -24,7 +24,7 @@ parameters:
       - model: minimax-m2.7
         provider: open_router
     fallback:
-      model: minimax-m2.7
+      model: gemini-2.5-flash
       provider: open_router
     temperature: 0.7
 
@@ -37,7 +37,7 @@ parameters:
   # 3. STRATEGY & EXECUTION
   # ============================================================
   strategy: single_run
-  max_iterations: 1024
+  max_iterations: 64
   num_choices: 1
   disable_cache_for_streaming: false
 
@@ -46,9 +46,6 @@ parameters:
   # ============================================================
   tool_set:
     - exit
-    - shell
-    - file_system
-    - skill_tools
   # ============================================================
   # 5. CACHE POLICY
   # ============================================================
