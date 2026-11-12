@@ -74,7 +74,7 @@ class RunnerSubscriptionPool(
      */
     override fun rotated(credential: ClaudeCredentialProvider.Credential, authJson: String) {
         val selected = requireNotNull(synchronized(holds) { holds[credential] }) { "Rotation has no scoped subscription lease" }
-        require(provider == "codex" && credential.id == selected.handle.latest.get().credentialRef) { "Rotation credential scope mismatch" }
+        require(provider in setOf("codex", "antigravity") && credential.id == selected.handle.latest.get().credentialRef) { "Rotation credential scope mismatch" }
         val json = runnerJson.parseToJsonElement(authJson).jsonObject
         secrets.registerLogin(json); secrets.register(JsonPrimitive(authJson))
         val outcome = runBlocking { live.rotate(selected.handle, scope, selected.version) { material -> JsonObject(material + ("authJson" to JsonPrimitive(authJson))) } }

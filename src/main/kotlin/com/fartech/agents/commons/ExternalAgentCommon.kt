@@ -31,7 +31,8 @@ suspend fun buildAndRunExternalAgent(
     /** Codex's own pool — failover never crosses vendors. */
     codexCredentialProvider: ClaudeCredentialProvider? = null,
     /** Antigravity's own pool — failover never crosses vendors. */
-    antigravityCredentialProvider: ClaudeCredentialProvider? = null
+    antigravityCredentialProvider: ClaudeCredentialProvider? = null,
+    onAntigravityAuthJsonRotated: ((credentialId: String?, authJson: String) -> Unit)? = null
 ): ExternalAgentRunResult {
     val executor = createSubprocessExecutor(parameters)
     val toolContext = SubprocessExecutorFactory.buildToolContext(parameters)
@@ -45,7 +46,8 @@ suspend fun buildAndRunExternalAgent(
         onCodexAuthJsonRotated = onCodexAuthJsonRotated,
         claudeCredentialProvider = claudeCredentialProvider,
         codexCredentialProvider = codexCredentialProvider,
-        antigravityCredentialProvider = antigravityCredentialProvider
+        antigravityCredentialProvider = antigravityCredentialProvider,
+        onAntigravityAuthJsonRotated = onAntigravityAuthJsonRotated
     )
     val detailed = tools.runConversation(
         engine = when (engine) {

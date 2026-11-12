@@ -97,7 +97,16 @@ class RunnerArtifactSetPolicy(private val bundle: FrozenWorkflowBundle) {
                 require(parts.all { part -> part.isNotBlank() && !part.startsWith('.') })
                 require(parts.none { part -> part.lowercase(Locale.ROOT) in setOf("credentials", "secrets", "keychains") })
                 require(!Regex("(?i)(credential|secret|private.?key|service.?account)").containsMatchIn(leaf))
-                require(leaf !in setOf("auth.json", "credentials.json") && leaf.substringAfterLast('.', "") !in setOf("p8", "p12", "pfx", "pem", "key", "keychain", "keychain-db"))
+                require(
+                    leaf !in setOf(
+                        "auth.json",
+                        "credentials.json",
+                        "adc_credentials.json",
+                        "antigravity-oauth-token",
+                        "jetski-standalone-oauth-token",
+                        "oauth_creds.json"
+                    ) && leaf.substringAfterLast('.', "") !in setOf("p8", "p12", "pfx", "pem", "key", "keychain", "keychain-db")
+                )
                 val alias = Normalizer.normalize(path, Normalizer.Form.NFC).lowercase(Locale.ROOT)
                 require(aliases.putIfAbsent(alias, path)?.let { previous -> previous == path } != false)
             }

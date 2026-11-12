@@ -2212,7 +2212,7 @@ class ExternalAgentToolsTest {
     }
 
     @Test
-    fun `antigravity subscription mode writes isolated ADC credentials and fails over on 429`() = runBlocking {
+    fun `antigravity adc mode writes isolated ADC credentials and fails over on 429`() = runBlocking {
         val workspace = Files.createTempDirectory("antigravity-sub-ws").toFile()
         try {
             val adcCard1 = """{"type":"authorized_user","client_id":"cid-1.apps.googleusercontent.com","client_secret":"csec-1","refresh_token":"1//0refreshTokenOne1234567890abcdef"}"""
@@ -2246,7 +2246,7 @@ class ExternalAgentToolsTest {
                 }
             )
             val params = listOf(
-                ConfigurationParameter(ExternalAgentTools.ANTIGRAVITY_AUTH_MODE_PARAMETER, JsonPrimitive("subscription")),
+                ConfigurationParameter(ExternalAgentTools.ANTIGRAVITY_AUTH_MODE_PARAMETER, JsonPrimitive("adc")),
                 ConfigurationParameter(ExternalAgentTools.ANTIGRAVITY_MODEL_PARAMETER, JsonPrimitive("gemini-4-carbon"))
             )
             val events = mutableListOf<CapturedEvent>()
@@ -2376,9 +2376,16 @@ class ExternalAgentToolsTest {
     }
 
     @Test
-    fun `antigravity personal subscription mode preserves host HOME, scrubs GCP and API env, strips conflicting effort, and parses real agy 1_5_6 stream-json`() = runBlocking {
+    fun `antigravity personal subscription materializes isolated StoredToken, rotates in-place refresh, scrubs GCP and API env, and cleans up safely`() = runBlocking {
         val workspace = Files.createTempDirectory("antigravity-personal-ws").toFile()
+        val sentinelTarget = File(workspace, "keep-me.txt").apply { writeText("must-survive") }
+        var capturedHomePath: String? = null
+        var capturedTokenJson: String? = null
         var capturedSettingsText: String? = null
+        var capturedMigratedExists = false
+        var capturedJetskiStateText: String? = null
+        var capturedTokenPermissions: Set<java.nio.file.attribute.PosixFilePermission>? = null
+        val rotatedPayloads = mutableListOf<Pair<String?, String>>()
         try {
             val ndjson = listOf(
                 """{"event":"init","init":{"conversation_id":"f217bcf0-1a9b-45b6-b5ac-709e5952346f","model":"gemini-3.8-flash-medium"}}""",
@@ -2391,12 +2398,41 @@ class ExternalAgentToolsTest {
                 """{"event":"result","result":{"conversation_id":"f217bcf0-1a9b-45b6-b5ac-709e5952346f","status":"DONE","response":"","usage":{"input_tokens":17062,"output_tokens":687,"thinking_tokens":123,"total_tokens":17749}}}"""
             ).joinToString("\n")
 
+            val storedCard = """
+                {
+                  "token": {
+                    "access_token": "ya29.initialPersonalAccessToken1234567890",
+                    "token_type": "Bearer",
+                    "refresh_token": "1//0initialPersonalRefreshToken1234567890",
+                    "expiry": "2026-11-12T15:00:00Z"
+                  },
+                  "auth_method": "consumer",
+                  "id_token_email": "subscriber@example.com"
+                }
+            """.trimIndent()
+            val pool = object : ClaudeCredentialProvider {
+                override suspend fun acquire(excludedCredentialIds: Set<String>): ClaudeCredentialProvider.Credential? =
+                    if ("agy-personal-1" in excludedCredentialIds) null else ClaudeCredentialProvider.Credential("agy-personal-1", storedCard)
+                override suspend fun markRateLimited(credential: ClaudeCredentialProvider.Credential, resetAtMillis: Long) {}
+                override suspend fun markSucceeded(credential: ClaudeCredentialProvider.Credential, executionId: String?, stepName: String?) {}
+            }
+
             val executor = FakeSubprocessExecutor(
                 resultForRequest = { req ->
-                    val settingsIdx = req.command.indexOf("--settings")
-                    if (settingsIdx >= 0 && settingsIdx + 1 < req.command.size) {
-                        capturedSettingsText = File(req.command[settingsIdx + 1]).readText()
-                    }
+                    val home = File(req.env.getValue("HOME"))
+                    capturedHomePath = home.absolutePath
+                    val tokenFile = File(home, ".gemini/antigravity-cli/antigravity-oauth-token")
+                    capturedTokenJson = tokenFile.readText()
+                    capturedTokenPermissions = Files.getPosixFilePermissions(tokenFile.toPath())
+                    capturedSettingsText = File(home, ".gemini/antigravity-cli/settings.json").readText()
+                    capturedMigratedExists = File(home, ".gemini/config/.migrated").isFile
+                    capturedJetskiStateText = File(home, ".gemini/antigravity-cli/jetski_state.pbtxt").readText()
+                    // Simulate `agy` refreshing the access token in-place (omitting refresh_token as Google token endpoint does)
+                    tokenFile.writeText(
+                        """{"token":{"access_token":"ya29.rotatedPersonalAccessToken9876543210","token_type":"Bearer","expiry":"2026-11-12T17:00:00Z"},"auth_method":"consumer"}"""
+                    )
+                    // Create a symlink inside the temporary home pointing at workspace file to verify symlink-safe cleanup
+                    Files.createSymbolicLink(File(home, "symlink-outside.txt").toPath(), sentinelTarget.toPath())
                     ExecResult(0, ndjson, "", 120)
                 }
             )
@@ -2413,9 +2449,11 @@ class ExternalAgentToolsTest {
                 executor = executor,
                 parameters = params,
                 userId = "test-user",
-                context = SubprocessToolContext(workspaceDir = workspace),
+                context = SubprocessToolContext(workspaceDir = workspace, executionId = "exec-personal", stepName = "step-1"),
                 onMonitorEvent = { type, summary, detail -> events += CapturedEvent(type, summary, detail) },
-                trustExecutorSandbox = false
+                antigravityCredentialProvider = pool,
+                trustExecutorSandbox = false,
+                onAntigravityAuthJsonRotated = { credId, rotatedJson -> rotatedPayloads += (credId to rotatedJson) }
             )
 
             val detailed = tools.runConversation(
@@ -2441,13 +2479,25 @@ class ExternalAgentToolsTest {
             assertTrue(!req.command.contains("--project"), "Personal subscription must never pass --project: ${req.command}")
             assertTrue(!req.command.contains("--effort"), "Tier-suffixed model must strip conflicting --effort: ${req.command}")
             assertTrue(req.command.contains("--verbose"))
-            assertTrue(req.command.contains("--settings"), "Per-session tool rules must use --settings: ${req.command}")
+
+            assertTrue(capturedMigratedExists, "Expected .gemini/config/.migrated marker")
+            assertTrue(capturedJetskiStateText!!.contains("POST_ONBOARDING_STEP_TYPE_ADD_WORKSPACE"))
+            assertEquals(
+                setOf(java.nio.file.attribute.PosixFilePermission.OWNER_READ, java.nio.file.attribute.PosixFilePermission.OWNER_WRITE),
+                capturedTokenPermissions
+            )
+            assertTrue(capturedTokenJson!!.contains("\"auth_method\":\"consumer\""), capturedTokenJson!!)
+            assertTrue(capturedTokenJson!!.contains("ya29.initialPersonalAccessToken1234567890"), capturedTokenJson!!)
             assertTrue(capturedSettingsText!!.contains("\"read_file(*)\""), capturedSettingsText!!)
             assertTrue(capturedSettingsText!!.contains("\"command(*)\""), capturedSettingsText!!)
+            assertTrue(!capturedSettingsText!!.contains("enableAdc"), "Personal subscription settings must never set enableAdc: $capturedSettingsText")
+            assertTrue(!capturedSettingsText!!.contains("modelProvider"), "Personal subscription settings must never set modelProvider=gemini: $capturedSettingsText")
 
-            // Strictly zero API-key, ADC, Vertex, or empty-HOME env overrides
+            // Headless browser-popup suppression + zero API-key, ADC, or Vertex env overrides
+            assertEquals("127.0.0.1 0 127.0.0.1 22", req.env["SSH_CONNECTION"])
+            assertEquals("/usr/bin/false", req.env["BROWSER"])
+            assertEquals("subscription", req.env["BRAIDRUN_ANTIGRAVITY_AUTH_MODE"])
             for (forbidden in listOf(
-                "HOME",
                 "AGY_ADC_AUTH",
                 "GOOGLE_APPLICATION_CREDENTIALS",
                 "GOOGLE_GENAI_USE_VERTEXAI",
@@ -2458,6 +2508,17 @@ class ExternalAgentToolsTest {
             )) {
                 assertTrue(forbidden !in req.env, "Personal subscription must not inject $forbidden into env: ${req.env}")
             }
+
+            // Verify rotated token was published with preserved refresh_token and email, and ephemeral home was wiped safely
+            assertEquals(1, rotatedPayloads.size)
+            assertEquals("agy-personal-1", rotatedPayloads.single().first)
+            val rotatedJson = rotatedPayloads.single().second
+            assertTrue(rotatedJson.contains("ya29.rotatedPersonalAccessToken9876543210"), rotatedJson)
+            assertTrue(rotatedJson.contains("1//0initialPersonalRefreshToken1234567890"), "refresh_token must be preserved across Google refresh: $rotatedJson")
+            assertTrue(rotatedJson.contains("subscriber@example.com"), rotatedJson)
+            assertTrue(rotatedJson.contains("\"last_refresh\""), rotatedJson)
+            assertTrue(!File(capturedHomePath!!).exists(), "Isolated Antigravity home must be deleted after task completion")
+            assertEquals("must-survive", sentinelTarget.readText(), "Symlink target outside Antigravity home must not be deleted")
 
             val startEvent = events.first { it.type == "antigravity_sub_agent_starting" }
             assertTrue(startEvent.detail!!.contains("authSource=personal_subscription"), startEvent.detail)
@@ -2475,39 +2536,150 @@ class ExternalAgentToolsTest {
     }
 
     @Test
-    fun `antigravity personal subscription rejects antigravity-sdk and docker modes and adc mode requires credential`() {
-        val nativeExec = FakeSubprocessExecutor(ExecResult(0, """{"result":"ok"}""", "", 10))
-        // 1. Personal subscription + antigravity-sdk -> rejected with guidance to use `agy` CLI
-        val sdkParams = listOf(
-            ConfigurationParameter(ExternalAgentTools.ANTIGRAVITY_AUTH_MODE_PARAMETER, JsonPrimitive("subscription")),
-            ConfigurationParameter(ExternalAgentTools.ANTIGRAVITY_COMMAND_PARAMETER, JsonPrimitive("antigravity-sdk"))
-        )
-        val sdkTools = ExternalAgentTools(nativeExec, sdkParams, trustExecutorSandbox = false)
-        val sdkEx = assertThrows(IllegalArgumentException::class.java) {
-            runBlocking { sdkTools.runAntigravitySubAgent(ExternalAgentContext(prompt = "hi", name = "sdk-personal")) }
-        }
-        assertTrue(sdkEx.message!!.contains("agy"), sdkEx.message)
+    fun `antigravity personal subscription works across Docker and Runner, fails over on expired token, and rejects ADC or SDK fallback`() = runBlocking {
+        val workspace = Files.createTempDirectory("antigravity-portable-ws").toFile()
+        val runnerPrivate = Files.createTempDirectory("antigravity-runner-private").toFile()
+        try {
+            val validStoredToken = """{"token":{"access_token":"ya29.dockerRunnerToken1234567890","token_type":"Bearer","refresh_token":"1//0dockerRunnerRefresh1234567890","expiry":"2026-11-12T18:00:00Z"},"auth_method":"consumer","id_token_email":"runner@example.com"}"""
 
-        // 2. Personal subscription + Docker -> rejected because host OS Keychain is unreachable
-        val dockerExec = FakeSubprocessExecutor(ExecResult(0, """{"result":"ok"}""", "", 10))
-        val dockerParams = listOf(
-            ConfigurationParameter(ExternalAgentTools.ANTIGRAVITY_AUTH_MODE_PARAMETER, JsonPrimitive("subscription"))
-        )
-        val dockerTools = ExternalAgentTools(dockerExec, dockerParams, trustExecutorSandbox = true)
-        val dockerEx = assertThrows(IllegalStateException::class.java) {
-            runBlocking { dockerTools.runAntigravitySubAgent(ExternalAgentContext(prompt = "hi", name = "docker-personal")) }
-        }
-        assertTrue(dockerEx.message!!.contains("Keychain"), dockerEx.message)
+            // 1. Personal subscription + antigravity-sdk -> rejected with guidance to use `agy` CLI
+            val nativeExec = FakeSubprocessExecutor(ExecResult(0, """{"result":"ok"}""", "", 10))
+            val sdkParams = listOf(
+                ConfigurationParameter(ExternalAgentTools.ANTIGRAVITY_AUTH_MODE_PARAMETER, JsonPrimitive("subscription")),
+                ConfigurationParameter(ExternalAgentTools.ANTIGRAVITY_COMMAND_PARAMETER, JsonPrimitive("antigravity-sdk")),
+                ConfigurationParameter(ExternalAgentTools.ANTIGRAVITY_AUTH_JSON_PARAMETER, JsonPrimitive(validStoredToken))
+            )
+            val sdkTools = ExternalAgentTools(nativeExec, sdkParams, trustExecutorSandbox = false)
+            val sdkEx = assertThrows(IllegalArgumentException::class.java) {
+                runBlocking { sdkTools.runAntigravitySubAgent(ExternalAgentContext(prompt = "hi", name = "sdk-personal")) }
+            }
+            assertTrue(sdkEx.message!!.contains("agy"), sdkEx.message)
 
-        // 3. Explicit `adc` mode without ADC JSON -> rejected instead of silently falling back to host login
-        val adcParams = listOf(
-            ConfigurationParameter(ExternalAgentTools.ANTIGRAVITY_AUTH_MODE_PARAMETER, JsonPrimitive("adc"))
-        )
-        val adcTools = ExternalAgentTools(nativeExec, adcParams, trustExecutorSandbox = false)
-        val adcEx = assertThrows(IllegalStateException::class.java) {
-            runBlocking { adcTools.runAntigravitySubAgent(ExternalAgentContext(prompt = "hi", name = "adc-missing")) }
+            // 2. Personal subscription + Cloud ADC JSON -> rejected so Vertex/Cloud ADC never substitutes for personal quota
+            val adcInPersonalParams = listOf(
+                ConfigurationParameter(ExternalAgentTools.ANTIGRAVITY_AUTH_MODE_PARAMETER, JsonPrimitive("subscription")),
+                ConfigurationParameter(
+                    ExternalAgentTools.ANTIGRAVITY_AUTH_JSON_PARAMETER,
+                    JsonPrimitive("""{"type":"authorized_user","client_id":"cid.apps.googleusercontent.com","client_secret":"sec","refresh_token":"1//0abc"}""")
+                )
+            )
+            val adcInPersonalTools = ExternalAgentTools(nativeExec, adcInPersonalParams, trustExecutorSandbox = false)
+            val adcInPersonalEx = assertThrows(IllegalArgumentException::class.java) {
+                runBlocking { adcInPersonalTools.runAntigravitySubAgent(ExternalAgentContext(prompt = "hi", name = "adc-in-personal")) }
+            }
+            assertTrue(adcInPersonalEx.message!!.contains("adc"), adcInPersonalEx.message)
+
+            // 3. Personal subscription without any credential -> fails closed instead of relying on host OS Keychain
+            val missingPersonalParams = listOf(
+                ConfigurationParameter(ExternalAgentTools.ANTIGRAVITY_AUTH_MODE_PARAMETER, JsonPrimitive("subscription"))
+            )
+            val missingPersonalTools = ExternalAgentTools(nativeExec, missingPersonalParams, trustExecutorSandbox = false)
+            val missingPersonalEx = assertThrows(IllegalStateException::class.java) {
+                runBlocking { missingPersonalTools.runAntigravitySubAgent(ExternalAgentContext(prompt = "hi", name = "missing-personal")) }
+            }
+            assertTrue(missingPersonalEx.message!!.contains(ExternalAgentTools.ANTIGRAVITY_PERSONAL_SUBSCRIPTION_PROVIDER), missingPersonalEx.message)
+
+            // 4. Docker mode mounts isolated Antigravity home to /antigravity-home and fails over on revoked first credential
+            val expiredCard = """{"token":{"access_token":"ya29.expiredToken1234567890","token_type":"Bearer","refresh_token":"1//0revokedRefresh1234567890"},"auth_method":"consumer"}"""
+            val pool = object : ClaudeCredentialProvider {
+                private val cards = listOf(
+                    ClaudeCredentialProvider.Credential("agy-p1", expiredCard),
+                    ClaudeCredentialProvider.Credential("agy-p2", validStoredToken)
+                )
+                override suspend fun acquire(excludedCredentialIds: Set<String>): ClaudeCredentialProvider.Credential? =
+                    cards.firstOrNull { it.id !in excludedCredentialIds }
+                override suspend fun markRateLimited(credential: ClaudeCredentialProvider.Credential, resetAtMillis: Long) {}
+                override suspend fun markSucceeded(credential: ClaudeCredentialProvider.Credential, executionId: String?, stepName: String?) {}
+            }
+            var dockerAttempt = 0
+            val dockerExec = FakeSubprocessExecutor(
+                resultForRequest = { req ->
+                    dockerAttempt += 1
+                    val mount = req.mounts.single { it.containerPath == "/antigravity-home" }
+                    assertTrue(File(mount.hostPath, ".gemini/antigravity-cli/antigravity-oauth-token").isFile)
+                    if (dockerAttempt == 1) {
+                        ExecResult(1, "", "Authentication required: not logged into Antigravity", 25)
+                    } else {
+                        ExecResult(0, """{"event":"result","result":{"status":"DONE","response":"Docker portable ok"}}""", "", 35)
+                    }
+                }
+            )
+            val dockerEvents = mutableListOf<CapturedEvent>()
+            val dockerTools = ExternalAgentTools(
+                executor = dockerExec,
+                parameters = listOf(ConfigurationParameter(ExternalAgentTools.ANTIGRAVITY_AUTH_MODE_PARAMETER, JsonPrimitive("subscription"))),
+                userId = "docker-user",
+                context = SubprocessToolContext(workspaceDir = workspace, executionId = "exec-docker", stepName = "step-d"),
+                onMonitorEvent = { t, s, d -> dockerEvents += CapturedEvent(t, s, d) },
+                antigravityCredentialProvider = pool,
+                trustExecutorSandbox = true
+            )
+            assertEquals("Docker portable ok", dockerTools.runAntigravitySubAgent(ExternalAgentContext(prompt = "run in docker", name = "docker-agy")))
+            assertEquals(2, dockerAttempt)
+            assertEquals("/antigravity-home", dockerExec.lastRequest!!.env["HOME"])
+            assertTrue(dockerEvents.any { it.type == ExternalAgentTools.ANTIGRAVITY_SUBSCRIPTION_EXPIRED_EVENT })
+
+            // 5. Runner host preserves isolated Antigravity HOME (containing antigravity-oauth-token) and observes it for secret scrubbing
+            val observedPaths = mutableListOf<java.nio.file.Path>()
+            val host = java.lang.reflect.Proxy.newProxyInstance(
+                javaClass.classLoader,
+                arrayOf(com.fartech.agents.workflow.WorkflowHost::class.java)
+            ) { _, method, args ->
+                when (method.name) {
+                    "getPrivateDirectory" -> runnerPrivate
+                    "getCodeEnvironment" -> emptyMap<String, String>()
+                    "nativeAgentPrompt" -> args!![1]
+                    "observeCredentialFile" -> {
+                        val p = args!![1] as java.nio.file.Path
+                        observedPaths.add(p)
+                        AutoCloseable { }
+                    }
+                    else -> error("Unexpected host call: ${method.name}")
+                }
+            } as com.fartech.agents.workflow.WorkflowHost
+            var runnerHomeTokenExists = false
+            val runnerExec = FakeSubprocessExecutor(
+                resultForRequest = { req ->
+                    val runnerHome = File(req.env.getValue("HOME"))
+                    runnerHomeTokenExists = File(runnerHome, ".gemini/antigravity-cli/antigravity-oauth-token").isFile
+                    ExecResult(0, """{"event":"result","result":{"status":"DONE","response":"Runner portable ok"}}""", "", 20)
+                }
+            )
+            val runnerTools = ExternalAgentTools(
+                executor = runnerExec,
+                parameters = listOf(
+                    ConfigurationParameter(ExternalAgentTools.ANTIGRAVITY_AUTH_MODE_PARAMETER, JsonPrimitive("subscription")),
+                    ConfigurationParameter(ExternalAgentTools.ANTIGRAVITY_AUTH_JSON_PARAMETER, JsonPrimitive(validStoredToken))
+                ),
+                userId = "runner-user",
+                context = SubprocessToolContext(workspaceDir = workspace, executionId = "exec-runner", stepName = "step-r"),
+                trustExecutorSandbox = false
+            )
+            val runnerOut = com.fartech.agents.workflow.WorkflowHostContext.withHost(host) {
+                com.fartech.agents.workflow.WorkflowHostContext.withScope(
+                    com.fartech.agents.workflow.WorkflowHostScope("exec-runner", "exec-runner", stepName = "step-r")
+                ) {
+                    runnerTools.runAntigravitySubAgent(ExternalAgentContext(prompt = "run on runner", name = "runner-agy"))
+                }
+            }
+            assertEquals("Runner portable ok", runnerOut)
+            assertTrue(runnerHomeTokenExists, "Runner HOME must retain materialized antigravity-oauth-token")
+            assertEquals(1, observedPaths.size)
+            assertEquals("antigravity-oauth-token", observedPaths.single().fileName.toString())
+
+            // 6. Explicit `adc` mode without ADC JSON -> rejected instead of silently falling back
+            val adcParams = listOf(
+                ConfigurationParameter(ExternalAgentTools.ANTIGRAVITY_AUTH_MODE_PARAMETER, JsonPrimitive("adc"))
+            )
+            val adcTools = ExternalAgentTools(nativeExec, adcParams, trustExecutorSandbox = false)
+            val adcEx = assertThrows(IllegalStateException::class.java) {
+                runBlocking { adcTools.runAntigravitySubAgent(ExternalAgentContext(prompt = "hi", name = "adc-missing")) }
+            }
+            assertTrue(adcEx.message!!.contains("ADC"), adcEx.message)
+        } finally {
+            workspace.deleteRecursively()
+            runnerPrivate.deleteRecursively()
         }
-        assertTrue(adcEx.message!!.contains("ADC"), adcEx.message)
     }
 }
 

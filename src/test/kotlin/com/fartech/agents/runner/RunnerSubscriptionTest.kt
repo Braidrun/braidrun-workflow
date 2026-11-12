@@ -845,4 +845,43 @@ class RunnerSubscriptionTest {
         assertTrue(observed!!.startsWith(private)); assertFalse(Files.exists(observed), "live token file must not outlive a refused observation")
         assertEquals(listOf("acquire", "release"), calls)
     }
+
+    @Test fun `antigravity subscription pool publishes rotated StoredToken and records ROTATION_SUPERSEDED on concurrent refresh`() = runBlocking<Unit> {
+        val agyOriginal = """{"token":{"access_token":"ya29.origAgyToken1234567890","token_type":"Bearer","refresh_token":"1//0origAgyRefresh1234567890","expiry":"2026-11-12T15:00:00Z"},"auth_method":"consumer"}"""
+        val agyRefreshedA = """{"token":{"access_token":"ya29.newAgyTokenA1234567890","token_type":"Bearer","refresh_token":"1//0origAgyRefresh1234567890","expiry":"2026-11-12T16:00:00Z"},"auth_method":"consumer"}"""
+        val agyRefreshedB = """{"token":{"access_token":"ya29.newAgyTokenB1234567890","token_type":"Bearer","refresh_token":"1//0origAgyRefresh1234567890","expiry":"2026-11-12T16:05:00Z"},"auth_method":"consumer"}"""
+        withTimeout(10_000) { IpcHarness().use { h ->
+            val gate = RunnerEnvironmentGate(h.binding, setOf("engine-http")); gate.install(RunnerProtocolTest.environment(h.binding, Instant.now()))
+            val secrets = RunnerSecrets(); val credentials = RunnerCredentials(h.ipc, gate, secrets)
+            val events = java.util.concurrent.CopyOnWriteArrayList<JsonObject>()
+            val live = RunnerLiveCredentials(credentials, gate, renewalIntervalMs = 60_000)
+            val scope = WorkflowHostScope(h.binding.string("executionId"), h.binding.string("executionId"), stepName = "agy-step")
+            val pool = RunnerSubscriptionPool(live, scope, "antigravity", listOf("credential:agy_personal@3"), secrets) { _, payload -> events += payload }
+            try {
+                val acquiringA = async { pool.acquire(emptySet()) }
+                reply(h, h.next(), "agy-v3", material = buildJsonObject { put("authJson", agyOriginal) }, operations = listOf("subscription.antigravity", "credential.rotate"))
+                val a = acquiringA.await()!!
+                val b = pool.acquire(emptySet())!!
+
+                val rotatingA = async(Dispatchers.IO) { pool.rotated(a, agyRefreshedA) }
+                val rotationFrame = h.next(); assertEquals("credentialRotation", rotationFrame.string("type"))
+                assertEquals("agy-v3", rotationFrame.obj("payload").string("credentialLeaseId"))
+                rotationAck(h, rotationFrame)
+                val successor = h.next(); assertEquals(4L, successor.obj("payload").long("expectedVersion"))
+                reply(h, successor, "agy-v4", material = buildJsonObject { put("authJson", agyRefreshedA) }, operations = listOf("subscription.antigravity", "credential.rotate"))
+                rotatingA.await()
+
+                // B held version 3 and attempts to publish its own concurrent refresh -> cleanly superseded!
+                pool.rotated(b, agyRefreshedB)
+                val superseded = events.single { it.string("outcome") == "ROTATION_SUPERSEDED" }
+                assertEquals("antigravity", superseded.string("provider"))
+                assertEquals(3L, superseded.long("baseVersion"))
+                assertEquals(4L, superseded.long("currentVersion"))
+                assertFalse(secrets.redact("ya29.newAgyTokenA1234567890 ya29.newAgyTokenB1234567890").contains("newAgyToken"))
+
+                pool.release(a); pool.release(b)
+                gate.check()
+            } finally { live.close(); credentials.clear() }
+        } }
+    }
 }

@@ -40,7 +40,8 @@ class NestedWorkflowRuntime(
     val workflowId: String? = null,
     val workflowOutputPublisher: WorkflowOutputPublisher? = null,
     val workflowOutputResolver: WorkflowOutputResolver? = null,
-    val host: WorkflowHost? = null
+    val host: WorkflowHost? = null,
+    val onAntigravityAuthJsonRotated: ((credentialId: String?, authJson: String) -> Unit)? = null
 )
 
 @LLMDescription("Toolset for defining and executing complex multi-agent workflows")
@@ -69,6 +70,7 @@ class WorkflowTools(
         codexCredentialProvider = runtime.codexCredentialProvider,
         antigravityCredentialProvider = runtime.antigravityCredentialProvider,
         onCodexAuthJsonRotated = runtime.onCodexAuthJsonRotated,
+        onAntigravityAuthJsonRotated = runtime.onAntigravityAuthJsonRotated,
         executionApiTokenProvider = runtime.executionApiTokenProvider,
         jevCredentials = runtime.jevCredentials,
         jevClientFactory = runtime.jevClientFactory,

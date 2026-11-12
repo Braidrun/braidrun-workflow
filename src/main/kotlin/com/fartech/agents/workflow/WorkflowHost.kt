@@ -19,6 +19,7 @@ interface WorkflowHost {
     fun codexCredentialsFor(scope: WorkflowHostScope): ClaudeCredentialProvider? = codexCredentials
     fun antigravityCredentialsFor(scope: WorkflowHostScope): ClaudeCredentialProvider? = antigravityCredentials
     fun codexAuthRotationFor(scope: WorkflowHostScope): ((String?, String) -> Unit)? = codexAuthRotation
+    fun antigravityAuthRotationFor(scope: WorkflowHostScope): ((String?, String) -> Unit)? = antigravityAuthRotation
     suspend fun interactiveProcess(scope: WorkflowHostScope, request: SubprocessExecutor.ExecRequest): WorkflowInteractiveProcess =
         throw IllegalStateException("Host interactive process transport is not adapted")
     suspend fun mcpTransport(scope: WorkflowHostScope, name: String, config: com.fartech.agents.commons.McpServerConfig): io.modelcontextprotocol.kotlin.sdk.shared.Transport =
@@ -34,6 +35,7 @@ interface WorkflowHost {
     val codexCredentials: ClaudeCredentialProvider? get() = null
     val antigravityCredentials: ClaudeCredentialProvider? get() = null
     val codexAuthRotation: ((String?, String) -> Unit)? get() = null
+    val antigravityAuthRotation: ((String?, String) -> Unit)? get() = null
     fun nativeAgentPrompt(scope: WorkflowHostScope, prompt: String): String = prompt
     /** Pure lookup of a verified local-model scope, before any cloud/MCP preparation.
      * A selected but unauthorized/stale scope must throw, never return null to fall back.

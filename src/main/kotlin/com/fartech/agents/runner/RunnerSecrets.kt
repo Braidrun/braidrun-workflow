@@ -126,8 +126,8 @@ class RunnerSecrets {
         private val LOGIN_TOKEN_KEYS = setOf("accesstoken", "refreshtoken", "idtoken", "openaiapikey", "apikey", "token", "sessiontoken",
             "sessionkey", "cookie", "cookies", "clientsecret", "secret", "password", "privatekey")
         /** Descriptive login metadata, never secret (Supervisor LOGIN_METADATA_KEYS). */
-        private val LOGIN_METADATA_KEYS = setOf("authmode", "lastrefresh", "scopes", "subscriptiontype", "ratelimittier", "expiresat",
-            "tokentype", "type", "provider", "accountid", "email", "plan", "organizationid",
+        private val LOGIN_METADATA_KEYS = setOf("authmode", "authmethod", "lastrefresh", "scopes", "subscriptiontype", "ratelimittier", "expiresat", "expiry",
+            "tokentype", "type", "provider", "accountid", "email", "idtokenemail", "plan", "usertier", "tierdisplayname", "organizationid",
             "clientid", "clientemail", "projectid", "quotaprojectid", "tokenuri", "authuri", "universedomain", "privatekeyid", "location")
         /** An unknown login field holding a token: one long, unbroken, high-entropy string (>= 24 chars, >= 3 bits/char). */
         internal fun looksLikeToken(value: String): Boolean {

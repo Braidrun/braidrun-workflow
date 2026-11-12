@@ -145,6 +145,9 @@ class FileReadGuard(
             Regex("""^auth\.json$"""),                // Codex / CLI auth state
             Regex("""^mcp(_config)?\.json$"""),       // Claude / Antigravity MCP config (may embed env tokens)
             Regex("""^adc_credentials\.json$"""),     // Materialized Google ADC credentials
+            Regex("""^antigravity-oauth-token$"""),   // Materialized Antigravity personal OAuth StoredToken
+            Regex("""^jetski-standalone-oauth-token$"""), // Legacy Antigravity OAuth token file
+            Regex("""^oauth_creds\.json$"""),         // Gemini CLI OAuth credentials
             Regex("""^application_default_credentials\.json$"""), // Standard gcloud ADC file
             Regex("""^\.credentials\.json$"""),       // Claude Code OAuth credentials
             Regex("""^\.npmrc$"""),                   // npm registry tokens

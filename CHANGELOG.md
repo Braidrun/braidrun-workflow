@@ -5,6 +5,18 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.6-rc.20261112.4] - 2026-11-12
+
+### Added & Security
+
+- **Portable Antigravity personal subscription delegation across Runners and Docker.** `ExternalAgentTools`,
+  `RunnerAdmission`, `RunnerWorkflowHost`, `RunnerSubscriptionPool`, and `RunnerSecrets` accept platform-delegated
+  `credential:antigravity_personal_subscription` (`codeassistclient.StoredToken`, `auth_method = "consumer"`), stage
+  each invocation in an isolated `0700` temporary `HOME` with `ANTIGRAVITY_KEYRING_BACKEND=file` (without relying on
+  Runner OS Keychain or pre-existing `agy` login), sync in-place OAuth token rotations back through CAS-coordinated
+  lease rotation, scrub temporary credentials on exit, block `host_login` and SDK/ADC/API-key billing fallbacks on
+  Runners, and redact secret token fields across logs, `FileReadGuard`, and `RunnerArtifactSetPolicy`.
+
 ## [1.4.6-rc.20261112.3] - 2026-11-12
 
 ### Added

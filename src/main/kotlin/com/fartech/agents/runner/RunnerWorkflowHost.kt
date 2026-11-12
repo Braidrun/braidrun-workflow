@@ -200,7 +200,7 @@ class RunnerWorkflowHost(
         checkBusinessOpen(); require(scope.rootExecutionId == binding.executionId) { "Credential file scope mismatch" }
         val root = privateDirectory.toPath().toAbsolutePath().normalize()
         val candidate = path.toAbsolutePath().normalize()
-        require(candidate.startsWith(root) && candidate.fileName.toString() in setOf("auth.json", "adc_credentials.json")) { "Credential file outside scoped private directory" }
+        require(candidate.startsWith(root) && candidate.fileName.toString() in setOf("auth.json", "adc_credentials.json", "antigravity-oauth-token")) { "Credential file outside scoped private directory" }
         val safe = confinedPath(root, root.relativize(candidate).toString())
         return secrets.observe(safe)
     }

@@ -164,8 +164,25 @@ class RunnerAdmission(
                         "Runner CLI cannot set cross-provider base URLs"
                     }
                 } else {
-                    val allowedModes = if (provider == "antigravity") setOf("subscription", "adc") else setOf("subscription")
-                    require(effective["external_agent_${provider}_auth_mode"]?.jsonPrimitive?.content in allowedModes) { "Runner CLI requires explicit scoped subscription mode" }
+                    val allowedModes = if (provider == "antigravity") {
+                        setOf("subscription", "personal", "personal_subscription", "adc")
+                    } else {
+                        setOf("subscription")
+                    }
+                    val actualMode = effective["external_agent_${provider}_auth_mode"]?.jsonPrimitive?.content
+                    require(actualMode in allowedModes) { "Runner CLI requires explicit scoped subscription mode" }
+                    if (provider == "antigravity" && actualMode in setOf("subscription", "personal", "personal_subscription")) {
+                        val configuredCmd = RunnerAgentToolPolicy.text(effective["external_agent_antigravity_command"])?.trim()
+                        require(!configuredCmd.equals("antigravity-sdk", ignoreCase = true)) {
+                            "Runner Antigravity personal subscription requires CLI mode ('agy'), not 'antigravity-sdk'"
+                        }
+                        require(
+                            effective["external_agent_antigravity_project"]?.jsonPrimitive?.contentOrNull.isNullOrBlank() &&
+                                effective["external_agent_antigravity_location"]?.jsonPrimitive?.contentOrNull.isNullOrBlank()
+                        ) {
+                            "Runner Antigravity personal subscription forbids Google Cloud project or Vertex AI location overrides"
+                        }
+                    }
                     for (baseUrlField in listOf(
                         "external_agent_claude_base_url",
                         "external_agent_codex_base_url",

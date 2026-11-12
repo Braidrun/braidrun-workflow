@@ -117,6 +117,8 @@ fun parseToolSet(
     antigravityCredentialProvider: ClaudeCredentialProvider? = null,
     /** See [ExternalAgentTools]: rotated Codex `auth.json` hand-back for the host. */
     onCodexAuthJsonRotated: ((credentialId: String?, authJson: String) -> Unit)? = null,
+    /** See [ExternalAgentTools]: rotated Antigravity personal `antigravity-oauth-token` hand-back for the host. */
+    onAntigravityAuthJsonRotated: ((credentialId: String?, authJson: String) -> Unit)? = null,
 ): ToolRegistry {
     val toolSet =
         parameters.parameter("tool_set", emptyList<String>().toMutableSet()).also { it.addAll(tools) }
@@ -136,7 +138,8 @@ fun parseToolSet(
         claudeCredentialProvider = claudeCredentialProvider,
         codexCredentialProvider = codexCredentialProvider,
         antigravityCredentialProvider = antigravityCredentialProvider,
-        onCodexAuthJsonRotated = onCodexAuthJsonRotated
+        onCodexAuthJsonRotated = onCodexAuthJsonRotated,
+        onAntigravityAuthJsonRotated = onAntigravityAuthJsonRotated
     )
 }
 
@@ -163,6 +166,8 @@ fun parseExactToolSet(
     antigravityCredentialProvider: ClaudeCredentialProvider? = null,
     /** See [ExternalAgentTools]: rotated Codex `auth.json` hand-back for the host. */
     onCodexAuthJsonRotated: ((credentialId: String?, authJson: String) -> Unit)? = null,
+    /** See [ExternalAgentTools]: rotated Antigravity personal `antigravity-oauth-token` hand-back for the host. */
+    onAntigravityAuthJsonRotated: ((credentialId: String?, authJson: String) -> Unit)? = null,
 ): ToolRegistry = buildToolRegistry(
     parameters = parameters,
     httpAccess = httpAccess,
@@ -179,7 +184,8 @@ fun parseExactToolSet(
     claudeCredentialProvider = claudeCredentialProvider,
     codexCredentialProvider = codexCredentialProvider,
     antigravityCredentialProvider = antigravityCredentialProvider,
-    onCodexAuthJsonRotated = onCodexAuthJsonRotated
+    onCodexAuthJsonRotated = onCodexAuthJsonRotated,
+    onAntigravityAuthJsonRotated = onAntigravityAuthJsonRotated
 )
 
 /**
@@ -266,6 +272,7 @@ private fun buildToolRegistry(
     codexCredentialProvider: ClaudeCredentialProvider?,
     antigravityCredentialProvider: ClaudeCredentialProvider?,
     onCodexAuthJsonRotated: ((credentialId: String?, authJson: String) -> Unit)?,
+    onAntigravityAuthJsonRotated: ((credentialId: String?, authJson: String) -> Unit)?,
 ): ToolRegistry = ToolRegistry {
     val browserDisabled = browserToolsDisabled(parameters)
     val subprocessExecutor = externalAgentExecutor ?: createSubprocessExecutor(parameters)
@@ -319,7 +326,8 @@ private fun buildToolRegistry(
                 antigravityCredentialProvider = antigravityCredentialProvider,
                 onCodexAuthJsonRotated = onCodexAuthJsonRotated,
                 trustExecutorSandbox = parameters.parameter("subprocess_mode", "native")
-                    .equals("docker", ignoreCase = true)
+                    .equals("docker", ignoreCase = true),
+                onAntigravityAuthJsonRotated = onAntigravityAuthJsonRotated
             )
         )
     }

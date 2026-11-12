@@ -826,7 +826,8 @@ class WorkflowExecutor(
     private val jevEnvKeyFallback: Boolean = true,
     private val host: WorkflowHost? = null,
     /** Only trusted nested runtime sets this; root identity is never a workflow variable. */
-    private val parentHostScope: WorkflowHostScope? = null
+    private val parentHostScope: WorkflowHostScope? = null,
+    onAntigravityAuthJsonRotated: ((credentialId: String?, authJson: String) -> Unit)? = null
 ) {
     /** Deterministic local test seam; not configurable from workflow parameters or wire. */
     internal var beforeStructuredOutputWriteForTest: suspend (String) -> Unit = {}
@@ -842,6 +843,7 @@ class WorkflowExecutor(
     private val codexCredentialProvider = if (host != null) host.codexCredentials else codexCredentialProvider
     private val antigravityCredentialProvider = if (host != null) host.antigravityCredentials else antigravityCredentialProvider
     private val onCodexAuthJsonRotated = if (host != null) host.codexAuthRotation else onCodexAuthJsonRotated
+    private val onAntigravityAuthJsonRotated = if (host != null) host.antigravityAuthRotation else onAntigravityAuthJsonRotated
     private val executionApiTokenProvider = if (perCallCodeControl) null else if (host != null) host.callbackToken else executionApiTokenProvider
 
     private suspend fun hostAgentParameters(parameters: List<ConfigurationParameter>, executionId: String?, stepName: String?): List<ConfigurationParameter> =
@@ -5467,7 +5469,8 @@ class WorkflowExecutor(
             claudeCredentialProvider = host?.claudeCredentialsFor(hostScope(context, step.step)) ?: claudeCredentialProvider,
             codexCredentialProvider = host?.codexCredentialsFor(hostScope(context, step.step)) ?: codexCredentialProvider,
             antigravityCredentialProvider = host?.antigravityCredentialsFor(hostScope(context, step.step)) ?: antigravityCredentialProvider,
-            onCodexAuthJsonRotated = host?.codexAuthRotationFor(hostScope(context, step.step)) ?: onCodexAuthJsonRotated
+            onCodexAuthJsonRotated = host?.codexAuthRotationFor(hostScope(context, step.step)) ?: onCodexAuthJsonRotated,
+            onAntigravityAuthJsonRotated = host?.antigravityAuthRotationFor(hostScope(context, step.step)) ?: onAntigravityAuthJsonRotated
         )
 
         // 创建 Orchestrator Agent
@@ -7073,7 +7076,8 @@ class WorkflowExecutor(
             claudeCredentialProvider = host?.claudeCredentialsFor(WorkflowHostScope(host.binding.executionId, executionId ?: host.binding.executionId, stepName = stepName)) ?: claudeCredentialProvider,
             codexCredentialProvider = host?.codexCredentialsFor(WorkflowHostScope(host.binding.executionId, executionId ?: host.binding.executionId, stepName = stepName)) ?: codexCredentialProvider,
             antigravityCredentialProvider = host?.antigravityCredentialsFor(WorkflowHostScope(host.binding.executionId, executionId ?: host.binding.executionId, stepName = stepName)) ?: antigravityCredentialProvider,
-            onCodexAuthJsonRotated = host?.codexAuthRotationFor(WorkflowHostScope(host.binding.executionId, executionId ?: host.binding.executionId, stepName = stepName)) ?: onCodexAuthJsonRotated
+            onCodexAuthJsonRotated = host?.codexAuthRotationFor(WorkflowHostScope(host.binding.executionId, executionId ?: host.binding.executionId, stepName = stepName)) ?: onCodexAuthJsonRotated,
+            onAntigravityAuthJsonRotated = host?.antigravityAuthRotationFor(WorkflowHostScope(host.binding.executionId, executionId ?: host.binding.executionId, stepName = stepName)) ?: onAntigravityAuthJsonRotated
         )
 
         return PreparedAgentRuntime(
@@ -7203,6 +7207,7 @@ class WorkflowExecutor(
             codexCredentialProvider = codexCredentialProvider,
             antigravityCredentialProvider = antigravityCredentialProvider,
             onCodexAuthJsonRotated = onCodexAuthJsonRotated,
+            onAntigravityAuthJsonRotated = onAntigravityAuthJsonRotated,
             executionApiTokenProvider = executionApiTokenProvider,
             workflowResolver = workflowResolver,
             jevCredentials = jevCredentials,
@@ -7749,7 +7754,8 @@ class WorkflowExecutor(
             claudeCredentialProvider = host?.claudeCredentialsFor(hostScope(context, stepName)) ?: claudeCredentialProvider,
             codexCredentialProvider = host?.codexCredentialsFor(hostScope(context, stepName)) ?: codexCredentialProvider,
             antigravityCredentialProvider = host?.antigravityCredentialsFor(hostScope(context, stepName)) ?: antigravityCredentialProvider,
-            trustExecutorSandbox = isDockerSubprocessMode()
+            trustExecutorSandbox = isDockerSubprocessMode(),
+            onAntigravityAuthJsonRotated = host?.antigravityAuthRotationFor(hostScope(context, stepName)) ?: onAntigravityAuthJsonRotated
         )
 
         // A host restriction registers only these built-in tools (`--tools`, the binding control) and
@@ -7937,7 +7943,8 @@ class WorkflowExecutor(
             claudeCredentialProvider = host?.claudeCredentialsFor(hostScope(context, stepName)) ?: claudeCredentialProvider,
             codexCredentialProvider = host?.codexCredentialsFor(hostScope(context, stepName)) ?: codexCredentialProvider,
             antigravityCredentialProvider = host?.antigravityCredentialsFor(hostScope(context, stepName)) ?: antigravityCredentialProvider,
-            trustExecutorSandbox = isDockerSubprocessMode()
+            trustExecutorSandbox = isDockerSubprocessMode(),
+            onAntigravityAuthJsonRotated = host?.antigravityAuthRotationFor(hostScope(context, stepName)) ?: onAntigravityAuthJsonRotated
         )
 
         return antigravityAgent.runAntigravitySubAgent(

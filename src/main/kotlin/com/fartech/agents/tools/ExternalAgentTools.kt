@@ -201,7 +201,12 @@ class ExternalAgentTools(
      * separate from Claude and Codex pools so failover never crosses vendors.
      */
     private val antigravityCredentialProvider: ClaudeCredentialProvider? = null,
-    private val trustExecutorSandbox: Boolean = executor.isDocker
+    private val trustExecutorSandbox: Boolean = executor.isDocker,
+    /**
+     * Persist an `antigravity-oauth-token` (`StoredToken`) the `agy` CLI refreshed in place
+     * inside its isolated per-invocation `HOME/.gemini/antigravity-cli/`.
+     */
+    private val onAntigravityAuthJsonRotated: ((credentialId: String?, authJson: String) -> Unit)? = null
 ) : ToolSet {
 
     private val isDocker: Boolean = trustExecutorSandbox
@@ -375,6 +380,8 @@ class ExternalAgentTools(
         val claudeConfigContainerPath: String? = null,
         val antigravityHomeHostDir: File? = null,
         val antigravityCredentialFile: File? = null,
+        val originalAntigravityAuthJson: String? = null,
+        val antigravityAuthFileSource: CodexAuthFileSource? = null,
         val antigravityEnableAdc: Boolean = false,
         val antigravityPersonalSubscription: Boolean = false,
         val deleteAntigravityHomeOnExit: Boolean = true
@@ -938,8 +945,13 @@ class ExternalAgentTools(
                 }
                 if (auth.antigravityPersonalSubscription) {
                     throw ExternalAgentExecutionException(
-                        "Antigravity sub-agent '$resolvedName' hit an Antigravity personal subscription Gemini quota/rate limit. " +
-                            "stderr: $tail"
+                        "Antigravity sub-agent '$resolvedName' hit an Antigravity personal subscription Gemini quota/rate limit" +
+                            if (credential == null) {
+                                ""
+                            } else {
+                                ", and no other Antigravity personal subscription credential was available"
+                            } +
+                            ". stderr: $tail"
                     )
                 }
                 throw ExternalAgentExecutionException(
@@ -956,26 +968,39 @@ class ExternalAgentTools(
                 auth.mode == ExternalAuthMode.SUBSCRIPTION &&
                 isAntigravityAuthFailure(result.stdout, result.stderr)
             ) {
-                if (auth.antigravityPersonalSubscription) {
-                    emit(
-                        type = ANTIGRAVITY_SUBSCRIPTION_EXPIRED_EVENT,
-                        summary = "🔑 Antigravity 个人订阅未登录或会话已失效: $invocationLabel",
-                        detail = "invocation_id=$invocationId, auth_source=personal_subscription, " +
-                            "宿主机 agy CLI 未登录或个人订阅会话已失效，请在运行 Braidrun 的机器终端执行 `agy` 完成浏览器 Google 账号登录。" +
-                            "stderr_tail=$tail"
-                    )
-                    throw ExternalAgentExecutionException(
-                        "Antigravity sub-agent '$resolvedName' failed personal subscription authentication — " +
-                            "the host 'agy' CLI is not signed in or its session expired. Run `agy` interactively on the " +
-                            "Braidrun host to complete browser sign-in. stderr: $tail"
-                    )
-                }
                 val credential = auth.subscriptionCredential
                 val replaySafe = antigravityRunReplaySafe(result.stdout)
                 val attempted = attemptedCredentialIds + setOfNotNull(credential?.id)
                 val shouldReplay = credential != null &&
                     replaySafe &&
                     attempted.size < MAX_SUBSCRIPTION_CREDENTIAL_ATTEMPTS
+                if (auth.antigravityPersonalSubscription) {
+                    emit(
+                        type = ANTIGRAVITY_SUBSCRIPTION_EXPIRED_EVENT,
+                        summary = if (shouldReplay) {
+                            "🔑 Antigravity 个人订阅凭据失效，正在切换备用凭据: $invocationLabel"
+                        } else {
+                            "🔑 Antigravity 个人订阅授权已过期或被撤销: $invocationLabel"
+                        },
+                        detail = buildString {
+                            append("invocation_id=$invocationId")
+                            auth.subscriptionCredentialId?.let { append(", credential_id=$it") }
+                            auth.subscriptionCredentialLabel?.let { append(", credential_label=$it") }
+                            append(", auth_source=personal_subscription, replay_enabled=$shouldReplay, ")
+                            append("该 Antigravity 个人订阅授权已过期或被撤销，请前往 Braidrun 凭据中心重新授权 ")
+                            append("provider=$ANTIGRAVITY_PERSONAL_SUBSCRIPTION_PROVIDER。stderr_tail=$tail")
+                        }
+                    )
+                    if (shouldReplay) {
+                        return ExternalAttemptOutcome.Failover(ctx, attempted)
+                    }
+                    throw ExternalAgentExecutionException(
+                        "Antigravity sub-agent '$resolvedName' failed personal subscription authentication — " +
+                            "the Antigravity personal subscription credential ('$ANTIGRAVITY_PERSONAL_SUBSCRIPTION_PROVIDER') " +
+                            "has expired or been revoked. Re-authorize your Antigravity personal subscription in Credential Center. " +
+                            "stderr: $tail"
+                    )
+                }
                 emit(
                     type = ANTIGRAVITY_SUBSCRIPTION_EXPIRED_EVENT,
                     summary = if (shouldReplay) {
@@ -1095,16 +1120,20 @@ class ExternalAgentTools(
             )
             // Publish this attempt's rotation while its own credential hold is still live, then
             // release exactly that hold. Both happen before any failover attempt starts.
-            try { maybePublishRotatedCodexAuthJson(engine, auth) } finally {
+            try {
+                try { maybePublishRotatedCodexAuthJson(engine, auth) } finally {
+                    maybePublishRotatedAntigravityAuthJson(engine, auth)
+                }
+            } finally {
                 try { releaseSubscriptionCredential(engine, auth.subscriptionCredential) } finally {
                     credentialFileObservation?.close()
-                    tempFiles.forEach { file -> runCatching { file.delete() } }
+                    tempFiles.forEach { file -> runCatching { Files.deleteIfExists(file.toPath()) } }
                     auth.codexHomeHostDir
                         ?.takeIf { auth.deleteCodexHomeOnExit }
-                        ?.let { dir -> runCatching { dir.deleteRecursively() } }
+                        ?.let { dir -> runCatching { deleteDirectoryNoFollowLinks(dir.toPath()) } }
                     auth.antigravityHomeHostDir
                         ?.takeIf { auth.deleteAntigravityHomeOnExit }
-                        ?.let { dir -> runCatching { dir.deleteRecursively() } }
+                        ?.let { dir -> runCatching { deleteDirectoryNoFollowLinks(dir.toPath()) } }
                 }
             }
         }
@@ -1311,6 +1340,66 @@ class ExternalAgentTools(
                 }
             }
             .onFailure { e -> logger.warn(e) { "[ExternalAgent] Ignoring invalid rotated Codex auth.json" } }
+    }
+
+    private fun maybePublishRotatedAntigravityAuthJson(engine: Engine, auth: ResolvedExternalAuth) {
+        if (engine != Engine.ANTIGRAVITY || auth.mode != ExternalAuthMode.SUBSCRIPTION || !auth.antigravityPersonalSubscription) {
+            return
+        }
+        val callback = onAntigravityAuthJsonRotated
+        val holder = (subscriptionCredentialProvider(engine) as? InvocationCredentialProvider)
+            ?.let { provider -> auth.subscriptionCredential?.let { credential -> provider to credential } }
+        if (callback == null && holder == null && auth.antigravityAuthFileSource == null) return
+        val tokenFile = auth.antigravityCredentialFile ?: return
+        val original = auth.originalAntigravityAuthJson?.trim() ?: return
+        val current = runCatching {
+            val path = tokenFile.toPath()
+            if (!Files.exists(path, NOFOLLOW_LINKS) || Files.isSymbolicLink(path)) return@runCatching ""
+            readBoundedCodexAuthFile(path).toString(Charsets.UTF_8).trim()
+        }.getOrElse { e ->
+            logger.warn(e) { "[ExternalAgent] Failed to inspect Antigravity oauth token file for rotation" }
+            return
+        }.takeIf { it.isNotBlank() } ?: return
+        if (current == original) return
+
+        runCatching {
+            val rotated = mergeRotatedAntigravityPersonalAuthJson(originalJson = original, currentJson = current)
+                ?: return
+            auth.antigravityAuthFileSource?.let { source ->
+                runCatching { persistRotatedCodexAuthFile(source, rotated.diskStoredTokenJson) }
+                    .onFailure { logger.warn { "[ExternalAgent] Could not persist refreshed local Antigravity authentication" } }
+                return@runCatching
+            }
+            if (holder != null) {
+                holder.first.rotated(holder.second, rotated.vaultJson)
+            } else if (com.fartech.agents.workflow.WorkflowHostContext.current != null) {
+                callback?.invoke(auth.subscriptionCredentialId, rotated.vaultJson)
+            } else {
+                runCatching { callback?.invoke(auth.subscriptionCredentialId, rotated.vaultJson) }
+                    .onFailure { e -> logger.warn(e) { "[ExternalAgent] Failed to publish rotated Antigravity oauth token" } }
+            }
+        }.onFailure { e ->
+            logger.warn(e) { "[ExternalAgent] Ignoring invalid rotated Antigravity oauth token" }
+        }
+    }
+
+    private fun deleteDirectoryNoFollowLinks(root: Path) {
+        if (!Files.exists(root, NOFOLLOW_LINKS)) return
+        if (Files.isSymbolicLink(root) || !Files.isDirectory(root, NOFOLLOW_LINKS)) {
+            Files.deleteIfExists(root)
+            return
+        }
+        Files.walkFileTree(root, object : java.nio.file.SimpleFileVisitor<Path>() {
+            override fun visitFile(file: Path, attrs: java.nio.file.attribute.BasicFileAttributes): java.nio.file.FileVisitResult {
+                Files.deleteIfExists(file)
+                return java.nio.file.FileVisitResult.CONTINUE
+            }
+
+            override fun postVisitDirectory(dir: Path, exc: java.io.IOException?): java.nio.file.FileVisitResult {
+                Files.deleteIfExists(dir)
+                return java.nio.file.FileVisitResult.CONTINUE
+            }
+        })
     }
 
     private suspend fun executeWithProgress(
@@ -2344,7 +2433,7 @@ class ExternalAgentTools(
         val cliFlags = when (engine) {
             Engine.CLAUDE -> buildClaudeFlags(ctx, model, workDir, tempFiles)
             Engine.CODEX -> buildCodexFlags(ctx, model, auth.mode == ExternalAuthMode.SUBSCRIPTION, childTmpDir(auth, ctx))
-            Engine.ANTIGRAVITY -> buildAntigravityFlags(ctx, model, auth, baseUrlOverride, tempFiles)
+            Engine.ANTIGRAVITY -> buildAntigravityFlags(ctx, model, auth, baseUrlOverride, workDir, tempFiles)
         }
 
         return buildList {
@@ -2610,14 +2699,15 @@ class ExternalAgentTools(
         model: String,
         auth: ResolvedExternalAuth,
         baseUrlOverride: String?,
+        workDir: File,
         tempFiles: MutableList<File>
     ): List<String> = buildList {
-        // Persist CLI settings (modelProvider, customModelsConfig, permissions), ADC config,
-        // and MCP servers into the isolated per-invocation Antigravity home before spawning `agy`.
+        // Persist CLI settings (trustedWorkspaces, modelProvider, customModelsConfig, permissions),
+        // ADC config, and MCP servers into the isolated per-invocation Antigravity home before spawning `agy`.
         auth.antigravityHomeHostDir?.let { homeDir ->
-            writeAntigravityCliSettings(homeDir, ctx, model, auth, baseUrlOverride)
+            writeAntigravityCliSettings(homeDir, ctx, model, auth, baseUrlOverride, workDir)
         }
-        if (auth.antigravityPersonalSubscription) {
+        if (auth.antigravityPersonalSubscription && auth.antigravityHomeHostDir == null) {
             val (allowRules, denyRules) = computeAntigravityPermissionRules(ctx)
             if (allowRules.isNotEmpty() || denyRules.isNotEmpty()) {
                 val settingsObj = buildJsonObject {
@@ -2862,7 +2952,8 @@ class ExternalAgentTools(
         ctx: ExternalAgentContext,
         model: String,
         auth: ResolvedExternalAuth,
-        baseUrlOverride: String?
+        baseUrlOverride: String?,
+        workDir: File? = null
     ) {
         if (ctx.mcpServers.isNotEmpty()) {
             val configDir = File(homeDir, ".gemini/config")
@@ -2880,7 +2971,7 @@ class ExternalAgentTools(
             }
             val mcpFile = File(configDir, "mcp_config.json")
             mcpFile.writeText(Json.encodeToString(mcpObj), Charsets.UTF_8)
-            applyCodexHomePermissions(configDir, mcpFile)
+            applyAntigravityHomePermissions(configDir, mcpFile)
         }
         if (auth.antigravityEnableAdc) {
             val configDir = File(homeDir, ".gemini/config")
@@ -2892,20 +2983,48 @@ class ExternalAgentTools(
             }
             val cfgFile = File(configDir, "config.json")
             cfgFile.writeText(Json.encodeToString(userCfgObj), Charsets.UTF_8)
-            applyCodexHomePermissions(configDir, cfgFile)
+            applyAntigravityHomePermissions(configDir, cfgFile)
+        }
+        val (allowRules, denyRules) = computeAntigravityPermissionRules(ctx)
+        val trustedWorkspaces = buildList {
+            val resolvedWorkDir = workDir ?: context.workspaceDir
+            if (resolvedWorkDir != null) {
+                add(if (isDocker) "/workspace" else resolvedWorkDir.absolutePath)
+            }
+            claudeAdditionalAllowedDirs().forEach { dir ->
+                if (dir !in this) add(dir)
+            }
         }
         if (auth.antigravityPersonalSubscription) {
-            // In personal subscription mode, per-session permissions are passed via `--settings <file>`
-            // so we never mutate or shadow the user's signed-in `~/.gemini/antigravity-cli/settings.json`.
+            // Isolated per-invocation HOME: write trustedWorkspaces + permissions cleanly into
+            // <homeDir>/.gemini/antigravity-cli/settings.json. NEVER set enableAdc or modelProvider="gemini".
+            val settingsDir = File(homeDir, ".gemini/antigravity-cli")
+            createDirectories(settingsDir, "Antigravity CLI settings")
+            val settingsObj = buildJsonObject {
+                if (trustedWorkspaces.isNotEmpty()) {
+                    put("trustedWorkspaces", JsonArray(trustedWorkspaces.map(::JsonPrimitive)))
+                }
+                if (allowRules.isNotEmpty() || denyRules.isNotEmpty()) {
+                    put("permissions", buildJsonObject {
+                        if (allowRules.isNotEmpty()) put("allow", JsonArray(allowRules.map(::JsonPrimitive)))
+                        if (denyRules.isNotEmpty()) put("deny", JsonArray(denyRules.map(::JsonPrimitive)))
+                    })
+                }
+            }
+            val settingsFile = File(settingsDir, "settings.json")
+            settingsFile.writeText(Json.encodeToString(settingsObj), Charsets.UTF_8)
+            applyAntigravityHomePermissions(settingsDir, settingsFile)
             return
         }
         val directGeminiApiKey = auth.mode == ExternalAuthMode.API_KEY && auth.env["GOOGLE_GENAI_USE_VERTEXAI"] != "true"
-        val (allowRules, denyRules) = computeAntigravityPermissionRules(ctx)
 
         if (!auth.antigravityEnableAdc && !directGeminiApiKey && allowRules.isEmpty() && denyRules.isEmpty()) return
         val settingsDir = File(homeDir, ".gemini/antigravity-cli")
         createDirectories(settingsDir, "Antigravity CLI settings")
         val settingsObj = buildJsonObject {
+            if (trustedWorkspaces.isNotEmpty()) {
+                put("trustedWorkspaces", JsonArray(trustedWorkspaces.map(::JsonPrimitive)))
+            }
             if (auth.antigravityEnableAdc) {
                 put("enableAdc", JsonPrimitive(true))
             }
@@ -2932,7 +3051,7 @@ class ExternalAgentTools(
         }
         val settingsFile = File(settingsDir, "settings.json")
         settingsFile.writeText(Json.encodeToString(settingsObj), Charsets.UTF_8)
-        applyCodexHomePermissions(settingsDir, settingsFile)
+        applyAntigravityHomePermissions(settingsDir, settingsFile)
     }
 
     private fun validateCommandArguments(command: List<String>) {
@@ -3000,13 +3119,20 @@ class ExternalAgentTools(
                 "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY"
             )
             require(ctx.extraEnv.keys.none { it.uppercase() in reserved }) { "External Agent environment cannot override host account/network scope" }
-            val home = File(privateRoot, "home/${safePathSegment(context.executionId ?: "root")}/${safePathSegment(context.stepName ?: "agent")}")
-            createDirectories(home, "Runner scoped HOME")
-            java.nio.file.Files.setPosixFilePermissions(home.toPath(), java.nio.file.attribute.PosixFilePermissions.fromString("rwx------"))
-            if (engine == Engine.ANTIGRAVITY) {
-                writeAntigravityCliSettings(home, ctx, effectiveModel, auth, baseUrlOverride)
+            if (engine == Engine.ANTIGRAVITY && auth.antigravityHomeHostDir != null && !isDocker) {
+                // Keep the per-invocation Antigravity HOME (already materialized inside
+                // privateRoot/braidrun-antigravity/... with 0700 permissions and the tenant's
+                // isolated credential/settings files) instead of overwriting HOME with a step-shared dir.
+                put("HOME", auth.antigravityHomeHostDir.absolutePath)
+            } else {
+                val home = File(privateRoot, "home/${safePathSegment(context.executionId ?: "root")}/${safePathSegment(context.stepName ?: "agent")}")
+                createDirectories(home, "Runner scoped HOME")
+                java.nio.file.Files.setPosixFilePermissions(home.toPath(), java.nio.file.attribute.PosixFilePermissions.fromString("rwx------"))
+                if (engine == Engine.ANTIGRAVITY) {
+                    writeAntigravityCliSettings(home, ctx, effectiveModel, auth, baseUrlOverride)
+                }
+                put("HOME", home.absolutePath)
             }
-            put("HOME", home.absolutePath)
             putAll(requireNotNull(com.fartech.agents.workflow.WorkflowHostContext.current).codeEnvironment)
             context.executionId?.let { put("WF_EXECUTION_ID", it) }
             context.stepName?.let { put("WF_STEP_NAME", it) }
@@ -3024,6 +3150,23 @@ class ExternalAgentTools(
         }
         if (engine == Engine.ANTIGRAVITY && isDocker) {
             put("HOME", if (auth.antigravityHomeHostDir != null) ANTIGRAVITY_HOME_CONTAINER_PATH else "/tmp")
+        }
+        if (engine == Engine.ANTIGRAVITY) {
+            // Prevent headless `agy -p` from ever launching `/usr/bin/open` or `xdg-open`
+            // on macOS/Linux GUI hosts when an OAuth token is expired or revoked.
+            putIfAbsent("SSH_CONNECTION", "127.0.0.1 0 127.0.0.1 22")
+            putIfAbsent("BROWSER", "/usr/bin/false")
+            put(
+                "BRAIDRUN_ANTIGRAVITY_AUTH_MODE",
+                when {
+                    auth.antigravityPersonalSubscription -> "subscription"
+                    auth.antigravityEnableAdc -> "adc"
+                    else -> "api_key"
+                }
+            )
+            if (auth.antigravityPersonalSubscription) {
+                FORBIDDEN_PERSONAL_SUBSCRIPTION_ENV_KEYS.forEach { remove(it) }
+            }
         }
         // Optional custom API base URL — lets the operator route the SDK through
         // OpenRouter (or any Anthropic-/OpenAI-compatible proxy). Validated to
@@ -3519,17 +3662,21 @@ class ExternalAgentTools(
     }
 
     /**
-     * Antigravity account / subscription / ADC authentication.
+     * Antigravity account / personal subscription / Cloud ADC authentication.
      *
-     * Supports two strictly separated quota modes:
-     * 1. **Antigravity Personal Subscription (`subscription` / `personal_subscription`)**:
-     *    Uses the host's signed-in `agy` CLI session (macOS Keychain / `~/.gemini/antigravity-cli`)
-     *    to consume the user's Antigravity personal subscription Gemini quota. Never injects
+     * Supports strictly separated quota modes:
+     * 1. **Antigravity Personal Subscription (`subscription` / `personal` / `personal_subscription`)**:
+     *    Materializes an isolated per-invocation `HOME` containing `.gemini/antigravity-cli/antigravity-oauth-token`
+     *    (`codeassistclient.StoredToken` with `auth_method = "consumer"`), `.gemini/config/.migrated`,
+     *    and `.gemini/antigravity-cli/jetski_state.pbtxt`. Works portably across Native, Docker, and
+     *    remote Runners without touching host OS Keychains or host login state, and NEVER injects
      *    `AGY_ADC_AUTH`, `GOOGLE_APPLICATION_CREDENTIALS`, `GOOGLE_GENAI_USE_VERTEXAI`,
      *    `GOOGLE_CLOUD_PROJECT`, or `GEMINI_API_KEY`.
-     * 2. **Google Cloud / Enterprise ADC (`adc` / `cloud_auth`, or when explicit ADC material is supplied)**:
+     * 2. **Google Cloud / Enterprise ADC (`adc` / `cloud_auth` / `antigravity_adc`)**:
      *    Materializes an isolated `0600` `<antigravityHome>/adc_credentials.json` with
      *    `GOOGLE_APPLICATION_CREDENTIALS` + `AGY_ADC_AUTH=true`.
+     * 3. **Explicit Local Host Login (`host_login` / `agy_login`, local native CLI dev only)**:
+     *    Opt-in reuse of a local developer host's signed-in `agy` session outside Docker/Runners.
      */
     private fun antigravityRawAuthModeNormalized(): String =
         parameters.parameter(Engine.ANTIGRAVITY.authModeParameterKey, "api_key")
@@ -3543,8 +3690,15 @@ class ExternalAgentTools(
         attemptedCredentialIds: Set<String>
     ): ResolvedExternalAuth {
         val rawMode = antigravityRawAuthModeNormalized()
-        if (rawMode in setOf("personal", "personal_subscription", "host_login", "agy_login")) {
-            return antigravityPersonalSubscriptionAuth(ctx, invocationId)
+        if (rawMode in setOf("host_login", "agy_login")) {
+            return antigravityHostLoginAuth(ctx, invocationId)
+        }
+        if (rawMode in setOf("subscription", "personal", "personal_subscription")) {
+            val personalFile = loadAntigravityPersonalAuthFile()
+            val candidate = if (personalFile == null) antigravityCredentialProvider?.acquire(attemptedCredentialIds) else null
+            return releasingOnFailure(Engine.ANTIGRAVITY, candidate) {
+                antigravityPersonalSubscriptionAuth(ctx, invocationId, attemptedCredentialIds, personalFile, candidate)
+            }
         }
         val localAuth = loadAntigravityAuthFile()
         val candidate = if (localAuth == null) antigravityCredentialProvider?.acquire(attemptedCredentialIds) else null
@@ -3563,23 +3717,16 @@ class ExternalAgentTools(
         val useVertex: Boolean = false
     )
 
-    private fun antigravityPersonalSubscriptionAuth(
-        ctx: ExternalAgentContext,
-        invocationId: String
-    ): ResolvedExternalAuth {
-        if (com.fartech.agents.workflow.WorkflowHostContext.current != null) {
-            throw IllegalStateException(
-                "Antigravity personal subscription mode relies on the host user's signed-in 'agy' CLI session " +
-                    "and cannot run inside an isolated Runner host. Use 'api_key' or 'adc' mode."
-            )
-        }
-        if (isDocker || executor.isDocker) {
-            throw IllegalStateException(
-                "Antigravity personal subscription mode relies on the host OS Keychain and signed-in 'agy' CLI session, " +
-                    "which are unavailable inside stateless Docker containers. Switch subprocess execution to native mode, " +
-                    "or use 'api_key' / 'adc' mode."
-            )
-        }
+    internal data class NormalizedPersonalAntigravityToken(
+        val diskStoredTokenJson: String,
+        val vaultJson: String,
+        val accessToken: String,
+        val refreshToken: String,
+        val expiry: String?,
+        val idTokenEmail: String?
+    )
+
+    private fun validateAntigravityPersonalSubscriptionContext(ctx: ExternalAgentContext) {
         if (isAntigravitySdkMode()) {
             throw IllegalArgumentException(
                 "The official 'google-antigravity' Python SDK (LocalAgentConfig) only supports Gemini API keys or Vertex AI ADC, " +
@@ -3587,18 +3734,77 @@ class ExternalAgentTools(
                     "to consume your Antigravity personal subscription Gemini quota."
             )
         }
-        val forbiddenPersonalEnvKeys = setOf(
-            "GEMINI_API_KEY", "GOOGLE_API_KEY", "ANTIGRAVITY_API_KEY",
-            "GOOGLE_APPLICATION_CREDENTIALS", "AGY_ADC_AUTH",
-            "GOOGLE_GENAI_USE_VERTEXAI", "GOOGLE_GENAI_USE_ENTERPRISE",
-            "GOOGLE_CLOUD_PROJECT", "GOOGLE_CLOUD_LOCATION", "GOOGLE_CLOUD_QUOTA_PROJECT",
-            "GOOGLE_OAUTH_ACCESS_TOKEN", "ANTIGRAVITY_OAUTH_TOKEN", "AGY_AUTH_TOKEN"
-        )
-        require(ctx.extraEnv.keys.none { it.uppercase() in forbiddenPersonalEnvKeys }) {
+        require(ctx.extraEnv.keys.none { it.uppercase() in FORBIDDEN_PERSONAL_SUBSCRIPTION_ENV_KEYS }) {
             "Antigravity personal subscription mode forbids API key, Google Cloud ADC, or Vertex AI environment " +
                 "overrides so execution strictly consumes your Antigravity personal subscription quota."
         }
+    }
 
+    private fun antigravityPersonalSubscriptionAuth(
+        ctx: ExternalAgentContext,
+        invocationId: String,
+        attemptedCredentialIds: Set<String>,
+        authFile: Pair<CodexAuthFileSource, NormalizedPersonalAntigravityToken>?,
+        candidate: ClaudeCredentialProvider.Credential?
+    ): ResolvedExternalAuth {
+        validateAntigravityPersonalSubscriptionContext(ctx)
+        if (authFile == null && antigravityCredentialProvider != null && candidate == null) {
+            throw ExternalAgentExecutionException("All accessible Antigravity personal subscription credentials are unavailable")
+        }
+        if (candidate?.id in attemptedCredentialIds) {
+            throw ExternalAgentExecutionException(
+                "Antigravity credential provider returned an already-attempted credential"
+            )
+        }
+        val normalized = authFile?.second
+            ?: candidate?.token?.let(::normalizeAntigravityPersonalAuthJson)
+            ?: resolveAntigravityPersonalAuthJson()
+            ?: throw IllegalStateException(
+                "Missing Antigravity personal subscription credential. Authorize an Antigravity personal subscription " +
+                    "in Credential Center (provider '$ANTIGRAVITY_PERSONAL_SUBSCRIPTION_PROVIDER'), or set workflow " +
+                    "parameter '$ANTIGRAVITY_AUTH_JSON_PARAMETER'."
+            )
+
+        val deleteHomeOnExit = authFile != null || shouldDeleteAntigravityHomeOnExit(ctx)
+        val (homeDir, tokenFile) = materializeAntigravityPersonalHome(
+            storedTokenJson = normalized.diskStoredTokenJson,
+            invocationId = invocationId,
+            ephemeral = deleteHomeOnExit
+        )
+
+        return ResolvedExternalAuth(
+            mode = ExternalAuthMode.SUBSCRIPTION,
+            env = if (isDocker) emptyMap() else mapOf("HOME" to homeDir.absolutePath),
+            subscriptionCredentialId = candidate?.id,
+            subscriptionCredentialLabel = candidate?.label,
+            subscriptionCredential = candidate,
+            antigravityHomeHostDir = homeDir,
+            antigravityCredentialFile = tokenFile,
+            originalAntigravityAuthJson = normalized.diskStoredTokenJson,
+            antigravityAuthFileSource = authFile?.first,
+            antigravityEnableAdc = false,
+            antigravityPersonalSubscription = true,
+            deleteAntigravityHomeOnExit = deleteHomeOnExit
+        )
+    }
+
+    private fun antigravityHostLoginAuth(
+        ctx: ExternalAgentContext,
+        invocationId: String
+    ): ResolvedExternalAuth {
+        if (com.fartech.agents.workflow.WorkflowHostContext.current != null) {
+            throw IllegalStateException(
+                "Antigravity 'host_login' mode cannot run inside an isolated Runner host. " +
+                    "Authorize '$ANTIGRAVITY_PERSONAL_SUBSCRIPTION_PROVIDER' in Credential Center and use 'subscription' mode."
+            )
+        }
+        if (isDocker || executor.isDocker) {
+            throw IllegalStateException(
+                "Antigravity 'host_login' mode relies on the host OS Keychain and cannot run inside stateless Docker containers. " +
+                    "Authorize '$ANTIGRAVITY_PERSONAL_SUBSCRIPTION_PROVIDER' in Credential Center and use 'subscription' mode."
+            )
+        }
+        validateAntigravityPersonalSubscriptionContext(ctx)
         if (ctx.mcpServers.isEmpty()) {
             return ResolvedExternalAuth(
                 mode = ExternalAuthMode.SUBSCRIPTION,
@@ -3609,7 +3815,6 @@ class ExternalAgentTools(
                 deleteAntigravityHomeOnExit = false
             )
         }
-
         val mcpHome = materializePersonalSubscriptionMcpHome(invocationId)
         return ResolvedExternalAuth(
             mode = ExternalAuthMode.SUBSCRIPTION,
@@ -3619,6 +3824,68 @@ class ExternalAgentTools(
             antigravityPersonalSubscription = true,
             deleteAntigravityHomeOnExit = true
         )
+    }
+
+    private fun materializeAntigravityPersonalHome(
+        storedTokenJson: String,
+        invocationId: String,
+        ephemeral: Boolean
+    ): Pair<File, File> {
+        val homeDir = materializeAntigravityHome(invocationId, ephemeral = ephemeral)
+        val geminiDir = File(homeDir, ".gemini")
+        val configDir = File(geminiDir, "config")
+        val cliDir = File(geminiDir, "antigravity-cli")
+        createDirectories(configDir, "Antigravity config")
+        createDirectories(cliDir, "Antigravity CLI state")
+
+        val migratedFile = File(configDir, ".migrated")
+        migratedFile.writeText("", Charsets.UTF_8)
+
+        val jetskiStateFile = File(cliDir, "jetski_state.pbtxt")
+        jetskiStateFile.writeText(ANTIGRAVITY_ONBOARDED_JETSKI_STATE_PBTXT, Charsets.UTF_8)
+
+        val tokenFile = File(cliDir, ANTIGRAVITY_OAUTH_TOKEN_FILE_NAME)
+        tokenFile.writeText(storedTokenJson, Charsets.UTF_8)
+
+        applyAntigravityHomePermissions(homeDir, null)
+        applyAntigravityHomePermissions(geminiDir, null)
+        applyAntigravityHomePermissions(configDir, migratedFile)
+        applyAntigravityHomePermissions(cliDir, jetskiStateFile)
+        applyAntigravityHomePermissions(cliDir, tokenFile)
+        return homeDir to tokenFile
+    }
+
+    private fun loadAntigravityPersonalAuthFile(): Pair<CodexAuthFileSource, NormalizedPersonalAntigravityToken>? {
+        val configured = parameters.parameter(ANTIGRAVITY_AUTH_FILE_PARAMETER, "").trim()
+        if (configured.isEmpty()) return null
+        require(!isDocker && !executor.isDocker) {
+            "$ANTIGRAVITY_AUTH_FILE_PARAMETER is available only in native mode"
+        }
+        val path = Path.of(configured)
+        require(path.isAbsolute) { "$ANTIGRAVITY_AUTH_FILE_PARAMETER must be an absolute path" }
+        val normalized = path.normalize()
+        validatePrivateCodexAuthFile(normalized)
+        val canonical = normalized.toRealPath()
+        listOfNotNull(context.workspaceDir, context.outputDir).forEach { directory ->
+            val root = directory.canonicalFile.toPath()
+            require(!canonical.startsWith(root)) {
+                "$ANTIGRAVITY_AUTH_FILE_PARAMETER must be outside the workflow workspace and output directory"
+            }
+        }
+        val bytes = readBoundedCodexAuthFile(normalized)
+        val token = normalizeAntigravityPersonalAuthJson(bytes.toString(Charsets.UTF_8))
+            ?: throw IllegalArgumentException("Local Antigravity personal authentication file is empty")
+        return CodexAuthFileSource(canonical, sha256(bytes)) to token
+    }
+
+    private fun resolveAntigravityPersonalAuthJson(): NormalizedPersonalAntigravityToken? {
+        normalizeAntigravityPersonalAuthJson(parameters.parameter(ANTIGRAVITY_AUTH_JSON_PARAMETER, ""))?.let { return it }
+
+        val keys = parameters.parameter("llm_provider_keys", mapOf<String, String>())
+        ANTIGRAVITY_PERSONAL_SUBSCRIPTION_PROVIDER_ALIASES.forEach { alias ->
+            normalizeAntigravityPersonalAuthJson(keys[alias])?.let { return it }
+        }
+        return null
     }
 
     private fun materializePersonalSubscriptionMcpHome(invocationId: String): File {
@@ -3668,14 +3935,10 @@ class ExternalAgentTools(
             ?: resolveAntigravitySubscriptionMaterial()
 
         if (resolvedMaterial == null) {
-            if (!requireExplicitAdc && antigravityCredentialProvider == null) {
-                return antigravityPersonalSubscriptionAuth(ctx, invocationId)
-            }
             throw IllegalStateException(
                 "Missing Antigravity Google Cloud ADC credential. Create a credential with provider " +
                     "'$ANTIGRAVITY_SUBSCRIPTION_PROVIDER' (Application Default Credentials JSON), " +
-                    "or set workflow parameter '$ANTIGRAVITY_AUTH_JSON_PARAMETER' — or switch to " +
-                    "'$ANTIGRAVITY_AUTH_MODE_PARAMETER=subscription' on a native host signed in via `agy`."
+                    "or set workflow parameter '$ANTIGRAVITY_AUTH_JSON_PARAMETER'."
             )
         }
         val material = resolvedMaterial
@@ -3926,7 +4189,7 @@ class ExternalAgentTools(
             defaultAntigravityHomeDir(invocationId, ephemeral)
         }
         createDirectories(base, "Antigravity home")
-        applyCodexHomePermissions(base, authFile = null)
+        applyAntigravityHomePermissions(base, authFile = null)
         return base
     }
 
@@ -3936,6 +4199,13 @@ class ExternalAgentTools(
             File(com.fartech.agents.workflow.WorkflowHostContext.current?.privateDirectory ?: File(System.getProperty("java.io.tmpdir")), "braidrun-antigravity"),
             safePathSegment(userId)
         )
+        runCatching {
+            createDirectories(userDir, "Antigravity tenant root")
+            Files.setPosixFilePermissions(
+                userDir.toPath(),
+                setOf(PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE, PosixFilePermission.OWNER_EXECUTE)
+            )
+        }
         val invocationBase = File(
             File(userDir, safePathSegment(runId)),
             safePathSegment(
@@ -3945,6 +4215,46 @@ class ExternalAgentTools(
             )
         )
         return if (ephemeral) File(invocationBase, safePathSegment(invocationId)) else invocationBase
+    }
+
+    private fun applyAntigravityHomePermissions(dir: File, authFile: File?) {
+        if (isDocker) {
+            runCatching { applyClaudeConfigPermissions(dir) }.onFailure {
+                applyCodexHomePermissions(dir, authFile = null)
+            }
+            if (authFile != null) {
+                val filePath = authFile.toPath()
+                val sandboxOwned = runCatching {
+                    Files.setPosixFilePermissions(filePath, CODEX_AUTH_FILE_PERMISSIONS)
+                    Files.setAttribute(filePath, "unix:gid", DOCKER_SANDBOX_GID)
+                    Files.setAttribute(filePath, "unix:uid", DOCKER_SANDBOX_UID)
+                    (Files.getAttribute(filePath, "unix:uid") as Number).toInt() == DOCKER_SANDBOX_UID
+                }.getOrDefault(false)
+                if (!sandboxOwned) {
+                    runCatching {
+                        authFile.setReadable(true, false)
+                        authFile.setWritable(true, false)
+                    }
+                }
+            }
+        } else {
+            runCatching {
+                Files.setPosixFilePermissions(
+                    dir.toPath(),
+                    setOf(PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE, PosixFilePermission.OWNER_EXECUTE)
+                )
+            }
+            if (authFile != null) {
+                runCatching {
+                    Files.setPosixFilePermissions(authFile.toPath(), CODEX_AUTH_FILE_PERMISSIONS)
+                }.onFailure {
+                    authFile.setReadable(false, false)
+                    authFile.setWritable(false, false)
+                    authFile.setReadable(true, true)
+                    authFile.setWritable(true, true)
+                }
+            }
+        }
     }
 
     private fun createEphemeralAntigravityHome(invocationId: String): File? =
@@ -4736,8 +5046,40 @@ class ExternalAgentTools(
         const val ANTIGRAVITY_APPEND_SYSTEM_PROMPT_PARAMETER = "external_agent_antigravity_append_system_prompt"
         const val ANTIGRAVITY_PYTHON_PARAMETER = "external_agent_antigravity_python"
         const val ANTIGRAVITY_SKIP_PERMISSIONS_PARAMETER = "external_agent_antigravity_skip_permissions"
+        const val ANTIGRAVITY_PERSONAL_SUBSCRIPTION_PROVIDER = "antigravity_personal_subscription"
         const val ANTIGRAVITY_SUBSCRIPTION_PROVIDER = "antigravity_subscription"
         const val ANTIGRAVITY_SDK_COMMAND = "antigravity-sdk"
+        const val ANTIGRAVITY_OAUTH_TOKEN_FILE_NAME = "antigravity-oauth-token"
+        const val ANTIGRAVITY_CONSUMER_OAUTH_CLIENT_ID =
+            "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com"
+        private val FORBIDDEN_PERSONAL_SUBSCRIPTION_ENV_KEYS = setOf(
+            "GEMINI_API_KEY", "GOOGLE_API_KEY", "ANTIGRAVITY_API_KEY",
+            "GOOGLE_APPLICATION_CREDENTIALS", "AGY_ADC_AUTH",
+            "GOOGLE_GENAI_USE_VERTEXAI", "GOOGLE_GENAI_USE_ENTERPRISE",
+            "GOOGLE_CLOUD_PROJECT", "GOOGLE_CLOUD_LOCATION", "GOOGLE_CLOUD_QUOTA_PROJECT",
+            "GOOGLE_OAUTH_ACCESS_TOKEN", "ANTIGRAVITY_OAUTH_TOKEN", "AGY_AUTH_TOKEN",
+            "GOOGLE_GEMINI_BASE_URL"
+        )
+        private val ANTIGRAVITY_ONBOARDED_JETSKI_STATE_PBTXT = """
+            migrations: {
+              key: 3
+              value: MIGRATION_STATUS_COMPLETED
+            }
+            migrations: {
+              key: 4
+              value: MIGRATION_STATUS_COMPLETED
+            }
+            migrations: {
+              key: 5
+              value: MIGRATION_STATUS_COMPLETED
+            }
+            post_onboarding: {
+              completed_steps: POST_ONBOARDING_STEP_TYPE_MANAGER_WELCOME
+              completed_steps: POST_ONBOARDING_STEP_TYPE_USAGE_MODE
+              completed_steps: POST_ONBOARDING_STEP_TYPE_AGENT_CONFIGURATION
+              completed_steps: POST_ONBOARDING_STEP_TYPE_ADD_WORKSPACE
+            }
+        """.trimIndent() + "\n"
         private val ANTIGRAVITY_MODEL_EFFORT_SUFFIX_REGEX =
             Regex(".*-(low|medium|high|xhigh|max)$", RegexOption.IGNORE_CASE)
 
@@ -4781,6 +5123,14 @@ class ExternalAgentTools(
             "codex_oauth",
             "codex_chatgpt",
             "openai_subscription"
+        )
+
+        private val ANTIGRAVITY_PERSONAL_SUBSCRIPTION_PROVIDER_ALIASES = listOf(
+            "antigravity_personal_subscription",
+            "antigravity_personal",
+            "antigravity_personal_oauth",
+            "agy_subscription",
+            "agy_personal_subscription"
         )
 
         private val ANTIGRAVITY_SUBSCRIPTION_PROVIDER_ALIASES = listOf(
@@ -5195,9 +5545,191 @@ class ExternalAgentTools(
             "reauth related error",
             "token has been expired or revoked",
             "authentication failed",
+            "authentication required",
+            "not logged into antigravity",
             "please sign in",
             "sign in to"
         )
+
+        /**
+         * Validates and normalizes an Antigravity personal subscription credential into the
+         * `codeassistclient.StoredToken` JSON expected at `~/.gemini/antigravity-cli/antigravity-oauth-token`.
+         *
+         * Strictly rejects Gemini API keys (`AIza...`) and Google Cloud Application Default Credentials
+         * (`authorized_user`, `service_account`, `external_account`, `private_key`, `quota_project_id`,
+         * or non-consumer `client_id`) so personal subscription mode never falls back to Vertex AI
+         * or independent Gemini API billing.
+         */
+        internal fun normalizeAntigravityPersonalAuthJson(raw: String?): NormalizedPersonalAntigravityToken? {
+            val trimmed = raw?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+            if (trimmed.startsWith("AIza") && !trimmed.startsWith("{")) {
+                throw IllegalArgumentException(
+                    "Antigravity personal subscription mode received a Gemini API key ('AIza...'). " +
+                        "Switch '$ANTIGRAVITY_AUTH_MODE_PARAMETER' to 'api_key', or authorize " +
+                        "'$ANTIGRAVITY_PERSONAL_SUBSCRIPTION_PROVIDER' in Credential Center."
+                )
+            }
+            val obj = runCatching { permissiveJson.parseToJsonElement(trimmed).jsonObject }.getOrNull()
+                ?: throw IllegalArgumentException(
+                    "Antigravity personal subscription credential must be valid StoredToken JSON, not a raw string."
+                )
+
+            val credType = obj.stringField("type")?.trim()?.lowercase()
+            if (credType in setOf(
+                    "authorized_user",
+                    "service_account",
+                    "external_account",
+                    "impersonated_service_account",
+                    "gdch_service_account"
+                ) ||
+                obj["private_key"] != null ||
+                !obj.stringField("quota_project_id").isNullOrBlank()
+            ) {
+                throw IllegalArgumentException(
+                    "Antigravity personal subscription mode rejected Google Cloud ADC material " +
+                        "(type='${credType ?: "adc"}'). Switch '$ANTIGRAVITY_AUTH_MODE_PARAMETER' to 'adc' for " +
+                        "Google Cloud / Vertex AI, or authorize '$ANTIGRAVITY_PERSONAL_SUBSCRIPTION_PROVIDER' " +
+                        "for personal subscription Gemini quota."
+                )
+            }
+
+            val explicitClientId = obj.stringField("client_id")?.trim()?.takeIf { it.isNotEmpty() }
+            if (explicitClientId != null && explicitClientId != ANTIGRAVITY_CONSUMER_OAUTH_CLIENT_ID) {
+                throw IllegalArgumentException(
+                    "Antigravity personal subscription mode rejected non-consumer OAuth client_id. " +
+                        "Switch '$ANTIGRAVITY_AUTH_MODE_PARAMETER' to 'adc' for custom Google Cloud OAuth clients, " +
+                        "or authorize '$ANTIGRAVITY_PERSONAL_SUBSCRIPTION_PROVIDER' in Credential Center."
+                )
+            }
+
+            val explicitAuthMethod = obj.stringField("auth_method")?.trim()?.takeIf { it.isNotEmpty() }
+            if (explicitAuthMethod != null && explicitAuthMethod != "consumer") {
+                throw IllegalArgumentException(
+                    "Antigravity personal subscription StoredToken must have auth_method='consumer' " +
+                        "(got '$explicitAuthMethod')."
+                )
+            }
+
+            val tokenObj = (obj["token"] as? JsonObject) ?: (obj["tokens"] as? JsonObject) ?: obj
+            val refreshToken = (tokenObj.stringField("refresh_token") ?: obj.stringField("refresh_token"))
+                ?.trim()
+                ?.takeIf { it.isNotEmpty() }
+                ?: throw IllegalArgumentException(
+                    "Antigravity personal subscription StoredToken must include a renewable 'refresh_token'."
+                )
+            val accessToken = (tokenObj.stringField("access_token") ?: obj.stringField("access_token"))
+                ?.trim()
+                .orEmpty()
+            val tokenType = (tokenObj.stringField("token_type") ?: obj.stringField("token_type"))
+                ?.trim()
+                ?.takeIf { it.isNotEmpty() }
+                ?: "Bearer"
+            val rawExpiry = (tokenObj.stringField("expiry") ?: obj.stringField("expiry"))
+                ?.trim()
+                ?.takeIf { it.isNotEmpty() && !it.startsWith("0001-01-01") }
+            val effectiveExpiry = when {
+                rawExpiry != null -> rawExpiry
+                accessToken.isEmpty() -> "1970-01-01T00:00:00Z"
+                else -> null
+            }
+
+            val idTokenEmail = (obj.stringField("id_token_email") ?: obj.stringField("email"))
+                ?.trim()
+                ?.takeIf { it.isNotEmpty() }
+            val userTier = obj.stringField("user_tier")?.trim()?.takeIf { it.isNotEmpty() }
+            val tierDisplayName = obj.stringField("tier_display_name")?.trim()?.takeIf { it.isNotEmpty() }
+            val lastRefresh = obj.stringField("last_refresh")?.trim()?.takeIf { it.isNotEmpty() }
+
+            fun buildStoredToken(includeLastRefresh: String?): JsonObject = buildJsonObject {
+                put("token", buildJsonObject {
+                    put("access_token", JsonPrimitive(accessToken))
+                    put("token_type", JsonPrimitive(tokenType))
+                    put("refresh_token", JsonPrimitive(refreshToken))
+                    effectiveExpiry?.let { put("expiry", JsonPrimitive(it)) }
+                })
+                put("auth_method", JsonPrimitive("consumer"))
+                idTokenEmail?.let { put("id_token_email", JsonPrimitive(it)) }
+                userTier?.let { put("user_tier", JsonPrimitive(it)) }
+                tierDisplayName?.let { put("tier_display_name", JsonPrimitive(it)) }
+                includeLastRefresh?.let { put("last_refresh", JsonPrimitive(it)) }
+            }
+
+            val diskJson = Json.encodeToString(buildStoredToken(includeLastRefresh = null))
+            val vaultJson = Json.encodeToString(buildStoredToken(includeLastRefresh = lastRefresh))
+            return NormalizedPersonalAntigravityToken(
+                diskStoredTokenJson = diskJson,
+                vaultJson = vaultJson,
+                accessToken = accessToken,
+                refreshToken = refreshToken,
+                expiry = effectiveExpiry,
+                idTokenEmail = idTokenEmail
+            )
+        }
+
+        internal fun mergeRotatedAntigravityPersonalAuthJson(
+            originalJson: String,
+            currentJson: String
+        ): NormalizedPersonalAntigravityToken? {
+            val origObj = runCatching { permissiveJson.parseToJsonElement(originalJson).jsonObject }.getOrNull()
+                ?: return null
+            val currObj = runCatching { permissiveJson.parseToJsonElement(currentJson).jsonObject }.getOrNull()
+                ?: return null
+            val origToken = (origObj["token"] as? JsonObject) ?: origObj
+            val currToken = (currObj["token"] as? JsonObject) ?: currObj
+
+            val origAccess = origToken.stringField("access_token")?.trim().orEmpty()
+            val origRefresh = (origToken.stringField("refresh_token") ?: origObj.stringField("refresh_token"))
+                ?.trim()
+                ?.takeIf { it.isNotEmpty() }
+                ?: return null
+            val origExpiry = origToken.stringField("expiry")
+                ?.trim()
+                ?.takeIf { it.isNotEmpty() && !it.startsWith("0001-01-01") }
+
+            val currAccess = currToken.stringField("access_token")?.trim().orEmpty()
+            val currRefresh = (currToken.stringField("refresh_token") ?: currObj.stringField("refresh_token"))
+                ?.trim()
+                ?.takeIf { it.isNotEmpty() }
+                ?: origRefresh
+            val currExpiry = currToken.stringField("expiry")
+                ?.trim()
+                ?.takeIf { it.isNotEmpty() && !it.startsWith("0001-01-01") }
+                ?: origExpiry
+
+            // Only treat as rotated when at least one real OAuth token credential field changed.
+            if (currAccess.isEmpty() && currRefresh == origRefresh) return null
+            if (currAccess == origAccess && currRefresh == origRefresh && currExpiry == origExpiry) {
+                return null
+            }
+
+            val merged = buildJsonObject {
+                put("token", buildJsonObject {
+                    put("access_token", JsonPrimitive(currAccess.ifEmpty { origAccess }))
+                    put(
+                        "token_type",
+                        JsonPrimitive(
+                            currToken.stringField("token_type")?.trim()?.takeIf { it.isNotEmpty() }
+                                ?: origToken.stringField("token_type")?.trim()?.takeIf { it.isNotEmpty() }
+                                ?: "Bearer"
+                        )
+                    )
+                    put("refresh_token", JsonPrimitive(currRefresh))
+                    currExpiry?.let { put("expiry", JsonPrimitive(it)) }
+                })
+                put("auth_method", JsonPrimitive("consumer"))
+                (currObj.stringField("id_token_email") ?: origObj.stringField("id_token_email"))
+                    ?.trim()?.takeIf { it.isNotEmpty() }
+                    ?.let { put("id_token_email", JsonPrimitive(it)) }
+                (currObj.stringField("user_tier") ?: origObj.stringField("user_tier"))
+                    ?.trim()?.takeIf { it.isNotEmpty() }
+                    ?.let { put("user_tier", JsonPrimitive(it)) }
+                (currObj.stringField("tier_display_name") ?: origObj.stringField("tier_display_name"))
+                    ?.trim()?.takeIf { it.isNotEmpty() }
+                    ?.let { put("tier_display_name", JsonPrimitive(it)) }
+                put("last_refresh", JsonPrimitive(java.time.Instant.now().toString()))
+            }
+            return normalizeAntigravityPersonalAuthJson(Json.encodeToString(merged))
+        }
 
         private val ANTIGRAVITY_RATE_LIMIT_MARKERS = listOf(
             "429",

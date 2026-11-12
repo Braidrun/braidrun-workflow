@@ -192,5 +192,43 @@ class RunnerAdmissionSecretsTest {
         assertFailsWith<IllegalArgumentException> {
             RunnerAdmission(NullWorkflowResolver, setOf("workflow.full.v1", "step.agent.v1", "agent.codex.v1")).inspect(fileWorkflow(subWithCustomUrl))
         }
+
+        val validAgyPersonalSub = AgentDefinition(type = "antigravity_agent", overrides = mapOf(
+            "external_agent_antigravity_auth_mode" to JsonPrimitive("subscription"),
+            "external_agent_antigravity_auth_json" to JsonPrimitive("credential:antigravity@2")
+        ))
+        RunnerAdmission(NullWorkflowResolver, agyCaps).inspect(fileWorkflow(validAgyPersonalSub))
+
+        val agyPersonalSubWithProject = AgentDefinition(type = "antigravity_agent", overrides = mapOf(
+            "external_agent_antigravity_auth_mode" to JsonPrimitive("subscription"),
+            "external_agent_antigravity_auth_json" to JsonPrimitive("credential:antigravity@2"),
+            "external_agent_antigravity_project" to JsonPrimitive("my-gcp-project")
+        ))
+        assertFailsWith<IllegalArgumentException> {
+            RunnerAdmission(NullWorkflowResolver, agyCaps).inspect(fileWorkflow(agyPersonalSubWithProject))
+        }
+
+        val agyPersonalSubWithSdk = AgentDefinition(type = "antigravity_agent", overrides = mapOf(
+            "external_agent_antigravity_auth_mode" to JsonPrimitive("subscription"),
+            "external_agent_antigravity_auth_json" to JsonPrimitive("credential:antigravity@2"),
+            "external_agent_antigravity_command" to JsonPrimitive("antigravity-sdk")
+        ))
+        assertFailsWith<IllegalArgumentException> {
+            RunnerAdmission(NullWorkflowResolver, agyCaps).inspect(fileWorkflow(agyPersonalSubWithSdk))
+        }
+
+        val secrets = RunnerSecrets()
+        secrets.register(
+            JsonPrimitive(
+                """{"token":{"access_token":"ya29.runnerSecretAccess1234567890","token_type":"Bearer","refresh_token":"1//0runnerSecretRefresh1234567890","expiry":"2026-11-12T16:30:00.123456789Z"},"auth_method":"consumer","id_token_email":"very.long.personal.subscriber@example-domain.com"}"""
+            )
+        )
+        val scrubbed = secrets.redact(
+            "email=very.long.personal.subscriber@example-domain.com expiry=2026-11-12T16:30:00.123456789Z tok=ya29.runnerSecretAccess1234567890 ref=1//0runnerSecretRefresh1234567890"
+        )
+        assertFalse(scrubbed.contains("runnerSecretAccess"), scrubbed)
+        assertFalse(scrubbed.contains("runnerSecretRefresh"), scrubbed)
+        assertTrue(scrubbed.contains("very.long.personal.subscriber@example-domain.com"), scrubbed)
+        assertTrue(scrubbed.contains("2026-11-12T16:30:00.123456789Z"), scrubbed)
     }
 }
