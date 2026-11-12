@@ -1787,8 +1787,15 @@ class ExternalAgentTools(
         // the model finishes — verified on claude 2.1.179). With it, text arrives
         // as `stream_event` → `content_block_delta` tokens, which
         // ClaudeStreamEventEmitter forwards live to the chat bubble.
-        add("--include-partial-messages")
-        add("--include-hook-events")
+        // Runner IPC has a bounded lifetime output budget. Partial token JSON and
+        // hook events duplicate the complete assistant/tool messages and
+        // exhausted DayFlow's 16 MiB before the design could finish. Keep complete
+        // stream-json messages, tool progress, final usage and periodic heartbeats;
+        // the managed executor can retain token streaming without that IPC budget.
+        if (com.fartech.agents.workflow.WorkflowHostContext.current?.privateDirectory == null) {
+            add("--include-partial-messages")
+            add("--include-hook-events")
+        }
         // --dangerously-skip-permissions bypasses Claude Code's ENTIRE tool permission
         // gate, including --allowedTools/--disallowedTools — it does not just silence
         // confirmation prompts. Callers that need a hard tool allowlist enforced (e.g.

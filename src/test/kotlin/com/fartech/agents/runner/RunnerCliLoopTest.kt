@@ -32,11 +32,12 @@ class RunnerCliLoopTest {
             [[ "${'$'}CLAUDE_CODE_OAUTH_TOKEN" == fixture-cli-secret-* ]]
             [[ "${'$'}WF_STEP_NAME" == review:iterate:* ]]
             sleep 0.15
+            printf '{"type":"assistant","message":{"id":"msg_%s","usage":{"input_tokens":2,"output_tokens":3},"content":[{"type":"text","text":"Reviewing item"},{"type":"tool_use","id":"read_%s","name":"Read","input":{"file_path":"fixture.txt"}}]}}\n' "${'$'}WF_STEP_NAME" "${'$'}WF_STEP_NAME"
             if [[ "$fail" == true && "${'$'}WF_STEP_NAME" == review:iterate:1 ]]; then
               printf '{"type":"result","is_error":true,"result":"fixture item failed"}\n'
               exit 1
             fi
-            printf '{"type":"result","is_error":false,"result":"reviewed %s"}\n' "${'$'}WF_STEP_NAME"
+            printf '{"type":"result","is_error":false,"result":"reviewed %s","usage":{"input_tokens":2,"output_tokens":3}}\n' "${'$'}WF_STEP_NAME"
         """.trimIndent()
         val source = """
             name: cli-loop
@@ -84,6 +85,10 @@ class RunnerCliLoopTest {
         val executor = object : SubprocessExecutor {
             override suspend fun execute(request: SubprocessExecutor.ExecRequest): SubprocessExecutor.ExecResult {
                 calls += request.env
+                assertFalse("--include-partial-messages" in request.command)
+                assertFalse("--include-hook-events" in request.command)
+                assertTrue("stream-json" in request.command)
+                assertTrue("--verbose" in request.command)
                 assertTrue(Path.of(request.env.getValue("HOME")).startsWith(dir.resolve(".runner-private")))
                 assertFalse(request.command.joinToString(" ").contains("fixture-cli-secret"))
                 peak.accumulateAndGet(running.incrementAndGet(), ::maxOf)
@@ -152,6 +157,10 @@ class RunnerCliLoopTest {
                 if (!fail) {
                     assertEquals(7, calls.size)
                     assertEquals(7, result.variables["reviews"].toString().split("\n---\n").size)
+                    val agentEvents = events.mapNotNull { it["event"] as? JsonObject }
+                    for (type in listOf("tool_call_starting", "claude_code_sub_agent_usage")) {
+                        assertTrue(agentEvents.any { it["type"] == JsonPrimitive(type) }, "Complete messages must retain $type")
+                    }
                 }
                 // Claude auth is environment-only; retained isolated settings must not persist the token.
                 Files.walk(dir.resolve(".runner-private")).use { paths -> paths.filter(Files::isRegularFile).forEach {
