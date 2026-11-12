@@ -70,6 +70,21 @@ class RunnerProtocolTest {
         clock = 61_000_000_000
         assertFailsWith<RunnerAuthorityLost> { gate.installLease(lease(instant)) }
     }
+    @Test fun `five minute environment authority expires monotonically and does not extend the lease`() {
+        val instant = Instant.parse("2026-10-08T01:00:00Z"); var clock = 0L
+        val gate = RunnerEnvironmentGate(binding(), setOf("engine-http"), now = { instant }, nanoTime = { clock })
+        val fiveMinutes = JsonObject(environment(binding(), instant) + ("validUntil" to JsonPrimitive(instant.plusSeconds(300).toString())))
+        assertFailsWith<RunnerAuthorityLost> { gate.install(JsonObject(fiveMinutes + ("validUntil" to JsonPrimitive(instant.plusMillis(300_001).toString())))) }
+        gate.install(fiveMinutes)
+        clock = 299_999_999_999L; gate.check()
+        clock = 300_000_000_000L
+        assertFailsWith<RunnerAuthorityLost> { gate.check() }
+        clock = 0L
+        val leased = RunnerEnvironmentGate(binding(), setOf("engine-http"), now = { instant }, nanoTime = { clock })
+        leased.install(fiveMinutes); leased.installLease(lease(instant))
+        clock = 60_000_000_000L
+        assertFailsWith<RunnerAuthorityLost> { leased.check() }
+    }
     companion object {
         fun resource(path: String) = requireNotNull(RunnerProtocolTest::class.java.getResourceAsStream("/runner-workflow-v1/$path")).use { it.readBytes().toString(Charsets.UTF_8) }
         fun binding(): JsonObject = runnerJson.parseToJsonElement(resource("fixtures/valid/claim.json")).jsonObject.obj("binding")

@@ -65,7 +65,7 @@ class RunnerEnvironmentGate(
         if (interrupted.get() != null || value.obj("binding") != binding || value.string("decision") != "ALLOW") throw RunnerAuthorityLost()
         val checked = Instant.parse(value.string("checkedAt")); val valid = Instant.parse(value.string("validUntil"))
         val instant = now()
-        if (checked > instant || valid <= instant || valid <= checked || java.time.Duration.between(checked, valid).toNanos() > 60_000_000_000L) throw RunnerAuthorityLost()
+        if (checked > instant || valid <= instant || valid <= checked || java.time.Duration.between(checked, valid).toNanos() > 300_000_000_000L) throw RunnerAuthorityLost()
         val routes = value.array("egress").map { it.jsonObject }
         if (routes.isEmpty() || !routes.map { it.string("pathId") }.toSet().containsAll(expectedPaths)) throw RunnerAuthorityLost()
         val profile = value.string("networkProfileHash")
