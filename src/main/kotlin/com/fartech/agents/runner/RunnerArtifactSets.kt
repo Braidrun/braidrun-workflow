@@ -20,6 +20,7 @@ internal class RunnerArtifactSets(
     private val boundaries = LinkedHashMap<String, JsonObject>()
     private val boundaryAcks = LinkedHashMap<String, JsonObject>()
     private val states = LinkedHashMap<String, JsonObject>() // indexed by original boundary eventId
+    private val completedBoundaries = HashSet<String>()
     private fun file(kind: String, identity: String) = ".runner-state/artifact-sets/$kind-${sha256((canonical(ipc.binding) + identity).toByteArray())}.json"
     private fun read(path: String): JsonObject? = confinedPath(root, path).let {
         if (!Files.exists(it)) null else {
@@ -88,6 +89,13 @@ internal class RunnerArtifactSets(
         requireNotNull(readyAck) { "Ready not separately durably ACKed" }
         validateReadyAck(boundary, readyAck)
         require(acknowledged() >= boundary.obj("payload").long("eventSeq")) { "Ready not durably ACKed" }
+        if (boundaryId in completedBoundaries) {
+            val state = states.getValue(boundaryId)
+            require(state.obj("request") == request) { "Changed original set request" }
+            // The receiver may have missed Complete while the workflow already left this boundary.
+            ipc.sendFrame(state.obj("complete"))
+            return
+        }
         guarded(b.obj("producer")) {
             val path = file("state", boundaryId)
             val previous = states[boundaryId] ?: read(path)
@@ -153,9 +161,14 @@ internal class RunnerArtifactSets(
         if (frame.string("type") == "ack") {
             val boundary = boundaries.values.singleOrNull { it.string("frameId") == reply }
             if (boundary != null) {
+                val id = originalId(boundary)
+                if (id in completedBoundaries) {
+                    val original = boundaryAcks[id] ?: read(file("ready-ack", id))
+                    require(original == frame) { "Changed original ready ACK" }
+                    return
+                }
                 guarded(body(boundary).obj("producer")) {
                     validateReadyAck(boundary, frame)
-                    val id = originalId(boundary)
                     val previous = boundaryAcks[id] ?: read(file("ready-ack", id))
                     previous?.let { require(it == frame) { "Changed original ready ACK" } }
                     write(file("ready-ack", id), frame); boundaryAcks[id] = frame
@@ -167,9 +180,13 @@ internal class RunnerArtifactSets(
         if (entry == null) { require(frame.string("type") == "ack") { "Unknown set index correlation" }; return }
         var state = entry.value
         val producer = state.obj("request").obj("payload").obj("producer")
+        val field = if (frame.string("type") == "ack") "ack" else "index"
+        if (entry.key in completedBoundaries) {
+            require(state[field] == frame) { "Changed original set proof" }
+            return
+        }
         guarded(producer) {
             validateProof(state, frame)
-            val field = if (frame.string("type") == "ack") "ack" else "index"
             state[field]?.let { require(it == frame) { "Changed original set proof" } }
             state = JsonObject(state + (field to frame))
             if (state["ack"] != null && state["index"] != null) {
@@ -192,7 +209,11 @@ internal class RunnerArtifactSets(
         for (key in listOf("setId", "ticketId", "snapshotSha256")) put(key, request.getValue(key))
         for (key in listOf("eventId", "eventSeq", "revision", "setIndexHash")) put(key, index.getValue(key))
     }
-    @Synchronized private fun completed(ids: List<String>) = ids.all { states[it]?.get("complete") != null }
+    @Synchronized private fun finishBoundary(ids: List<String>): Boolean {
+        if (!ids.all { states[it]?.get("complete") != null }) return false
+        completedBoundaries.addAll(ids)
+        return true
+    }
     suspend fun awaitCompleted(ids: List<String>) {
         val budgets = currentCoroutineContext()[com.fartech.agents.workflow.ArtifactCompletionBudgets]?.remaining.orEmpty()
         val fallback = System.nanoTime() + 30_000_000_000L
@@ -200,7 +221,7 @@ internal class RunnerArtifactSets(
             currentCoroutineContext().ensureActive(); gate.check()
             val remaining = budgets.minOfOrNull { it() } ?: ((fallback - System.nanoTime()) / 1_000_000)
             if (remaining <= 0) withTimeout(1) { awaitCancellation() }
-            if (completed(ids)) return
+            if (finishBoundary(ids)) return
             delay(minOf(remaining, 20L).coerceAtLeast(1))
         }
     }

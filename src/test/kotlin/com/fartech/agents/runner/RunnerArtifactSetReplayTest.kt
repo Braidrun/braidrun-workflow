@@ -51,10 +51,14 @@ class RunnerArtifactSetReplayTest {
                 observed.send(runnerJson.parseToJsonElement(raw.toString(Charsets.UTF_8)).jsonObject)
             } }
             suspend fun next() = withTimeout(3000) { observed.receive() }
-            fun ack(f: JsonObject) = h.ipc.accept(h.reply(f, "ack", buildJsonObject { put("ackSeq", f.obj("payload").long("eventSeq")); put("revision", 1); put("serverTime", Instant.now().toString()) }))
+            fun ack(f: JsonObject) = h.reply(f, "ack", buildJsonObject {
+                put("ackSeq", f.obj("payload").long("eventSeq")); put("revision", 1); put("serverTime", Instant.now().toString())
+            }).also(h.ipc::accept)
             target = build()
             try {
-                target!!.ready(producer, listOf("decl"), "FAILED"); val boundary = next(); ack(boundary)
+                val ids = target!!.ready(producer, listOf("decl"), "FAILED")
+                val boundary = next()
+                val readyAck = ack(boundary)
                 val request = RunnerProtocolTest.frame(binding, "artifactSetCollectRequest", buildJsonObject {
                     put("setId", "set-original"); put("ticketId", "ticket-original"); put("snapshotSha256", "a".repeat(64)); put("policySha256", policy.hash)
                     put("producer", producer); put("boundaryEventId", boundary.obj("payload").string("eventId")); put("expiresAt", Instant.now().minusSeconds(10).toString())
@@ -71,15 +75,24 @@ class RunnerArtifactSetReplayTest {
                 assertEquals(listOf(boundary.obj("payload").string("eventId")), target!!.ready(producer, listOf("decl"), "FAILED"))
                 assertEquals(boundary, next()); assertEquals(sequence, j.lastSequence())
                 h.ipc.accept(request); assertEquals(event, next()); assertContentEquals(durable, Files.readAllBytes(statePath)); assertEquals(sequence, j.lastSequence())
-                ack(event); val complete = next(); RunnerArtifactSetProtocol.validate(complete, "completeFrame")
+                val baseAck = ack(event); val complete = next(); RunnerArtifactSetProtocol.validate(complete, "completeFrame")
                 assertEquals(request.string("frameId"), complete.string("replyTo")); assertEquals("b".repeat(64), complete.obj("payload").string("setIndexHash"))
                 target!!.close(); target = build(); target!!.ready(producer, listOf("decl"), "FAILED"); assertEquals(boundary, next())
                 h.ipc.accept(request); assertEquals(complete, next()); assertEquals(sequence, j.lastSequence())
                 assertFails { target!!.ready(producer, listOf("decl"), "SUCCESS") }
+                target!!.awaitCompleted(ids)
                 active = false
                 assertFails { target!!.ready(producer, listOf("decl"), "FAILED") }
                 val completedBytes = Files.readAllBytes(statePath)
-                h.ipc.accept(request); withTimeout(3000) { while (runCatching { gate.check() }.isSuccess) delay(10) }
+                h.ipc.accept(readyAck)
+                h.ipc.accept(baseAck)
+                h.ipc.accept(index)
+                h.ipc.accept(request)
+                assertEquals(complete, next())
+                gate.check()
+                assertEquals(sequence, j.lastSequence())
+                val changed = JsonObject(request + ("frameId" to JsonPrimitive("different-collect-id")))
+                h.ipc.accept(changed); withTimeout(3000) { while (runCatching { gate.check() }.isSuccess) delay(10) }
                 assertContentEquals(completedBytes, Files.readAllBytes(statePath)); assertTrue(observed.tryReceive().isFailure)
             } finally { target?.close(); pump.cancel(); h.supervisorInput.close() }
         }
