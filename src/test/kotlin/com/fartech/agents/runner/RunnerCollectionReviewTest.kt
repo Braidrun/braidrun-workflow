@@ -3,6 +3,7 @@ package com.fartech.agents.runner
 import com.fartech.agents.workflow.*
 import com.fartech.agents.tools.exec.NativeSubprocessExecutor
 import com.fartech.ftapp2.commonsKt.HttpAccess
+import com.fartech.ftapp2.commonsKt.ConfigurationParameter
 import kotlinx.coroutines.*
 import kotlinx.serialization.json.*
 import org.junit.jupiter.api.Test
@@ -13,6 +14,62 @@ import java.time.Instant
 import kotlin.test.*
 
 class RunnerCollectionReviewTest {
+    @Test fun `a slow artifact acknowledgment cannot expire the finished producer credential`(@TempDir dir: Path) = runBlocking<Unit> {
+        val f = collectionFixture(dir, rootAgent = true) { policy ->
+            JsonObject(policy + ("declarations" to JsonArray(policy.array("declarations").take(1))))
+        }
+        val bundle = FrozenWorkflowBundle(dir, f.bundle, f.binding)
+        val definition = bundle.rootDefinition
+        val b = f.binding
+        lateinit var host: RunnerWorkflowHost
+        IpcHarness(b) { frame -> if (frame.string("type") == "artifactCollectRequest") host.collectRequest(frame) }.use { h ->
+            h.ipc.enableArtifactCollection()
+            val gate = RunnerEnvironmentGate(b, setOf("jvm-http"))
+            val evidence = RunnerProtocolTest.environment(b, Instant.now())
+            gate.install(JsonObject(evidence + ("egress" to JsonArray(evidence.array("egress").flatMap { route ->
+                listOf("jvm-http", "subprocess").map { JsonObject(route.jsonObject + ("pathId" to JsonPrimitive(it))) }
+            }))))
+            val identity = WorkflowHostBinding(b.string("ownerId"), b.string("actorUserId"), "billing", b.string("executionId"), b.string("runnerId"), b.string("runnerInstanceId"), b.long("resumeEpoch"), b.string("attemptId"), b.string("definitionHash"), b.string("runtimeHash"))
+            val secrets = RunnerSecrets()
+            host = RunnerWorkflowHost(h.ipc, identity, gate, bundle, RunnerHostSession.CAPABILITIES, NativeSubprocessExecutor(),
+                RunnerCheckpointStore(dir, b, secrets), secrets, validateDirectNetwork = {}, collectionPolicy = RunnerCollectionPolicy(bundle))
+            try {
+                val scope = WorkflowHostScope(identity.executionId, identity.executionId, stepName = "produce")
+                host.admit(definition, scope)
+                host.bindArtifactProducer(definition, scope)
+                host.monitor(WorkflowMonitorUpdate(identity.executionId, "step_started", "produce"))
+                val start = h.next().obj("payload")
+                val preparing = async { host.prepareAgentParameters(scope, listOf(ConfigurationParameter("openai_api_key", JsonPrimitive("credential:model@1")))) }
+                val request = h.next()
+                assertEquals("credentialRequest", request.string("type"))
+                val expiresAt = Instant.now().plusSeconds(3)
+                h.ipc.accept(h.reply(request, "credentialGrant", buildJsonObject {
+                    put("requestId", request.obj("payload").string("requestId")); put("credentialLeaseId", "producer-lease")
+                    put("credentialRef", "model"); put("version", 1); put("revision", 1); put("expiresAt", expiresAt.toString())
+                    put("allowedOperations", buildJsonArray { add("llm.request") }); put("material", buildJsonObject { put("apiKey", "synthetic-test-key") })
+                }))
+                preparing.await()
+                val collection = async { host.collectDeclaredArtifacts(definition, definition.workflow.single(), scope, emptyList()) }
+                val release = h.next().obj("payload").obj("payload")
+                assertEquals("RELEASED", release.string("outcome"))
+                assertEquals("producer-lease", release.string("credentialLeaseId"))
+                val ready = h.next().obj("payload")
+                assertEquals("artifact_collection_ready", ready.obj("payload").string("kind"))
+                host.acknowledge(buildJsonObject { put("ackSeq", ready.long("eventSeq")) })
+                val collect = collectFrame(f, "root", start.string("eventId"))
+                h.ipc.accept(collect)
+                val event = h.next()
+                assertEquals("artifact", event.obj("payload").string("type"))
+                while (Instant.now() <= expiresAt) delay(30)
+                assertFalse(collection.isCompleted)
+                gate.check()
+                h.ipc.accept(h.reply(event, "ack", buildJsonObject {
+                    put("ackSeq", event.obj("payload").long("eventSeq")); put("revision", 1); put("serverTime", Instant.now().toString())
+                }))
+                withTimeout(2_000) { collection.await() }
+            } finally { host.close() }
+        }
+    }
     private fun gate(f: CollectionFixture): RunnerEnvironmentGate {
         val gate = RunnerEnvironmentGate(f.binding, setOf("subprocess")); val e = RunnerProtocolTest.environment(f.binding, Instant.now())
         gate.install(JsonObject(e + ("egress" to JsonArray(e.array("egress").map { JsonObject(it.jsonObject + ("pathId" to JsonPrimitive("subprocess"))) }))))

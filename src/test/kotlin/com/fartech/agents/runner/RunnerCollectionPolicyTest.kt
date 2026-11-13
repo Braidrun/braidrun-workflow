@@ -8,8 +8,18 @@ import java.nio.file.Path
 import kotlin.test.*
 
 internal data class CollectionFixture(val binding: JsonObject, val bundle: JsonObject, val policy: JsonObject, val policyHash: String)
-internal fun collectionFixture(dir: Path, rootCode: String = "true", childCode: String = "true", callingStep: String = "nested", change: (JsonObject) -> JsonObject = { it }): CollectionFixture {
-    val root = """
+internal fun collectionFixture(dir: Path, rootCode: String = "true", childCode: String = "true", callingStep: String = "nested", rootAgent: Boolean = false, change: (JsonObject) -> JsonObject = { it }): CollectionFixture {
+    val root = if (rootAgent) """
+        name: collection-root
+        agents:
+          writer:
+            strategy: single_run
+            llm: {model: gpt-4o-mini, provider: openai}
+        workflow:
+          - step: produce
+            agent: writer
+            input: fixture
+    """.trimIndent() else """
         name: collection-root
         agents: {}
         workflow:

@@ -176,6 +176,32 @@ class RunnerSubscriptionTest {
             } finally { live.close(); credentials.clear() }
         }
     }
+    @Test fun `a renewal reply timeout retries while the existing grant is still live`() = runBlocking<Unit> {
+        IpcHarness().use { h ->
+            val gate = RunnerEnvironmentGate(h.binding, setOf("engine-http"))
+            gate.install(RunnerProtocolTest.environment(h.binding, Instant.now()))
+            val cancelled = java.util.concurrent.ConcurrentLinkedQueue<JsonObject>()
+            val credentials = RunnerCredentials(h.ipc, gate, RunnerSecrets(), onRequestCancelled = { cancelled.add(it) })
+            val live = RunnerLiveCredentials(credentials, gate, renewalIntervalMs = 20)
+            try {
+                val scope = WorkflowHostScope(h.binding.string("executionId"), h.binding.string("executionId"), stepName = "cli")
+                val pending = async { live.acquire("credential:account@3", scope, "subscription.codex") }
+                val material = buildJsonObject { put("authJson", original) }
+                val first = grant(h, h.next(), "first", material)
+                val shortGrant = JsonObject(first.obj("payload") + ("expiresAt" to JsonPrimitive(Instant.now().plusMillis(3_000).toString())))
+                h.ipc.accept(JsonObject(first + ("payload" to shortGrant)))
+                val handle = pending.await()
+                val timedOut = h.next()
+                val retry = withTimeout(2_500) { h.next() }
+                assertEquals(timedOut.string("frameId"), cancelled.single().string("requestFrameId"))
+                assertNotEquals(timedOut.string("frameId"), retry.string("frameId"))
+                assertEquals(original, live.checked(handle, scope, "subscription.codex").string("authJson"))
+                h.ipc.accept(grant(h, retry, "renewed", material))
+                withTimeout(500) { while (handle.latest.get().leaseId != "renewed") delay(5) }
+                gate.check()
+            } finally { live.close(); credentials.clear() }
+        }
+    }
     @Test fun `failover releases abandoned renewal without invalidating the replacement card`() = runBlocking<Unit> {
         withTimeout(5000) { IpcHarness().use { h ->
             val gate = RunnerEnvironmentGate(h.binding, setOf("engine-http")); gate.install(RunnerProtocolTest.environment(h.binding, Instant.now()))

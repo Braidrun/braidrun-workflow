@@ -29,7 +29,7 @@ class RunnerCredentials(
     private val onRequestCancelled: (JsonObject) -> Unit = {}
 ) {
     private val leases = ConcurrentHashMap<String, RunnerCredentialLease>()
-    suspend fun acquire(ref: String, version: Long, scope: WorkflowHostScope, purpose: String): RunnerCredentialLease {
+    suspend fun acquire(ref: String, version: Long, scope: WorkflowHostScope, purpose: String, timeoutMs: Long = 30_000): RunnerCredentialLease {
         ipc.businessFence.check(); gate.check()
         require(scope.rootExecutionId == ipc.binding.string("executionId")) { "Credential scope mismatch" }
         val requestId = UUID.randomUUID().toString()
@@ -47,7 +47,7 @@ class RunnerCredentials(
             }.onFailure { gate.invalidate("CREDENTIAL_REQUEST_CANCELLATION_UNREPORTED") }
         }
         val grant = try {
-            ipc.requestCorrelated("credentialRequest", request, "credentialGrant", frameId = requestFrameId,
+            ipc.requestCorrelated("credentialRequest", request, "credentialGrant", timeoutMs = timeoutMs, frameId = requestFrameId,
                 onRequest = { dispatched = true }).payload
         } catch (cancelled: kotlinx.coroutines.CancellationException) {
             // The RPC waiter has been removed before cancellation escapes. A late response can never

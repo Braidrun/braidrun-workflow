@@ -102,8 +102,6 @@ class RunnerLiveCredentials(
         }
     }
     private fun renew(handle: Handle) {
-        val ref = handle.latest.get().credentialRef
-        val executionScope = handle.latest.get().scope
         val purpose = handle.purpose
         handle.job.set(scope.launch {
             try {
@@ -113,7 +111,7 @@ class RunnerLiveCredentials(
                     if (remaining <= 0) throw RunnerAuthorityLost()
                     delay(minOf(renewalIntervalMs, (remaining / 3 / 1_000_000).coerceAtLeast(1)))
                     gate.check()
-                    val next = credentials.acquire(ref, old.version, executionScope, purpose)
+                    val next = renewBeforeExpiry(old, purpose)
                     var expired = false
                     val adopted = try {
                         synchronized(handle) {
@@ -141,6 +139,23 @@ class RunnerLiveCredentials(
                 throw e
             } catch (_: Exception) { if (handle.active.get()) gate.invalidate("CREDENTIAL_PERMISSION_RENEWAL_FAILED") }
         })
+    }
+
+    private suspend fun renewBeforeExpiry(old: RunnerCredentialLease, purpose: String): RunnerCredentialLease {
+        while (true) {
+            gate.check()
+            val remainingMs = credentials.remainingNanos(old) / 1_000_000
+            if (remainingMs <= 0) throw RunnerAuthorityLost()
+            // Keep time for another request before the current grant loses authority.
+            val timeoutMs = (remainingMs / 2).coerceIn(1, 10_000)
+            try {
+                return credentials.acquire(old.credentialRef, old.version, old.scope, purpose, timeoutMs)
+            } catch (_: TimeoutCancellationException) {
+                val retryBudgetMs = credentials.remainingNanos(old) / 1_000_000
+                if (retryBudgetMs <= 0) throw RunnerAuthorityLost()
+                delay((retryBudgetMs / 4).coerceIn(1, 250))
+            }
+        }
     }
     fun checked(handle: Handle, scope: WorkflowHostScope, operation: String): JsonObject {
         require(handle.active.get()) { "Credential generation is no longer active" }

@@ -164,6 +164,7 @@ class RunnerWorkflowHost(
             val workflow = requireNotNull(admittedProducers[scope.executionId])
             val ids = policy.declarationsFor(workflow, scope.executionId, step.step)
             if (ids.isEmpty() || (!success && !policy.hasDiagnostics(ids))) return
+            if (step.code == null) live.release(scope.executionId, step.step)
             val start = requireNotNull((if (step.code != null) codeProducerStarts else producerStarts)[scope.executionId to step.step])
             val producer = buildJsonObject {
                 put("workflowId", workflow); put("stepName", step.step); put("childExecutionPath", childPath(binding.executionId, scope.executionId)); put("producerStartEventId", start)
@@ -608,6 +609,7 @@ class RunnerWorkflowHost(
     }
     override fun userInteraction(scope: WorkflowHostScope): UserInteractionHandler { checkBusinessOpen(); return RunnerUserInteraction(ipc, gate, scope, secrets) }
     override suspend fun collectDeclaredArtifacts(workflow: WorkflowDefinition, step: WorkflowStep, scope: WorkflowHostScope, candidates: List<WorkflowArtifactCandidate>) {
+        require(scope.rootExecutionId == binding.executionId && scope.stepName == step.step) { "Artifact boundary scope mismatch" }
         if (step.code == null) collectSets(step, scope, true)
         if (collectionPolicy != null) {
             try {
@@ -620,6 +622,8 @@ class RunnerWorkflowHost(
                     if (step.code != null) requireNotNull(collectionBarrier).requireCompleted(declared, start)
                     else {
                         val barrier = requireNotNull(collectionBarrier)
+                        // The producer returned. Remote artifact ACKs use attempt authority, not its model credential.
+                        live.release(scope.executionId, step.step)
                         announceArtifactReady(RunnerArtifactReadyBoundary(collectionPolicy.hash, workflowId, scope, start, declared))
                         barrier.awaitCompleted(declared, start)
                     }
@@ -631,12 +635,12 @@ class RunnerWorkflowHost(
         }
         val policy = artifactPolicy ?: return
         try {
-        require(scope.rootExecutionId == binding.executionId && scope.stepName == step.step) { "Artifact boundary scope mismatch" }
         gate.check(); verifyAssets()
         val workflowId = requireNotNull(admittedProducers[scope.executionId]) { "Artifact producer was not admitted" }
         val declared = policy.declared(workflowId, scope, candidates.toList())
         require(declared.size <= 64 && declared.map { it.logicalPath }.distinct().size == declared.size) { "Artifact declaration count or identity invalid" }
         if (declared.isEmpty()) return
+        if (step.code == null) live.release(scope.executionId, step.step)
         val key = scope.executionId to step.step
         val start = requireNotNull((if (step.code != null) codeProducerStarts else producerStarts)[key]) { "Original durable producer start missing" }
         declared.forEach { requireNotNull(artifactPublications).publish(workflowId, scope, start, it) }
