@@ -13,6 +13,78 @@ import java.time.Instant
 import kotlin.test.*
 
 class RunnerSubscriptionTest {
+    @Test fun `credential retirement never holds the handle while publishing its receipt`() = runBlocking<Unit> {
+        withTimeout(10_000) { IpcHarness().use { h ->
+            val gate = RunnerEnvironmentGate(h.binding, setOf("engine-http"))
+            gate.install(RunnerProtocolTest.environment(h.binding, Instant.now()))
+            val credentials = RunnerCredentials(h.ipc, gate, RunnerSecrets())
+            val handleRef = java.util.concurrent.atomic.AtomicReference<RunnerLiveCredentials.Handle?>()
+            val published = java.util.concurrent.CopyOnWriteArrayList<Pair<String, Boolean>>()
+            val live = RunnerLiveCredentials(credentials, gate, renewalIntervalMs = 20, onReleased = { lease, _ ->
+                // Publishing a durable receipt takes the business fence/journal locks. Callers
+                // checking a lease can already own that fence before they inspect this handle.
+                published += lease.leaseId to Thread.holdsLock(requireNotNull(handleRef.get()))
+            })
+            val scope = WorkflowHostScope(h.binding.string("executionId"), h.binding.string("executionId"), stepName = "cli")
+            try {
+                val acquiring = async { live.acquire("credential:account@3", scope, "subscription.codex") }
+                reply(h, h.next(), "initial")
+                val handle = acquiring.await(); handleRef.set(handle)
+                reply(h, h.next(), "successor")
+                withTimeout(2000) { while (published.isEmpty()) delay(1) }
+                live.release(scope.executionId, "cli")
+                assertEquals(setOf("initial", "successor"), published.map { it.first }.toSet())
+                assertEquals(2, published.size, "Each grant is retired exactly once")
+                assertTrue(published.none { it.second }, "Receipt publication must run outside the credential handle monitor")
+                gate.check()
+            } finally { live.close(); credentials.clear() }
+        } }
+    }
+
+    @Test fun `a host holding the business fence can check a lease while renewal publishes its receipt`() = runBlocking<Unit> {
+        withTimeout(10_000) { IpcHarness().use { h ->
+            val gate = RunnerEnvironmentGate(h.binding, setOf("engine-http"))
+            gate.install(RunnerProtocolTest.environment(h.binding, Instant.now()))
+            val credentials = RunnerCredentials(h.ipc, gate, RunnerSecrets())
+            val publishing = java.util.concurrent.CountDownLatch(1)
+            val fenceHeld = java.util.concurrent.CountDownLatch(1)
+            val checked = java.util.concurrent.CountDownLatch(1)
+            val receipt = CompletableDeferred<Boolean>()
+            val fence = h.ipc.businessFence
+            val live = RunnerLiveCredentials(credentials, gate, renewalIntervalMs = 20, onReleased = { lease, _ ->
+                if (lease.leaseId == "initial") {
+                    publishing.countDown()
+                    // Bound the negative case: the old implementation holds the handle here,
+                    // so a fence owner cannot check it until this timeout releases that monitor.
+                    val responsive = checked.await(2, java.util.concurrent.TimeUnit.SECONDS)
+                    if (responsive) fence.admit { gate.check() }
+                    receipt.complete(responsive)
+                }
+            })
+            val scope = WorkflowHostScope(h.binding.string("executionId"), h.binding.string("executionId"), stepName = "cli")
+            var checker: Job? = null
+            try {
+                val acquiring = async { live.acquire("credential:account@3", scope, "subscription.codex") }
+                reply(h, h.next(), "initial"); val handle = acquiring.await()
+                val renewal = h.next() // Dispatch before the competing host owns the admission fence.
+                checker = launch(Dispatchers.IO) {
+                    fence.admit {
+                        fenceHeld.countDown()
+                        check(publishing.await(5, java.util.concurrent.TimeUnit.SECONDS))
+                        synchronized(handle) { live.checked(handle, scope, "subscription.codex") }
+                        checked.countDown()
+                    }
+                }
+                assertTrue(runInterruptible(Dispatchers.IO) { fenceHeld.await(2, java.util.concurrent.TimeUnit.SECONDS) })
+                reply(h, renewal, "successor")
+                assertTrue(receipt.await(), "A renewal receipt must not block the fence owner's lease check")
+                checker.join()
+                live.release(handle)
+                gate.check()
+            } finally { publishing.countDown(); checker?.cancelAndJoin(); live.close(); credentials.clear() }
+        } }
+    }
+
     private val original = """{"tokens":{"access_token":"fake-original-access","refresh_token":"fake-original-refresh"}}"""
     private val refreshed = """{"tokens":{"access_token":"fake-new-access","refresh_token":"fake-new-refresh"}}"""
     private fun grant(h: IpcHarness, request: JsonObject, id: String, material: JsonObject, version: Long = 3) = h.reply(request, "credentialGrant", buildJsonObject {
@@ -435,7 +507,8 @@ class RunnerSubscriptionTest {
                 runInterruptible(Dispatchers.IO) { releaser.join(5000) }
                 withTimeout(2000) { while (releases.size < 2) delay(5) }
                 delay(50)
-                assertEquals(listOf("first", "renewed"), releases, "every grant S recorded is released exactly once")
+                assertEquals(setOf("first", "renewed"), releases.toSet(), "every grant S recorded is released")
+                assertEquals(2, releases.size, "each grant is released exactly once, independently of publication order")
                 assertFailsWith<IllegalArgumentException> { live.checked(handle, scope, "subscription.codex") }
                 gate.check()
             } finally { proceed.countDown(); live.close(); credentials.clear() }

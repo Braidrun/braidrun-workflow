@@ -86,11 +86,12 @@ class RunnerLiveCredentials(
                 while (isActive && handle.active.get()) {
                     val remaining = synchronized(handle) { credentials.remainingNanos(handle.latest.get()) }
                     if (remaining <= 0) {
-                        synchronized(handle) {
+                        val expired = synchronized(handle) {
                             if (handle.active.get() && credentials.remainingNanos(handle.latest.get()) <= 0) {
-                                handle.active.set(false); gate.invalidate("CREDENTIAL_GRANT_EXPIRED")
-                            }
+                                handle.active.set(false); true
+                            } else false
                         }
+                        if (expired) gate.invalidate("CREDENTIAL_GRANT_EXPIRED")
                         return@launch
                     }
                     delay(((remaining + 999_999) / 1_000_000).coerceAtLeast(1))
@@ -113,17 +114,27 @@ class RunnerLiveCredentials(
                     delay(minOf(renewalIntervalMs, (remaining / 3 / 1_000_000).coerceAtLeast(1)))
                     gate.check()
                     val next = credentials.acquire(ref, old.version, executionScope, purpose)
-                    synchronized(handle) {
-                        if (!handle.active.get()) {
-                            discard(handle, next); return@launch
+                    var expired = false
+                    val adopted = try {
+                        synchronized(handle) {
+                            if (!handle.active.get()) false else {
+                                if (credentials.remainingNanos(old) <= 0) {
+                                    expired = true; throw RunnerAuthorityLost()
+                                }
+                                gate.check()
+                                if (next.material != old.material) throw RunnerAuthorityLost()
+                                handle.latest.set(next); true
+                            }
                         }
-                        if (credentials.remainingNanos(old) <= 0) {
-                            discard(handle, next); gate.invalidate("CREDENTIAL_RENEWAL_AFTER_EXPIRY"); throw RunnerAuthorityLost()
-                        }
-                        gate.check()
-                        if (next.material != old.material) throw RunnerAuthorityLost()
-                        handle.latest.set(next); discard(handle, old)
+                    } catch (failure: Exception) {
+                        discard(handle, next)
+                        if (expired) gate.invalidate("CREDENTIAL_RENEWAL_AFTER_EXPIRY")
+                        throw failure
                     }
+                    // Receipt publication takes the host's business fence. Host callers can own
+                    // that fence before checking this handle, so never publish while holding it.
+                    discard(handle, if (adopted) old else next)
+                    if (!adopted) return@launch
                 }
             } catch (e: CancellationException) {
                 if (currentCoroutineContext().isActive && handle.active.get()) gate.invalidate("CREDENTIAL_PERMISSION_RENEWAL_FAILED")
@@ -190,9 +201,10 @@ class RunnerLiveCredentials(
                     finishRotation(handle, old); throw failure
                 }
                 val continued = synchronized(handle) {
-                    if (handle.active.get()) { handle.latest.set(next); true } else { discard(handle, next); false }
+                    if (handle.active.get()) { handle.latest.set(next); true } else false
                 }
                 if (continued) { onReleased(old, handle.purpose); renew(handle); return@withLock RotationOutcome.PUBLISHED }
+                discard(handle, next)
             }
             finishRotation(handle, old)
             RotationOutcome.PUBLISHED
@@ -213,12 +225,15 @@ class RunnerLiveCredentials(
         credentials.discard(lease)
         onReleased(lease, handle.purpose)
     }
-    /** Terminal release of the handle's current grant. Callers hold the monitor or have joined renewal. */
-    private fun retire(handle: Handle) {
-        synchronized(handle) {
+    /** Atomically retire the current grant; publish its receipt only after releasing the monitor. */
+    private fun retire(handle: Handle, unlessHeld: Boolean = false): Boolean {
+        val lease = synchronized(handle) {
+            if (unlessHeld && handle.holders > 0) return false
             handle.active.set(false)
-            if (handle.retired.compareAndSet(false, true)) discard(handle, handle.latest.get())
+            if (handle.retired.compareAndSet(false, true)) handle.latest.get() else null
         }
+        if (lease != null) discard(handle, lease)
+        return true
     }
     /** Ends one [hold]; the last holder releases the grant. */
     suspend fun drop(handle: Handle) {
@@ -245,10 +260,10 @@ class RunnerLiveCredentials(
     fun release(executionId: String, step: String) {
         handles.entries.filter { it.value.latest.get().scope.let { s -> s.executionId == executionId && (s.stepName == step || s.stepName?.startsWith("$step:") == true) } }
             .forEach { (key, handle) ->
-                val retired = synchronized(handle) {
-                    (handle.holders == 0).also { if (it) { handles.remove(key, handle); retire(handle) } }
+                if (retire(handle, unlessHeld = true)) {
+                    handles.remove(key, handle)
+                    handle.job.get()?.cancel(); handle.expiryJob.get()?.cancel()
                 }
-                if (retired) { handle.job.get()?.cancel(); handle.expiryJob.get()?.cancel() }
             }
     }
     fun state(): Map<String, Any> = mapOf("credentialPlans" to plans.toMap(), "credentialVersions" to versions.toMap())
